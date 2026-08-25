@@ -302,6 +302,37 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
 _DIRECTORY_RESOLVE_MAX_PAGES = 5
 _DIRECTORY_RESOLVE_PAGE_SIZE = 50
 
+# Unlike BACKEND_DIRECT_ACTION_IDS, these two are only backend-direct when
+# the model actually named a person -- there is no backend concept of
+# "whatever's currently selected in the composer" for the frontend-driven
+# tap-then-voice hybrid flow these actions were built for. When `person` is
+# absent, _is_backend_direct() falls through to the normal directive-parking
+# path below, which still correctly uses the browser's own selection state,
+# completely unaffected.
+BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        "location.send_request",
+        "location.share_selected",
+    }
+)
+
+
+def _is_backend_direct(clean_id: str, clean_slots: dict[str, Any]) -> bool:
+    """The one predicate every backend-direct eligibility check must share.
+
+    Used identically at all three sites that need to agree on this (the
+    available_action_ids guard exemption, the screen-reachability guard
+    exemption, and the final dispatch decision) so they can never drift out
+    of sync with each other -- exactly the failure mode this whole
+    initiative exists to eliminate.
+    """
+    if clean_id in BACKEND_DIRECT_ACTION_IDS:
+        return True
+    if clean_id in BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS:
+        return bool(str(clean_slots.get("person") or "").strip())
+    return False
+
+
 # Backend-direct errors that carry a spoken-safe .message, across the three
 # service modules these actions mutate through.
 _BackendDirectError = (OneLocationCircleError, OneLocationAgentError, ConnectionsError)
@@ -504,6 +535,22 @@ def _unresolved_people_note(
     return " Could not do this for: " + "; ".join(parts) + "."
 
 
+def _parse_positive_hours(value: Any, *, default: float) -> float:
+    """A spoken/slot duration, or a safe default when absent or nonsense.
+
+    location.send_request has no established voice-side duration floor/accept
+    set the way location.share_selected's does (SHARE_VOICE_DURATION_VALUES) --
+    deliberately not inventing one here; this only guards against a missing or
+    malformed value, matching the frontend's own plain default (page.tsx's
+    durationHours state starts at "1").
+    """
+    try:
+        hours = float(str(value))
+    except (TypeError, ValueError):
+        return default
+    return hours if hours > 0 else default
+
+
 async def _execute_backend_direct_mutation(
     action_id: str, slots: dict[str, Any], user_id: str
 ) -> str:
@@ -688,6 +735,42 @@ async def _execute_backend_direct_mutation(
         note = _unresolved_people_note(resolution.unresolved, name_of, "request")
         verb = "Approved" if action_id == "location.approve_request" else "Declined"
         return f"{verb} {join_names_for_speech(settled_names)}'s request.{note}"
+
+    if action_id == "location.send_request":
+        agent_service = OneLocationAgentService()
+        raw_people = str(slots.get("person") or "").strip()
+        # Same pool share_selected resolves recipients against -- the
+        # browser's own select_ask_recipient handler asks and shares from
+        # "the identical pool of people" (page.tsx's own comment), so voice
+        # answers the same question the same way regardless of direction.
+        candidates = agent_service.list_verified_recipients(owner_user_id=user_id)
+        name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_TARGET_AMBIGUOUS",
+                    f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_TARGET_NOT_FOUND",
+                f"{raw_people or 'That person'} is not one of your connections.",
+            )
+        duration_hours = _parse_positive_hours(slots.get("duration_hours"), default=1.0)
+        asked_names: list[str] = []
+        for target in resolution.resolved:
+            asked_names.append(str(target.get("displayName") or "them"))
+            agent_service.request_access(
+                requester_user_id=user_id,
+                owner_user_id=str(target.get("userId") or ""),
+                requested_duration_hours=duration_hours,
+                requested_duration_mode="timed",
+            )
+        note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
+        return f"Asked {join_names_for_speech(asked_names)} for their location.{note}"
 
     if action_id in ("connect.remove_connection", "connect.cancel_request", "connect.send_request"):
         connections_service = ConnectionsService()
@@ -1139,7 +1222,7 @@ async def run_app_action(
         available_action_ids is not None
         and clean_id not in available_action_ids
         and not is_navigation_action(entry)
-        and clean_id not in BACKEND_DIRECT_ACTION_IDS
+        and not _is_backend_direct(clean_id, clean_slots)
     ):
         # A journey entry action is legitimately off-screen right now, but it is
         # not out of reach: start_app_goal navigates to its authored destination
@@ -1199,7 +1282,7 @@ async def run_app_action(
         and action_screens
         and current_screen not in action_screens
         and not is_navigation_action(entry)
-        and clean_id not in BACKEND_DIRECT_ACTION_IDS
+        and not _is_backend_direct(clean_id, clean_slots)
     ):
         label = str(entry.get("label") or clean_id)
         where = sorted(action_screens)[0]
@@ -1263,7 +1346,11 @@ async def run_app_action(
     # require_tap_confirmation preference still routes through the normal
     # browser confirm card, unchanged), the mutation happens right here and
     # the browser is never involved.
-    if clean_id in BACKEND_DIRECT_ACTION_IDS and not needs_confirmation and not trusted_activation:
+    if (
+        _is_backend_direct(clean_id, clean_slots)
+        and not needs_confirmation
+        and not trusted_activation
+    ):
         label = str(entry.get("label") or clean_id)
         return await _run_backend_direct_action(clean_id, clean_slots, tool_context, label=label)
 
