@@ -100,7 +100,11 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
 
-    assert "PROBE_LINE=\"${probe_line}\" python - <<'PY'" in backend_build
+    # python3, not python: the cloud-sdk build-step image ships only python3, and
+    # the parser runs on the probe-FAILED branch, so a bare `python` there is a 127
+    # (command not found) that only surfaces when a probe actually fails -- exactly
+    # the dev billing-dunning path. Observed live 2026-08-25 (build 4e875955).
+    assert "PROBE_LINE=\"${probe_line}\" python3 - <<'PY'" in backend_build
     assert 'marker = "managed_vertex_probe_result"' in backend_build
     assert "json.loads(payload)" in backend_build
     assert 'verdict.get("classification")' in backend_build
