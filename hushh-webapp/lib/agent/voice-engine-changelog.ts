@@ -5,7 +5,7 @@
  * VOICE_ENGINE_VERSION in the same PR, so the version shown in the settings
  * header always matches the changelog under it.
  */
-export const VOICE_ENGINE_VERSION = "1.3";
+export const VOICE_ENGINE_VERSION = "1.4";
 
 export type VoiceEngineChangelogEntry = {
   version: string;
@@ -16,6 +16,20 @@ export type VoiceEngineChangelogEntry = {
 };
 
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
+  {
+    version: "1.4",
+    date: "2026-08-25",
+    title: "These actions now run the moment you ask",
+    description:
+      "Sharing your location, sending a connection request, stopping a share, and approving or declining a request used to need you on the right screen first. They now run directly and show what happened, from anywhere in the app.",
+  },
+  {
+    version: "1.4",
+    date: "2026-08-25",
+    title: "Say it once, for everyone",
+    description:
+      "Sharing your location, asking someone for theirs, and sending a connection request now understand more than one name in the same sentence -- \"share my location with Alex and Sam for 2 hours\" works in one turn, the same way adding people to a Circle already did.",
+  },
   {
     version: "1.3",
     date: "2026-08-23",
