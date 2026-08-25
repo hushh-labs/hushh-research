@@ -29,7 +29,9 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_SCREEN,
     _STATE_USER_ID,
     BACKEND_DIRECT_ACTION_IDS,
+    BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS,
     _directive_flags,
+    _is_backend_direct,
     _is_journey_startable,
     _journey_slots,
     _navigation_journey_definition,
@@ -1563,6 +1565,156 @@ class TestBackendDirectGrantActions:
         assert deny_mock.call_count == 2
         called_request_ids = {c.kwargs["request_id"] for c in deny_mock.call_args_list}
         assert called_request_ids == {"r1", "r2"}
+
+
+class TestIsBackendDirectPredicate:
+    """_is_backend_direct is the one predicate every backend-direct
+    eligibility check (available_action_ids guard, screen-reachability
+    guard, final dispatch) must share -- covering it directly is cheaper
+    than re-deriving its three call sites' agreement indirectly."""
+
+    def test_unconditional_ids_are_always_eligible(self):
+        for action_id in BACKEND_DIRECT_ACTION_IDS:
+            assert _is_backend_direct(action_id, {}) is True
+            assert _is_backend_direct(action_id, {"person": "Sarah"}) is True
+
+    def test_conditional_ids_require_a_named_person(self):
+        for action_id in BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS:
+            assert _is_backend_direct(action_id, {"person": "Sarah"}) is True
+            assert _is_backend_direct(action_id, {}) is False
+            assert _is_backend_direct(action_id, {"person": ""}) is False
+            assert _is_backend_direct(action_id, {"person": "   "}) is False
+
+    def test_an_unrelated_action_id_is_never_eligible(self):
+        assert _is_backend_direct("route.one_location", {"person": "Sarah"}) is False
+
+
+class TestBackendDirectLocationSendRequest:
+    """location.send_request -- backend-direct only once a person is named;
+    falls through to the existing composer-selection path otherwise, which
+    location.send_request's own local handler (no slots param at all) keeps
+    working exactly as before."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    @pytest.mark.asyncio
+    async def test_resolves_against_the_same_pool_share_selected_uses_and_sends(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[{"userId": "u1", "displayName": "Sarah Chen"}],
+            ),
+            patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
+        ):
+            result = await run_app_action(
+                "location.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert request_mock.call_args.kwargs == {
+            "requester_user_id": "user_1",
+            "owner_user_id": "u1",
+            "requested_duration_hours": 1.0,
+            "requested_duration_mode": "timed",
+        }
+
+    @pytest.mark.asyncio
+    async def test_accepts_a_spoken_duration(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[{"userId": "u1", "displayName": "Sarah Chen"}],
+            ),
+            patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
+        ):
+            await run_app_action(
+                "location.send_request",
+                {"person": "Sarah", "duration_hours": "2"},
+                _tool_context(state),
+            )
+        assert request_mock.call_args.kwargs["requested_duration_hours"] == 2.0
+
+    @pytest.mark.asyncio
+    async def test_handles_multiple_people_in_one_turn(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[
+                    {"userId": "u1", "displayName": "Sarah Chen"},
+                    {"userId": "u2", "displayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
+        ):
+            result = await run_app_action(
+                "location.send_request",
+                {"person": "Sarah Chen and Abdul"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert request_mock.call_count == 2
+        called_ids = {c.kwargs["owner_user_id"] for c in request_mock.call_args_list}
+        assert called_ids == {"u1", "u2"}
+
+    @pytest.mark.asyncio
+    async def test_reports_ambiguous_matches_instead_of_guessing(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[
+                    {"userId": "u1", "displayName": "Sarah Chen"},
+                    {"userId": "u2", "displayName": "Sarah Lee"},
+                ],
+            ),
+            patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
+        ):
+            result = await run_app_action(
+                "location.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "more than one connection" in result["message"].lower()
+        request_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_falls_through_to_the_normal_directive_when_no_person_is_named(self):
+        # No person slot -- must NOT go backend-direct. It parks the usual
+        # {kind: "action"} directive so the browser's own send_request
+        # handler (which reads selectedRequestOwners, not slots) still runs.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
+        ):
+            result = await run_app_action("location.send_request", {}, _tool_context(state))
+        request_mock.assert_not_called()
+        assert result["status"] in ("ready_to_run", "confirm_pending")
+        directive_keys = [k for k in state if k.startswith(f"{_STATE_PENDING_DIRECTIVE}:")]
+        assert directive_keys, "expected a normal directive to be parked"
+        assert state[directive_keys[0]]["kind"] == "action"
+        assert state[directive_keys[0]]["payload"]["actionId"] == "location.send_request"
 
 
 class TestBackendDirectCircleMembershipActions:

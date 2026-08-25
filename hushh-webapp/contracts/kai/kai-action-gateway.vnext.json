@@ -5202,7 +5202,8 @@
         "send the request",
         "ask them now",
         "send my request",
-        "confirm the request"
+        "confirm the request",
+        "ask for their location"
       ],
       "search_keywords": [
         "send",
@@ -5210,7 +5211,7 @@
         "confirm",
         "ask"
       ],
-      "meaning": "Sends a request to see their location to the people already picked in the request composer. It never chooses who: if nobody is selected it stops and asks you to pick someone first.",
+      "meaning": "Sends a request to see their location. If one or more people are named in the same turn (e.g. 'ask Alice and Bob for their location'), it resolves and sends to them directly -- no need to select first. Otherwise it sends to whoever is already picked in the request composer, and never chooses who: if nobody is selected it stops and asks you to pick someone first.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5267,9 +5268,27 @@
       },
       "goal": {
         "goal_id": "goal.location.send_request",
-        "required_inputs": [],
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who do you want to ask?",
+            "required": false,
+            "slot": "person",
+            "resolver": "spoken_person_name_list"
+          },
+          {
+            "name": "duration_hours",
+            "prompt": "For how long?",
+            "required": false,
+            "slot": "duration_hours",
+            "resolver": "location_share_duration"
+          }
+        ],
         "input_resolvers": [],
-        "slot_schema": {},
+        "slot_schema": {
+          "person": "spoken_person_name_list",
+          "duration_hours": "location_share_duration"
+        },
         "workflow_steps": [
           {
             "type": "action",
