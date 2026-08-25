@@ -7251,14 +7251,17 @@
         "required_inputs": [
           {
             "name": "duration_hours",
-            "prompt": "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "prompt": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
             "required": true,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
+              "0.25",
               "0.5",
               "1",
+              "2",
               "4",
+              "8",
               "24"
             ]
           }
@@ -7730,14 +7733,17 @@
           },
           {
             "name": "duration_hours",
-            "prompt": "How long should it last now? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "prompt": "How long should it last now? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
             "required": true,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
+              "0.25",
               "0.5",
               "1",
+              "2",
               "4",
+              "8",
               "24"
             ]
           }
