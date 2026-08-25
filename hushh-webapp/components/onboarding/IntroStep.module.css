@@ -1,6 +1,15 @@
 .shell {
   position: relative;
   display: flex;
+  /* Apple's own display/text faces where the platform has them, falling back
+     to the shared app tokens everywhere else (Android, Windows). Scoped to
+     this screen only — the welcome is the one surface where the type is
+     doing brand work, the rest of the app stays on its shared font tokens. */
+  --landing-display: "SF Pro Display", "SF Pro", -apple-system,
+    BlinkMacSystemFont, var(--font-app-display);
+  --landing-text: "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont,
+    var(--font-app-body);
+  font-family: var(--landing-text);
   /* The outer app scroll root already reserves --app-scroll-bottom-pad of
      clearance below this element for the fixed onboarding Agent Bar (see
      app/providers.tsx), then adds it back as its own padding-bottom. Sizing
@@ -47,13 +56,26 @@
 }
 
 /* ── Brand row: wordmark + public nav share the top of the page instead of
-      splitting the wordmark up here and the links below the CTA. ── */
+      splitting the wordmark up here and the links below the CTA. Styled as
+      a single frosted-glass pill (the app's existing glass material tokens,
+      not a new surface) rather than sitting bare on the canvas. ── */
 .brand {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: clamp(8px, 3vw, 16px);
   width: 100%;
+  padding: clamp(2px, 0.6vh, 6px) clamp(6px, 2vw, 10px) clamp(2px, 0.6vh, 6px)
+    clamp(10px, 3vw, 18px);
+  border-radius: 999px;
+  background: var(--app-glass-surface);
+  border: 1px solid var(--app-glass-border);
+  box-shadow: var(--app-glass-shadow);
+  -webkit-backdrop-filter: blur(var(--app-shell-surface-blur, 20px))
+    saturate(150%);
+  backdrop-filter: blur(var(--app-shell-surface-blur, 20px)) saturate(150%);
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 
@@ -79,7 +101,8 @@
   border-radius: 999px;
   color: var(--foundation-dim);
   font-size: clamp(10px, 1.3vh, 12px);
-  font-weight: 600;
+  font-weight: 590;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   transition: color var(--motion-duration-sm, 180ms)
     var(--motion-ease-standard, ease-out);
@@ -104,8 +127,8 @@
   margin: 0;
   color: var(--foundation-dim);
   font-size: clamp(8px, 1.3vh, 12px);
-  font-weight: 700;
-  letter-spacing: 0.26em;
+  font-weight: 600;
+  letter-spacing: 0.2em;
   line-height: 1;
   text-transform: uppercase;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 220ms both;
@@ -121,7 +144,7 @@
 
 .title {
   margin: clamp(2px, 0.9vh, 12px) 0 0;
-  font-family: var(--font-app-display);
+  font-family: var(--landing-display);
   line-height: 1;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
 }
@@ -144,13 +167,16 @@
   background-position: 30% 50%;
   background-clip: text;
   color: transparent;
-  font-family: var(--font-app-display);
+  font-family: var(--landing-display);
   /* Bounded on both axes: a width-only clamp keeps growing on a short
      landscape viewport at exactly the moment the vertical room shrinks,
      which is what pushes the hero into the row above it. */
   font-size: clamp(36px, min(24vw, 11vh), 116px);
   font-weight: 800;
-  letter-spacing: -4px;
+  /* em-relative so the tracking stays proportional as the size itself
+     scales with the viewport, instead of a fixed px value reading as too
+     tight at the small end and too loose at the large end. */
+  letter-spacing: -0.04em;
   line-height: 1.04;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -173,10 +199,11 @@
   max-width: 22rem;
   margin: clamp(6px, 2.6vh, 36px) auto 0;
   color: var(--foundation-ink);
+  font-family: var(--landing-display);
   font-size: clamp(11px, 2.3vh, 20px);
   font-weight: 600;
-  letter-spacing: -0.2px;
-  line-height: 1.35;
+  letter-spacing: -0.02em;
+  line-height: 1.32;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 420ms both;
 }
 
@@ -189,8 +216,8 @@
   margin-top: clamp(4px, 1.8vh, 26px);
   color: var(--foundation-dim);
   font-size: clamp(6px, 1.2vh, 11px);
-  font-weight: 700;
-  letter-spacing: 0.16em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   line-height: 1.2;
   text-transform: uppercase;
   white-space: nowrap;
@@ -212,6 +239,7 @@
   margin: clamp(6px, 2vh, 30px) auto 0;
   color: var(--foundation-dim);
   font-size: clamp(7px, 1.7vh, 16px);
+  letter-spacing: -0.01em;
   line-height: 1.45;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
 }
@@ -240,21 +268,30 @@
      (iOS Blue default, Molten Gold opt-in). No gradient, no shadow. */
   background: var(--app-accent);
   color: var(--app-accent-fg);
-  font-family: var(--font-app-body);
+  font-family: var(--landing-text);
   font-size: clamp(15px, 1.9vh, 16px);
   font-weight: 700;
   line-height: 1;
   transition:
-    background-color var(--motion-duration-sm) var(--motion-ease-standard);
+    background-color var(--motion-duration-sm) var(--motion-ease-standard),
+    transform var(--motion-duration-sm, 180ms) var(--motion-ease-standard, ease-out);
 }
 
 .cta:hover {
   background: var(--app-accent-hover);
 }
 
+.cta:active {
+  transform: scale(0.985);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cta {
     transition: none;
+  }
+
+  .cta:active {
+    transform: none;
   }
 }
 
