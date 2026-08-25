@@ -10062,7 +10062,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+          "For how long? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
       };
     }
     setShareDurationHours(duration);
