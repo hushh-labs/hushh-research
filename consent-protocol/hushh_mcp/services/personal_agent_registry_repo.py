@@ -31,7 +31,18 @@ _TOMBSTONES = "personal_agent_deletion_tombstones"
 # pod parked in ``connecting`` is fully billable, so omitting it here would let the
 # fleet grow past PERSONAL_AGENT_MAX_PODS without the cap ever noticing.
 # Over-counting is the safe direction for a cost ceiling; under-counting spends money.
-_ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned")
+#: Rows that HOLD (or are standing up) billable compute. This answers the cost
+#: question -- "does this person occupy a slot in the fleet" -- and `migrating`
+#: belongs here because a migration briefly holds TWO hosts, and under-counting a
+#: cost ceiling spends money.
+_ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned", "migrating")
+
+#: Rows whose SILENCE the liveness sweep is entitled to judge. Deliberately not
+#: the same tuple: one list was answering two different questions, and the answers
+#: diverge at exactly one status. A migrating pod is frozen on purpose, so probing
+#: it would read a deliberate silence as a fault, wake a pod mid-export, and bill
+#: a cold start for the privilege.
+_LIVENESS_CANDIDATE_STATUSES = ("provisioning", "connecting", "provisioned")
 # States a row should have LEFT. `provisioning` is the fire-and-forget task that
 # died mid-flight; `provisioning_failed` recorded its own defeat. `connecting` is
 # excluded on purpose -- see fetch_stalled_agents.
@@ -402,6 +413,61 @@ class PersonalAgentRegistryRepo:
         response = self._db().table(_REGISTRY).update(data).eq("user_id", normalized).execute()
         return bool(response.data or [])
 
+    async def begin_migration(self, user_id: str) -> bool:
+        """Freeze this row: its pod is about to have its log exported.
+
+        CONDITIONAL on the row being ``provisioned``, so a pod that is still
+        standing up, already failed, or already migrating cannot be frozen out
+        from under whatever is happening to it. Zero rows matched returns False,
+        which the caller reports as "not ready to move" rather than proceeding.
+
+        The freeze is what makes the export's single-writer assumption true:
+        every writer path reads ``migrating`` as a refusal -- the relay declines
+        turns and ticks, the retry sweep skips the row, and liveness suspends
+        judgement rather than reading a deliberate silence as a fault.
+
+        The status is the ONLY thing that changes. The HusshID, the pod key, the
+        host coordinates and the cloud record all stay exactly as they are,
+        because every one of them is still true and the rollback is a status
+        write back to ``provisioned``.
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .update({"status": "migrating", "updated_at": datetime.now(timezone.utc).isoformat()})
+            .eq("user_id", normalized)
+            .eq("status", "provisioned")
+            .execute()
+        )
+        return bool(response.data or [])
+
+    async def end_migration(self, user_id: str, *, status: str = "provisioned") -> bool:
+        """Unfreeze. The rollback for every pre-switch failure.
+
+        CONDITIONAL on the row still being ``migrating``, so a job that died and
+        was superseded cannot reach back and unfreeze a row a newer attempt now
+        owns.
+
+        Defaults to ``provisioned`` because that is what the row WAS: until the
+        switch-over the source pod is untouched, so the honest recovery from any
+        failure before it is to put the row back exactly where it started.
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .update({"status": status, "updated_at": datetime.now(timezone.utc).isoformat()})
+            .eq("user_id", normalized)
+            .eq("status", "migrating")
+            .execute()
+        )
+        return bool(response.data or [])
+
     async def mark_needs_reinit(self, user_id: str) -> bool:
         """The recorded host is CONFIRMED gone (the user deleted the project/service).
 
@@ -495,7 +561,7 @@ class PersonalAgentRegistryRepo:
             self._db()
             .table(_REGISTRY)
             .select("*")
-            .in_("status", list(_ACTIVE_POD_STATUSES))
+            .in_("status", list(_LIVENESS_CANDIDATE_STATUSES))
             .limit(limit)
             .execute()
         )

@@ -37,6 +37,22 @@ def _written_statuses() -> set[str]:
     # closure, so pick those up too.
     written |= set(re.findall(r'_record\(\s*"([a-z_]+)"', source))
     written |= set(re.findall(r'await record\(\s*"([a-z_]+)"', source))
+    # The REGISTRY REPO is a writer too -- `mark_needs_reinit`,
+    # `mark_provisioning_failed`, `begin_migration`, `end_migration` all write a
+    # status through a dict payload rather than a keyword.
+    #
+    # This extension used to live inline in the CHECK-constraint test only, so
+    # two of the three tests here compared their tuples against a NARROWER set of
+    # writers than the third. The first status written solely by the repo and
+    # named in `_ACTIVE_POD_STATUSES` therefore failed as "nothing ever writes
+    # it" -- a false alarm from the guard, which is how a guard gets weakened
+    # rather than fixed. Shared here so all three ask the same question.
+    repo = _BACKEND / "hushh_mcp" / "services" / "personal_agent_registry_repo.py"
+    written |= set(re.findall(r'"status":\s*"([a-z_]+)"', repo.read_text(encoding="utf-8")))
+    # The tombstone TABLE's own lifecycle status, written by the same module; it
+    # never touches personal_agent_registry.status. Excluded by name so a
+    # registry writer of the same string would still be caught.
+    written -= {"deprovision_requested"}
     return written
 
 
@@ -91,16 +107,11 @@ def test_the_database_check_admits_every_status_code_writes() -> None:
     Reads the LATEST personal_agent_registry_status_check definition from the
     parked lane and asserts it admits every status any writer produces.
     """
+    # `_written_statuses` now includes the repo's dict-payload writers and drops
+    # the tombstone table's own vocabulary; that extension used to live here, and
+    # keeping it here meant the other two tests in this file asked a narrower
+    # question than this one.
     written = _written_statuses()
-    # Writers outside the provisioning service: the registry repo itself
-    # (mark_needs_reinit, mark_provisioning_failed) uses dict payloads.
-    repo = _BACKEND / "hushh_mcp" / "services" / "personal_agent_registry_repo.py"
-    written |= set(re.findall(r'"status":\s*"([a-z_]+)"', repo.read_text(encoding="utf-8")))
-    # The tombstone TABLE's own lifecycle status, written by the same repo module;
-    # it never touches personal_agent_registry.status and its constraint lives on
-    # personal_agent_tombstones. Excluded by name so a registry writer of the same
-    # string would still be caught.
-    written -= {"deprovision_requested"}
 
     parked = sorted((_BACKEND / "db" / "migrations" / "parked").glob("*.sql"))
     latest_check: str | None = None

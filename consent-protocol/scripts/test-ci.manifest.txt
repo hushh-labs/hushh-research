@@ -153,6 +153,7 @@ tests/test_pod_observability_contract.py
 tests/test_pod_reconcile.py
 tests/test_pod_resource_tier_is_per_person.py
 tests/test_pod_relay.py
+tests/test_pod_migration_freeze.py
 tests/test_pod_migration_job.py
 tests/test_pod_migration_bundle.py
 tests/test_pod_migration_transport.py

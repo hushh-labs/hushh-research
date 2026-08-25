@@ -303,6 +303,20 @@ def _not_ready(status: str) -> HTTPException:
     The code is stable for the client to branch on; the status is the real registry
     state, so the UI can say "starting up" rather than "something went wrong".
     """
+    if status == "migrating":
+        # Its own code and its own sentence, because this is the one not-ready
+        # state that is GOING somewhere. "Starting up" would be false and would
+        # invite a retry loop against a pod that is deliberately frozen while its
+        # log is exported -- and the export's single-writer assumption is exactly
+        # what the freeze makes true.
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "AGENT_MIGRATING",
+                "status": status,
+                "message": "Your agent is moving to your cloud. This takes a minute or two.",
+            },
+        )
     return HTTPException(
         status_code=409,
         detail={
@@ -346,6 +360,11 @@ async def relay_pod_turn(
         raise HTTPException(status_code=404, detail="personal agent is not available") from exc
 
     row = await repo.get(user_id) or {}
+    # A frozen pod still HAS a url, so the url check below would happily serve a
+    # turn into a log that is being exported. The freeze has to be read from the
+    # status, and it has to be read before anything else touches the pod.
+    if str(row.get("status") or "") == "migrating":
+        raise _not_ready("migrating")
     url = _pod_url(row)
     if url is None:
         raise _not_ready(str(row.get("status") or ""))
