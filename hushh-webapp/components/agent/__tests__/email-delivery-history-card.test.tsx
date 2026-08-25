@@ -49,4 +49,16 @@ describe("EmailDeliveryHistoryCard", () => {
       expect.objectContaining({ id: "delivery-1", status: "failed" }),
     );
   });
+
+  it("keeps rich formatting available when the owner expands sent email history", () => {
+    render(
+      <EmailDeliveryHistoryCard
+        item={{ ...item, draft: { ...item.draft, body: "**Welcome**\n\n- Draft\n- Send" } }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Email activity"));
+    expect(screen.getByText("Welcome").tagName).toBe("STRONG");
+    expect(screen.getByText("Draft").closest("li")).toBeTruthy();
+  });
 });

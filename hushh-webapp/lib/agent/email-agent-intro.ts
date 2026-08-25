@@ -1,27 +1,9 @@
-const EMAIL_AGENT_INTRO_SUBJECT = "Meet your Hushh Email Agent";
-
-const EMAIL_AGENT_INTRO_BODY = `Hi,
-
-I'm your Hushh Email Agent. I can help you draft clear emails, surface messages that may need attention, and use your Gmail context for receipts and inbox questions.
-
-Every email stays editable and is only sent after your final approval.
-
-— Hushh`;
-
 /**
- * The first Email Agent handoff uses one review-first message for every
- * connected Gmail account. It is an instruction for One to draft, never an
- * authorization to send.
+ * The Gmail entry point queues this exactly as an ordinary first user message.
+ * It starts a real Agent Chat turn; the delivery card remains the only explicit
+ * owner action that can send the generated email.
  */
 export function buildEmailAgentIntroPrompt(recipient: string): string {
   const normalizedRecipient = recipient.trim();
-  return `Please write an email to yourself at ${normalizedRecipient}. In the email, demonstrate the core features of the Gmail Agent. Do not send it; I will review it first.
-
-To: ${normalizedRecipient}
-Subject: ${EMAIL_AGENT_INTRO_SUBJECT}
-
-Message:
-${EMAIL_AGENT_INTRO_BODY}`;
+  return `Can you send an email to '${normalizedRecipient}', In the email explain features of the email agent.`;
 }
-
-export { EMAIL_AGENT_INTRO_BODY, EMAIL_AGENT_INTRO_SUBJECT };

@@ -120,6 +120,7 @@ async def test_prepare_persists_only_hmac_metadata(monkeypatch):
     raw_email = "recipient@example.com"
     raw_subject = "private subject"
     raw_body = "private body"
+    raw_html = "<p><strong>private body</strong></p>"
 
     result = await service.prepare(
         user_id="owner",
@@ -129,6 +130,7 @@ async def test_prepare_persists_only_hmac_metadata(monkeypatch):
             "bcc": [],
             "subject": raw_subject,
             "body": raw_body,
+            "html_body": raw_html,
         },
         idempotency_key="client-request-id-123",
     )
@@ -138,6 +140,7 @@ async def test_prepare_persists_only_hmac_metadata(monkeypatch):
     assert raw_email not in persisted_values
     assert raw_subject not in persisted_values
     assert raw_body not in persisted_values
+    assert raw_html not in persisted_values
     assert gmail.ready_calls == 1
 
 
@@ -152,6 +155,40 @@ def test_delivery_migration_has_metadata_only_contract():
     assert "subject TEXT" not in content
     assert "body TEXT" not in content
     assert "recipient TEXT" not in content
+
+
+def test_rich_email_html_is_sanitized_and_sent_as_multipart_alternative():
+    draft = normalize_draft(
+        {
+            **_envelope(),
+            "html_body": (
+                "<h2>Welcome</h2><p><strong>Hello</strong> <em>there</em> "
+                '<a href="https://example.com">Learn more</a></p>'
+                '<blockquote>Remember this</blockquote><p style="text-align:center">Centered</p>'
+                '<script>do-not-keep</script><img src=x onerror="bad()">'
+                '<a href="javascript:bad()">unsafe</a>'
+            ),
+        }
+    )
+
+    assert draft.html_body == (
+        "<h2>Welcome</h2><p><strong>Hello</strong> <em>there</em> "
+        '<a href="https://example.com">Learn more</a></p>'
+        '<blockquote>Remember this</blockquote><p style="text-align:center">Centered</p><a>unsafe</a>'
+    )
+    rendered = _message_for(draft)
+    assert rendered.get_content_type() == "multipart/alternative"
+    assert rendered.get_body(preferencelist=("plain",)).get_content().strip() == "Message"
+    assert rendered.get_body(preferencelist=("html",)).get_content().strip() == draft.html_body
+
+
+def test_html_only_edit_changes_the_reviewed_envelope_hmac(monkeypatch):
+    _signing_key(monkeypatch)
+    service = GmailDeliveryService(gmail_service=_Gmail())
+    base = normalize_draft({**_envelope(), "html_body": "<p>Message</p>"})
+    edited = normalize_draft({**_envelope(), "html_body": "<p><strong>Message</strong></p>"})
+
+    assert service._envelope_hmac(base) != service._envelope_hmac(edited)
 
 
 def _signing_key(monkeypatch):

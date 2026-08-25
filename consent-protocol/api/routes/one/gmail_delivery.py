@@ -34,6 +34,9 @@ class EmailEnvelope(BaseModel):
     bcc: str | list[str] = Field(default_factory=list)
     subject: str = Field(default="", max_length=256)
     body: str = Field(default="", max_length=50_000)
+    # This optional representation is independently sanitized by the Gmail
+    # owner delivery service before it becomes part of the reviewed envelope.
+    html_body: str | None = Field(default=None, max_length=50_000)
 
 
 class EmailPrepareRequest(EmailEnvelope):

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   FormEvent,
   useCallback,
   useEffect,
@@ -43,6 +44,7 @@ import {
   EmailDeliveryHistoryCard,
   type EmailDeliveryHistoryItem,
 } from "@/components/agent/email-delivery-history-card";
+import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import {
@@ -173,7 +175,10 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
-import type { EmailDeliveryError, EmailDraft } from "@/lib/services/email-delivery-service";
+import type {
+  EmailDeliveryError,
+  EmailDraft,
+} from "@/lib/services/email-delivery-service";
 
 type AgentMessage = {
   id: string;
@@ -191,6 +196,10 @@ type AgentMessage = {
   streamEvents?: AgentVisibleStreamEvent[];
   thought?: string;
   sources?: AgentSource[];
+};
+
+type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
+  anchorMessageId: string | null;
 };
 
 type AgentDebugEvent = {
@@ -1304,11 +1313,14 @@ export function AgentChatWorkspace({
   const [emailDraftAutoDraft, setEmailDraftAutoDraft] = useState(false);
   const [emailDraftInitialValue, setEmailDraftInitialValue] =
     useState<EmailDraft | null>(null);
+  const [emailDraftAnchorMessageId, setEmailDraftAnchorMessageId] = useState<
+    string | null
+  >(null);
   // This is intentionally session-only. The normal user prompt is stored by
   // the encrypted chat service, but raw email fields must not become durable
   // chat/workflow records.
   const [emailDeliveryHistory, setEmailDeliveryHistory] = useState<
-    EmailDeliveryHistoryItem[]
+    EmailDeliveryTimelineItem[]
   >([]);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
@@ -1416,6 +1428,7 @@ export function AgentChatWorkspace({
     clearAgentPkmContext(user?.uid);
     setEmailDraftOpen(false);
     setEmailDraftInitialValue(null);
+    setEmailDraftAnchorMessageId(null);
     setEmailDeliveryHistory([]);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
 
@@ -1838,6 +1851,7 @@ export function AgentChatWorkspace({
     setPendingSpecialistDirective(null);
     setEmailDraftOpen(false);
     setEmailDraftInitialValue(null);
+    setEmailDraftAnchorMessageId(null);
     setEmailDeliveryHistory([]);
     setSpecialistBusy(false);
     operationQueueRef.current.replace([]);
@@ -1868,6 +1882,7 @@ export function AgentChatWorkspace({
     setEmailDraftInstruction("");
     setEmailDraftAutoDraft(false);
     setEmailDraftInitialValue(null);
+    setEmailDraftAnchorMessageId(null);
   };
 
   const handleEmailSendStarted = (draft: EmailDraft): string => {
@@ -1879,6 +1894,11 @@ export function AgentChatWorkspace({
         instruction: emailDraftInstruction,
         draft,
         status: "sending",
+        anchorMessageId:
+          emailDraftAnchorMessageId ??
+          [...messages].reverse().find((message) => message.role === "user")
+            ?.id ??
+          null,
       },
     ]);
     closeEmailDraft();
@@ -1889,7 +1909,9 @@ export function AgentChatWorkspace({
     if (!attemptId) return;
     setEmailDeliveryHistory((current) =>
       current.map((item) =>
-        item.id === attemptId ? { ...item, status: "sent", errorMessage: null } : item,
+        item.id === attemptId
+          ? { ...item, status: "sent", errorMessage: null }
+          : item,
       ),
     );
   };
@@ -1916,14 +1938,21 @@ export function AgentChatWorkspace({
   };
 
   const retryEmailDelivery = (item: EmailDeliveryHistoryItem) => {
+    const anchorMessageId =
+      emailDeliveryHistory.find((candidate) => candidate.id === item.id)
+        ?.anchorMessageId ?? null;
     setEmailDraftInstruction(item.instruction);
     setEmailDraftInitialValue(item.draft);
     setEmailDraftAutoDraft(false);
+    setEmailDraftAnchorMessageId(anchorMessageId);
     setEmailDraftOpen(true);
   };
 
   const openGmailEmailDraftFromDirective = useCallback(
-    (event: SpecialistDirectiveEvent): boolean => {
+    (
+      event: SpecialistDirectiveEvent,
+      assistantMessageId: string,
+    ): boolean => {
       const payload = getGmailEmailDraftPayload(event);
       if (!payload) return false;
       if (!hasChatAccess) {
@@ -1934,6 +1963,9 @@ export function AgentChatWorkspace({
       setEmailDraftInstruction(payload.instruction);
       setEmailDraftInitialValue(null);
       setEmailDraftAutoDraft(true);
+      // Keep delivery activity after the assistant response that opened this
+      // reviewed draft. Later user turns can continue without reordering it.
+      setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
       return true;
     },
@@ -2255,6 +2287,7 @@ export function AgentChatWorkspace({
       setEmailDraftInstruction("");
       setEmailDraftAutoDraft(false);
       setEmailDraftInitialValue(null);
+      setEmailDraftAnchorMessageId(null);
       setEmailDeliveryHistory([]);
       setPkmActivity([]);
       setPkmReviews([]);
@@ -3425,10 +3458,12 @@ export function AgentChatWorkspace({
             flushAssistantDelta();
             setIsChatLoading(false);
             setIsStreaming(false);
-            if (openGmailEmailDraftFromDirective(event)) {
-              setMessages((current) =>
-                current.filter((message) => message.id !== assistantMessageId),
-              );
+            if (openGmailEmailDraftFromDirective(event, assistantMessageId)) {
+              updateMessage(assistantMessageId, (message) => ({
+                ...message,
+                text: message.text.trim() ? message.text : event.message || "",
+                status: "done",
+              }));
               return;
             }
             if (getConsentActionsPayload(event)) {
@@ -3656,10 +3691,12 @@ export function AgentChatWorkspace({
             flushAssistantDelta();
             setIsChatLoading(false);
             setIsStreaming(false);
-            if (openGmailEmailDraftFromDirective(event)) {
-              setMessages((current) =>
-                current.filter((message) => message.id !== assistantMessageId),
-              );
+            if (openGmailEmailDraftFromDirective(event, assistantMessageId)) {
+              updateMessage(assistantMessageId, (message) => ({
+                ...message,
+                text: message.text.trim() ? message.text : event.message || "",
+                status: "done",
+              }));
               return;
             }
             if (getConsentActionsPayload(event)) {
@@ -4193,6 +4230,14 @@ export function AgentChatWorkspace({
           !message.text.trim(),
       )
     : [];
+  const emailDeliveryTimeline = useMemo(
+    () =>
+      bucketEmailDeliveryTimelineItems(
+        emailDeliveryHistory,
+        visibleMessages.map((message) => message.id),
+      ),
+    [emailDeliveryHistory, visibleMessages],
+  );
   const latestRetryableAssistantId =
     [...visibleMessages]
       .reverse()
@@ -4544,92 +4589,104 @@ export function AgentChatWorkspace({
                 />
               ) : null}
 
-              {visibleMessages.map((message) =>
-                message.kind === "selection" ? (
-                  <SelectionChip key={message.id} label={message.text} />
-                ) : (
-                  <AgentBubble
-                    key={message.id}
-                    message={message}
-                    retryDisabled={isChatLoading || isStreaming}
-                    onRetry={
-                      message.id === latestRetryableAssistantId
-                        ? () => handleRetryAssistantResponse(message.id)
-                        : undefined
-                    }
-                    busyConsentItemId={specialistBusyItemId}
-                    onConsentRevoke={async (item) => {
-                      setSpecialistBusyItemId(item.id);
-                      try {
-                        await oneLocationConsentActions.handleRevoke({
-                          id: item.id,
-                          scope: item.scope ?? null,
-                          metadata: item.metadata ?? null,
-                        });
-                        updateMessage(message.id, (current) => ({
-                          ...current,
-                          specialistDirective: markConsentDirectiveItemRevoked(
-                            current.specialistDirective,
-                            item.id,
-                          ),
-                        }));
-                      } finally {
-                        setSpecialistBusyItemId(null);
+              {visibleMessages.map((message) => (
+                <Fragment key={message.id}>
+                  {message.kind === "selection" ? (
+                    <SelectionChip label={message.text} />
+                  ) : (
+                    <AgentBubble
+                      message={message}
+                      retryDisabled={isChatLoading || isStreaming}
+                      onRetry={
+                        message.id === latestRetryableAssistantId
+                          ? () => handleRetryAssistantResponse(message.id)
+                          : undefined
                       }
-                    }}
-                    onConsentDetails={(item) => {
-                      // Tag the agent's current route as origin so the consent
-                      // screen's back button retraces here, not to Profile
-                      // (the breadcrumb reads ?from; bare nav falls to Profile).
-                      router.push(
-                        `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
-                      );
-                    }}
-                    onPendingConsentApprove={async (item) => {
-                      setSpecialistBusyItemId(item.id);
-                      try {
-                        await consentActions.handleApprove(
-                          pendingConsentCardItemToPendingConsent(item),
+                      busyConsentItemId={specialistBusyItemId}
+                      onConsentRevoke={async (item) => {
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          await oneLocationConsentActions.handleRevoke({
+                            id: item.id,
+                            scope: item.scope ?? null,
+                            metadata: item.metadata ?? null,
+                          });
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective:
+                              markConsentDirectiveItemRevoked(
+                                current.specialistDirective,
+                                item.id,
+                              ),
+                          }));
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
+                      }}
+                      onConsentDetails={(item) => {
+                        // Tag the agent's current route as origin so the consent
+                        // screen's back button retraces here, not to Profile
+                        // (the breadcrumb reads ?from; bare nav falls to Profile).
+                        router.push(
+                          `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                         );
-                        updateMessage(message.id, (current) => ({
-                          ...current,
-                          specialistDirective:
-                            markPendingConsentRequestDirectiveStatus(
-                              current.specialistDirective,
-                              item.id,
-                              "approved",
-                            ),
-                        }));
-                      } finally {
-                        setSpecialistBusyItemId(null);
-                      }
-                    }}
-                    onPendingConsentDeny={async (item) => {
-                      setSpecialistBusyItemId(item.id);
-                      try {
-                        await consentActions.handleDeny(item.id);
-                        updateMessage(message.id, (current) => ({
-                          ...current,
-                          specialistDirective:
-                            markPendingConsentRequestDirectiveStatus(
-                              current.specialistDirective,
-                              item.id,
-                              "denied",
-                            ),
-                        }));
-                      } finally {
-                        setSpecialistBusyItemId(null);
-                      }
-                    }}
-                    onPendingConsentDetails={(item) => {
-                      // Origin-tagged so back retraces to the agent's route.
-                      router.push(
-                        `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
-                      );
-                    }}
-                  />
-                ),
-              )}
+                      }}
+                      onPendingConsentApprove={async (item) => {
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          await consentActions.handleApprove(
+                            pendingConsentCardItemToPendingConsent(item),
+                          );
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective:
+                              markPendingConsentRequestDirectiveStatus(
+                                current.specialistDirective,
+                                item.id,
+                                "approved",
+                              ),
+                          }));
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
+                      }}
+                      onPendingConsentDeny={async (item) => {
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          await consentActions.handleDeny(item.id);
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective:
+                              markPendingConsentRequestDirectiveStatus(
+                                current.specialistDirective,
+                                item.id,
+                                "denied",
+                              ),
+                          }));
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
+                      }}
+                      onPendingConsentDetails={(item) => {
+                        // Origin-tagged so back retraces to the agent's route.
+                        router.push(
+                          `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
+                        );
+                      }}
+                    />
+                  )}
+                  {(
+                    emailDeliveryTimeline.itemsAfterMessage.get(message.id) ??
+                    []
+                  ).map((item) => (
+                    <EmailDeliveryHistoryCard
+                      key={item.id}
+                      item={item}
+                      onRetry={retryEmailDelivery}
+                    />
+                  ))}
+                </Fragment>
+              ))}
 
               {pkmActivity.map((item) => (
                 <AgentPkmActivityLine key={item.id} item={item} />
@@ -5235,7 +5292,7 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : null}
-              {emailDeliveryHistory.map((item) => (
+              {emailDeliveryTimeline.trailingItems.map((item) => (
                 <EmailDeliveryHistoryCard
                   key={item.id}
                   item={item}

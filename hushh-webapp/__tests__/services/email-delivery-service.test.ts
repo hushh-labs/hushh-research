@@ -45,6 +45,33 @@ describe("EmailDeliveryService", () => {
     });
   });
 
+  it("carries the reviewed rich representation alongside the plain-text fallback", async () => {
+    vi.mocked(ApiService.apiFetch).mockResolvedValue(
+      new Response(JSON.stringify({ action_id: "email_action_1", expires_at: "2026-08-26T00:00:00Z" }), {
+        status: 200,
+      }),
+    );
+
+    await EmailDeliveryService.prepare({
+      firebaseIdToken: "firebase-token",
+      vaultOwnerToken: "vault-owner-token",
+      idempotencyKey: "idem-2",
+      draft: {
+        to: "to@example.com",
+        cc: "",
+        bcc: "",
+        subject: "Hello",
+        body: "**Welcome**",
+        htmlBody: "<p><strong>Welcome</strong></p>",
+      },
+    });
+
+    expect(JSON.parse(String(vi.mocked(ApiService.apiFetch).mock.calls[0][1]?.body))).toMatchObject({
+      html_body: "<p><strong>Welcome</strong></p>",
+      body: "**Welcome**",
+    });
+  });
+
   it("maps a missing Gmail send scope to a safe reconnect error without echoing server detail", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(
       new Response(JSON.stringify({ detail: { code: "GMAIL_SEND_PERMISSION_REQUIRED", message: "do not expose" } }), {

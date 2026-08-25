@@ -3,6 +3,7 @@
 import { ChevronDown, CircleAlert, Loader2, MailCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { EmailRichTextPreview } from "@/components/agent/email-rich-text";
 import type { EmailDraft } from "@/lib/services/email-delivery-service";
 
 export type EmailDeliveryHistoryItem = {
@@ -109,7 +110,14 @@ export function EmailDeliveryHistoryCard({
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Message
           </p>
-          <p className="mt-1 whitespace-pre-wrap break-words text-foreground">{item.draft.body || "—"}</p>
+          {item.draft.body ? (
+            <EmailRichTextPreview
+              className="mt-1 rounded-xl border border-border/60 bg-background/60 px-3 py-3"
+              value={item.draft.body}
+            />
+          ) : (
+            <p className="mt-1 text-foreground">—</p>
+          )}
         </div>
         {canRetry && onRetry ? (
           <Button type="button" variant="outline" size="sm" onClick={() => onRetry(item)}>

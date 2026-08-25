@@ -84,6 +84,110 @@ describe("EmailDraftCard", () => {
     expect(onSent).toHaveBeenCalledTimes(1);
   });
 
+  it("shows clear draft progress instead of a disabled empty composer", async () => {
+    vi.mocked(EmailDeliveryService.draft).mockImplementation(
+      () => new Promise<never>(() => {}),
+    );
+    const onDismiss = vi.fn();
+
+    render(
+      <EmailDraftCard
+        autoDraft
+        initialInstruction="Write a welcome email"
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={onDismiss}
+        onSent={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(EmailDeliveryService.draft).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("one-email-draft-preparing")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Drafting your email");
+    expect(screen.getByText("Close draft")).toBeEnabled();
+    expect(screen.getByTestId("one-email-draft-send")).toBeDisabled();
+    expect(screen.queryByTestId("one-email-draft-to")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Close draft"));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers safe rich formatting and submits its Gmail HTML representation", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({
+      actionId: "action-rich",
+      expiresAt: "2026-08-26T00:00:00Z",
+    });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      messageId: "msg-rich",
+      threadId: null,
+      outcomeUnknown: false,
+    });
+
+    render(
+      <EmailDraftCard
+        initialInstruction="Draft this"
+        getAuth={getAuth}
+        onDismiss={vi.fn()}
+        onRequireVault={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("one-email-draft-to"), {
+      target: { value: "person@example.com" },
+    });
+    fireEvent.change(screen.getByTestId("one-email-draft-message"), {
+      target: { value: "## Hello\n\n**Welcome** to the *Email Agent*.\n\n- Draft\n- Send" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview message" }));
+    expect(screen.getByTestId("one-email-rich-preview")).toHaveTextContent("Welcome");
+    expect(screen.getByTestId("one-email-rich-preview").querySelector("strong")).toHaveTextContent("Welcome");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+
+    await waitFor(() => expect(EmailDeliveryService.prepare).toHaveBeenCalledTimes(1));
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draft: expect.objectContaining({
+          htmlBody: expect.stringContaining("<strong>Welcome</strong>"),
+        }),
+      }),
+    );
+  });
+
+  it("turns escaped model line breaks into a readable rich email preview", async () => {
+    vi.mocked(EmailDeliveryService.draft).mockResolvedValue({
+      to: "person@example.com",
+      cc: "",
+      bcc: "",
+      subject: "Reminder",
+      body: "Hi,\\n\\nJust a quick reminder that our meeting is **tomorrow at 5:00 PM**.\\n\\n- The project documents\\n- Your ID\\n\\nBest regards,",
+      missingDetails: [],
+    });
+
+    render(
+      <EmailDraftCard
+        autoDraft
+        initialInstruction="Write a reminder"
+        getAuth={getAuth}
+        onDismiss={vi.fn()}
+        onRequireVault={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("one-email-rich-preview")).toBeInTheDocument());
+    const preview = screen.getByTestId("one-email-rich-preview");
+    expect(preview).toHaveTextContent("Just a quick reminder");
+    expect(preview).not.toHaveTextContent("\\n");
+    expect(preview.querySelector("strong")).toHaveTextContent("tomorrow at 5:00 PM");
+    expect(screen.getByText("The project documents").closest("li")).toBeTruthy();
+  });
+
   it("opens the existing vault flow instead of calling delivery while auth is absent", async () => {
     getAuth.mockResolvedValue(null);
     const onRequireVault = vi.fn();

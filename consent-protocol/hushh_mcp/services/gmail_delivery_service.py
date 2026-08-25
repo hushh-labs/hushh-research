@@ -33,6 +33,7 @@ from hushh_mcp.runtime_providers import (
     build_managed_runtime_client,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.gmail_owner_html import sanitize_gmail_owner_html
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
@@ -75,6 +76,7 @@ class NormalizedEmailDraft:
     bcc: tuple[str, ...]
     subject: str
     body: str
+    html_body: str | None = None
 
     @property
     def recipient_count(self) -> int:
@@ -88,6 +90,7 @@ class NormalizedEmailDraft:
                 "bcc": self.bcc,
                 "subject": self.subject,
                 "body": self.body,
+                "html_body": self.html_body or "",
             },
             separators=(",", ":"),
             sort_keys=True,
@@ -148,7 +151,18 @@ def normalize_draft(payload: dict[str, Any]) -> NormalizedEmailDraft:
         raise GmailDeliveryError("SUBJECT_TOO_LONG", "Subject is too long.")
     if len(body) > _MAX_BODY_CHARS:
         raise GmailDeliveryError("BODY_TOO_LONG", "Message is too long.")
-    return NormalizedEmailDraft(to=to, cc=cc, bcc=bcc, subject=subject, body=body)
+    try:
+        html_body = sanitize_gmail_owner_html(payload.get("html_body"))
+    except ValueError as exc:
+        raise GmailDeliveryError("INVALID_HTML_BODY", "Message formatting is invalid.") from exc
+    return NormalizedEmailDraft(
+        to=to,
+        cc=cc,
+        bcc=bcc,
+        subject=subject,
+        body=body,
+        html_body=html_body,
+    )
 
 
 def _message_for(draft: NormalizedEmailDraft) -> EmailMessage:
@@ -162,6 +176,8 @@ def _message_for(draft: NormalizedEmailDraft) -> EmailMessage:
         message["Bcc"] = ", ".join(draft.bcc)
     message["Subject"] = draft.subject
     message.set_content(draft.body)
+    if draft.html_body:
+        message.add_alternative(draft.html_body, subtype="html")
     return message
 
 
@@ -215,7 +231,11 @@ class GmailDeliveryService:
         }
         prompt = (
             "Draft an email from only the explicit user instruction below. Return JSON only. "
-            "Never claim an email was sent, never invent recipient addresses, and list missing details.\n\n"
+            "Never claim an email was sent, never invent recipient addresses, and list missing details. "
+            "Write body as polished compact email text: use real paragraph breaks, a greeting and sign-off when appropriate, "
+            "and use Markdown only when helpful: **bold**, *italic*, ++underline++, # through ### headings, "
+            "- bullets, 1. numbered items, [label](https://example.com) links, > quotes, and :::center/:::right blocks. "
+            "Do not emit literal backslash-n sequences.\n\n"
             f"Instruction:\n{instruction}"
         )
         try:

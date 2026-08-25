@@ -13,8 +13,8 @@ flowchart LR
   vault["Private vault\ncurrent VAULT_OWNER"]
   gmail["Canonical Gmail connection\nkai_gmail_connections"]
   agent["One private agent\neditable Email Draft card"]
-  review["Review & continue\nshort-lived HMAC action"]
-  send["Final Send email click"]
+  review["Owner-reviewed draft\nshort-lived HMAC action"]
+  send["Send email click"]
   api["Gmail API\nusers.messages.send as me"]
 
   owner --> vault
@@ -59,13 +59,20 @@ the existing vault dialog opens instead.
    `POST /api/one/email/draft`, which returns structured draft fields and
    `missing_details`. It cannot send mail and is not persisted as agent-chat
    history, a workflow record, or PKM.
-2. Every field edit invalidates the prepared action. **Review & continue**
-   calls `POST /api/one/email/prepare` and creates a ten-minute action for the
-   exact normalized envelope.
-3. **Send email** calls `POST /api/one/email/send` for that unchanged action.
-   The server atomically claims it once, constructs RFC MIME itself, and calls
-   Gmail `users.messages.send` as `me`. No caller-provided From address, OAuth
-   token, or raw MIME message is accepted.
+2. The owner’s single explicit **Send** click immediately closes the card and
+   prepares then sends the exact reviewed snapshot. Every field edit changes
+   that snapshot. `POST /api/one/email/prepare` creates a ten-minute HMAC
+   action, and `POST /api/one/email/send` atomically claims it once.
+3. The server constructs RFC MIME itself and calls Gmail
+   `users.messages.send` as `me`. The message always includes plain text and,
+   when the owner used formatting, a restricted sanitized HTML alternative for
+   headings, emphasis, lists, and safe links. No caller-provided From address,
+   OAuth token, or raw MIME message is accepted.
+
+The visible draft and the expandable in-session Email activity item retain the
+original request, reviewed envelope, and delivery state in their actual chat
+turn order. That context is session-only and never becomes durable chat
+history, a workflow record, or PKM.
 
 Every delivery endpoint requires both the Firebase identity and a current
 `X-Hushh-Consent` `VAULT_OWNER` token for the same user. The server stores only

@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { Mail, Send, X } from "lucide-react";
+import { Loader2, Mail, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  EmailRichTextComposer,
+  normalizeRichEmailText,
+  richEmailHtmlFromMarkdown,
+} from "@/components/agent/email-rich-text";
 import {
   EmailDeliveryError,
   EmailDeliveryService,
@@ -57,10 +61,16 @@ export function EmailDraftCard({
   onSendFailed,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
-  const [draft, setDraft] = useState<EmailDraft>({
-    ...EMPTY_DRAFT,
-    ...(initialDraft ?? {}),
-    body: initialDraft?.body ?? (autoDraft ? "" : initialInstruction),
+  const [draft, setDraft] = useState<EmailDraft>(() => {
+    const body = normalizeRichEmailText(
+      initialDraft?.body ?? (autoDraft ? "" : initialInstruction),
+    );
+    return {
+      ...EMPTY_DRAFT,
+      ...(initialDraft ?? {}),
+      body,
+      htmlBody: richEmailHtmlFromMarkdown(body),
+    };
   });
   const [missingDetails, setMissingDetails] = useState<string[]>([]);
   const [busy, setBusy] = useState<"draft" | null>(null);
@@ -69,7 +79,14 @@ export function EmailDraftCard({
   const sendStartedRef = useRef(false);
 
   const updateDraft = (field: keyof EmailDraft, value: string) => {
-    setDraft((current) => ({ ...current, [field]: value }));
+    const normalizedValue = field === "body" ? normalizeRichEmailText(value) : value;
+    setDraft((current) => ({
+      ...current,
+      [field]: normalizedValue,
+      ...(field === "body"
+        ? { htmlBody: richEmailHtmlFromMarkdown(normalizedValue) }
+        : {}),
+    }));
     setMissingDetails([]);
     setError(null);
   };
@@ -102,7 +119,8 @@ export function EmailDraftCard({
         cc: next.cc,
         bcc: next.bcc,
         subject: next.subject,
-        body: next.body,
+        body: normalizeRichEmailText(next.body),
+        htmlBody: richEmailHtmlFromMarkdown(normalizeRichEmailText(next.body)),
       });
       setMissingDetails(next.missingDetails);
     } catch (cause) {
@@ -179,25 +197,26 @@ export function EmailDraftCard({
   };
 
   const disabled = busy !== null;
+  const isDrafting = busy === "draft";
   return (
     <section
       data-testid="one-email-draft-card"
       aria-label="Email draft"
-      className="mb-4 overflow-hidden rounded-[calc(var(--app-card-radius-compact)+4px)] border border-border/80 bg-card shadow-[var(--app-card-shadow-standard)]"
+      className="mb-5 overflow-hidden rounded-[calc(var(--app-card-radius-compact)+4px)] border border-border/80 bg-card shadow-[var(--app-card-shadow-standard)]"
     >
-      <div className="flex items-start justify-between gap-3 border-b border-border/60 bg-primary/[0.035] px-4 py-3.5 sm:px-5">
-        <div className="flex min-w-0 gap-3">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+      <div className="flex items-start justify-between gap-3 border-b border-border/60 bg-primary/[0.035] px-4 py-4 sm:px-5">
+        <div className="flex min-w-0 gap-3.5">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[var(--app-radius-lg)] bg-primary text-primary-foreground shadow-sm">
             <Mail className="h-4.5 w-4.5" />
           </div>
           <div>
-            <h2 className="text-base font-semibold tracking-[-0.01em] text-foreground">
+            <h2 className="text-lg font-semibold tracking-[-0.015em] text-foreground">
               Email draft
             </h2>
             <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
-              {busy === "draft"
+              {isDrafting
                 ? "One is preparing a draft from your request…"
-                : "Review or edit the details, then send when ready."}
+                : "Review the email exactly as it will be sent."}
             </p>
           </div>
         </div>
@@ -208,15 +227,55 @@ export function EmailDraftCard({
           className="h-8 w-8 shrink-0"
           aria-label="Close email draft"
           onClick={onDismiss}
-          disabled={disabled}
         >
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      <div className="space-y-3 px-4 py-4 sm:px-5">
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      {isDrafting ? (
+        <div
+          aria-busy="true"
+          className="space-y-4 px-4 py-5 sm:px-5"
+          data-testid="one-email-draft-preparing"
+        >
+          <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/[0.055] px-3.5 py-3" role="status">
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Drafting your email</p>
+              <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+                One is turning your request into a reviewable email. This can take a few seconds.
+              </p>
+            </div>
+          </div>
+          <div aria-hidden className="space-y-4 animate-pulse">
+            <div className="space-y-2">
+              <div className="h-3 w-8 rounded bg-muted" />
+              <div className="h-11 rounded-xl bg-muted/70" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <div className="h-3 w-8 rounded bg-muted" />
+                <div className="h-10 rounded-xl bg-muted/70" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-3 w-8 rounded bg-muted" />
+                <div className="h-10 rounded-xl bg-muted/70" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-3 w-14 rounded bg-muted" />
+              <div className="h-11 rounded-xl bg-muted/70" />
+            </div>
+            <div className="space-y-2">
+              <div className="h-3 w-16 rounded bg-muted" />
+              <div className="h-36 rounded-xl bg-muted/70" />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4 px-4 py-5 sm:px-5">
+          <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             To
           </span>
           <Input
@@ -228,13 +287,13 @@ export function EmailDraftCard({
             disabled={disabled}
             placeholder="name@example.com"
             aria-label="To"
-            className="h-11 bg-background/70"
+            className="h-11 rounded-xl bg-background/70 text-[15px]"
           />
-        </label>
-        <div className="grid gap-3 sm:grid-cols-2">
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
           {(["cc", "bcc"] as const).map((field) => (
             <label key={field}>
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 {field === "cc" ? "Cc" : "Bcc"}
               </span>
               <Input
@@ -246,13 +305,13 @@ export function EmailDraftCard({
                 disabled={disabled}
                 placeholder="Optional"
                 aria-label={field === "cc" ? "Cc" : "Bcc"}
-                className="h-10 bg-background/70"
+                className="h-10 rounded-xl bg-background/70 text-[15px]"
               />
             </label>
           ))}
-        </div>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          </div>
+          <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Subject
           </span>
           <Input
@@ -263,63 +322,61 @@ export function EmailDraftCard({
             onChange={(event) => updateDraft("subject", event.target.value)}
             disabled={disabled}
             aria-label="Subject"
-            className="h-11 bg-background/70"
+            className="h-11 rounded-xl bg-background/70 text-[15px] font-medium"
           />
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            Message
+          </label>
+          <label className="block">
+          <span className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <span>Message</span>
+            <span className="normal-case font-normal tracking-normal">Rich email</span>
           </span>
-          <Textarea
-            id={`${idPrefix}-message`}
-            data-testid="one-email-draft-message"
-            value={draft.body}
-            onChange={(event) => updateDraft("body", event.target.value)}
+          <EmailRichTextComposer
             disabled={disabled}
-            placeholder="Write your message…"
-            className="min-h-36 resize-y bg-background/70 leading-6"
-            aria-label="Message"
+            id={`${idPrefix}-message`}
+            onChange={(value) => updateDraft("body", value)}
+            showPreviewOnFirstContent={autoDraft}
+            value={draft.body}
           />
-        </label>
+          </label>
 
-        {missingDetails.length > 0 ? (
-          <p
-            className="rounded-lg bg-muted/55 px-3 py-2 text-sm leading-5 text-muted-foreground"
-            data-testid="one-email-draft-missing-details"
-          >
-            One still needs: {missingDetails.join(", ")}.
-          </p>
-        ) : null}
-        {error ? (
-          <p
-            className="rounded-lg bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive"
-            role="alert"
-          >
-            {error.message}{" "}
-            {error.needsGmailReconnect ? (
-              <Link className="font-medium underline" href="/one/gmail">
-                Reconnect Gmail
-              </Link>
-            ) : null}
-          </p>
-        ) : null}
-      </div>
+          {missingDetails.length > 0 ? (
+            <p
+              className="rounded-lg bg-muted/55 px-3 py-2 text-sm leading-5 text-muted-foreground"
+              data-testid="one-email-draft-missing-details"
+            >
+              One still needs: {missingDetails.join(", ")}.
+            </p>
+          ) : null}
+          {error ? (
+            <p
+              className="rounded-lg bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive"
+              role="alert"
+            >
+              {error.message}{" "}
+              {error.needsGmailReconnect ? (
+                <Link className="font-medium underline" href="/one/gmail">
+                  Reconnect Gmail
+                </Link>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
+      )}
 
-      <div className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/[0.16] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/[0.16] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="justify-center sm:justify-start"
           onClick={onDismiss}
-          disabled={disabled}
         >
-          Decline
+          {isDrafting ? "Close draft" : "Decline"}
         </Button>
         <Button
           type="button"
           size="sm"
-          className="gap-2 sm:min-w-32"
+          className="gap-2 rounded-xl px-4 sm:min-w-32"
           onClick={() => void send()}
           disabled={disabled}
           data-testid="one-email-draft-send"

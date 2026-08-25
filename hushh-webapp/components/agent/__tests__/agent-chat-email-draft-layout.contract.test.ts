@@ -21,6 +21,16 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).toContain("autoDraft={emailDraftAutoDraft}");
     expect(source).toContain("onSendStarted={handleEmailSendStarted}");
     expect(source).toContain("EmailDeliveryHistoryCard");
+    expect(source).toContain("bucketEmailDeliveryTimelineItems");
+    expect(source).toContain("emailDraftAnchorMessageId");
+    expect(source).toContain("setEmailDraftAnchorMessageId(assistantMessageId);");
+    expect(source).toContain("itemsAfterMessage.get(message.id)");
+    expect(source).toContain(
+      'text: message.text.trim() ? message.text : event.message || "",',
+    );
+    expect(source).not.toContain(
+      "current.filter((message) => message.id !== assistantMessageId)",
+    );
     expect(source).toContain("setQueuedHandoffPrompt(emailDraftInstruction);");
     expect(source).not.toContain('aria-label="Draft an email"');
     expect(source).not.toContain(

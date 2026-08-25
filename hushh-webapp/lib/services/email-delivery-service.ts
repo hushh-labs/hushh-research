@@ -11,6 +11,8 @@ export type EmailDraft = {
   bcc: string;
   subject: string;
   body: string;
+  /** Gmail-safe rich representation derived from the owner-reviewed body. */
+  htmlBody?: string;
 };
 
 export type EmailDraftResult = EmailDraft & {
@@ -163,6 +165,7 @@ export class EmailDeliveryService {
       bcc: input.draft.bcc,
       subject: input.draft.subject,
       body: input.draft.body,
+      html_body: input.draft.htmlBody,
       idempotency_key: input.idempotencyKey,
     });
     const record = asRecord(payload);
@@ -183,6 +186,7 @@ export class EmailDeliveryService {
       bcc: input.draft.bcc,
       subject: input.draft.subject,
       body: input.draft.body,
+      html_body: input.draft.htmlBody,
     });
     const record = asRecord(payload);
     return {

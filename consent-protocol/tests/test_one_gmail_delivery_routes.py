@@ -27,6 +27,7 @@ def _envelope() -> dict[str, object]:
         "bcc": [],
         "subject": "Hello",
         "body": "Message",
+        "html_body": "<p>Message</p>",
     }
 
 
