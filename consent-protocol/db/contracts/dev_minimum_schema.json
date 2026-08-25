@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 169,
+  "expected_migration_version": 171,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_pkm_domain_summary",
@@ -42,6 +42,10 @@
       "personas",
       "last_active_persona",
       "investor_marketplace_opt_in",
+      "contact_discoverable",
+      "contact_sync_consent_enabled_at",
+      "contact_sync_consent_rule_version",
+      "contact_sync_consent_contract_version",
       "created_at",
       "updated_at"
     ],

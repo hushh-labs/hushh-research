@@ -12,11 +12,16 @@ fan-out can sit behind this service without changing its transaction contract.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
+
+from hushh_mcp.services.contact_sync_contract import (
+    CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+)
 
 ORIGIN_DIRECT_REQUEST = "direct_request"
 ORIGIN_NAMED_CIRCLE = "named_circle"
@@ -28,6 +33,9 @@ ORIGIN_NAMED_CIRCLE = "named_circle"
 ORIGIN_CIRCLE_MEMBER = "circle_member"
 ORIGIN_LEGACY_INVITE = "legacy_invite"
 ORIGIN_IMPORT = "import"
+ORIGIN_CONTACT_SYNC = "contact_sync"
+
+_GRAPH_MUTATION_LOCK_NAMESPACE = 171
 
 ORIGIN_KINDS = frozenset(
     {
@@ -36,6 +44,7 @@ ORIGIN_KINDS = frozenset(
         ORIGIN_CIRCLE_MEMBER,
         ORIGIN_LEGACY_INVITE,
         ORIGIN_IMPORT,
+        ORIGIN_CONTACT_SYNC,
     }
 )
 USER_MANAGEABLE_ORIGIN_KINDS = frozenset(
@@ -44,6 +53,7 @@ USER_MANAGEABLE_ORIGIN_KINDS = frozenset(
         ORIGIN_CIRCLE_MEMBER,
         ORIGIN_LEGACY_INVITE,
         ORIGIN_IMPORT,
+        ORIGIN_CONTACT_SYNC,
     }
 )
 
@@ -64,6 +74,46 @@ def _first(result: Any) -> dict[str, Any] | None:
     return _row_dict(result.first())
 
 
+def _all(result: Any) -> list[dict[str, Any]]:
+    mappings = getattr(result, "mappings", None)
+    rows = mappings().all() if callable(mappings) else result.fetchall()
+    return [row for item in rows if (row := _row_dict(item)) is not None]
+
+
+def lock_connection_graph_users(conn: Any, *, user_ids: Iterable[str]) -> None:
+    """Serialize graph projections with reset/deletion for the same users.
+
+    Postgres is the current shared coordination tier. The materialized, sorted
+    input gives every multi-user caller one deterministic advisory-lock order;
+    a future Redis coordinator can replace this seam without changing callers.
+    Locks are transaction-scoped and therefore release on commit or rollback.
+    """
+
+    normalized = sorted({str(user_id or "").strip() for user_id in user_ids if user_id})
+    if not normalized:
+        return
+    conn.execute(
+        text(
+            """
+            WITH ordered_users AS MATERIALIZED (
+              SELECT user_id
+              FROM UNNEST(CAST(:user_ids AS TEXT[])) AS item(user_id)
+              ORDER BY user_id
+            )
+            SELECT pg_advisory_xact_lock(
+              hashtextextended(user_id, :lock_namespace)
+            )
+            FROM ordered_users
+            ORDER BY user_id
+            """
+        ),
+        {
+            "user_ids": normalized,
+            "lock_namespace": _GRAPH_MUTATION_LOCK_NAMESPACE,
+        },
+    )
+
+
 class ConnectionGraphService:
     """Idempotent connection/origin mutations inside a caller-owned transaction."""
 
@@ -78,7 +128,12 @@ class ConnectionGraphService:
         return (first, second) if first < second else (second, first)
 
     @staticmethod
-    def origin_key(origin_kind: str, *, source_circle_id: str | None = None) -> str:
+    def origin_key(
+        origin_kind: str,
+        *,
+        source_circle_id: str | None = None,
+        source_ref: str | None = None,
+    ) -> str:
         if origin_kind not in ORIGIN_KINDS:
             raise ValueError(f"Unsupported connection origin: {origin_kind}")
         circle_id = str(source_circle_id or "").strip()
@@ -88,6 +143,11 @@ class ConnectionGraphService:
             return f"{ORIGIN_NAMED_CIRCLE}:{circle_id}"
         if circle_id:
             raise ValueError("Only named Circle origins may include source_circle_id.")
+        requester_id = str(source_ref or "").strip()
+        if origin_kind == ORIGIN_CONTACT_SYNC:
+            if not requester_id:
+                raise ValueError("Contact-sync origins require the requester source_ref.")
+            return f"{ORIGIN_CONTACT_SYNC}:{requester_id}"
         return origin_kind
 
     @staticmethod
@@ -101,6 +161,10 @@ class ConnectionGraphService:
             ORIGIN_CIRCLE_MEMBER: "circle_invite",
             ORIGIN_LEGACY_INVITE: "circle_invite",
             ORIGIN_IMPORT: "import",
+            # The legacy scalar projection has no viewer-relative provenance.
+            # Keep it compatible as an import; connection_origins remains the
+            # authority for the contact-sync badge and disconnect suppression.
+            ORIGIN_CONTACT_SYNC: "import",
         }[origin_kind]
 
     @classmethod
@@ -113,11 +177,17 @@ class ConnectionGraphService:
         origin_kind: str,
         source_circle_id: str | None = None,
         source_ref: str | None = None,
+        origin_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Ensure one active origin and return aggregate connection provenance."""
 
         user_a, user_b = cls.canonical_pair(user_x, user_y)
-        key = cls.origin_key(origin_kind, source_circle_id=source_circle_id)
+        normalized_source_ref = str(source_ref or "").strip() or None
+        key = cls.origin_key(
+            origin_kind,
+            source_circle_id=source_circle_id,
+            source_ref=normalized_source_ref,
+        )
         connection = _first(
             conn.execute(
                 text(
@@ -164,16 +234,23 @@ class ConnectionGraphService:
                 """
                 INSERT INTO connection_origins (
                   connection_id, origin_kind, origin_key, source_circle_id,
-                  source_ref, status, created_at, updated_at, revoked_at
+                  source_ref, status, created_at, updated_at, revoked_at, metadata
                 )
                 VALUES (
                   CAST(:connection_id AS UUID), :origin_kind, :origin_key,
                   CAST(:source_circle_id AS UUID), :source_ref,
-                  'active', NOW(), NOW(), NULL
+                  'active', NOW(), NOW(), NULL,
+                  COALESCE(CAST(:origin_metadata_json AS JSONB), '{}'::JSONB)
                 )
                 ON CONFLICT (connection_id, origin_key) DO UPDATE SET
                   status = 'active',
                   source_ref = COALESCE(EXCLUDED.source_ref, connection_origins.source_ref),
+                  metadata = CASE
+                    WHEN connection_origins.status = 'active'
+                      OR :origin_metadata_json IS NULL
+                    THEN connection_origins.metadata
+                    ELSE EXCLUDED.metadata
+                  END,
                   updated_at = NOW(),
                   revoked_at = NULL
                 """
@@ -183,7 +260,12 @@ class ConnectionGraphService:
                 "origin_kind": origin_kind,
                 "origin_key": key,
                 "source_circle_id": source_circle_id,
-                "source_ref": str(source_ref or "").strip() or None,
+                "source_ref": normalized_source_ref,
+                "origin_metadata_json": (
+                    json.dumps(origin_metadata, sort_keys=True, separators=(",", ":"))
+                    if origin_metadata is not None
+                    else None
+                ),
             },
         )
 
@@ -240,6 +322,224 @@ class ConnectionGraphService:
             )
             for user_a, user_b in canonical_pairs
         ]
+
+    @classmethod
+    def activate_contact_sync_pairs(
+        cls,
+        conn: Connection,
+        *,
+        requester_user_id: str,
+        activations: Iterable[dict[str, Any]],
+    ) -> list[str]:
+        """Activate a contact-sync batch with four bounded set-based writes.
+
+        The caller has already locked identities, discoverability, and existing
+        canonical pairs in deterministic order. This helper owns the graph
+        projection only: canonical connections, viewer-relative provenance,
+        pending-request cancellation, and mirrored trusted edges. It stores no
+        contact proof material and grants no location or information access.
+        """
+
+        requester = str(requester_user_id or "").strip()
+        if not requester:
+            raise ValueError("Contact-sync activation requires a requester.")
+
+        normalized: dict[str, str] = {}
+        for activation in activations:
+            target = str(activation.get("target_user_id") or "").strip()
+            metadata = activation.get("origin_metadata") or {}
+            authorization = str(metadata.get("authorization") or "").strip()
+            if (
+                not target
+                or target == requester
+                or authorization
+                not in {"verified_phone_contact_match", "existing_connection_match"}
+            ):
+                raise ValueError("Invalid contact-sync activation.")
+            safe_metadata: dict[str, Any] = {"authorization": authorization}
+            if authorization == "verified_phone_contact_match":
+                enabled_at = str(metadata.get("targetConsentEnabledAt") or "").strip()
+                contract_version = str(metadata.get("targetConsentContractVersion") or "").strip()
+                try:
+                    rule_version = int(metadata.get("targetConsentRuleVersion") or 0)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Invalid contact-sync consent evidence.") from exc
+                if (
+                    not enabled_at
+                    or rule_version < 1
+                    or contract_version != CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+                ):
+                    raise ValueError("Invalid contact-sync consent evidence.")
+                safe_metadata.update(
+                    {
+                        "targetConsentEnabledAt": enabled_at,
+                        "targetConsentRuleVersion": rule_version,
+                        "targetConsentContractVersion": contract_version,
+                    }
+                )
+            normalized[target] = json.dumps(safe_metadata, sort_keys=True, separators=(",", ":"))
+        if not normalized:
+            return []
+
+        targets = sorted(normalized)
+        metadata_values = [normalized[target] for target in targets]
+        params = {
+            "requester_user_id": requester,
+            "target_user_ids": targets,
+            "origin_metadata_values": metadata_values,
+        }
+
+        connection_result = conn.execute(
+            text(
+                """
+                WITH activation AS (
+                  SELECT target_user_id
+                  FROM UNNEST(CAST(:target_user_ids AS TEXT[])) AS row(target_user_id)
+                )
+                INSERT INTO connections (
+                  user_a_id, user_b_id, status, source,
+                  created_at, updated_at, revoked_at
+                )
+                SELECT
+                  LEAST(:requester_user_id, target_user_id),
+                  GREATEST(:requester_user_id, target_user_id),
+                  'active', 'import', NOW(), NOW(), NULL
+                FROM activation
+                ORDER BY
+                  LEAST(:requester_user_id, target_user_id),
+                  GREATEST(:requester_user_id, target_user_id)
+                ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
+                  status = 'active', updated_at = NOW(), revoked_at = NULL
+                WHERE connections.status = 'active'
+                RETURNING CASE
+                  WHEN connections.user_a_id = :requester_user_id
+                  THEN connections.user_b_id
+                  ELSE connections.user_a_id
+                END AS target_user_id
+                """
+            ),
+            params,
+        )
+        activated_targets = sorted(
+            {
+                str(row.get("target_user_id") or "").strip()
+                for row in _all(connection_result)
+                if str(row.get("target_user_id") or "").strip() in normalized
+            }
+        )
+        if not activated_targets:
+            return []
+        params = {
+            **params,
+            "target_user_ids": activated_targets,
+            "origin_metadata_values": [normalized[target] for target in activated_targets],
+        }
+        conn.execute(
+            text(
+                """
+                WITH activation AS (
+                  SELECT target_user_id, origin_metadata_json
+                  FROM UNNEST(
+                    CAST(:target_user_ids AS TEXT[]),
+                    CAST(:origin_metadata_values AS TEXT[])
+                  ) AS row(target_user_id, origin_metadata_json)
+                )
+                INSERT INTO connection_origins (
+                  connection_id, origin_kind, origin_key, source_circle_id,
+                  source_ref, status, created_at, updated_at, revoked_at, metadata
+                )
+                SELECT
+                  connection.id, 'contact_sync',
+                  'contact_sync:' || :requester_user_id,
+                  NULL, :requester_user_id, 'active', NOW(), NOW(), NULL,
+                  CAST(activation.origin_metadata_json AS JSONB)
+                FROM activation
+                JOIN connections connection
+                  ON connection.user_a_id = LEAST(
+                    :requester_user_id, activation.target_user_id
+                  )
+                 AND connection.user_b_id = GREATEST(
+                    :requester_user_id, activation.target_user_id
+                  )
+                 AND connection.status = 'active'
+                ORDER BY connection.user_a_id, connection.user_b_id
+                ON CONFLICT (connection_id, origin_key) DO UPDATE SET
+                  status = 'active',
+                  source_ref = EXCLUDED.source_ref,
+                  metadata = CASE
+                    WHEN connection_origins.status = 'active'
+                    THEN connection_origins.metadata
+                    ELSE EXCLUDED.metadata
+                  END,
+                  updated_at = NOW(), revoked_at = NULL
+                """
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE connection_requests request
+                SET status = 'cancelled',
+                    responded_at = COALESCE(request.responded_at, NOW()),
+                    updated_at = NOW(),
+                    metadata = request.metadata || jsonb_build_object(
+                      'supersededByConnectionId', connection.id::text
+                    )
+                FROM connections connection
+                WHERE request.status = 'pending'
+                  AND connection.status = 'active'
+                  AND (
+                    (connection.user_a_id = :requester_user_id
+                     AND connection.user_b_id = ANY(
+                       CAST(:target_user_ids AS TEXT[])
+                     ))
+                    OR
+                    (connection.user_b_id = :requester_user_id
+                     AND connection.user_a_id = ANY(
+                       CAST(:target_user_ids AS TEXT[])
+                     ))
+                  )
+                  AND (
+                    (request.requester_user_id = connection.user_a_id
+                     AND request.addressee_user_id = connection.user_b_id)
+                    OR
+                    (request.requester_user_id = connection.user_b_id
+                     AND request.addressee_user_id = connection.user_a_id)
+                  )
+                """
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                """
+                WITH directional AS (
+                  SELECT :requester_user_id AS owner_user_id,
+                         target_user_id AS trusted_user_id
+                  FROM UNNEST(CAST(:target_user_ids AS TEXT[]))
+                    AS row(target_user_id)
+                  UNION ALL
+                  SELECT target_user_id, :requester_user_id
+                  FROM UNNEST(CAST(:target_user_ids AS TEXT[]))
+                    AS row(target_user_id)
+                )
+                INSERT INTO trusted_connections (
+                  owner_user_id, trusted_user_id, status, source,
+                  created_at, updated_at
+                )
+                SELECT owner_user_id, trusted_user_id, 'active', 'connection',
+                       NOW(), NOW()
+                FROM directional
+                ORDER BY owner_user_id, trusted_user_id
+                ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
+                  status = 'active', revoked_at = NULL,
+                  updated_at = NOW(), source = 'connection'
+                """
+            ),
+            params,
+        )
+        return activated_targets
 
     @classmethod
     def revoke_origins(
@@ -448,7 +748,7 @@ class ConnectionGraphService:
                         ) THEN 'circle_invite'
                         WHEN BOOL_OR(
                           origin.status = 'active'
-                          AND origin.origin_kind = 'import'
+                          AND origin.origin_kind IN ('import', 'contact_sync')
                         ) THEN 'import'
                         ELSE 'named_circle'
                       END AS aggregate_source
@@ -523,6 +823,7 @@ def ensure_connection_origin(
     kind: str,
     source_circle_id: str | None = None,
     source_ref: str | None = None,
+    origin_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Module-level integration seam for other transactional domain services."""
 
@@ -533,6 +834,22 @@ def ensure_connection_origin(
         origin_kind=kind,
         source_circle_id=source_circle_id,
         source_ref=source_ref,
+        origin_metadata=origin_metadata,
+    )
+
+
+def activate_contact_sync_connections_bulk(
+    conn: Connection,
+    *,
+    requester_user_id: str,
+    activations: Iterable[dict[str, Any]],
+) -> list[str]:
+    """Module-level batch seam for the Connections contact-sync transaction."""
+
+    return ConnectionGraphService.activate_contact_sync_pairs(
+        conn,
+        requester_user_id=requester_user_id,
+        activations=activations,
     )
 
 

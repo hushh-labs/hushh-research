@@ -106,6 +106,27 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 Public discovery data may be shown in marketplace cards.
 Private data is always consent-gated and scoped.
 
+### Contact-sync relationship boundary
+
+1. Contact sync has one combined, explicit setting: verified people who already
+   hold the account's verified phone number may find and automatically connect
+   with it. The setting defaults off and records the exact authored disclosure,
+   a server enablement timestamp, and a monotonic consent-rule version. Enabling
+   without `contact_find_auto_connect_v1` fails, so legacy default-on state or an
+   older findability-only client is not relationship consent.
+2. Every current, unambiguous verified-phone match that passes that setting is
+   connected immediately. An already active pair receives viewer-relative
+   contact provenance; an explicit disconnect tombstone remains dominant and
+   suppresses future contact-sync attempts. A later explicit request/accept flow
+   remains a separate user action.
+3. Contact-sync provenance may create only the canonical relationship, its
+   source ledger, pending-request cancellation, and the Trusted-list projection.
+   It never grants location, PKM, personal-information, consent-scope, Circle
+   sharing, SMS, envelope, or capability access.
+4. Disabling the setting prevents future matches. Existing relationships remain
+   visible and individually disconnectable so preference changes do not silently
+   destroy a user's graph.
+
 ### Storage Boundary
 
 1. Relational tables own identity, consent workflow, verification/compliance, firm membership, public discovery, and query-heavy shared market datasets.

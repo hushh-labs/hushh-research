@@ -237,6 +237,13 @@ export function CheckInFlow({
   const [circleSelection, setCircleSelection] =
     useState<CircleRecipientSelection | null>(null);
   const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
+  // Trusted is an auto-managed contact-sync view and may contain thousands of
+  // connections. Private Check-In must stay an explicit, bounded choice, so
+  // only user-managed/SMS Circles and direct contacts are selectable here.
+  const selectableCircles = useMemo(
+    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    [vm.circles],
+  );
   const [confirmedPoint, setConfirmedPoint] =
     useState<PlainLocationPoint | null>(null);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
@@ -615,9 +622,9 @@ export function CheckInFlow({
 
       {/* WHO SHOULD KNOW? */}
       <SectionLabel>Who should know?</SectionLabel>
-      {vm.circles.length ? (
+      {selectableCircles.length ? (
         <div className={cn(CARD, "mb-2 overflow-hidden")}>
-          {vm.circles.map((circle, index) => {
+          {selectableCircles.map((circle, index) => {
             const selected =
               circleSelection?.circle.id === circle.id && circleFullySelected;
             // STATE BEATS CATEGORY: a circle is the people role, but one
@@ -637,7 +644,7 @@ export function CheckInFlow({
                 aria-pressed={selected}
                 className={cn(
                   "flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left",
-                  index < vm.circles.length - 1 &&
+                  index < selectableCircles.length - 1 &&
                     "border-b border-black/[0.06] dark:border-white/[0.08]",
                   selected &&
                     "bg-[color:var(--app-accent-soft)]",
@@ -703,6 +710,9 @@ export function CheckInFlow({
                   onShareCode={vm.onShareNamedCircleCodeById}
                   onLoadEligibleConnections={
                     vm.onLoadNamedCircleEligibleConnections
+                  }
+                  onLoadEligibleConnectionsPage={
+                    vm.onLoadNamedCircleEligibleConnectionsPage
                   }
                   onInviteConnections={vm.onInviteNamedCircleConnections}
                   onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}

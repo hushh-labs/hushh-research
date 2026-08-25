@@ -13,6 +13,7 @@ import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type {
   OneLocationCircleMember,
+  OneLocationCircleSummary,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
 
@@ -160,6 +161,45 @@ describe("SmsContactsFlow", () => {
     expect(screen.getByTestId("sms-all-contacts-panel")).toBeInTheDocument();
     expect(screen.getByText("Kushal")).toBeInTheDocument();
     expect(screen.getByText("Neelesh")).toBeInTheDocument();
+  });
+
+  it("never exposes the auto-managed Trusted Circle as an emergency SMS bulk source", () => {
+    const circles: OneLocationCircleSummary[] = [
+      {
+        id: "trusted-circle",
+        name: "Trusted",
+        kind: "other",
+        role: "owner",
+        memberCount: 5000,
+        memberLimit: null,
+        systemKind: "trusted",
+      },
+      {
+        id: "family-circle",
+        name: "Family",
+        kind: "family",
+        role: "owner",
+        memberCount: 3,
+        memberLimit: 100,
+        systemKind: null,
+      },
+      {
+        id: "sms-circle",
+        name: "SMS Circle",
+        kind: "other",
+        role: "owner",
+        memberCount: 4,
+        memberLimit: 100,
+        isSystem: true,
+        systemKind: "sms",
+      },
+    ];
+
+    render(<SmsContactsFlow {...baseProps} circles={circles} />);
+
+    expect(screen.queryByText("Trusted")).not.toBeInTheDocument();
+    expect(screen.getByText("Family")).toBeInTheDocument();
+    expect(screen.getByText("SMS Circle")).toBeInTheDocument();
   });
 
   it("opens on All Contacts when the account has no Circles", () => {

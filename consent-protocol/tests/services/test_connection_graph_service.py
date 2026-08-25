@@ -6,12 +6,14 @@ import pytest
 
 from hushh_mcp.services.connection_graph_service import (
     ORIGIN_CIRCLE_MEMBER,
+    ORIGIN_CONTACT_SYNC,
     ORIGIN_DIRECT_REQUEST,
     ORIGIN_KINDS,
     ORIGIN_NAMED_CIRCLE,
     USER_MANAGEABLE_ORIGIN_KINDS,
     ConnectionGraphService,
     ensure_connection_origin,
+    lock_connection_graph_users,
     revoke_circle_origins,
 )
 
@@ -52,6 +54,22 @@ def test_canonical_pair_validates_and_sorts():
         ConnectionGraphService.canonical_pair("", "user-b")
 
 
+def test_graph_mutation_user_locks_are_transaction_scoped_and_ordered():
+    conn = _Connection([])
+
+    lock_connection_graph_users(
+        conn,
+        user_ids=["user-z", "user-a", "user-z", ""],
+    )
+
+    assert len(conn.calls) == 1
+    sql, params = conn.calls[0]
+    assert "ordered_users AS MATERIALIZED" in sql
+    assert "pg_advisory_xact_lock" in sql
+    assert "FROM ordered_users\n            ORDER BY user_id" in sql
+    assert params["user_ids"] == ["user-a", "user-z"]
+
+
 def test_named_circle_origin_key_is_circle_specific():
     assert (
         ConnectionGraphService.origin_key(
@@ -66,6 +84,114 @@ def test_named_circle_origin_key_is_circle_specific():
         ConnectionGraphService.origin_key(
             ORIGIN_DIRECT_REQUEST,
             source_circle_id="00000000-0000-4000-8000-000000000001",
+        )
+
+
+def test_contact_sync_origin_key_is_requester_relative():
+    assert (
+        ConnectionGraphService.origin_key(
+            ORIGIN_CONTACT_SYNC,
+            source_ref="viewer-a",
+        )
+        == "contact_sync:viewer-a"
+    )
+    assert ORIGIN_CONTACT_SYNC in ORIGIN_KINDS
+    assert ORIGIN_CONTACT_SYNC in USER_MANAGEABLE_ORIGIN_KINDS
+    with pytest.raises(ValueError):
+        ConnectionGraphService.origin_key(ORIGIN_CONTACT_SYNC)
+
+
+def test_contact_sync_origin_persists_immutable_consent_evidence_without_proofs():
+    conn = _Connection([[{"target_user_id": "user-b"}], [], [], []])
+
+    activated = ConnectionGraphService.activate_contact_sync_pairs(
+        conn,
+        requester_user_id="user-a",
+        activations=[
+            {
+                "target_user_id": "user-b",
+                "origin_metadata": {
+                    "authorization": "verified_phone_contact_match",
+                    "targetConsentEnabledAt": "2026-08-25T10:00:00+00:00",
+                    "targetConsentRuleVersion": 3,
+                    "targetConsentContractVersion": "contact_find_auto_connect_v1",
+                },
+            }
+        ],
+    )
+
+    assert activated == ["user-b"]
+    origin_call = next(
+        (sql, params) for sql, params in conn.calls if "INSERT INTO connection_origins" in sql
+    )
+    metadata = origin_call[1]["origin_metadata_values"][0]
+    assert '"authorization":"verified_phone_contact_match"' in metadata
+    assert '"targetConsentEnabledAt":"2026-08-25T10:00:00+00:00"' in metadata
+    assert '"targetConsentRuleVersion":3' in metadata
+    assert '"targetConsentContractVersion":"contact_find_auto_connect_v1"' in metadata
+    assert "WHEN connection_origins.status = 'active'" in origin_call[0]
+    assert "hash" not in metadata
+    assert "last4" not in metadata
+
+
+def test_contact_sync_activation_filters_revoked_conflicts_from_every_projection():
+    conn = _Connection([[{"target_user_id": "user-b"}], [], [], []])
+
+    activated = ConnectionGraphService.activate_contact_sync_pairs(
+        conn,
+        requester_user_id="user-a",
+        activations=[
+            {
+                "target_user_id": "user-b",
+                "origin_metadata": {"authorization": "existing_connection_match"},
+            },
+            {
+                "target_user_id": "user-c",
+                "origin_metadata": {"authorization": "existing_connection_match"},
+            },
+        ],
+    )
+
+    assert activated == ["user-b"]
+    connection_sql = conn.calls[0][0]
+    assert "WHERE connections.status = 'active'" in connection_sql
+    assert "RETURNING CASE" in connection_sql
+    for _, params in conn.calls[1:]:
+        assert params["target_user_ids"] == ["user-b"]
+
+
+def test_contact_sync_activation_stops_when_every_conflict_is_revoked():
+    conn = _Connection([[]])
+
+    activated = ConnectionGraphService.activate_contact_sync_pairs(
+        conn,
+        requester_user_id="user-a",
+        activations=[
+            {
+                "target_user_id": "user-b",
+                "origin_metadata": {"authorization": "existing_connection_match"},
+            }
+        ],
+    )
+
+    assert activated == []
+    assert len(conn.calls) == 1
+
+
+def test_contact_sync_origin_rejects_missing_consent_evidence():
+    conn = _Connection([])
+    with pytest.raises(ValueError, match="consent evidence"):
+        ConnectionGraphService.activate_contact_sync_pairs(
+            conn,
+            requester_user_id="user-a",
+            activations=[
+                {
+                    "target_user_id": "user-b",
+                    "origin_metadata": {
+                        "authorization": "verified_phone_contact_match",
+                    },
+                }
+            ],
         )
 
 

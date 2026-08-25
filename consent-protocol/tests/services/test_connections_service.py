@@ -951,7 +951,8 @@ def test_list_connections_makes_no_ria_query_when_you_have_none():
 
 def test_remove_connection_revokes_connection_and_trusted_edges():
     svc = _svc()
-    # Call sequence: SELECT, revoke proposals/grants, demote stale RIA relation, trusted edges, connection.
+    # Call sequence: SELECT, revoke proposals/grants, demote stale RIA relation,
+    # trusted edges, provenance origins, connection.
     db = _RecordingDB(
         [
             [
@@ -966,6 +967,7 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
             [],  # explicit share grants -> none
             [],  # RIA relation projection -> none
             [{"id": "tc-1"}],  # UPDATE trusted_connections
+            [],  # UPDATE connection_origins
             [{"id": "conn-1"}],  # UPDATE connections
         ]
     )
@@ -1008,6 +1010,7 @@ def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
             [],  # explicit share grants -> none
             [],  # RIA relation projection -> none
             [{"id": "tc-1"}],  # UPDATE trusted_connections
+            [],  # UPDATE connection_origins
             [{"id": "conn-1"}],  # UPDATE connections
         ]
     )
@@ -1048,6 +1051,7 @@ def test_a_disconnect_that_changed_nothing_evicts_nobody():
             [],
             [],
             [],  # trusted edges already revoked
+            [],  # provenance origins already revoked
             [],  # UPDATE connections matched nothing
         ]
     )
@@ -1084,6 +1088,24 @@ def test_circle_cleanup_runs_after_the_connection_is_revoked():
     revoke_index = source.index("UPDATE connections")
     cleanup_index = source.index("_end_one_location_circle_memberships")
     assert revoke_index < cleanup_index
+
+
+def test_disconnect_takes_graph_gate_before_locking_the_connection_row():
+    """Disconnect and contact-sync projection must use one lock order.
+
+    Contact sync takes the per-user advisory gate before locking canonical
+    connection rows. Disconnect must do the same or the two transactions can
+    cross: projection waits on the row while disconnect waits on the gate,
+    leaving either a deadlock retry or a stale Trusted-Circle projection.
+    """
+    import inspect
+
+    from hushh_mcp.services.connections_service import ConnectionsService
+
+    source = inspect.getsource(ConnectionsService.remove_connection)
+    gate_index = source.index("lock_connection_graph_users(")
+    row_lock_index = source.index("\n                    FOR UPDATE")
+    assert gate_index < row_lock_index
 
 
 def test_remove_connection_returns_zero_when_not_member_or_missing():
@@ -1160,6 +1182,7 @@ def test_remove_connection_self_heals_when_already_revoked():
             [],  # explicit share grants -> none
             [],  # RIA relation projection -> none
             [],  # UPDATE trusted_connections -> already clean, 0 rows (no-op)
+            [],  # UPDATE connection_origins -> already clean, 0 rows (no-op)
             [],  # UPDATE connections -> status != 'active', no row returned
         ]
     )
@@ -1617,18 +1640,17 @@ def test_python_orders_this_pair_the_way_the_database_will_reject():
 
 
 def test_every_connections_writer_lets_the_database_order_the_pair():
-    """Ordering happens in the statement the constraint judges -- in all three.
+    """Ordering happens in the statement the constraint judges -- in all four.
 
     Reads are order-agnostic: every one matches
     `user_a_id = :id OR user_b_id = :id`, so existing rows stay findable
     whichever way round they were stored. Only the INSERTs must satisfy
     `connections_canonical_order`.
 
-    There are three, and the third is easy to miss -- `ConnectionGraphService`
-    writes the same table through its own `canonical_pair`, carrying the
-    identical Python-ordering bug. Fixing only the two in `connections_service`
-    would have left circle-invite and origin materialisation failing the same
-    way, for the same reason, with the same silent 500.
+    There are four, including the set-based contact-sync writer in
+    `ConnectionGraphService`. It uses `INSERT ... SELECT` rather than a VALUES
+    clause, but the pair still has to be ordered inside the SQL statement the
+    database constraint judges.
     """
     import inspect
     import re
@@ -1643,11 +1665,10 @@ def test_every_connections_writer_lets_the_database_order_the_pair():
             tail = source[match.end() : match.end() + 600]
             writers.append((module.__name__, tail))
 
-    assert len(writers) == 3, f"expected 3 connections writers, found {len(writers)}"
+    assert len(writers) == 4, f"expected 4 connections writers, found {len(writers)}"
 
     for module_name, tail in writers:
-        values = tail[tail.index("VALUES") :] if "VALUES" in tail else ""
-        assert "LEAST(" in values and "GREATEST(" in values, (
+        assert "LEAST(" in tail and "GREATEST(" in tail, (
             f"{module_name}: a connections INSERT orders its pair outside SQL. "
             "Python's `<` is bytewise and disagrees with the en_US.UTF8 "
             "collation the CHECK uses, which is the CheckViolation this guards."

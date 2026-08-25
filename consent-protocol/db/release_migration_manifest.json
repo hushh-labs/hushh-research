@@ -143,7 +143,8 @@
     "163_one_location_system_circle_kinds.sql",
     "165_one_referral_program.sql",
     "167_one_referral_realtime_notify.sql",
-    "169_one_location_auto_approve_preferences.sql"
+    "169_one_location_auto_approve_preferences.sql",
+    "171_contact_sync_connection_provenance.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -243,7 +244,8 @@
       "163_one_location_system_circle_kinds.sql",
       "165_one_referral_program.sql",
       "167_one_referral_realtime_notify.sql",
-      "169_one_location_auto_approve_preferences.sql"
+      "169_one_location_auto_approve_preferences.sql",
+      "171_contact_sync_connection_provenance.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

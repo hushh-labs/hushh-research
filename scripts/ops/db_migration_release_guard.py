@@ -201,20 +201,33 @@ def _load_release_lane(
                     + ",".join(outside_base)
                 )
 
-    selected_names = base_names
+    def parse_lane(names: list[str], *, label: str) -> list[tuple[int, str]]:
+        pairs: list[tuple[int, str]] = []
+        for name in names:
+            match = MIGRATION_PATTERN.match(name)
+            if match is None:
+                violations.append(f"release_manifest_invalid_filename:{name}")
+                continue
+            pairs.append((int(match.group("version")), name))
+        versions = [version for version, _ in pairs]
+        if versions != sorted(versions) or len(versions) != len(set(versions)):
+            violations.append(f"release_manifest_non_monotonic_lane:{label}")
+        return pairs
+
+    base_pairs = parse_lane(base_names, label="production")
+    overlay_pairs = parse_lane(
+        overlay_names,
+        label="environment_overlays.uat",
+    )
+    canonical_versions = [version for version, _ in base_pairs + overlay_pairs]
+    if len(canonical_versions) != len(set(canonical_versions)):
+        violations.append("release_manifest_duplicate_canonical_versions")
+
+    selected_pairs = base_pairs
     if release_environment == "uat":
-        selected_names = base_names + overlay_names
-    selected_versions: list[int] = []
-    for name in selected_names:
-        match = MIGRATION_PATTERN.match(name)
-        if match is None:
-            violations.append(f"release_manifest_invalid_filename:{name}")
-            continue
-        selected_versions.append(int(match.group("version")))
-    if selected_versions != sorted(selected_versions) or len(selected_versions) != len(
-        set(selected_versions)
-    ):
-        violations.append(f"release_manifest_non_monotonic_lane:{release_environment}")
+        selected_pairs = sorted(base_pairs + overlay_pairs, key=lambda item: item[0])
+    selected_names = [name for _, name in selected_pairs]
+    selected_versions = [version for version, _ in selected_pairs]
 
     metadata = {
         "path": str(manifest_file),

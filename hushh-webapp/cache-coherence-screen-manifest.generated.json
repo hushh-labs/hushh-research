@@ -2622,7 +2622,7 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": false,
+        "cache_sync": true,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": true,
@@ -3922,7 +3922,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/preferences/voice/examples",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fexamples",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3938,9 +3938,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/profile/receipts",
@@ -4011,7 +4009,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/referrals",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Freferrals",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4027,9 +4025,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/profile/regulatory",
@@ -5940,5 +5936,5 @@
       ]
     }
   ],
-  "content_sha256": "58946129b023cf0d6e421f01058ec4dc341c58c0618367d2422f43bac3b1177a"
+  "content_sha256": "533399540ae7f5efbe12e17c4166a6fcc87d2bede1a8e8aca9e14d73523aa19d"
 }

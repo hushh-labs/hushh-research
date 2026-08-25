@@ -22,7 +22,12 @@ from sqlalchemy import text
 from db.db_client import get_db
 from hushh_mcp.services.connection_graph_service import (
     ORIGIN_DIRECT_REQUEST,
+    activate_contact_sync_connections_bulk,
     ensure_connection_origin,
+    lock_connection_graph_users,
+)
+from hushh_mcp.services.contact_sync_contract import (
+    CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
 )
 from hushh_mcp.services.feed_service import FeedService
 
@@ -63,6 +68,11 @@ DIRECTORY_AUDIENCES = (
     DIRECTORY_AUDIENCE_PEOPLE,
     DIRECTORY_AUDIENCE_RIA,
 )
+
+CONTACT_SYNC_MAX_LOOKUPS = 1000
+CONTACT_SYNC_MINUTE_LOOKUP_LIMIT = 12_000
+CONTACT_SYNC_DAY_LOOKUP_LIMIT = 20_000
+CONTACT_SYNC_TRUSTED_PROJECTION_BATCH_SIZE = 100
 
 # Single source of truth for connection-capability display metadata. Both the
 # offer catalog and the receiver-facing proposal list read from here so the two
@@ -274,6 +284,104 @@ class ConnectionsService:
             return
         with connection.begin_nested():
             yield
+
+    def reserve_contact_sync_lookup_budget(self, user_id: str, lookup_count: int) -> None:
+        """Atomically consume the cross-instance contact-sync abuse budget.
+
+        SlowAPI remains an inexpensive outer request-count guard. This budget
+        is lookup-weighted and Postgres-authoritative, so splitting a large
+        address book across requests or Cloud Run instances cannot multiply
+        the allowance. The table/service seam can move to Redis/Memorystore
+        later without changing the route contract.
+        """
+
+        requester_id = str(user_id or "").strip()
+        count = int(lookup_count)
+        if not requester_id:
+            raise ConnectionsError(
+                "CONTACT_SYNC_AUTH_REQUIRED", "Sign in before syncing contacts.", status_code=401
+            )
+        if count < 1 or count > CONTACT_SYNC_MAX_LOOKUPS:
+            raise ConnectionsError(
+                "CONTACT_SYNC_LOOKUP_COUNT_INVALID",
+                f"Sync between 1 and {CONTACT_SYNC_MAX_LOOKUPS} contacts at a time.",
+                status_code=422,
+            )
+
+        with self._transaction():
+            if getattr(self, "_transaction_connection", None) is None:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_TRANSACTION_UNAVAILABLE",
+                    "Contact sync is temporarily unavailable.",
+                    status_code=503,
+                )
+            requester = self._execute_one(
+                """
+                SELECT user_id
+                FROM actor_identity_cache
+                WHERE user_id = :user_id
+                  AND phone_verified = TRUE
+                  AND phone_number IS NOT NULL
+                LIMIT 1
+                """,
+                {"user_id": requester_id},
+            )
+            if not requester:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
+                    "Verify your phone number before syncing contacts.",
+                    status_code=403,
+                )
+            # Bound per-user retention while charging. Fixed UTC buckets are
+            # sufficient for abuse control and keep the write path index-only.
+            self._execute_many(
+                """
+                DELETE FROM contact_sync_lookup_budgets
+                WHERE user_id = :user_id
+                  AND bucket_start < date_trunc('day', NOW()) - INTERVAL '2 days'
+                RETURNING user_id
+                """,
+                {"user_id": requester_id},
+            )
+            charged = self._execute_many(
+                """
+                INSERT INTO contact_sync_lookup_budgets (
+                  user_id, bucket_kind, bucket_start, lookup_count, updated_at
+                )
+                VALUES
+                  (
+                    :user_id, 'minute', date_trunc('minute', NOW()),
+                    :lookup_count, NOW()
+                  ),
+                  (
+                    :user_id, 'day', date_trunc('day', NOW()),
+                    :lookup_count, NOW()
+                  )
+                ON CONFLICT (user_id, bucket_kind, bucket_start) DO UPDATE SET
+                  lookup_count = contact_sync_lookup_budgets.lookup_count
+                    + EXCLUDED.lookup_count,
+                  updated_at = NOW()
+                WHERE contact_sync_lookup_budgets.lookup_count + EXCLUDED.lookup_count
+                  <= CASE EXCLUDED.bucket_kind
+                    WHEN 'minute' THEN :minute_limit
+                    ELSE :day_limit
+                  END
+                RETURNING bucket_kind
+                """,
+                {
+                    "user_id": requester_id,
+                    "lookup_count": count,
+                    "minute_limit": CONTACT_SYNC_MINUTE_LOOKUP_LIMIT,
+                    "day_limit": CONTACT_SYNC_DAY_LOOKUP_LIMIT,
+                },
+            )
+            if {str(row.get("bucket_kind") or "") for row in charged} != {"minute", "day"}:
+                # Raising inside engine.begin() rolls both bucket charges back.
+                raise ConnectionsError(
+                    "CONTACT_SYNC_LOOKUP_BUDGET_EXCEEDED",
+                    "You have checked many contacts recently. Try again later.",
+                    status_code=429,
+                )
 
     # ---- Resolution ----
     def _resolve_query(self, owner_user_id: str, query: str) -> str:
@@ -1430,6 +1538,57 @@ class ConnectionsService:
         except Exception:  # noqa: BLE001 - a projection cannot roll back consent
             logger.exception("connections.trusted_circle_join_failed")
 
+    def _join_trusted_system_circles_bulk(
+        self,
+        *,
+        pairs: list[tuple[str, str]],
+    ) -> None:
+        """Project Trusted rosters after the canonical graph has committed.
+
+        Each bounded batch owns a fresh transaction and shares a per-user
+        advisory gate with account reset/deletion. The Circle SQL revalidates
+        the active graph, so a cleanup that wins the gate cannot be undone by a
+        late best-effort projection.
+        """
+
+        canonical_pairs = sorted(
+            {
+                (str(first or "").strip(), str(second or "").strip())
+                for first, second in pairs
+                if str(first or "").strip()
+                and str(second or "").strip()
+                and str(first or "").strip() != str(second or "").strip()
+            }
+        )
+        if not canonical_pairs:
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        for start in range(0, len(canonical_pairs), CONTACT_SYNC_TRUSTED_PROJECTION_BATCH_SIZE):
+            batch = canonical_pairs[start : start + CONTACT_SYNC_TRUSTED_PROJECTION_BATCH_SIZE]
+            try:
+                with self._transaction():
+                    connection = getattr(self, "_transaction_connection", None)
+                    if connection is None:
+                        logger.info("connections.trusted_circle_bulk_join_skipped_no_transaction")
+                        return
+                    lock_connection_graph_users(
+                        connection,
+                        user_ids={user_id for pair in batch for user_id in pair},
+                    )
+                    OneLocationCircleService.ensure_trusted_memberships_for_pairs(
+                        connection,
+                        pairs=batch,
+                        source="connection",
+                    )
+            except Exception:  # noqa: BLE001 - a projection can self-heal on bootstrap
+                logger.exception(
+                    "connections.trusted_circle_bulk_join_failed batch_start=%s",
+                    start,
+                )
+
     def _end_one_location_circle_memberships(
         self,
         *,
@@ -2158,36 +2317,64 @@ class ConnectionsService:
             # accepts `audience` and splits in SQL.
             people = self._filter_people_by_audience(people, audience)
 
-        # Load the caller's pending requests (both directions) and active
-        # connections once, then classify each person in Python.
+        # Annotate only the returned page. Reading the caller's entire pending
+        # and connected graph here made a 20-row directory page scale with all
+        # 5,000 relationships instead of with the page the caller can see.
+        page_user_ids = sorted(
+            {str(person.get("userId") or "") for person in people} - {"", user_id}
+        )
         out_pending = {
             str(r.get("addressee_user_id") or "")
-            for r in self._execute_many(
-                """
+            for r in (
+                self._execute_many(
+                    """
                 SELECT addressee_user_id FROM connection_requests
-                WHERE requester_user_id = :user_id AND status = 'pending'
+                WHERE requester_user_id = :user_id
+                  AND addressee_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
+                  AND status = 'pending'
                 """,
-                {"user_id": user_id},
+                    {"user_id": user_id, "page_user_ids": page_user_ids},
+                )
+                if page_user_ids
+                else []
             )
         }
         in_pending = {
             str(r.get("requester_user_id") or "")
-            for r in self._execute_many(
-                """
+            for r in (
+                self._execute_many(
+                    """
                 SELECT requester_user_id FROM connection_requests
-                WHERE addressee_user_id = :user_id AND status = 'pending'
+                WHERE addressee_user_id = :user_id
+                  AND requester_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
+                  AND status = 'pending'
                 """,
-                {"user_id": user_id},
+                    {"user_id": user_id, "page_user_ids": page_user_ids},
+                )
+                if page_user_ids
+                else []
             )
         }
         connected: set[str] = set()
-        for r in self._execute_many(
-            """
-            SELECT user_a_id, user_b_id FROM connections
-            WHERE status = 'active' AND (user_a_id = :user_id OR user_b_id = :user_id)
-            """,
-            {"user_id": user_id},
-        ):
+        connection_rows = (
+            self._execute_many(
+                """
+                SELECT user_a_id, user_b_id FROM connections
+                WHERE status = 'active'
+                  AND (
+                    (user_a_id = :user_id
+                     AND user_b_id = ANY(CAST(:page_user_ids AS TEXT[])))
+                    OR
+                    (user_b_id = :user_id
+                     AND user_a_id = ANY(CAST(:page_user_ids AS TEXT[])))
+                  )
+                """,
+                {"user_id": user_id, "page_user_ids": page_user_ids},
+            )
+            if page_user_ids
+            else []
+        )
+        for r in connection_rows:
             a = str(r.get("user_a_id") or "")
             b = str(r.get("user_b_id") or "")
             connected.add(b if a == user_id else a)
@@ -2232,7 +2419,15 @@ class ConnectionsService:
             """
             SELECT c.id AS connection_id,
                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
-                   a.display_name, a.photo_url, c.created_at
+                   a.display_name, a.photo_url, c.created_at,
+                   EXISTS (
+                     SELECT 1
+                     FROM connection_origins contact_origin
+                     WHERE contact_origin.connection_id = c.id
+                       AND contact_origin.status = 'active'
+                       AND contact_origin.origin_kind = 'contact_sync'
+                       AND contact_origin.source_ref = :user_id
+                   ) AS connected_from_contacts
             FROM connections c
             LEFT JOIN actor_identity_cache a
               ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
@@ -2258,27 +2453,616 @@ class ConnectionsService:
                 "photoUrl": r.get("photo_url"),
                 "createdAt": r.get("created_at"),
                 "isRia": str(r.get("user_id") or "") in ria_user_ids,
+                "connectedFromContacts": bool(r.get("connected_from_contacts")),
             }
             for r in rows
         ]
 
+    def list_connections_page(
+        self,
+        user_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+        audience: str = DIRECTORY_AUDIENCE_ALL,
+    ) -> dict[str, Any]:
+        """Return a stable bounded connection page without truncating legacy reads."""
+
+        viewer_id = str(user_id or "").strip()
+        normalized_page = max(1, int(page or 1))
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        normalized_query = str(query or "").strip().lower()
+        normalized_audience = str(audience or DIRECTORY_AUDIENCE_ALL).strip().lower()
+        if normalized_audience not in {DIRECTORY_AUDIENCE_ALL, DIRECTORY_AUDIENCE_RIA}:
+            normalized_audience = DIRECTORY_AUDIENCE_ALL
+        offset = (normalized_page - 1) * normalized_limit
+
+        rows = self._execute_many(
+            f"""
+            WITH filtered AS (
+              SELECT
+                connection.id AS connection_id,
+                CASE
+                  WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                  ELSE connection.user_a_id
+                END AS user_id,
+                identity.display_name, identity.photo_url, connection.created_at,
+                LOWER(BTRIM(COALESCE(
+                  NULLIF(identity.display_name, ''),
+                  CASE
+                    WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                    ELSE connection.user_a_id
+                  END
+                ))) AS normalized_name
+              FROM connections connection
+              LEFT JOIN actor_identity_cache identity
+                ON identity.user_id = CASE
+                  WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                  ELSE connection.user_a_id
+                END
+              WHERE connection.status = 'active'
+                AND (
+                  connection.user_a_id = :user_id
+                  OR connection.user_b_id = :user_id
+                )
+                AND (
+                  :query = ''
+                  OR POSITION(
+                    :query IN LOWER(BTRIM(COALESCE(
+                      NULLIF(identity.display_name, ''),
+                      CASE
+                        WHEN connection.user_a_id = :user_id
+                        THEN connection.user_b_id
+                        ELSE connection.user_a_id
+                      END
+                    )))
+                  ) > 0
+                )
+                AND (
+                  :audience = 'all'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_filter
+                    WHERE ria_filter.user_id = CASE
+                      WHEN connection.user_a_id = :user_id
+                      THEN connection.user_b_id
+                      ELSE connection.user_a_id
+                    END
+                      AND {_RIA_VERIFIED_STATUS_SQL}
+                  )
+                )
+            ),
+            total AS (
+              SELECT COUNT(*)::BIGINT AS total_count FROM filtered
+            ),
+            page_rows AS (
+              SELECT *
+              FROM filtered
+              ORDER BY normalized_name, user_id, connection_id
+              OFFSET :offset
+              LIMIT :limit
+            )
+            SELECT
+              page_rows.connection_id, page_rows.user_id,
+              page_rows.display_name, page_rows.photo_url,
+              page_rows.created_at, page_rows.normalized_name,
+              total.total_count,
+              CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
+                SELECT 1
+                FROM connection_origins contact_origin
+                WHERE contact_origin.connection_id = page_rows.connection_id
+                  AND contact_origin.status = 'active'
+                  AND contact_origin.origin_kind = 'contact_sync'
+                  AND contact_origin.source_ref = :user_id
+              ) END AS connected_from_contacts,
+              CASE WHEN page_rows.user_id IS NULL THEN FALSE ELSE EXISTS (
+                SELECT 1
+                FROM ria_profiles ria_annotation
+                WHERE ria_annotation.user_id = page_rows.user_id
+                  AND {_RIA_VERIFIED_STATUS_SQL}
+              ) END AS is_ria
+            FROM total
+            LEFT JOIN page_rows ON TRUE
+            ORDER BY page_rows.normalized_name, page_rows.user_id,
+                     page_rows.connection_id
+            """,  # nosec B608 - the RIA predicate is a static module constant.
+            {
+                "user_id": viewer_id,
+                "query": normalized_query,
+                "audience": normalized_audience,
+                "offset": offset,
+                "limit": normalized_limit,
+            },
+        )
+        total_count = int((rows[0] if rows else {}).get("total_count") or 0)
+        page_rows = [row for row in rows if row.get("connection_id")]
+        items = [
+            {
+                "connectionId": str(row.get("connection_id") or ""),
+                "userId": str(row.get("user_id") or ""),
+                "displayName": row.get("display_name"),
+                "photoUrl": row.get("photo_url"),
+                "createdAt": row.get("created_at"),
+                "isRia": bool(row.get("is_ria")),
+                "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            }
+            for row in page_rows
+        ]
+        return {
+            "items": items,
+            "page": normalized_page,
+            "hasMore": offset + len(items) < total_count,
+            "totalCount": total_count,
+            "audience": normalized_audience,
+        }
+
+    def sync_contact_matches(
+        self,
+        user_id: str,
+        *,
+        phone_lookups: list[dict[str, Any]],
+        matches: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Materialize eligible contact matches without broadening consent.
+
+        Matching remains read-only and happens before this method. This method
+        re-derives every digest from the current verified server phone, locks
+        relationship state, and writes all canonical graph projections inside
+        one transaction. It never creates a location/information grant.
+        """
+
+        requester_id = str(user_id or "").strip()
+        if not requester_id:
+            raise ConnectionsError(
+                "CONTACT_SYNC_AUTH_REQUIRED", "Sign in before syncing contacts.", status_code=401
+            )
+        if len(phone_lookups) > CONTACT_SYNC_MAX_LOOKUPS or len(matches) > CONTACT_SYNC_MAX_LOOKUPS:
+            raise ConnectionsError(
+                "CONTACT_SYNC_LOOKUP_COUNT_INVALID",
+                f"Sync at most {CONTACT_SYNC_MAX_LOOKUPS} contacts at a time.",
+                status_code=422,
+            )
+
+        proofs: dict[str, tuple[str, str]] = {}
+        for lookup in phone_lookups:
+            lookup_id = str(lookup.get("lookup_id") or "").strip()
+            digest = str(lookup.get("hash") or "").strip().lower()
+            last4 = str(lookup.get("last4") or "").strip()
+            proof_valid = (
+                bool(lookup_id)
+                and len(digest) == 64
+                and all(ch in "0123456789abcdef" for ch in digest)
+                and len(last4) == 4
+                and all(ch in "0123456789" for ch in last4)
+            )
+            if not proof_valid:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_LOOKUP_PROOF_INVALID",
+                    "Each contact-sync proof must include a SHA-256 digest and exactly four trailing digits.",
+                    status_code=422,
+                )
+            proofs[lookup_id] = (digest, last4)
+
+        normalized_matches: list[dict[str, Any]] = []
+        seen_lookup_ids: set[str] = set()
+        for match in matches:
+            lookup_id = str(match.get("lookup_id") or "").strip()
+            target_user_id = str(match.get("user_id") or "").strip()
+            if (
+                not lookup_id
+                or lookup_id in seen_lookup_ids
+                or lookup_id not in proofs
+                or not target_user_id
+                or target_user_id == requester_id
+            ):
+                continue
+            seen_lookup_ids.add(lookup_id)
+            normalized_matches.append({**match, "lookup_id": lookup_id, "user_id": target_user_id})
+
+        if not normalized_matches:
+            return {
+                "checkedLookupCount": len(phone_lookups),
+                "matchedCount": 0,
+                "autoConnectedCount": 0,
+                "alreadyConnectedCount": 0,
+                "requestRequiredCount": 0,
+                "suppressedCount": 0,
+                "indeterminateLookupIds": [],
+                "items": [],
+            }
+
+        candidate_user_ids = sorted({str(item["user_id"]) for item in normalized_matches})
+        proof_items = sorted(
+            (
+                str(item["lookup_id"]),
+                proofs[str(item["lookup_id"])][0],
+                proofs[str(item["lookup_id"])][1],
+            )
+            for item in normalized_matches
+        )
+        outcomes: list[dict[str, Any]] = []
+        trusted_projection_pairs: list[tuple[str, str]] = []
+        with self._transaction():
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is None:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_TRANSACTION_UNAVAILABLE",
+                    "Contact sync is temporarily unavailable.",
+                    status_code=503,
+                )
+            # Reset/deletion takes this same gate before touching Circles or
+            # connections. Acquire it before every graph row lock so cleanup
+            # cannot finish a DELETE and then be followed by a late edge
+            # recreation for either side of the pair.
+            lock_connection_graph_users(
+                transaction_connection,
+                user_ids={requester_id, *candidate_user_ids},
+            )
+            # Connections precede identity in the global lock order used by
+            # full account deletion. Existing rows are locked first so contact
+            # sync never holds the identity SHARE lock while waiting for a
+            # transaction that already owns the same connection row.
+            existing_rows = self._execute_many(
+                """
+                SELECT
+                  connection.id, connection.user_a_id, connection.user_b_id,
+                  connection.status,
+                  CASE
+                    WHEN connection.user_a_id = :requester_id THEN connection.user_b_id
+                    ELSE connection.user_a_id
+                  END AS target_user_id
+                FROM connections connection
+                WHERE (
+                    connection.user_a_id = :requester_id
+                    AND connection.user_b_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                  ) OR (
+                    connection.user_b_id = :requester_id
+                    AND connection.user_a_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                  )
+                ORDER BY connection.user_a_id, connection.user_b_id
+                FOR UPDATE
+                """,
+                {"requester_id": requester_id, "candidate_user_ids": candidate_user_ids},
+            )
+            existing_by_target: dict[str, dict[str, Any]] = {}
+            for row in existing_rows:
+                target = str(row.get("target_user_id") or "")
+                if target in candidate_user_ids and {
+                    str(row.get("user_a_id") or ""),
+                    str(row.get("user_b_id") or ""),
+                } == {requester_id, target}:
+                    existing_by_target[target] = row
+
+            # Exact proof uniqueness is an identity-cache invariant at the
+            # mutation boundary, not merely a property of the earlier async
+            # lookup. SHARE is compatible across concurrent syncs while it
+            # blocks every INSERT/UPDATE/DELETE writer's ROW EXCLUSIVE lock.
+            # The recount below and all graph writes therefore observe one
+            # stable set of verified phone bindings. This avoids selecting an
+            # arbitrary account if a stale duplicate arrives between match and
+            # mutation without forcing a risky data-cleanup migration.
+            self._execute_many("LOCK TABLE actor_identity_cache IN SHARE MODE")
+            # Read requester and candidate identities in canonical order. The
+            # table SHARE lock already keeps those rows stable through commit,
+            # so row locks would add contention without strengthening safety.
+            locked_identity_rows = self._execute_many(
+                """
+                SELECT user_id, phone_number, phone_verified, display_name,
+                       photo_url, custom_photo_url
+                FROM actor_identity_cache
+                WHERE user_id = ANY(CAST(:identity_user_ids AS TEXT[]))
+                ORDER BY user_id
+                """,
+                {"identity_user_ids": sorted({requester_id, *candidate_user_ids})},
+            )
+            locked_identities = {str(row.get("user_id") or ""): row for row in locked_identity_rows}
+            requester = locked_identities.get(requester_id) or {}
+            if (
+                not bool(requester.get("phone_verified"))
+                or not str(requester.get("phone_number") or "").strip()
+            ):
+                raise ConnectionsError(
+                    "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
+                    "Verify your phone number before syncing contacts.",
+                    status_code=403,
+                )
+            proof_match_rows = self._execute_many(
+                """
+                WITH submitted_lookup AS (
+                  SELECT lookup_id, digest_hex, last4
+                  FROM UNNEST(
+                    CAST(:lookup_ids AS TEXT[]),
+                    CAST(:digest_hexes AS TEXT[]),
+                    CAST(:last4_values AS TEXT[])
+                  ) AS submitted(lookup_id, digest_hex, last4)
+                ),
+                correlated_identity AS (
+                  SELECT
+                    submitted.lookup_id,
+                    identity.user_id,
+                    COUNT(*) OVER (
+                      PARTITION BY submitted.lookup_id
+                    ) AS match_count
+                  FROM submitted_lookup submitted
+                  JOIN actor_identity_cache identity
+                    ON RIGHT(
+                      regexp_replace(identity.phone_number, '[^0-9]', '', 'g'), 4
+                    ) = submitted.last4
+                   AND encode(
+                     digest(
+                       convert_to(
+                         '+' || regexp_replace(
+                           identity.phone_number, '[^0-9]', '', 'g'
+                         ),
+                         'UTF8'
+                       ),
+                       'sha256'
+                     ),
+                     'hex'
+                   ) = submitted.digest_hex
+                  WHERE identity.phone_verified = TRUE
+                    AND identity.phone_number IS NOT NULL
+                )
+                SELECT lookup_id, user_id, match_count
+                FROM correlated_identity
+                ORDER BY lookup_id, user_id
+                """,
+                {
+                    "lookup_ids": [item[0] for item in proof_items],
+                    "digest_hexes": [item[1] for item in proof_items],
+                    "last4_values": [item[2] for item in proof_items],
+                },
+            )
+            unambiguous_target_by_lookup = {
+                str(row.get("lookup_id") or ""): str(row.get("user_id") or "")
+                for row in proof_match_rows
+                if int(row.get("match_count") or 0) == 1
+                and str(row.get("user_id") or "") != requester_id
+            }
+            identity_rows: list[dict[str, Any]] = []
+            for match in normalized_matches:
+                lookup_id = str(match["lookup_id"])
+                target_user_id = str(match["user_id"])
+                identity = locked_identities.get(target_user_id) or {}
+                digits = "".join(
+                    ch for ch in str(identity.get("phone_number") or "") if ch in "0123456789"
+                )
+                expected_digest, expected_last4 = proofs[lookup_id]
+                current_digest = (
+                    hashlib.sha256(f"+{digits}".encode("utf-8")).hexdigest() if digits else ""
+                )
+                if (
+                    bool(identity.get("phone_verified"))
+                    and digits[-4:] == expected_last4
+                    and current_digest == expected_digest
+                    and unambiguous_target_by_lookup.get(lookup_id) == target_user_id
+                ):
+                    identity_rows.append({**identity, "lookup_id": lookup_id})
+            revalidated_user_ids = sorted({str(row.get("user_id") or "") for row in identity_rows})
+            profile_rows = self._execute_many(
+                """
+                SELECT user_id, contact_discoverable,
+                       contact_sync_consent_enabled_at,
+                       contact_sync_consent_rule_version,
+                       contact_sync_consent_contract_version
+                FROM actor_profiles
+                WHERE user_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                ORDER BY user_id
+                -- Circle membership flows deliberately lock profiles before
+                -- connections. Contact sync already holds existing connection
+                -- rows, so waiting here would invert that order and deadlock.
+                -- A busy profile is omitted and fails closed for this run.
+                FOR UPDATE SKIP LOCKED
+                """,
+                {"candidate_user_ids": revalidated_user_ids},
+            )
+            profiles = {str(row.get("user_id") or ""): row for row in profile_rows}
+            eligible_rows_by_lookup: dict[str, list[dict[str, Any]]] = {}
+            for row in identity_rows:
+                target_user_id = str(row.get("user_id") or "")
+                profile = profiles.get(target_user_id) or {}
+                enriched = {
+                    **row,
+                    "contact_discoverable": profile.get("contact_discoverable", False),
+                    "contact_sync_consent_enabled_at": profile.get(
+                        "contact_sync_consent_enabled_at"
+                    ),
+                    "contact_sync_consent_rule_version": int(
+                        profile.get("contact_sync_consent_rule_version") or 0
+                    ),
+                    "contact_sync_consent_contract_version": profile.get(
+                        "contact_sync_consent_contract_version"
+                    ),
+                }
+                if (
+                    enriched["contact_discoverable"]
+                    and enriched["contact_sync_consent_enabled_at"] is not None
+                    and enriched["contact_sync_consent_rule_version"] > 0
+                    and enriched["contact_sync_consent_contract_version"]
+                    == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+                ):
+                    eligible_rows_by_lookup.setdefault(str(row.get("lookup_id") or ""), []).append(
+                        enriched
+                    )
+            activations: list[dict[str, Any]] = []
+            for match in sorted(
+                normalized_matches,
+                key=lambda item: (str(item["user_id"]), str(item["lookup_id"])),
+            ):
+                lookup_id = str(match["lookup_id"])
+                target_user_id = str(match["user_id"])
+                eligible_rows = eligible_rows_by_lookup.get(lookup_id) or []
+                identity = eligible_rows[0] if len(eligible_rows) == 1 else {}
+                proof_valid = bool(
+                    identity and str(identity.get("user_id") or "") == target_user_id
+                )
+                if not proof_valid:
+                    # The async match is only a candidate. A preference or
+                    # verified phone can change before this transaction; stale
+                    # candidates become checked-unmatched and write nothing.
+                    continue
+                existing = existing_by_target.get(target_user_id)
+                existing_status = str((existing or {}).get("status") or "")
+
+                outcome = "auto_connected"
+                if existing_status == "revoked":
+                    # A disconnect is an explicit suppression tombstone even
+                    # for a pair that predated contact-sync provenance.
+                    outcome = "suppressed"
+                elif existing_status == "active":
+                    activations.append(
+                        {
+                            "target_user_id": target_user_id,
+                            "origin_metadata": {"authorization": "existing_connection_match"},
+                        }
+                    )
+                    outcome = "already_connected"
+                else:
+                    # A match is emitted only after the target's current verified
+                    # phone and contact-discoverability setting are revalidated
+                    # under this transaction. Matching therefore materializes
+                    # the contact-sourced connection immediately. This remains
+                    # relationship metadata only: no location or information
+                    # capability is granted here.
+                    consent_enabled_at = identity["contact_sync_consent_enabled_at"]
+                    serialized_consent_enabled_at = (
+                        consent_enabled_at.isoformat()
+                        if hasattr(consent_enabled_at, "isoformat")
+                        else str(consent_enabled_at)
+                    )
+                    activations.append(
+                        {
+                            "target_user_id": target_user_id,
+                            "origin_metadata": {
+                                "authorization": "verified_phone_contact_match",
+                                "targetConsentEnabledAt": serialized_consent_enabled_at,
+                                "targetConsentRuleVersion": identity[
+                                    "contact_sync_consent_rule_version"
+                                ],
+                                "targetConsentContractVersion": identity[
+                                    "contact_sync_consent_contract_version"
+                                ],
+                            },
+                        }
+                    )
+
+                outcomes.append(
+                    {
+                        "lookupId": lookup_id,
+                        "userId": target_user_id,
+                        "displayName": identity.get("display_name"),
+                        "photoUrl": identity.get("custom_photo_url") or identity.get("photo_url"),
+                        "outcome": outcome,
+                    }
+                )
+
+            if activations:
+                activated_target_ids = set(
+                    activate_contact_sync_connections_bulk(
+                        transaction_connection,
+                        requester_user_id=requester_id,
+                        activations=activations,
+                    )
+                )
+                if activated_target_ids:
+                    trusted_projection_pairs = [
+                        (requester_id, str(activation["target_user_id"]))
+                        for activation in activations
+                        if str(activation["target_user_id"]) in activated_target_ids
+                    ]
+                # A canonical row can become a disconnect tombstone after the
+                # earlier FOR UPDATE scan only when it did not exist yet. The
+                # conditional bulk upsert refuses that conflict; report it as
+                # suppressed and never create its origin/trusted/Circle rows.
+                for item in outcomes:
+                    if (
+                        item["outcome"] in {"auto_connected", "already_connected"}
+                        and str(item["userId"]) not in activated_target_ids
+                    ):
+                        item["outcome"] = "suppressed"
+
+        if trusted_projection_pairs:
+            self._join_trusted_system_circles_bulk(pairs=trusted_projection_pairs)
+
+        counts = {
+            "auto_connected": sum(item["outcome"] == "auto_connected" for item in outcomes),
+            "already_connected": sum(item["outcome"] == "already_connected" for item in outcomes),
+            "request_required": sum(item["outcome"] == "request_required" for item in outcomes),
+            "suppressed": sum(item["outcome"] == "suppressed" for item in outcomes),
+        }
+        outcome_lookup_ids = {str(item["lookupId"]) for item in outcomes}
+        indeterminate_lookup_ids = sorted(
+            {
+                str(item["lookup_id"])
+                for item in normalized_matches
+                if str(item["lookup_id"]) not in outcome_lookup_ids
+            }
+        )
+        return {
+            "checkedLookupCount": len(phone_lookups),
+            "matchedCount": len(outcomes),
+            "autoConnectedCount": counts["auto_connected"],
+            "alreadyConnectedCount": counts["already_connected"],
+            "requestRequiredCount": counts["request_required"],
+            "suppressedCount": counts["suppressed"],
+            # These opaque lookups matched during the initial read but could
+            # not be revalidated under the mutation transaction (for example,
+            # a concurrent consent change or busy profile lock). The client
+            # must keep them out of both match results and invitation targets.
+            "indeterminateLookupIds": indeterminate_lookup_ids,
+            "items": outcomes,
+        }
+
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         with self._transaction():
-            # Lock the graph edge before revoking its capability descendants.
-            row = self._execute_one(
+            # Resolve the immutable pair without taking a row lock, then share
+            # the same deterministic per-user graph gate as contact sync,
+            # reset, deletion, and Trusted-Circle projection. Acquiring this
+            # gate before ``connections FOR UPDATE`` preserves the global lock
+            # order and prevents a late projection from restoring a roster
+            # entry after this disconnect commits.
+            candidate = self._execute_one(
                 """
                 SELECT id, user_a_id, user_b_id, status
                 FROM connections
                 WHERE id = :id
                   AND (user_a_id = :user_id OR user_b_id = :user_id)
                 LIMIT 1
-                FOR UPDATE
                 """,
                 {"id": (connection_id or "").strip(), "user_id": user_id},
             )
-            if not row:
+            if not candidate:
                 return {"removed": 0}
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is not None:
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={
+                        str(candidate.get("user_a_id") or ""),
+                        str(candidate.get("user_b_id") or ""),
+                    },
+                )
+                # Revalidate membership and pair identity after waiting for the
+                # advisory gate; the row may have changed while we waited.
+                row = self._execute_one(
+                    """
+                    SELECT id, user_a_id, user_b_id, status
+                    FROM connections
+                    WHERE id = :id
+                      AND (user_a_id = :user_id OR user_b_id = :user_id)
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    {"id": (connection_id or "").strip(), "user_id": user_id},
+                )
+                if not row:
+                    return {"removed": 0}
+            else:
+                # Lightweight unit doubles have no transaction connection;
+                # production databases always take the gated revalidation.
+                row = candidate
             user_a = row.get("user_a_id")
             user_b = row.get("user_b_id")
             self._revoke_pair_capabilities(
@@ -2297,6 +3081,23 @@ class ConnectionsService:
                 RETURNING id
                 """,
                 {"a": user_a, "b": user_b},
+            )
+            # Persist the disconnect in the provenance ledger. In particular,
+            # a revoked canonical row is the contact-sync suppression tombstone
+            # even when this pair predates the contact_sync origin kind.
+            self._execute_many(
+                """
+                UPDATE connection_origins
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE connection_id = CAST(:connection_id AS UUID)
+                  AND status = 'active'
+                  AND origin_kind IN (
+                    'direct_request', 'circle_member', 'legacy_invite',
+                    'import', 'contact_sync'
+                  )
+                RETURNING id
+                """,
+                {"connection_id": (connection_id or "").strip()},
             )
             conn = self._execute_one(
                 """

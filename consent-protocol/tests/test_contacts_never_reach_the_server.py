@@ -114,12 +114,14 @@ def test_the_match_endpoint_still_stores_nothing():
 
     from hushh_mcp.services.ria_iam_service import RIAIAMService
 
-    source = inspect.getsource(RIAIAMService.match_marketplace_contacts)
-    lowered = source.lower()
-
-    for statement in ("insert into", "update ", "delete from"):
-        assert statement not in lowered, (
-            f"match_marketplace_contacts contains {statement!r}. The matching "
-            "path persists nothing; a contact who is not a Hushh user must "
-            "leave no trace."
-        )
+    for matcher in (
+        RIAIAMService.match_marketplace_contacts,
+        RIAIAMService.match_one_network_contact_lookups_exact,
+    ):
+        lowered = inspect.getsource(matcher).lower()
+        for statement in ("insert into", "update ", "delete from"):
+            assert statement not in lowered, (
+                f"{matcher.__name__} contains {statement!r}. The matching path "
+                "persists nothing; a contact who is not a Hushh user must leave "
+                "no trace."
+            )

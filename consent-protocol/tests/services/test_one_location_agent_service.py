@@ -1870,6 +1870,26 @@ class FourUserMemoryService(OneLocationAgentService):
                     grant["status"] = "revoked"
                     revoked.append({"id": grant["id"]})
             return revoked
+        if "SELECT origin.origin_kind" in sql and "FOR UPDATE OF connection, origin" in sql:
+            owner = str(params.get("owner_user_id") or "")
+            requester = str(params.get("requester_user_id") or "")
+            connection = next(
+                (
+                    row
+                    for row in self.connections.values()
+                    if row.get("status") == "active"
+                    and {owner, requester} == {row.get("user_a_id"), row.get("user_b_id")}
+                ),
+                None,
+            )
+            if not connection:
+                return []
+            return [
+                {"origin_kind": origin.get("origin_kind")}
+                for origin in self.connection_origins.values()
+                if origin.get("connection_id") == connection.get("id")
+                and origin.get("status") == "active"
+            ]
         raise AssertionError(f"unexpected execute_many SQL: {sql}")
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
@@ -5154,6 +5174,38 @@ def test_auto_approval_mints_a_grant_for_a_current_contact() -> None:
     assert approval_event["metadata"]["auto_approve_scope_kind"] == "all_contacts"
     assert approval_event["metadata"]["auto_approve_rule_version"] == 1
     assert approval_event["metadata"]["auto_approve_enabled_at"] == enabled_at.isoformat()
+
+
+def test_contact_sync_only_connection_requires_manual_location_approval() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    for origin in service.connection_origins.values():
+        origin["origin_kind"] = "contact_sync"
+        origin["origin_key"] = "contact_sync:user_a"
+    service._seed_auto_approve_preference(rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=1,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_CONTACT_SYNC_REQUIRES_APPROVAL"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
 
 
 def test_auto_approval_rejects_a_caller_duration_override() -> None:
