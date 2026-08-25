@@ -1047,13 +1047,17 @@ async def startup_personal_agent_reconcile_worker() -> None:
                 logger.warning("personal_agent_reconcile.row_read_failed -- skipping this pass")
                 return
             if str((row or {}).get("status") or "") == "connecting":
-                from hushh_mcp.services.pod_key_collector import (
-                    collect_pod_key_if_pending,
-                )
+                from hushh_mcp.services.pod_key_collector import refresh_pod_key
 
                 advanced = None
                 try:
-                    advanced = await collect_pod_key_if_pending(row)
+                    # The sweep MUST use the rotation-aware entry: a rebuilt pod
+                    # holds a NEW keypair, and the raw collector's default refuses
+                    # to rebind ("a different pod public key is already registered")
+                    # -- observed live 2026-08-25: a re-provisioned row could never
+                    # leave `connecting`. refresh_pod_key exists precisely so this
+                    # call site never has to remember the flag.
+                    advanced = await refresh_pod_key(row)
                     logger.info(
                         "personal_agent_reconcile.key_collection user_id_prefix=%s advanced=%s",
                         user_id[:8],

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import inspect
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -362,7 +363,7 @@ def _wire_connecting_pass(monkeypatch, *, row, advanced=None, mark_returns=True)
     async def _collect(_row):
         return advanced
 
-    monkeypatch.setattr("hushh_mcp.services.pod_key_collector.collect_pod_key_if_pending", _collect)
+    monkeypatch.setattr("hushh_mcp.services.pod_key_collector.refresh_pod_key", _collect)
 
     marked: list[dict] = []
 
@@ -577,3 +578,17 @@ async def test_mark_provisioning_failed_is_conditional_on_connecting(repo, monke
 
     assert await r2.mark_provisioning_failed(user_id="u1", reason=REASON_HANDSHAKE_TIMEOUT) is False
     assert appended == []
+
+
+def test_the_sweep_uses_the_rotation_aware_collector_entry() -> None:
+    """The join, pinned: refresh_pod_key exists so the sweep never has to remember
+    allow_rotation -- and the sweep called the raw collector anyway, so a rebuilt
+    pod's NEW keypair was refused forever ('a different pod public key is already
+    registered', observed live 2026-08-25) and a re-provisioned row could never
+    leave `connecting`."""
+    source = (Path(__file__).resolve().parents[1] / "server.py").read_text(encoding="utf-8")
+    assert "refresh_pod_key(row)" in source
+    assert "collect_pod_key_if_pending(row)" not in source, (
+        "the sweep must use the rotation-aware entry; the raw collector's default "
+        "refuses to rebind a restarted pod's new key"
+    )
