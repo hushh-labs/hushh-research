@@ -690,6 +690,40 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           console.warn("[AgentBar] Rejected legacy direct navigation directive.");
           return;
         }
+        if (event.directive.kind === "action_result") {
+          // Backend-direct: the mutation already ran server-side before this
+          // arrived (_park_action_result_directive in action_tools.py), so
+          // there is nothing to execute and nothing to settle back -- unlike
+          // a `kind: "action"` directive, this only needs to become visible.
+          // No directiveId/contextRevision binding either, for the same
+          // reason: there is no settlement round trip to bind one to.
+          const actionId =
+            typeof event.directive.payload?.actionId === "string"
+              ? event.directive.payload.actionId
+              : null;
+          const message =
+            typeof event.directive.payload?.message === "string"
+              ? event.directive.payload.message
+              : null;
+          if (!actionId || !message) {
+            console.warn("[AgentBar] Rejected malformed action_result directive.");
+            return;
+          }
+          const resultPhase =
+            event.directive.payload?.status === "failed" ? "failed" : "completed";
+          const action = getKaiActionById(actionId);
+          const run = appInteractionCoordinator.startActionRun({
+            actionId,
+            label: action?.label ?? actionId,
+            source: "voice",
+            message,
+          });
+          appInteractionCoordinator.updateActionRun(run.id, {
+            phase: resultPhase,
+            message,
+          });
+          return;
+        }
         if (event.directive.kind === "action") {
           const actionId =
             typeof event.directive.payload?.actionId === "string"

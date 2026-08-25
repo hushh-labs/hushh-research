@@ -1104,7 +1104,10 @@ def test_every_backend_direct_action_id_still_exists_in_the_action_gateway() -> 
 class TestBackendDirectCircleActions:
     """location.leave_circle / location.delete_circle bypass the client
     directive entirely and mutate through OneLocationCircleService directly.
-    No client_directive should ever be parked for these two."""
+    The only directive parked for either is the terminal action_result kind
+    (see _park_action_result_directive) -- there is no client_directive
+    asking the browser to execute anything, since the mutation already
+    happened here."""
 
     def _authorized_state(self) -> dict:
         return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
@@ -1113,7 +1116,7 @@ class TestBackendDirectCircleActions:
         return (True, None, SimpleNamespace(user_id=user_id))
 
     @pytest.mark.asyncio
-    async def test_leave_circle_executes_directly_and_parks_nothing(self):
+    async def test_leave_circle_executes_directly_and_parks_only_the_result(self):
         state = self._authorized_state()
         with (
             patch(
@@ -1137,7 +1140,18 @@ class TestBackendDirectCircleActions:
         # positional arg -- assert on the keyword args a real caller used.
         leave_mock.assert_called_once()
         assert leave_mock.call_args.kwargs == {"user_id": "user_1", "circle_id": "c1"}
-        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+        # No {kind: "action"} directive asking the browser to execute
+        # anything -- only the terminal result, so it never enters the
+        # issue()/settlement/GC machinery a real "action" directive would.
+        directive_keys = [k for k in state if k.startswith(f"{_STATE_PENDING_DIRECTIVE}:")]
+        assert directive_keys == [f"{_STATE_PENDING_DIRECTIVE}:location.leave_circle:result"]
+        parked = state[directive_keys[0]]
+        assert parked["kind"] == "action_result"
+        assert parked["payload"] == {
+            "actionId": "location.leave_circle",
+            "status": "completed",
+            "message": result["message"],
+        }
 
     @pytest.mark.asyncio
     async def test_delete_circle_executes_directly(self):
@@ -1269,6 +1283,10 @@ class TestBackendDirectCircleActions:
         ):
             first = await run_app_action("location.leave_circle", {"circle": "family"}, ctx)
             assert first["status"] == "failed"
+            parked = state[f"{_STATE_PENDING_DIRECTIVE}:location.leave_circle:result"]
+            assert parked["kind"] == "action_result"
+            assert parked["payload"]["status"] == "failed"
+            assert parked["payload"]["actionId"] == "location.leave_circle"
             second = await run_app_action("location.leave_circle", {"circle": "family"}, ctx)
         assert second["status"] == "already_failed"
 
