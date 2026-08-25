@@ -216,6 +216,17 @@ export function CirclesSection({
     ? incomingInvites.find((invite) => invite.id === focusedInviteId) ?? null
     : null;
 
+  const orderedCircles = useMemo(() => {
+    return [...circles].sort((left, right) => {
+      const isSystemLeft = Boolean(left.systemKind || left.isSystem);
+      const isSystemRight = Boolean(right.systemKind || right.isSystem);
+      if (isSystemLeft !== isSystemRight) {
+        return isSystemLeft ? 1 : -1;
+      }
+      return 0;
+    });
+  }, [circles]);
+
   useEffect(() => {
     if (
       !focusedInvite ||
@@ -278,16 +289,21 @@ export function CirclesSection({
               <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-48 rounded-2xl">
+          <DropdownMenuContent
+            align="end"
+            className="min-w-48 rounded-2xl border border-[color:var(--app-border,rgba(255,255,255,0.1))] bg-[color:var(--app-primary-surface)] p-1.5 shadow-xl dark:border-white/10 dark:bg-[#1c1c1e]"
+          >
             <DropdownMenuItem
               onSelect={onCreate}
               data-voice-control-id="one-location-action-create-circle"
+              className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
             >
               Create Circle
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={onJoin}
               data-voice-control-id="one-location-action-join-circle"
+              className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
             >
               Join with code
             </DropdownMenuItem>
@@ -415,13 +431,13 @@ export function CirclesSection({
         </div>
       ) : null}
 
-      {circles.length ? (
+      {orderedCircles.length ? (
         <SettingsGroup
           separatorInset
           shellClassName={CIRCLES_GROUP_SURFACE}
           testId="one-location-circle-list"
         >
-          {circles.map((circle) => {
+          {orderedCircles.map((circle) => {
             // STATE BEATS CATEGORY: a circle is the people role, but one
             // holding nobody except the viewer has nothing to report and
             // stays neutral. `memberCount` includes the viewer, so the
