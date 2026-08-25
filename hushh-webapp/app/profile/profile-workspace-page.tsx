@@ -725,10 +725,14 @@ function ProfilePageContent() {
   const gmailRouteHref = searchParamsString
     ? `${pathname}?${searchParamsString}`
     : pathname;
+  const gmailIdTokenProvider = useCallback(
+    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+    [user],
+  );
   const gmail = useGmailConnectorStatus({
     userId: user?.uid || null,
     enabled: Boolean(user?.uid) && !authLoading && activePanel === "gmail",
-    idTokenProvider: user?.getIdToken ? () => user.getIdToken() : null,
+    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
     routeHref: gmailRouteHref,
     refreshKey: gmailRouteHref,
   });
