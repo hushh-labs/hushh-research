@@ -299,10 +299,134 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: ownerShortened
-          ? "You shortened their location access"
-          : "Gave back their remaining time early",
-        href: ROUTES.ONE_LOCATION,
+        description: sharedWithMe
+          ? ownerShortened
+            ? "Shortened your location access"
+            : "You gave back your remaining time early"
+          : ownerShortened
+            ? "You shortened their location access"
+            : "Gave back their remaining time early",
+        href: buildOneLocationWorkflowHref({
+          grantId: metadataString(item.metadata, "grant_id") || undefined,
+          section: sharedWithMe ? "people" : "shared",
+        }),
+      };
+    }
+    case "location_share_duration_changed": {
+      const hasWho = who !== "Someone";
+      const direction = metadataString(item.metadata, "direction");
+      const description = sharedWithMe
+        ? direction === "until_stopped"
+          ? "Is sharing until they stop"
+          : direction === "extended"
+            ? "Gave you more time"
+            : "Shortened your location access"
+        : direction === "until_stopped"
+          ? "You changed sharing to until you stop"
+          : direction === "extended"
+            ? "You gave them more time"
+            : "You shortened their access";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        description,
+        href: buildOneLocationWorkflowHref({
+          grantId: metadataString(item.metadata, "grant_id") || undefined,
+          section: sharedWithMe ? "people" : "shared",
+        }),
+      };
+    }
+    case "location_access_request_withdrawn": {
+      const hasWho = who !== "Someone";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location request",
+        description: iAskedForThis
+          ? "You took back your location request"
+          : "Took back their location request",
+        href: buildOneLocationWorkflowHref({
+          requestId: metadataString(item.metadata, "request_id") || undefined,
+          section: iAskedForThis ? "my_requests" : "approvals",
+        }),
+      };
+    }
+    case "location_referral_invite": {
+      const ownerLabel = metadataString(item.metadata, "owner_label");
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "Location referral",
+        description: ownerLabel
+          ? `Referred you into a location request for ${ownerLabel}`
+          : "Referred you into a location request",
+        href: buildOneLocationWorkflowHref({
+          requestId: metadataString(item.metadata, "request_id") || undefined,
+          referralId: metadataString(item.metadata, "referral_id") || undefined,
+          section: "my_requests",
+        }),
+      };
+    }
+    case "location_public_invite_submitted": {
+      const publicLocationViewed = metadataBool(
+        item.metadata,
+        "public_location_view",
+      );
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "Public location link",
+        description: publicLocationViewed
+          ? "Opened your public location link"
+          : "Requested location access from your public link",
+        href: buildOneLocationWorkflowHref({
+          requestId: metadataString(item.metadata, "request_id") || undefined,
+          submissionId:
+            metadataString(item.metadata, "submission_id") || undefined,
+          section: "public_responses",
+        }),
+      };
+    }
+    case "location_one_network_joined": {
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "One Network",
+        description: sharedWithMe
+          ? "You joined their One Network"
+          : "Joined your One Network",
+        href: buildOneLocationWorkflowHref({ section: "people" }),
+      };
+    }
+    case "location_circle_code_joined": {
+      const circleName = metadataString(item.metadata, "circle_name");
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "Circle member",
+        description: circleName
+          ? `Joined ${circleName} using your code`
+          : "Joined your Circle using your code",
+        href: buildOneLocationWorkflowHref({
+          circleId: metadataString(item.metadata, "circle_id") || undefined,
+          section: "people",
+        }),
+      };
+    }
+    case "location_circle_member_invite_accepted": {
+      const circleName = metadataString(item.metadata, "circle_name");
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "Circle member",
+        description: circleName
+          ? `Accepted your invitation and joined ${circleName}`
+          : "Accepted your invitation and joined your Circle",
+        href: buildOneLocationWorkflowHref({
+          circleId: metadataString(item.metadata, "circle_id") || undefined,
+          section: "people",
+        }),
       };
     }
     case "circle_member_invited": {
@@ -354,6 +478,28 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         href: ticker
           ? buildKaiMarketRoute("analysis", { ticker })
           : buildKaiMarketRoute("analysis"),
+      };
+    }
+    case "funding_transfer_status": {
+      const status = metadataString(item.metadata, "user_facing_status");
+      const direction = metadataString(item.metadata, "direction").toUpperCase();
+      const transferKind = direction === "OUTGOING" ? "withdrawal" : "deposit";
+      const statusCopy =
+        status === "completed"
+          ? "completed"
+          : status === "failed"
+            ? "failed"
+            : status === "returned"
+              ? "was returned"
+              : status === "canceled"
+                ? "was canceled"
+                : "was updated";
+      return {
+        icon,
+        domainLabel,
+        label: "Funding transfer",
+        description: `Your ${transferKind} ${statusCopy}`,
+        href: ROUTES.KAI_PORTFOLIO,
       };
     }
     case "kyc_status_changed": {

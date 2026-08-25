@@ -194,6 +194,8 @@ def send_connection_request_push(
     body = connection_request_body(requester_name)
     deep_link = _connection_request_link(connection_request_id)
     request_id = str(connection_request_id or "").strip()
+    notification_identity = request_id or requester_user_id
+    message_id = f"connection-request:{notification_identity}"
 
     # Identity and routing fields the CLIENT needs, as opposed to the banner the
     # OS renders. The in-app toast reads only this data map -- it never sees
@@ -201,6 +203,7 @@ def send_connection_request_push(
     # said the right thing. Empty values are dropped by send_user_data_push, so
     # an unresolved name simply omits the key and the client owns the fallback.
     client_data = {
+        "message_id": message_id,
         "requester_user_id": requester_user_id,
         "requester_label": requester_name,
         "request_id": request_id,
@@ -253,7 +256,7 @@ def send_connection_request_push(
         title="New connection request",
         body=body,
         deep_link=deep_link,
-        notification_tag=f"connection-request:{addressee_user_id}",
+        notification_tag=message_id,
         notification_category="ONE_CONNECTIONS",
         data=client_data,
     )

@@ -317,7 +317,7 @@ def main() -> int:
     parser.add_argument("--plaid-redirect-path", default="")
     parser.add_argument("--plaid-redirect-uri", default="")
     parser.add_argument("--plaid-tx-history-days", default="")
-    parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    parser.add_argument("--one-location-read-only-state-enabled", default="true")
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to

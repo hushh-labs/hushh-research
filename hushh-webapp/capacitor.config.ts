@@ -92,7 +92,9 @@ const config: CapacitorConfig = {
       providers: ["google.com", "phone"],
     },
     FirebaseMessaging: {
-      presentationOptions: ["alert", "badge", "sound"],
+      // Routine foreground activity belongs in Feed; AppDelegate keeps the
+      // same badge-only policy and handles emergency SMS in the shared alarm UI.
+      presentationOptions: ["badge"],
     },
     HushhVault: {
       backendUrl: NORMALIZED_BACKEND_URL,

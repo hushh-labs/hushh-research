@@ -1,7 +1,7 @@
 # FCM Notifications
 
 > **Status**: Production (Pure Push)
-> **Last Updated**: July 2026
+> **Last Updated**: August 2026
 > **Scope**: Web (FCM), iOS/Android (Capacitor Firebase Messaging)
 
 
@@ -13,20 +13,61 @@ Canonical visual owner: [consent-protocol](../README.md). Use that map for the t
 
 ## Overview
 
-Consent requests are delivered to users via **Firebase Cloud Messaging (FCM)** using a **pure push** architecture. The backend sends enriched FCM payloads containing all data needed to render consent toasts -- no frontend polling required.
+Notification wake-ups are delivered through **Firebase Cloud Messaging (FCM)** using a **pure push** architecture. The backend sends enriched payloads so the client can refresh the durable Feed for every push and refresh recognized owning-domain state without a notification-data poll.
 
 **Supported platforms**: Web (FCM JS SDK), iOS (Capacitor Firebase Messaging), Android (Capacitor Firebase Messaging).
 
-### Native iOS policy
+### Cross-platform presentation policy
 
-Consent and connection requests are treated as **alert-class notifications** on iOS:
+Routine notification families—including consent, connection, One Location,
+Kai, and forward-compatible types—follow one lifecycle policy:
 
-- the backend sends an explicit APNs alert payload for iOS tokens
-- the payload carries a visible alert, sound, badge, routing metadata, and native action category
-- the app still refreshes in-app state after receipt or tap
-- Approve and Deny notification actions only open the app into a confirmation flow; they do not commit a decision directly from the notification
+| App state | Presentation | State behavior |
+| --------- | ------------ | -------------- |
+| Active/visible | No routine Sonner toast and no browser/native foreground banner or sound; badge may update | Always refresh Feed; also refresh recognized consent, connection, and One Location state |
+| Background, inactive, or no visible web client | One operating-system notification | Durable Feed remains authoritative |
+| External notification body tap | Open `/one/feed` | The Feed row owns later detail navigation/action |
 
-This is stricter than the web lane. Web remains service-worker/browser-notification based, while native iOS is expected to surface a system-visible alert when the device allows it.
+Explicit consent action buttons still open their review/confirmation flow and
+never approve or deny directly. The service worker elects one visible client
+to acknowledge foreground ownership; hidden tabs cannot suppress the system
+fallback or replay stale popup UI. Historical hydration and One Location state
+reconciliation are state-repair paths only and never presentation sources.
+
+Every shared push carries an explicit
+`notification_presentation=alert|silent` data field. A silent event (for
+example `consent_opened` or `consent_resolved`) may invalidate client state and
+close the matching stale system card, but it must never synthesize a fallback
+title/body or call the operating-system presentation API.
+
+### Durable Feed and identity contract
+
+An alert-class push is a wake-up/delivery mechanism, not notification history.
+Before a routine notification type is added, its authoritative transition must
+already produce either a durable `feed_events` row or a live Feed actionable.
+Current coverage includes consent, connection actionables, the full One
+Location notification lifecycle (including Circle joins and referrals), and
+terminal funding-transfer statuses. A new emitter that only calls FCM is
+incomplete.
+
+`message_id` identifies one semantic transition and `notification_tag`
+identifies the system card it may replace. Connection requests are scoped by
+request id; funding messages use transfer id plus normalized status for
+`message_id` and transfer id for the replacement tag. Web tags, Android tags,
+and APNs thread ids use the same semantic tag. Client dedupe also includes the
+notification revision/sequence so a real state transition is not mistaken for
+a transport retry.
+
+Warm web notification clicks use an acknowledgement handshake: the service
+worker requests internal Feed navigation first (preserving the memory-only
+vault), then falls back to `WindowClient.navigate`/`openWindow` if an old or
+uncontrolled page does not acknowledge. Consent request identity is carried to
+Feed as bounded query metadata and acknowledged only after authentication and
+vault unlock, which prevents the final reminder from firing after the user has
+already attended the system notification. Transient acknowledgement failures
+retry with capped backoff while Feed remains open and retry immediately when
+connectivity returns; permanent authorization or validation failures do not
+spin in the background.
 
 ### Emergency SMS alert policy
 
@@ -49,10 +90,14 @@ still receives emergency presentation.
 | Surface | Emergency behavior |
 | ------- | ------------------ |
 | Visible web app | Assertive red emergency card, three-pulse Web Audio alarm, supported-device vibration, and a 30-second presentation window |
-| Background web / PWA | Persistent browser notification with emergency vibration metadata and live-location routing |
+| Background web / PWA | Persistent browser notification with emergency vibration metadata; body tap enters Feed |
 | Android | Dedicated `one_location_sms_emergency_v1` high-importance channel using the device alarm sound, red notification light, and emergency vibration pattern |
 | iOS background | `ONE_LOCATION_SMS_EMERGENCY` category, custom `one_location_sms_alarm.wav` sound generated in the app's `Library/Sounds`, badge, and an Open live location action |
 | iOS foreground | Shared red in-app emergency card and alarm; the native delegate keeps only the badge to prevent a duplicate banner and duplicate sound |
+
+The explicit iOS **Open live location** safety action is the only notification
+action that bypasses Feed and opens the validated One Location target. A normal
+notification body tap, including an emergency body tap, still enters Feed.
 
 This profile does **not** bypass Focus or Do Not Disturb. Android explicitly
 keeps channel DND bypass disabled. iOS Critical Alerts are not requested because
@@ -79,7 +124,7 @@ There is no midpoint reminder and no repeated reminder loop once a request has b
 4. consent_listener.py receives event
 5. Enriches FCM payload: { request_id, scope, agent_id, scope_description }
 6. Sends FCM message to user's registered tokens
-7. Client receives push → renders toast from payload data
+7. Client receives push → refreshes Feed/domain state; OS presents only when inactive
 8. No polling and no production SSE requirement for notification data
 ```
 
@@ -131,7 +176,7 @@ gcloud is used for **GCP resources** that support the FCM-based flow:
 2. **Notification worker** (in consent-protocol) **LISTEN**s; on NOTIFY it:
    - Sends FCM to the user’s registered tokens (Firebase Admin SDK),
    - Pushes the event into a per-user in-app queue for SSE.
-3. **Web client**: Requests permission, gets FCM token (`getToken` with VAPID key), registers token via `POST /api/notifications/register`; handles **onMessage** (foreground) and **notificationclick** (service worker) to open `/one/consent?tab=pending`.
+3. **Web client**: Requests permission, gets FCM token (`getToken` with VAPID key), registers token via `POST /api/notifications/register`; handles **onMessage** as a Feed/domain refresh while visible and routes service-worker **notificationclick** to `/one/feed`.
 
 See the plan in `.cursor/plans/` and [consent-protocol.md](./consent-protocol.md) for full flow.
 
@@ -147,7 +192,7 @@ Consent requests reach the user only when the following chain is in place:
 
 3. **Queue → SSE fallback** – The in-app SSE generator creates a queue per user when the first SSE connection for that user is opened. Local development and UAT are expected to keep `CONSENT_SSE_ENABLED=true` so web fallback delivery can be validated when FCM is blocked or misconfigured. Production stays FCM-first by default with `CONSENT_SSE_ENABLED=false`, and `/api/consent/events/{user_id}/poll/{request_id}` remains hard-disabled there.
 
-4. **UI** – The frontend (ConsentSSEProvider, ConsentNotificationProvider) subscribes to SSE and shows toasts / refreshes the pending list when it receives a consent event.
+4. **UI** – The frontend notification provider subscribes to FCM/SSE wake-ups and refreshes Feed plus the pending list. Routine events never create foreground popup cards.
 
 **Diagnostic:** In development, call `GET /debug/consent-listener` to see `listener_active`, `queue_count`, and `notify_received_count`. In production this endpoint is intentionally unavailable (`404`), so use backend logs/metrics instead. If `notify_received_count` never increases after creating a consent request, NOTIFY is not reaching the process (trigger not on runtime DB or listener not running). If it increases but users see no push, the issue is downstream (no tokens, Firebase not configured, or send failure; check backend logs for "FCM skipped" or "FCM send failed").
 
@@ -180,15 +225,15 @@ Consent requests reach the user only when the following chain is in place:
 Web consent delivery now uses two lanes:
 
 1. **Primary**: Browser FCM push
-2. **Fallback**: Authenticated SSE + inbox while the tab is open
+2. **Fallback**: Authenticated SSE + Feed/inbox refresh while the tab is open
 
 The client exposes these delivery states:
 
 | State | Meaning |
 |------|---------|
 | `push_active` | Browser FCM is healthy and token registration succeeded. |
-| `push_blocked` | Browser permission is blocked, so the app falls back to live SSE alerts while the tab is open. |
-| `push_failed_fallback_active` | Push registration failed or is misconfigured, but SSE fallback is active. |
+| `push_blocked` | Browser permission is blocked, so the app falls back to live SSE Feed/inbox refresh while the tab is open. |
+| `push_failed_fallback_active` | Push registration failed or is misconfigured, but SSE Feed/inbox refresh is active. |
 | `inbox_only` | Neither push nor live SSE is currently active. Requests still appear in the consent center on next load. |
 
 If web push fails, the app:
@@ -199,7 +244,7 @@ If web push fails, the app:
 - attempts a manual FCM registration path,
 - then activates authenticated SSE fallback if push still fails.
 
-Closed-tab behavior remains limited by browser push availability: if push is disabled or misconfigured and the tab is closed, the durable fallback is the consent inbox on next app open.
+Closed-tab behavior remains limited by browser push availability: if push is disabled or misconfigured and the tab is closed, the durable fallback is Feed and the owning inbox on next app open.
 
 ---
 

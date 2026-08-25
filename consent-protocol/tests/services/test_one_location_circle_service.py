@@ -21,6 +21,16 @@ from hushh_mcp.services.push_notifications import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_best_effort_circle_feed(monkeypatch: pytest.MonkeyPatch):
+    """Unit tests stay DB-isolated; projection-specific cases override this."""
+    monkeypatch.setattr(
+        feed_service_module,
+        "FeedService",
+        lambda: SimpleNamespace(record_event=lambda **_kwargs: None),
+    )
+
+
 def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None:
     clean = circle_service_module._clean_name
 
@@ -601,6 +611,90 @@ def test_join_is_idempotent_before_capacity_is_consumed(
     assert circle_lock_index < code_lock_index < membership_lock_index
 
 
+def test_first_code_join_records_one_inviter_feed_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440001"
+    conn = _CapacityConnection(
+        {"id": invite_id, "circle_id": circle_id},
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+            "status": "active",
+        },
+        {"user_id": "member-user"},
+        {
+            "id": invite_id,
+            "circle_id": circle_id,
+            "status": "active",
+            "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+            "max_uses": 20,
+            "use_count": 1,
+            "created_by_user_id": "owner-user",
+        },
+        None,
+        {"member_count": 1},
+        None,
+        None,
+        [{"user_id": "member-user"}, {"user_id": "owner-user"}],
+        None,
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        service,
+        "get_circle",
+        lambda **_kwargs: {
+            "id": circle_id,
+            "name": "Family",
+            "members": [
+                {"userId": "member-user", "displayName": "Member User"},
+            ],
+        },
+    )
+    feed_calls: list[dict] = []
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        feed_service_module,
+        "FeedService",
+        lambda: SimpleNamespace(record_event=lambda **kwargs: feed_calls.append(kwargs)),
+    )
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_code_joined_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    result = service.join_circle(user_id="member-user", code="2345-6789-ABCD")
+
+    assert result["joined"] is True
+    assert feed_calls == [
+        {
+            "user_id": "owner-user",
+            "source_domain": "location",
+            "event_type": "location_circle_code_joined",
+            "actor_label": "Member User",
+            "metadata": {
+                "circle_id": circle_id,
+                "circle_name": "Family",
+                "joiner_user_id": "member-user",
+                "counterpart_label": "Member User",
+            },
+            "source_row_id": f"circle_code:{invite_id}:member-user",
+        }
+    ]
+    assert len(push_calls) == 1
+
+
 def test_code_join_respects_capacity_reserved_by_other_pending_invites() -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     invite_id = "550e8400-e29b-41d4-a716-446655440001"
@@ -1004,6 +1098,12 @@ def test_targeted_invite_accept_notifies_inviter(
         lambda **_kwargs: {"id": circle_id, "name": "Family"},
     )
     push_calls: list[dict] = []
+    feed_calls: list[dict] = []
+    monkeypatch.setattr(
+        feed_service_module,
+        "FeedService",
+        lambda: SimpleNamespace(record_event=lambda **kwargs: feed_calls.append(kwargs)),
+    )
     monkeypatch.setattr(
         push_notifications_module,
         "send_circle_member_invite_accepted_push",
@@ -1016,6 +1116,22 @@ def test_targeted_invite_accept_notifies_inviter(
     )
 
     assert result["accepted"] is True
+    assert feed_calls == [
+        {
+            "user_id": "inviter-member",
+            "source_domain": "location",
+            "event_type": "location_circle_member_invite_accepted",
+            "actor_label": "Member User",
+            "metadata": {
+                "invite_id": invite_id,
+                "circle_id": circle_id,
+                "circle_name": "Family",
+                "invitee_user_id": "member-user",
+                "counterpart_label": "Member User",
+            },
+            "source_row_id": f"circle_invite:{invite_id}:accepted",
+        }
+    ]
     assert push_calls == [
         {
             "inviter_user_id": "inviter-member",

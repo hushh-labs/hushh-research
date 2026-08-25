@@ -286,7 +286,7 @@ jobs:
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
-            --one-location-read-only-state-enabled "${{ vars.ONE_LOCATION_READ_ONLY_STATE_ENABLED || 'false' }}" \
+            --one-location-read-only-state-enabled "${{ vars.ONE_LOCATION_READ_ONLY_STATE_ENABLED || 'true' }}" \
             --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
             --db-bulk-batching-enabled "${{ vars.DB_BULK_BATCHING_ENABLED || 'false' }}" \
             --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \

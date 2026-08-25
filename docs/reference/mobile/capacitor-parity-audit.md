@@ -100,6 +100,22 @@ Direct usage is allowed only in:
 - explicitly exempt web-only plugin implementations
 - documented accepted exceptions in the mobile docs
 
+## Notification Lifecycle Parity
+
+Web, iOS, and Android share one Feed-first contract for every routine push
+family. While the app is active, receipt refreshes `/one/feed` and the owning
+domain state without a popup toast, foreground system banner, or sound. While
+inactive, the operating system owns the notification. A notification body tap
+opens `/one/feed` through the shared internal navigation event when a warm
+client exists, preserving the memory-only vault; cold launch opens that same
+route and follows the normal auth/unlock recovery path. Explicit consent action
+buttons remain confirmation-only deep links. Save My Soul is the sole
+foreground presentation exception and must not produce both a native banner
+and the shared emergency alarm. Its explicit `Open live location` safety action
+retains a validated direct One Location route; ordinary notification body taps
+still enter Feed. Consent request identity survives the Feed handoff so the
+backend can stop reminders after the user attends the system notification.
+
 ## Gemini runtime configuration parity
 
 Connections setup and settings use the shared web vault/PKM path inside both

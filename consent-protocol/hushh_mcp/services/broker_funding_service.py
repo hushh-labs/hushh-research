@@ -2660,6 +2660,8 @@ class BrokerFundingService:
 
             from firebase_admin import messaging
 
+            from api.utils.fcm_messages import build_push_message
+
             title, body = self._transfer_status_notification_copy(
                 transfer_id=transfer_id,
                 user_facing_status=user_facing_status,
@@ -2670,6 +2672,7 @@ class BrokerFundingService:
             message_data = self._stringify_notification_data(
                 {
                     "type": "funding_transfer_status",
+                    "message_id": (f"funding-transfer:{transfer_id}:{user_facing_status}"),
                     "user_id": user_id,
                     "transfer_id": transfer_id,
                     "status": raw_status.lower(),
@@ -2681,14 +2684,23 @@ class BrokerFundingService:
                 }
             )
 
+            notification_tag = f"funding-transfer:{transfer_id}"
+            seen_tokens: set[str] = set()
             for row in result.data:
                 token = _clean_text(row.get("token"))
-                if not token:
+                if not token or token in seen_tokens:
                     continue
-                message = messaging.Message(
+                seen_tokens.add(token)
+                message = build_push_message(
+                    messaging,
                     token=token,
+                    platform=_clean_text(row.get("platform")),
                     data=message_data,
-                    notification=messaging.Notification(title=title, body=body),
+                    title=title,
+                    body=body,
+                    request_url="/kai/portfolio",
+                    notification_tag=notification_tag,
+                    show_alert=True,
                 )
                 try:
                     messaging.send(message)

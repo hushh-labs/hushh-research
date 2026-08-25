@@ -138,19 +138,29 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         print(
             "📬 [AppDelegate] Foreground notification received while appState=\(UIApplication.shared.applicationState.debugLabel)"
         )
+        let appState = UIApplication.shared.applicationState
         let profile = String(
             describing: notification.request.content.userInfo["notification_profile"] ?? ""
         ).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if appState != .active {
+            // `.inactive` covers interruptions and foreground/background
+            // transitions where the shared WebView alarm/feed UI cannot be
+            // trusted to present. The operating system owns those moments.
+            completionHandler([.banner, .list, .sound, .badge])
+            return
+        }
         if profile == Self.emergencySmsProfile {
             // The shared Capacitor UI renders the assertive red emergency card and
             // plays its three-pulse alarm. Suppress the duplicate iOS foreground
-            // banner/sound while retaining the badge; background delivery still
-            // uses the APNs category and generated custom sound.
+            // banner/sound while retaining the badge. Inactive/background delivery
+            // uses the OS branch above plus the APNs category and custom sound.
             completionHandler([.badge])
             return
         }
-        // Present as a real system notification even while the app is active.
-        completionHandler([.banner, .list, .sound, .badge])
+        // Routine activity is visible in the in-app Feed. Keep only the badge
+        // while foregrounded so iOS does not stack banners over app controls.
+        // Background/inactive delivery still uses the APNs alert and sound.
+        completionHandler([.badge])
     }
     
     // Handle notification taps

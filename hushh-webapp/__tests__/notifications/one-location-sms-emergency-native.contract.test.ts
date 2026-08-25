@@ -14,6 +14,14 @@ const iosAppDelegate = readFileSync(
   join(process.cwd(), "ios/App/App/AppDelegate.swift"),
   "utf8",
 );
+const capacitorConfig = readFileSync(
+  join(process.cwd(), "capacitor.config.ts"),
+  "utf8",
+);
+const sharedFcmService = readFileSync(
+  join(process.cwd(), "lib/notifications/fcm-service.ts"),
+  "utf8",
+);
 
 describe("One Location emergency SMS native notification contract", () => {
   it("keeps the Android alarm channel aligned with the backend payload", () => {
@@ -38,5 +46,24 @@ describe("One Location emergency SMS native notification contract", () => {
     );
     expect(iosAppDelegate).toContain("prepareEmergencySmsSound()");
     expect(iosAppDelegate).toContain("completionHandler([.badge])");
+  });
+
+  it("keeps routine iOS foreground delivery badge-only", () => {
+    expect(iosAppDelegate).toContain("if appState != .active");
+    expect(iosAppDelegate).toContain(
+      "completionHandler([.banner, .list, .sound, .badge])",
+    );
+    expect(capacitorConfig).toContain('presentationOptions: ["badge"]');
+    expect(iosAppDelegate.indexOf("if appState != .active")).toBeLessThan(
+      iosAppDelegate.indexOf("if profile == Self.emergencySmsProfile"),
+    );
+  });
+
+  it("keeps the explicit emergency action routed to live location", () => {
+    expect(iosAppDelegate).toContain('emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"');
+    expect(sharedFcmService).toContain(
+      'actionId === ONE_LOCATION_SMS_OPEN_ACTION',
+    );
+    expect(sharedFcmService).toContain("resolveOneLocationNotificationHref(data)");
   });
 });

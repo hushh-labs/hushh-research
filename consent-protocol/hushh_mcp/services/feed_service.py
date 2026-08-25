@@ -21,6 +21,7 @@ threadpool dispatch offloads the blocking call without a manual
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -52,6 +53,7 @@ class FeedService:
         event_type: str,
         actor_label: str | None = None,
         metadata: dict[str, Any] | None = None,
+        source_row_id: str | None = None,
     ) -> None:
         """Best-effort feed write for domains with no existing durable event
         table to trigger from (Kai completion, KYC status, connections).
@@ -64,15 +66,40 @@ class FeedService:
             logger.warning("feed.record_event_unknown_domain domain=%s", source_domain)
             return
         try:
-            self._get_db().table("feed_events").insert(
-                {
-                    "user_id": user_id,
-                    "source_domain": source_domain,
-                    "event_type": event_type,
-                    "actor_label": actor_label,
-                    "metadata": metadata or {},
-                }
-            ).execute()
+            if source_row_id:
+                self._get_db().execute_raw(
+                    """
+                    INSERT INTO feed_events (
+                      user_id, source_domain, event_type, actor_label,
+                      metadata, source_row_id
+                    )
+                    VALUES (
+                      :user_id, :source_domain, :event_type, :actor_label,
+                      CAST(:metadata_json AS JSONB), :source_row_id
+                    )
+                    ON CONFLICT (
+                      user_id, source_domain, event_type, source_row_id
+                    ) WHERE source_row_id IS NOT NULL DO NOTHING
+                    """,
+                    {
+                        "user_id": user_id,
+                        "source_domain": source_domain,
+                        "event_type": event_type,
+                        "actor_label": actor_label,
+                        "metadata_json": json.dumps(metadata or {}),
+                        "source_row_id": source_row_id,
+                    },
+                )
+            else:
+                self._get_db().table("feed_events").insert(
+                    {
+                        "user_id": user_id,
+                        "source_domain": source_domain,
+                        "event_type": event_type,
+                        "actor_label": actor_label,
+                        "metadata": metadata or {},
+                    }
+                ).execute()
         except Exception:
             logger.exception(
                 "feed.record_event_failed domain=%s event_type=%s", source_domain, event_type

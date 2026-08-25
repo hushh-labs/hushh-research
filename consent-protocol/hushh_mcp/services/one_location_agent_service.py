@@ -7138,10 +7138,13 @@ class OneLocationAgentService:
             metadata={
                 "invite_id": invite["id"],
                 "submission_id": submission["id"],
+                "request_id": request["id"] if request else None,
                 "matched": bool(matched_user_id),
                 "request_created": bool(request),
                 "intake_only": not has_public_location,
                 "public_location_view": has_public_location,
+                "counterpart_label": display_name[:80],
+                "visitor_label": display_name[:80],
             },
         )
         self._send_metadata_notification(
@@ -7397,22 +7400,36 @@ class OneLocationAgentService:
             "updatedAt": _iso(connection_row.get("updated_at")),
             "revokedAt": _iso(connection_row.get("revoked_at")),
         }
+        claimant_label = _identity_notification_label(claimant_identity, fallback="Someone")
+        owner_label = _identity_notification_label(owner_identity)
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=claimant_user_id,
             recipient_user_id=claimant_user_id,
             event_type="location_circle_invite_claimed",
-            metadata={"invite_id": invite_id, "connection_id": connection["id"]},
+            metadata={
+                "invite_id": invite_id,
+                "connection_id": connection["id"],
+                "counterpart_label": claimant_label,
+                "invitee_display_label": claimant_label,
+                "owner_label": owner_label,
+                "inviter_display_label": owner_label,
+            },
         )
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=claimant_user_id,
             recipient_user_id=claimant_user_id,
             event_type="location_one_network_joined",
-            metadata={"invite_id": invite_id, "connection_id": connection["id"]},
+            metadata={
+                "invite_id": invite_id,
+                "connection_id": connection["id"],
+                "counterpart_label": claimant_label,
+                "invitee_display_label": claimant_label,
+                "owner_label": owner_label,
+                "inviter_display_label": owner_label,
+            },
         )
-        claimant_label = _identity_notification_label(claimant_identity, fallback="Someone")
-        owner_label = _identity_notification_label(owner_identity)
         self._send_metadata_notification(
             user_id=owner_user_id,
             notification_type="location_one_network_joined",
@@ -7480,8 +7497,12 @@ class OneLocationAgentService:
         # `_safe_many` call gave it before, while running the 10 independent
         # reads concurrently instead of one cross-continent round trip at a
         # time -- this loop used to be most of why this endpoint was slow.
+        # GET state is read-only by default. Expiry settlement and its push
+        # fan-out belong to the bounded retention maintenance path, not an app
+        # foreground/resume read. Explicit false remains a temporary rollback
+        # valve for environments that have not installed the scheduler yet.
         read_only_state = str(
-            os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or ""
+            os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true"
         ).strip().lower() in {"1", "true", "yes", "on"}
         if not read_only_state:
             try:
@@ -8109,6 +8130,7 @@ class OneLocationAgentService:
             metadata={
                 "reason": "owner_shorten" if actor_is_owner else "recipient_shorten",
                 "counterpart_label": recipient_label,
+                "owner_label": owner_label,
             },
         )
         notification_user_id = str(
@@ -8298,6 +8320,7 @@ class OneLocationAgentService:
                 "duration_hours": _duration_metadata_value(duration),
                 "duration_mode": resolved_mode,
                 "counterpart_label": recipient_label,
+                "owner_label": owner_label,
             },
         )
         self._send_metadata_notification(
@@ -8973,6 +8996,7 @@ class OneLocationAgentService:
                 status_code=404,
             )
         owner_user_id = str(row.get("owner_user_id") or "")
+        owner_label = _identity_notification_label(self._identity_row(owner_user_id))
         requester_label = _identity_notification_label(
             self._identity_row(requester_user_id), fallback="Someone"
         )
@@ -8982,7 +9006,10 @@ class OneLocationAgentService:
             recipient_user_id=requester_user_id,
             request_id=request_id,
             event_type="location_access_request_withdrawn",
-            metadata={"counterpart_label": requester_label},
+            metadata={
+                "counterpart_label": requester_label,
+                "owner_label": owner_label,
+            },
         )
         # Same notification tag as the original ask, so on the owner's device
         # this REPLACES "X is asking to view your location" instead of stacking
@@ -9058,6 +9085,9 @@ class OneLocationAgentService:
             },
         )
         referral_payload = self._referral_payload(referral)
+        owner_label = _identity_notification_label(self._identity_row(owner_user_id))
+        referring_identity = self._identity_row(referring_user_id)
+        referring_label = _identity_notification_label(referring_identity)
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=referring_user_id,
@@ -9066,11 +9096,15 @@ class OneLocationAgentService:
             request_id=request["id"],
             referral_id=referral_payload["id"] if referral_payload else None,
             event_type="location_referral_invite",
-            metadata={"creates_access": False},
+            metadata={
+                "creates_access": False,
+                "request_id": request["id"],
+                "referral_id": referral_payload["id"] if referral_payload else None,
+                "grant_id": grant_id,
+                "owner_label": owner_label,
+                "referring_label": referring_label,
+            },
         )
-        owner_label = _identity_notification_label(self._identity_row(owner_user_id))
-        referring_identity = self._identity_row(referring_user_id)
-        referring_label = _identity_notification_label(referring_identity)
         if referral_payload:
             self._send_metadata_notification(
                 user_id=referred_user_id,

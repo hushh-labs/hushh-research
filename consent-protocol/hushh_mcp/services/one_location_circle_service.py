@@ -2523,6 +2523,7 @@ class OneLocationCircleService:
                 # undo a join that succeeded. Sending inside the transaction
                 # would also notify on a row that could still roll back.
                 try:
+                    from hushh_mcp.services.feed_service import FeedService
                     from hushh_mcp.services.push_notifications import (
                         send_circle_code_joined_push,
                     )
@@ -2540,6 +2541,21 @@ class OneLocationCircleService:
                         "",
                     )
                     if inviter_user_id and inviter_user_id != user_id:
+                        FeedService().record_event(
+                            user_id=inviter_user_id,
+                            source_domain="location",
+                            event_type="location_circle_code_joined",
+                            actor_label=joiner_name or None,
+                            metadata={
+                                "circle_id": circle_id,
+                                "circle_name": str(circle.get("name") or ""),
+                                "joiner_user_id": user_id,
+                                "counterpart_label": joiner_name or "Someone",
+                            },
+                            source_row_id=(
+                                f"circle_code:{str(invite_row.get('id') or '')}:{user_id}"
+                            ),
+                        )
                         send_circle_code_joined_push(
                             inviter_user_id=inviter_user_id,
                             joiner_display_name=joiner_name or "Someone",
@@ -3975,14 +3991,31 @@ class OneLocationCircleService:
                     invite_row["status"] = "accepted"
                     invite_row["responded_at"] = datetime.now(timezone.utc)
             if accepted:
+                from hushh_mcp.services.feed_service import FeedService
                 from hushh_mcp.services.push_notifications import (
                     send_circle_member_invite_accepted_push,
                 )
 
+                inviter_user_id = str(invite_row.get("inviter_user_id") or "")
+                invitee_display_name = str(invite_row.get("invitee_display_name") or "")
+                FeedService().record_event(
+                    user_id=inviter_user_id,
+                    source_domain="location",
+                    event_type="location_circle_member_invite_accepted",
+                    actor_label=invitee_display_name or None,
+                    metadata={
+                        "invite_id": cleaned_invite_id,
+                        "circle_id": circle_id,
+                        "circle_name": str(invite_row.get("circle_name") or ""),
+                        "invitee_user_id": user_id,
+                        "counterpart_label": invitee_display_name or "Someone",
+                    },
+                    source_row_id=f"circle_invite:{cleaned_invite_id}:accepted",
+                )
                 send_circle_member_invite_accepted_push(
-                    inviter_user_id=str(invite_row.get("inviter_user_id") or ""),
+                    inviter_user_id=inviter_user_id,
                     invitee_user_id=user_id,
-                    invitee_display_name=str(invite_row.get("invitee_display_name") or ""),
+                    invitee_display_name=invitee_display_name,
                     circle_id=circle_id,
                     circle_name=str(invite_row.get("circle_name") or ""),
                     invite_id=cleaned_invite_id,
