@@ -655,9 +655,8 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
-  // Contact discoverability defaults ON, so the optimistic initial value is
-  // true; a user who has opted out sees the toggle settle once the fetch lands.
-  const [contactDiscoverable, setContactDiscoverable] = useState(true);
+  // The combined find-and-auto-connect setting is explicit and fail-closed.
+  const [contactDiscoverable, setContactDiscoverable] = useState(false);
   const [loadingContactDiscoverable, setLoadingContactDiscoverable] =
     useState(true);
   const [savingContactDiscoverable, setSavingContactDiscoverable] =
@@ -1042,7 +1041,7 @@ function ProfilePageContent() {
 
   useEffect(() => {
     if (!user) {
-      setContactDiscoverable(true);
+      setContactDiscoverable(false);
       setLoadingContactDiscoverable(false);
       return;
     }
@@ -1055,8 +1054,7 @@ function ProfilePageContent() {
           setContactDiscoverable(Boolean(result.contact_discoverable));
         }
       } catch (error) {
-        // Leave the default in place; a failed read must not silently present
-        // the user as opted out when they are not.
+        // Keep the fail-closed default; a failed read must never imply consent.
         console.error(
           "[ProfilePage] Failed to load contact discoverability:",
           error,
@@ -1069,7 +1067,6 @@ function ProfilePageContent() {
       cancelled = true;
     };
   }, [user]);
-
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
@@ -1544,7 +1541,7 @@ function ProfilePageContent() {
       setContactDiscoverable(Boolean(result.contact_discoverable));
       toast.success(
         result.contact_discoverable
-          ? "People who have your number can find you on Hussh."
+          ? "People who have your number can find and connect with you automatically."
           : "You are hidden from contact sync.",
       );
     } catch (error) {
@@ -1937,8 +1934,7 @@ function ProfilePageContent() {
   const deleteDialogTitle = DELETE_ACCOUNT_DIALOG_TITLE;
   const deleteDialogDescription = DELETE_ACCOUNT_DIALOG_DESCRIPTION;
 
-  const resetRowDescription =
-    "Clears saved details. Keeps sign-in.";
+  const resetRowDescription = "Clears saved details. Keeps sign-in.";
   const resetDialogTitle = "Reset account?";
   const resetDialogDescription =
     "Clears saved details and setup progress. Your sign-in and vault stay.";
@@ -2017,7 +2013,7 @@ function ProfilePageContent() {
   const contactDiscoverableStatusText = loadingContactDiscoverable
     ? "Checking discoverability…"
     : contactDiscoverable
-      ? "People with your number can find you"
+      ? "Verified people with your number can find and connect with you automatically. No location or personal information is shared."
       : "Hidden from contact sync";
   const phoneSummaryText = phoneNumber
     ? formatMaskedPhoneNumber(phoneNumber)
@@ -3025,7 +3021,7 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={ContactRound}
-          title="Find me by phone number"
+          title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
           trailing={
             <Switch
@@ -3216,10 +3212,7 @@ function ProfilePageContent() {
           description="What One's voice can do, and its safety controls."
           chevron
           onClick={() =>
-            updateProfileView(
-              { panel: "preferences", detail: "voice" },
-              "push",
-            )
+            updateProfileView({ panel: "preferences", detail: "voice" }, "push")
           }
         />
       </SettingsGroup>
@@ -4122,7 +4115,10 @@ function ProfilePageContent() {
                 voiceLabel={PROFILE_LABELS.referrals}
                 voicePurpose="Opens your referral link and referral status."
                 onClick={() =>
-                  updateProfileView({ panel: "referrals", detail: null }, "push")
+                  updateProfileView(
+                    { panel: "referrals", detail: null },
+                    "push",
+                  )
                 }
               />
               <SettingsRow

@@ -931,8 +931,16 @@ describe("OneLocationOnboardingFlow", () => {
 
   describe("contacts screen", () => {
     const matches = [
-      { userId: "user_b", displayName: "Trusted B" },
-      { userId: "user_c", displayName: "Advisor C" },
+      {
+        userId: "user_b",
+        displayName: "Trusted B",
+        connectionStatus: "request_required" as const,
+      },
+      {
+        userId: "user_c",
+        displayName: "Advisor C",
+        connectionStatus: "request_required" as const,
+      },
     ];
 
     it("does not touch the address book until the person asks", () => {
@@ -966,7 +974,7 @@ describe("OneLocationOnboardingFlow", () => {
       expect(await screen.findByText("Trusted B")).toBeTruthy();
       expect(screen.getByText("Advisor C")).toBeTruthy();
 
-      const addButtons = screen.getAllByRole("button", { name: "Add" });
+      const addButtons = screen.getAllByRole("button", { name: "Request" });
       fireEvent.click(addButtons[0]!);
 
       await waitFor(() =>
@@ -992,14 +1000,61 @@ describe("OneLocationOnboardingFlow", () => {
         screen.getByRole("button", { name: "Check my contacts" }),
       );
 
-      const addButtons = await screen.findAllByRole("button", { name: "Add" });
+      const addButtons = await screen.findAllByRole("button", { name: "Request" });
       fireEvent.click(addButtons[0]!);
 
       await waitFor(() => expect(onAddOnboardingContact).toHaveBeenCalled());
       // The row must not claim success, and must not stay stuck on "Adding".
       await waitFor(() =>
-        expect(screen.getAllByRole("button", { name: "Add" }).length).toBe(2),
+        expect(screen.getAllByRole("button", { name: "Request" }).length).toBe(2),
       );
+    });
+
+    it("shows auto-connected matches as connected without sending a request", async () => {
+      const onAddOnboardingContact = vi.fn();
+      const onSyncOnboardingContacts = vi.fn().mockResolvedValue({
+        status: "matched",
+        matches: [
+          {
+            userId: "user_b",
+            displayName: "Trusted B",
+            connectionStatus: "connected",
+          },
+        ],
+      });
+      renderFlow({ onSyncOnboardingContacts, onAddOnboardingContact });
+      openContactsScreen();
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
+
+      expect(await screen.findByText("Connected")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Request" })).toBeNull();
+      expect(onAddOnboardingContact).not.toHaveBeenCalled();
+    });
+
+    it("progressively renders a large matched-contact result", async () => {
+      const largeMatches = Array.from({ length: 205 }, (_, index) => ({
+        userId: `user-${index}`,
+        displayName: `Contact ${index}`,
+        connectionStatus: "connected" as const,
+      }));
+      renderFlow({
+        onSyncOnboardingContacts: vi.fn().mockResolvedValue({
+          status: "matched",
+          matches: largeMatches,
+        }),
+      });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(await screen.findByText("Contact 99")).toBeTruthy();
+      expect(screen.queryByText("Contact 100")).toBeNull();
+      expect(screen.getAllByLabelText("Connected from your contacts")).toHaveLength(100);
+      fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+      expect(await screen.findByText("Contact 199")).toBeTruthy();
+      expect(screen.queryByText("Contact 200")).toBeNull();
     });
 
     it("says so plainly when nobody matched, and still moves on", async () => {

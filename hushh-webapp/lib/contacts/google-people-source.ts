@@ -55,10 +55,9 @@ const READ_SOURCE = "READ_SOURCE_TYPE_CONTACT";
 const PAGE_SIZE = 1000;
 
 /**
- * Pages are bounded rather than followed to exhaustion. The pipeline caps at
- * 1000 lookups anyway (`MAX_PHONE_LOOKUPS`), so walking a 20,000-contact
- * account to the end would spend the person's quota to build a list that is
- * then discarded.
+ * Pages are bounded rather than followed to exhaustion. Five pages match the
+ * contact-sync read budget; a larger account is reported as truncated and its
+ * unreturned rows stay explicitly unchecked rather than being called unmatched.
  */
 const MAX_PAGES = 5;
 
@@ -177,9 +176,10 @@ export function googlePeopleContactSource(token: string): MarketplaceContactSour
 
       for (const person of payload.connections ?? []) {
         const phoneNumbers = phoneStringsOf(person);
-        // A contact with no number cannot produce a digest, so carrying it
-        // would only inflate the count reported back to the person.
-        if (!phoneNumbers.length) continue;
+        // Keep every person row. A row with no usable phone cannot produce a
+        // lookup, but it still belongs to the full-read classification as
+        // `uncheckable`; dropping it makes `totalPeople - contacts.length`
+        // falsely look unchecked even though Google did return the person.
         contacts.push({
           id: String(person.resourceName || "") || null,
           displayName: displayNameOf(person),

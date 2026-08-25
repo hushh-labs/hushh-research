@@ -26,6 +26,7 @@ class MarketplaceOptInRequest(BaseModel):
 
 class ContactDiscoverabilityRequest(BaseModel):
     enabled: bool
+    consent_version: str | None = Field(default=None, max_length=64)
 
 
 def _iam_schema_not_ready_response() -> JSONResponse:
@@ -90,17 +91,18 @@ async def update_marketplace_opt_in(
 async def get_contact_discoverability(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Whether someone holding this user's phone number can find their account."""
+    """Combined consent for verified phone holders to find and auto-connect."""
     service = RIAIAMService()
     try:
         return await service.get_contact_discoverability(firebase_uid)
     except IAMSchemaNotReadyError:
-        # Report the default rather than an error: the setting is informational
-        # until the schema lands, and failing here would block the whole
-        # privacy screen from rendering.
+        # Fail closed until the versioned combined-consent schema is available.
         return {
             "user_id": firebase_uid,
-            "contact_discoverable": True,
+            "contact_discoverable": False,
+            "contact_sync_consent_enabled_at": None,
+            "contact_sync_consent_rule_version": 0,
+            "contact_sync_consent_contract_version": None,
             "iam_schema_ready": False,
         }
 
@@ -112,6 +114,12 @@ async def update_contact_discoverability(
 ):
     service = RIAIAMService()
     try:
-        return await service.set_contact_discoverability(firebase_uid, payload.enabled)
+        return await service.set_contact_discoverability(
+            firebase_uid,
+            payload.enabled,
+            consent_version=payload.consent_version,
+        )
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

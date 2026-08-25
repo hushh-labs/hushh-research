@@ -1610,6 +1610,7 @@ class OneLocationAgentService:
             "keyAlgorithm": str(row.get("algorithm") or "ECDH-P256-AES256-GCM"),
             "keyRegisteredAt": _iso(row.get("key_created_at") or row.get("created_at")),
             "canReceiveLocation": bool(row.get("key_id")),
+            "connectedFromContacts": bool(row.get("connected_from_contacts")),
         }
 
     @staticmethod
@@ -3702,7 +3703,24 @@ class OneLocationAgentService:
             """
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
-              k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
+              k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at,
+              EXISTS (
+                SELECT 1
+                FROM connections contact_connection
+                JOIN connection_origins contact_origin
+                  ON contact_origin.connection_id = contact_connection.id
+                 AND contact_origin.status = 'active'
+                 AND contact_origin.origin_kind = 'contact_sync'
+                 AND contact_origin.source_ref = :owner_user_id
+                WHERE contact_connection.status = 'active'
+                  AND (
+                    (contact_connection.user_a_id = :owner_user_id
+                     AND contact_connection.user_b_id = a.user_id)
+                    OR
+                    (contact_connection.user_b_id = :owner_user_id
+                     AND contact_connection.user_a_id = a.user_id)
+                  )
+              ) AS connected_from_contacts
             FROM actor_identity_cache a
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
@@ -3791,6 +3809,154 @@ class OneLocationAgentService:
             owner_user_id=owner_user_id,
             recipients=recipients,
         )
+
+    def list_verified_recipients_page(
+        self,
+        *,
+        owner_user_id: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Page the same connection/Circle authority predicate as the legacy picker.
+
+        Search is deliberately built from the displayed label ladder, not raw
+        identity columns. An email domain or full phone number that the response
+        masks must never become a yes/no relationship oracle through search.
+        """
+
+        normalized_page = max(1, int(page or 1))
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        normalized_query = str(query or "").strip().lower()
+        offset = (normalized_page - 1) * normalized_limit
+        rows = self._execute_many(
+            """
+            WITH eligible AS (
+              SELECT
+                identity.user_id, identity.display_name, identity.email,
+                identity.phone_number, identity.phone_verified,
+                LOWER(CASE
+                  WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
+                   AND BTRIM(identity.display_name) <> identity.user_id
+                   AND LOWER(BTRIM(identity.display_name)) NOT LIKE 'ria:%'
+                   AND BTRIM(identity.display_name) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                   AND NOT (
+                     POSITION('@' IN BTRIM(identity.display_name)) = 0
+                     AND POSITION(' ' IN BTRIM(identity.display_name)) = 0
+                     AND LENGTH(BTRIM(identity.display_name)) >= 20
+                   ) THEN BTRIM(identity.display_name)
+                  WHEN POSITION('@' IN BTRIM(COALESCE(identity.email, ''))) > 1
+                   AND LOWER(BTRIM(SPLIT_PART(identity.email, '@', 1))) NOT LIKE 'ria:%'
+                   AND BTRIM(SPLIT_PART(identity.email, '@', 1)) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                   AND NOT (
+                     POSITION(' ' IN BTRIM(SPLIT_PART(identity.email, '@', 1))) = 0
+                     AND LENGTH(BTRIM(SPLIT_PART(identity.email, '@', 1))) >= 20
+                   ) THEN BTRIM(SPLIT_PART(identity.email, '@', 1))
+                  WHEN REGEXP_REPLACE(COALESCE(identity.phone_number, ''), '[^0-9]', '', 'g') <> ''
+                    THEN CASE
+                      WHEN LENGTH(REGEXP_REPLACE(identity.phone_number, '[^0-9]', '', 'g')) <= 4
+                        THEN '***' || REGEXP_REPLACE(identity.phone_number, '[^0-9]', '', 'g')
+                      ELSE REPEAT('*', GREATEST(
+                        3, LENGTH(REGEXP_REPLACE(identity.phone_number, '[^0-9]', '', 'g')) - 4
+                      )) || RIGHT(REGEXP_REPLACE(identity.phone_number, '[^0-9]', '', 'g'), 4)
+                    END
+                  ELSE 'Verified user'
+                END) AS normalized_name
+              FROM actor_identity_cache identity
+              WHERE identity.user_id <> :owner_user_id
+                AND (
+                  EXISTS (
+                    SELECT 1 FROM connections connection
+                    JOIN connection_origins origin
+                      ON origin.connection_id = connection.id
+                     AND origin.status = 'active'
+                     AND origin.origin_kind <> 'named_circle'
+                    WHERE connection.status = 'active'
+                      AND connection.user_a_id = LEAST(:owner_user_id, identity.user_id)
+                      AND connection.user_b_id = GREATEST(:owner_user_id, identity.user_id)
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM one_location_circle_memberships mine
+                    JOIN one_location_circle_memberships theirs
+                      ON theirs.circle_id = mine.circle_id
+                     AND theirs.user_id = identity.user_id
+                     AND theirs.status = 'active'
+                    JOIN one_location_circles circle
+                      ON circle.id = mine.circle_id
+                     AND circle.status = 'active'
+                     AND circle.system_kind IS DISTINCT FROM 'trusted'
+                     AND (
+                       (circle.system_kind IS NULL AND NOT circle.is_system)
+                       OR circle.owner_user_id = mine.user_id
+                       OR circle.owner_user_id = theirs.user_id
+                     )
+                    WHERE mine.user_id = :owner_user_id
+                      AND mine.status = 'active'
+                  )
+                )
+            ), filtered AS (
+              SELECT * FROM eligible
+              WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+            ), total AS (
+              SELECT COUNT(*)::BIGINT AS total_count FROM filtered
+            ), page_rows AS (
+              SELECT * FROM filtered
+              ORDER BY normalized_name, user_id
+              OFFSET :offset LIMIT :limit
+            )
+            SELECT page_rows.user_id, page_rows.display_name, page_rows.email,
+                   page_rows.phone_number, page_rows.phone_verified,
+                   recipient_key.key_id, recipient_key.public_key_jwk,
+                   recipient_key.algorithm,
+                   recipient_key.created_at AS key_created_at,
+                   total.total_count,
+                   CASE WHEN page_rows.user_id IS NULL THEN FALSE ELSE EXISTS (
+                     SELECT 1 FROM connections contact_connection
+                     JOIN connection_origins contact_origin
+                       ON contact_origin.connection_id = contact_connection.id
+                      AND contact_origin.status = 'active'
+                      AND contact_origin.origin_kind = 'contact_sync'
+                      AND contact_origin.source_ref = :owner_user_id
+                     WHERE contact_connection.status = 'active'
+                       AND contact_connection.user_a_id = LEAST(:owner_user_id, page_rows.user_id)
+                       AND contact_connection.user_b_id = GREATEST(:owner_user_id, page_rows.user_id)
+                   ) END AS connected_from_contacts
+            FROM total
+            LEFT JOIN page_rows ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT key.key_id, key.public_key_jwk, key.algorithm, key.created_at
+              FROM one_location_recipient_keys key
+              WHERE key.user_id = page_rows.user_id AND key.status = 'active'
+              ORDER BY key.created_at DESC LIMIT 1
+            ) recipient_key ON TRUE
+            ORDER BY page_rows.normalized_name, page_rows.user_id
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "query": normalized_query,
+                "offset": offset,
+                "limit": normalized_limit,
+            },
+        )
+        total_count = int((rows[0] if rows else {}).get("total_count") or 0)
+        recipients = [
+            payload
+            for row in rows
+            if row.get("user_id")
+            if (payload := self._recipient_payload(row, allow_email_handle=True))
+        ]
+        recipients = self._apply_kai_circle_recommendations(
+            owner_user_id=owner_user_id,
+            recipients=recipients,
+            preserve_order=True,
+        )
+        return {
+            "items": recipients,
+            "page": normalized_page,
+            "hasMore": offset + len(recipients) < total_count,
+            "totalCount": total_count,
+        }
 
     def list_directory_candidates(
         self, *, owner_user_id: str, limit: int = 50
@@ -8535,7 +8701,6 @@ class OneLocationAgentService:
                         "This request needs approval.",
                         status_code=403,
                     )
-
             requested_hours, requested_mode = _normalized_requested_duration(
                 duration_hours=request_row.get("requested_duration_hours"),
                 duration_mode=request_row.get("requested_duration_mode"),

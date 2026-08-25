@@ -75,6 +75,29 @@ describe("buildMarketplaceContactLookups with an injected source", () => {
     });
     expect(result.truncated).toBe(true);
   });
+
+  it("classifies returned Google people without usable phones as uncheckable", async () => {
+    const source = vi.fn(async () => ({
+      ...googleResult,
+      contacts: [
+        { id: "g1", displayName: "Asha", phoneNumbers: ["98765 43210"] },
+        { id: "g2", displayName: "No phone", phoneNumbers: [] },
+        { id: "g3", displayName: "Blank phone", phoneNumbers: ["  "] },
+      ],
+    }));
+
+    const result = await buildMarketplaceContactLookups({
+      accountPhoneNumber: "+919000000000",
+      source,
+    });
+
+    expect(result).toMatchObject({
+      totalContacts: 3,
+      readContactCount: 3,
+      unreadContactCount: 0,
+      uncheckableContactCount: 2,
+    });
+  });
 });
 
 describe("marketplace contact matching", () => {
@@ -110,12 +133,16 @@ describe("marketplace contact matching", () => {
     expect(result.lookups).toHaveLength(2);
     expect(result.lookups[0]).toMatchObject({
       last4: "0101",
-      displayName: "Avery Stone",
+      lookupId: "lookup_1",
     });
     expect(result.lookups[1]).toMatchObject({
       last4: "0018",
-      displayName: "Morgan Lee",
+      lookupId: "lookup_2",
     });
+    expect(result.contacts.map((contact) => contact.displayName)).toEqual([
+      "Avery Stone",
+      "Morgan Lee",
+    ]);
     for (const lookup of result.lookups) {
       expect(lookup.hash).toMatch(/^[a-f0-9]{64}$/);
       expect(lookup.hash).not.toContain(lookup.last4);
@@ -164,10 +191,7 @@ describe("marketplace contact matching", () => {
     expect(result.lookups).toHaveLength(1);
   });
 
-  it("caps lookups at the backend limit and keeps mobile numbers first", async () => {
-    // The backend rejects the whole request past 1000 lookups, so the cap has
-    // to be applied here. Landlines are dropped before mobiles because an
-    // SMS-verified account can never be a landline.
+  it("keeps large books complete so the caller can batch without false unmatched rows", async () => {
     const mobiles = Array.from({ length: 999 }, (_, index) => ({
       id: `m${index}`,
       displayName: `Mobile ${index}`,
@@ -186,13 +210,65 @@ describe("marketplace contact matching", () => {
 
     const result = await buildMarketplaceContactLookups();
 
-    expect(result.lookups).toHaveLength(1000);
-    expect(result.truncated).toBe(true);
-    const landlineNames = result.lookups.filter((lookup) =>
-      lookup.displayName?.startsWith("Landline"),
+    expect(result.lookups).toHaveLength(1019);
+    expect(result.contacts).toHaveLength(1019);
+    expect(result.truncated).toBe(false);
+    expect(new Set(result.lookups.map((lookup) => lookup.lookupId)).size).toBe(
+      1019,
     );
-    // 999 mobiles take precedence, leaving room for exactly one landline.
-    expect(landlineNames).toHaveLength(1);
+  });
+
+  it("caps unique lookups at 5000 and marks only overflow coverage incomplete", async () => {
+    readContactsMock.mockResolvedValue({
+      sourcePlatform: "android",
+      defaultRegion: "US",
+      contacts: Array.from({ length: 5001 }, (_, index) => ({
+        id: `c${index}`,
+        displayName: `Contact ${index}`,
+        phoneNumbers: [`+1212${String(index).padStart(7, "0")}`],
+      })),
+    });
+
+    const result = await buildMarketplaceContactLookups();
+
+    expect(result.lookups).toHaveLength(5000);
+    expect(result.lookupLimitExceeded).toBe(true);
+    expect(result.lookupLimitedContactCount).toBe(1);
+    expect(result.contacts.filter((contact) => !contact.coverageComplete)).toHaveLength(1);
+    expect(result.uncheckableContactCount).toBe(0);
+  });
+
+  it("caps a 5,000-contact two-number book deterministically without returning E.164", async () => {
+    const contacts = Array.from({ length: 5000 }, (_, index) => ({
+      id: `contact-${index}`,
+      displayName: `Contact ${index}`,
+      phoneNumbers: [
+        `+919${String(index * 2).padStart(9, "0")}`,
+        `+919${String(index * 2 + 1).padStart(9, "0")}`,
+      ],
+    }));
+    readContactsMock.mockResolvedValue({
+      sourcePlatform: "android",
+      defaultRegion: "IN",
+      contacts,
+    });
+
+    const digestSpy = vi.spyOn(globalThis.crypto.subtle, "digest");
+    const first = await buildMarketplaceContactLookups({ limit: 5000 });
+
+    expect(first.lookups).toHaveLength(5000);
+    expect(first.lookupLimitExceeded).toBe(true);
+    expect(digestSpy).toHaveBeenCalledTimes(5000);
+    expect(first.lookupLimitedContactCount).toBe(2500);
+    expect(first.contacts.slice(0, 2500).every((row) => row.coverageComplete)).toBe(true);
+    expect(first.contacts.slice(2500).every((row) => !row.coverageComplete)).toBe(true);
+    expect(first.contacts[0]?.lookupIds).toEqual(["lookup_1", "lookup_2"]);
+    expect(first.contacts[2499]?.lookupIds).toEqual([
+      "lookup_4999",
+      "lookup_5000",
+    ]);
+    expect(JSON.stringify(first)).not.toContain("+919");
+    digestSpy.mockRestore();
   });
 
   it("propagates partial-access and truncation flags from the platform", async () => {
@@ -226,7 +302,73 @@ describe("marketplace contact matching", () => {
     const result = await buildMarketplaceContactLookups();
 
     expect(result.lookups).toHaveLength(1);
-    expect(result.lookups[0]!.displayName).toBe("Real");
+    expect(
+      result.contacts.find((contact) => contact.displayName === "Real")
+        ?.lookupIds,
+    ).toEqual(["lookup_1"]);
     expect(result.totalContacts).toBe(4);
+    expect(result.uncheckableContactCount).toBe(3);
+  });
+
+  it("maps one deduplicated lookup back to every local contact that uses it", async () => {
+    readContactsMock.mockResolvedValue({
+      sourcePlatform: "android",
+      defaultRegion: "IN",
+      contacts: [
+        { id: "1", displayName: "Asha", phoneNumbers: ["9876543210"] },
+        {
+          id: "2",
+          displayName: "Asha duplicate",
+          phoneNumbers: ["+91 98765 43210"],
+        },
+      ],
+    });
+
+    const result = await buildMarketplaceContactLookups();
+
+    expect(result.lookups).toHaveLength(1);
+    expect(result.contacts.map((contact) => contact.lookupIds)).toEqual([
+      ["lookup_1"],
+      ["lookup_1"],
+    ]);
+  });
+
+  it("counts source rows that were not returned as unread contacts", async () => {
+    readContactsMock.mockResolvedValue({
+      sourcePlatform: "ios",
+      defaultRegion: "US",
+      totalAvailable: 25,
+      contacts: [
+        { id: "1", displayName: "Ada", phoneNumbers: ["4155550101"] },
+      ],
+    });
+
+    const result = await buildMarketplaceContactLookups();
+
+    expect(result.readContactCount).toBe(1);
+    expect(result.totalContacts).toBe(25);
+    expect(result.unreadContactCount).toBe(24);
+  });
+
+  it("excludes the signed-in person's own verified number locally", async () => {
+    readContactsMock.mockResolvedValue({
+      sourcePlatform: "android",
+      defaultRegion: "IN",
+      contacts: [
+        { id: "self", displayName: "Me", phoneNumbers: ["9000000000"] },
+        { id: "friend", displayName: "Asha", phoneNumbers: ["9876543210"] },
+      ],
+    });
+
+    const result = await buildMarketplaceContactLookups({
+      accountPhoneNumber: "+919000000000",
+    });
+
+    expect(result.lookups).toHaveLength(1);
+    expect(result.excludedSelfContactCount).toBe(1);
+    expect(result.uncheckableContactCount).toBe(0);
+    expect(
+      result.contacts.find((contact) => contact.displayName === "Me")?.lookupIds,
+    ).toEqual([]);
   });
 });
