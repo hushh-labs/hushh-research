@@ -26,9 +26,10 @@ flowchart TB
   end
   WAS -->|"evolve"| IS
   IS --- HOW
-  HOW --> D1["hussh GCP<br/>(validation only)"]
+  HOW --> D1["hussh-hosted pods<br/>(one instance per person)"]
   HOW --> D2["the person's own<br/>GCP project"]
   HOW --> D3["Anypoint"]
+  D1 -->|"one-click migration,<br/>same agent"| D2
 ```
 
 ## The end state, stated plainly
@@ -78,23 +79,80 @@ two production paths**, and the separation is the resolution rather than a narro
 - performance metrics, and how the agent **evolves over time**;
 - end-to-end connectivity with the front end and any connected surface.
 
-**It is not a production deployment path and must never become one.** Production has to
-hold Zero Knowledge primitives and the Private Agent Infrastructure model, and a pod that
-hussh operates, on hussh's model identity, cannot hold them. The tier exists to prove the
-lifecycle works — never to claim hussh cannot read that pod.
+**This tier is not a production deployment path.** It runs in the dev project, on hussh's
+own model identity, with the HKDF master present — an environment where hussh genuinely can
+reach the pod's keys, which is exactly why it may only ever claim "the lifecycle works" and
+never "hussh cannot read that pod."
 
-### The production paths — exactly two, both user-owned
+> **Clarified 2026-08-25.** The sentence that used to follow — "and must never become one" —
+> was read as banning any hussh-operated pod from production. What it correctly bans is
+> *this configuration*: hussh's dev project, hussh's model identity, a master key from which
+> every pod's keys derive. The hosted production tier (path C below) is a different
+> configuration of the same image — dedicated hosting project, per-pod KMS with no master,
+> verified per-pod identity, turn-bounded model credentials — and it is held to conditions
+> the simulation tier is not asked to meet.
+
+### The production paths
 
 | Path | Compute | Model credential |
 |---|---|---|
 | **A. User-owned GCP** | the person's own GCP project | their own Vertex ADC |
 | **B. Anypoint** | user-controlled infrastructure | the person's own AI key |
+| **C. hussh-hosted** | one instance per person, in a dedicated hussh hosting project | turn-bounded credential, or their own key |
 
-**No hussh-hosted production tier, no exceptions** (founder, 2026-08-06). Onboarding is
-therefore "connect your Google Cloud account" — which
-`user_gcp_backend.render_bootstrap_plan` already designs as a keyless, least-privilege,
-one-time federation — or "connect your Anypoint org". There is no zero-config path, and
-that is the cost of the promise.
+> **Superseded (founder directive, 2026-08-25).** This section previously read "**the
+> production paths — exactly two, both user-owned**" and closed with "**No hussh-hosted
+> production tier, no exceptions**" (founder, 2026-08-06). That line is withdrawn, and
+> path C above is added. The original reasoning is not discarded — it is what the
+> conditions below now carry. What changed is the recognition that "connect your Google
+> Cloud account" as the *only* door makes day zero unreachable for someone who arrives
+> with a Google account and nothing else, and a private agent nobody can start is not a
+> private agent. The separation that mattered was never *whose billing account pays* — it
+> is **control plane ≠ custodian**, which is a cryptographic property and is stated as
+> testable conditions below.
+
+Onboarding is therefore a **choice**, made by the person and visible to them: "connect your
+Google Cloud account" — which `user_gcp_backend.render_bootstrap_plan` already designs as a
+keyless, least-privilege, one-time federation — or "connect your Anypoint org", or "host it
+with hussh for now". The third door is not a lesser tier with the properties removed; it is
+the same pod image, one instance per person, under the conditions below, **with a one-click
+migration into the person's own project that carries the same agent and everything it has
+learned**. Portability stops being a promise about the future and becomes a button.
+
+### The hosted production tier — the conditions, each testable
+
+Path C is legitimate **only** while all of these hold. Each names the code that enforces
+it, so a claim here can be checked rather than believed:
+
+1. **The pod mints its own keys; hussh only ever receives the public half.**
+   `pod_self_registration.py` generates the keypair inside the pod; the control plane
+   **pulls** the public half from the creation-time URL it recorded (`pod_key_collector.py`)
+   and never accepts a pushed key. Direction is the security property.
+2. **No derivable master.** On the hosting lane the pod's seal key is a pod-minted DEK
+   wrapped under a **per-pod KMS key** (`byoc_key_custody.resolve_pod_log_key`, the same
+   envelope BYOC uses). `HUSSH_POD_KEY_MASTER` — from which a holder could re-derive every
+   pod's keys — is **not set on that lane**; the HKDF-master mode remains the
+   dev-validation lane only. The hub holds `cloudkms.admin` on the keyring and provably
+   **not** encrypt/decrypt on the keys.
+3. **No fallback seal key.** Half a configuration refuses: hosted provisioning with the
+   KMS keyring or state bucket unset fails loudly rather than degrading to an ephemeral pod.
+4. **hussh holds public metadata only** — identifier, pod public key, lifecycle state. No
+   hussh vault, no backup-of-record, no readable copy. Ciphertext left behind by a
+   migration has a **declared expiry** rather than living indefinitely.
+5. **Identity is verified, not asserted.** The pod signs its hub calls with a key the hub
+   pulled from it, so presenting one pod's transport cannot let a caller speak for another
+   person's agent — on either tier.
+6. **The honesty clause, stated in exactly these words wherever the tier is described:**
+   *hussh does **not** read this pod, and here is the migration path to where it
+   structurally **cannot**.* The hosted tier never earns the sentence "hussh cannot read
+   this pod." The user-owned targets earn that one, and the migration button is how a
+   person moves from the first sentence to the second.
+
+Where a condition is only partly held, it is named here rather than in a footnote: with the
+current fleet-shared pod service account, per-pod key isolation is enforced by KMS key
+bindings but **not** by workload identity — a pod that could read a sibling's storage prefix
+could ask KMS to unwrap it. Per-pod service accounts are the recorded fix, gated on the
+measured 100-per-project ceiling below.
 
 Provisioning after the person's AI key is connected is a **required implementation** on the
 simulation tier *and* on Anypoint.
@@ -124,6 +182,14 @@ And the only thing keeping hussh-managed pods out of production right now is an
 production have no such table. That is a schema side-effect, not a control, and it holds
 only until someone renumbers `900` into `migrations/`. The boundary needs a guard that
 fails closed.
+
+*(Updated 2026-08-25.)* That guard now exists and is explicit rather than incidental:
+`hosted_tier_guard.py` permits a hussh-operated live pod create only when the lane
+affirmatively opts in, the lane is named, **and** the hosting project is explicitly aimed —
+a hosted fleet is never inherited from ambient credentials. The previous stand-in,
+`require_simulation_permitted`, was reused for two unrelated things (managed provisioning
+and the reviewer phone-verification bypass); those are now separate controls, so opening
+the hosted tier can never widen a verification bypass as a side effect.
 
 **Correction, same day.** An earlier revision of this section claimed "the seam already
 exists and is the right one," citing `runtime_providers/factory.py`. That is **one axis
@@ -172,17 +238,22 @@ the literal forms, and a base64 blob under a neutral key name would slip past it
 
 ## Deployment-agnostic is a first-class requirement
 
-The hussh-managed GCP environment exists **purely to validate this architecture**. It is a
+The hussh **dev** GCP environment exists **purely to validate this architecture**. It is a
 simulator for the complete production environment — orchestration, deployment, scaling,
 synchronisation, upgrades, recovery, backups, performance, and end-to-end interaction.
 
-It is not the product. The same platform must later run:
+The dev environment is not the product. The same platform runs, or must be able to run,
+every row below — and a row's status is stated honestly rather than aspirationally:
 
-| Target | Purpose |
-|---|---|
-| hussh-managed GCP | validation and simulation only |
-| the person's **own** GCP project | they own the compute |
-| **Anypoint** | enterprise / partner deployment |
+| Target | Purpose | Status (2026-08-25) |
+|---|---|---|
+| hussh **dev** GCP | validation and simulation only | live |
+| hussh **hosted** project | one instance per person; the zero-config door, under the conditions above | building |
+| the person's **own** GCP project | they own the compute | live — first BYOC pod served from the person's own registry |
+| **Anypoint** | enterprise / partner deployment | not implemented — `AnypointBackend._execute` raises when live, and there is no durable object store for pod state on it |
+
+The migration between rows two and three is a product feature, not an operations task: the
+same image, the same HusshID, the same commit log, re-sealed inside the destination pod.
 
 **By configuration, never by architectural change.** This is the test to apply to any
 proposed design: *does moving this pod to someone else's project require editing code, or
@@ -196,10 +267,16 @@ Practical consequences that follow, and are therefore requirements rather than n
   must be able to prove which pod it is somewhere hussh does not own the IAM.
 - Every backend seam (`ComputeBackend`, storage, key custody) stays substitutable.
 
-## The six requirements, restated against this vision
+## The seven requirements, restated against this vision
 
-Isolation, authority, identity, capability, portability, economics — the same
-decomposition, now scored against persistent per-person pods rather than a stateless fleet.
+Isolation, authority, identity, capability, **persistence**, portability, economics — the
+same decomposition, now scored against persistent per-person pods rather than a stateless
+fleet.
+
+*(Corrected 2026-08-25: this heading read "the six requirements" while the table below
+listed seven. Persistence was added as a named requirement when the target stopped being a
+stateless fleet — see the note under the table — and the count was never updated, so
+"all the requirements" had no citable referent. It does now.)*
 
 | Requirement | What the vision demands | Current state (updated 2026-08-25) |
 |---|---|---|
@@ -227,8 +304,16 @@ was not one when the target was a stateless fleet, which is exactly how it went 
    on any cohort larger than the team, and on deployment into a project hussh does not own.
 4. **Economy tier becomes the default.** Persistence must not require a warm instance;
    state lives outside the container so scale-to-zero costs nothing but a cold start.
-5. **The hussh GCP environment is measured as a simulator.** Its job is to prove upgrades,
+5. **The hussh dev environment is measured as a simulator.** Its job is to prove upgrades,
    recovery, backup, sync and scale work — not to be the place the product lives.
+   *(Updated 2026-08-25: this said "the hussh GCP environment", which now needs the
+   distinction. The **dev** project is the simulator. The **hosted** project is a
+   production tier under the stated conditions, and it is measured as production —
+   per-pod KMS custody, verified identity, real cost per person from a billing export.)*
+6. **Migration is a first-class product surface.** A person who started on the hosted tier
+   must be able to move their agent into their own project with one click, keeping the same
+   HusshID and everything the agent has learned, with the re-seal happening inside the
+   destination pod because hussh structurally cannot perform it.
 
 ## Open questions this document does not yet answer
 
@@ -275,8 +360,16 @@ service per person carries a hard platform ceiling that scale-to-zero does **not
 warm one. The only lever that removes the ceiling is the person's own project, which
 reframes BYO-Compute from a sovereignty tier into **the scale path**.
 
-*Not answered here.* It needs a founder decision, and it should be made against a measured
-cost-per-person rather than an estimate.
+*Working answer (2026-08-25), pending the founder's decision on the scale shape.* It is a
+required **property** — one person's holdings unreachable from another's — which the
+one-service-per-person implementation currently delivers and which nothing else in the
+codebase delivers today. The ceiling is real and is not relieved by scale-to-zero, so the
+scale shape is **sharded hosting projects**: the pod's project is already recorded per row
+in `backend_metadata.project`, so a second hosting project is a routing decision at
+provision time rather than an architectural change. The person's own project remains the
+path that removes the ceiling entirely, which is why the migration button is a scale
+strategy as much as a sovereignty one. **What still needs the founder: approval of the
+sharded shape, and the measured cost-per-person that decides how urgent it is.**
 
 ## How to use this file
 

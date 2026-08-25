@@ -530,33 +530,47 @@ class GcpBackend:
         the handle. Creates a billable Cloud Run service; reached only in live mode
         with credentials (HUSSH_GCP_BACKEND_LIVE + a resolvable SA).
 
-        SIMULATION TIER ONLY, enforced here rather than documented elsewhere.
+        EXPLICITLY-AIMED LANES ONLY, enforced here rather than documented elsewhere.
 
-        This backend stands up a pod that hussh operates, on hussh's infrastructure.
-        Per the north star, that is the simulation and validation tier: it proves
-        pod lifecycle, harness execution, grounding, intelligence chaining and
-        front-end connectivity, and it is deliberately NOT a production deployment
-        path. Production is user-owned only -- the person's own GCP project with
-        their own Vertex ADC, or Anypoint with their own AI key -- because Zero
-        Knowledge cannot be held by a pod its operator can read.
+        This backend stands up a pod that hussh operates. That is now two different
+        things depending on how the lane is configured, and the guard does not need
+        to tell them apart -- it only insists the lane said which one it meant:
+
+          * the dev SIMULATION tier (hussh's dev project, hussh's model identity, a
+            key master present), which may claim "the lifecycle works" and never
+            "hussh cannot read this pod"; and
+          * the HOSTED production tier (founder directive, 2026-08-25): the same
+            image, one instance per person, in a dedicated hosting project, under
+            the testable conditions in the north star -- pod-minted keys, per-pod
+            KMS with no master, pulled-never-pushed public halves, verified
+            identity, and a one-click migration into the person's own project.
+
+        Superseded here on 2026-08-25: this docstring used to read "SIMULATION TIER
+        ONLY ... deliberately NOT a production deployment path". Doctrine left in a
+        comment after the rule changed is how the next reader re-derives the old
+        rule, so it moves with the code.
 
         The refusal lives at the live-execution boundary, not at render time, so
         plan-mode inspection stays available everywhere while nothing bills.
 
-        Until now the only thing keeping this backend out of production was an
-        ACCIDENT: `personal_agent_registry` sits in the parked migration lane, so
+        Until 2026-08-25 the only thing keeping this backend out of production was
+        an ACCIDENT: `personal_agent_registry` sits in the parked migration lane, so
         UAT and production have no such table. That is a schema side-effect, not a
-        control, and it would evaporate the moment someone renumbered 900 into
-        `migrations/`.
+        control. It is now backed by a deliberate guard that fails closed.
         """
-        from hushh_mcp.services.dev_simulation_guard import require_simulation_permitted
         from hushh_mcp.services.gcp_run_client import GcpRunClient
+        from hushh_mcp.services.hosted_tier_guard import require_hosted_pod_creates_permitted
 
-        # Fail CLOSED. The guard requires an explicit opt-in AND a deploy lane or
-        # runtime environment that names a development lane; absence of
-        # configuration denies, and there is deliberately no "unknown" state that
-        # resolves to permitted.
-        require_simulation_permitted("hussh-managed pod provisioning")
+        # Fail CLOSED. Requires an explicit opt-in, a stated deploy lane, AND a
+        # named hosting project -- a fleet that is not aimed is not permitted,
+        # because the project resolver would otherwise fall through to ambient
+        # credentials and materialise pods wherever the hub happens to hold.
+        #
+        # Deliberately NOT `require_simulation_permitted` any more. That flag also
+        # gates the reviewer phone-verification bypass, so reusing it here would
+        # mean shipping the hosted tier on a lane silently unlocked unverified
+        # account creation there too.
+        require_hosted_pod_creates_permitted("hussh-managed pod provisioning")
 
         client = self._client or self._build_client()
         name = str(config["metadata"]["name"])

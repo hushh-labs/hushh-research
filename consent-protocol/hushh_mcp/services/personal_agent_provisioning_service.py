@@ -478,6 +478,17 @@ class PersonalAgentProvisioningService:
                     pod_key_id=pod_key.key_id if pod_key else None,
                     pod_key_wrapping_alg=pod_key.wrapping_alg if pod_key else None,
                     status=status,
+                    # What this pod was actually BUILT as, which is the column's own
+                    # contract. Until now nothing wrote it here: the only writer was
+                    # the BYOC save route, so a row could record a person's CHOICE
+                    # and never what provisioning did with it -- and the hosted tier
+                    # has no equivalent route firing at build time. Passed through
+                    # from the resolved spec, never named here: this is the common
+                    # layer, which `test_deployment_boundary_holds` forbids from
+                    # knowing any provider's name. The repo drops None, so an
+                    # unstated axis leaves the column exactly as it was.
+                    deployment_target=deployment_target,
+                    model_credential_mode=model_credential_mode,
                 )
                 if handle is not None:
                     # None handle fields are dropped by the repo, so NullBackend (all-None)
@@ -948,6 +959,17 @@ class PersonalAgentProvisioningService:
             a2a_route=handle.a2a_route,
             backend=handle.backend,
             backend_metadata=handle.backend_metadata,
+            # `discover` reads the LIVE service and computes the mode from its
+            # rendered minScale, and until now that answer was carried in the
+            # handle's metadata and dropped on the floor here. The row then kept
+            # the column default of `warm`, so the liveness sweep read a healthy
+            # scaled-to-zero pod's silence as a fault and probed it awake --
+            # billing a cold start on every pass, forever, for a pod that was
+            # working. Adoption exists to restore a row to the truth about a pod;
+            # this is part of that truth.
+            liveness_mode=(handle.backend_metadata or {}).get("livenessMode"),
+            deployment_target=cloud.deployment_target,
+            model_credential_mode=cloud.model_credential_mode,
         )
         row2 = await self._registry.get(user_id)
         from hushh_mcp.services.pod_key_collector import refresh_pod_key  # noqa: PLC0415

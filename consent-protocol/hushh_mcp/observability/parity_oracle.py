@@ -217,16 +217,30 @@ def observe_pod(
 ) -> TurnObservation:
     """Build the observation from the pod turn's DELIVERED return dict.
 
-    Today the pod returns ``{text, grounded, directiveCount, runtimeMode, ...}``
-    -- the directive PAYLOADS are dropped, only the count survives. So an
-    observation of a real pod turn has ``directives_dropped=True`` whenever
-    ``directiveCount>0`` while ``directives`` is empty. When the directive-
-    transport phase lands, the pod will carry ``directives`` / ``frames`` and
-    this normalizer reads them the same way :func:`observe_hub` reads frames.
+    Three shapes are accepted, in the order a real turn is most likely to carry
+    them:
 
-    ``specialist_statuses`` is threaded separately because the pod return does
-    not (today) enumerate specialist outcomes; the harness supplies them from the
-    turn's structured log line.
+    ``directives``
+        What a LIVE pod actually returns: ``[{kind, payload, delegateAgentId}]``
+        (``pod_turn.run_pod_turn``). This branch was missing until 2026-08-25 and
+        its absence made the oracle wrong about every real pod: the payloads were
+        right there in the response, the normalizer looked only for ``frames``,
+        and so a pod that carried its directives perfectly was scored
+        ``DIRECTIVE_DROP``. A ruler that mis-reads the thing it measures makes
+        every measurement taken with it suspect, which is why this is fixed
+        before anything is measured against it.
+
+    ``frames``
+        Hub-shaped frames, read exactly as :func:`observe_hub` reads them with the
+        provenance re-stamped to "pod". Kept because curated fixtures use it.
+
+    count only
+        ``{directiveCount: N}`` with no payload array anywhere -- the genuine
+        directive-drop fingerprint, and now the ONLY thing that produces one.
+
+    ``specialist_statuses`` is threaded separately for fixtures; a live pod that
+    enumerates its specialist outcomes carries them in the turn itself and that
+    is read here too.
     """
     frames = turn.get("frames")
     directives: list[DirectiveObservation] = []
@@ -235,15 +249,26 @@ def observe_pod(
         # Post-transport pod: frames present -> read them exactly as the hub's
         # are read, then re-stamp the provenance to "pod".
         return _rebuild_pod_from_frames(turn, frames)
-    directive_count = int(turn.get("directiveCount") or 0)
-    if directive_count > 0:
-        # Count without payloads == the directive-drop fingerprint.
-        dropped = True
+
+    delivered = turn.get("directives")
+    if isinstance(delivered, list) and delivered:
+        directives = _observe_pod_directives(delivered)
+    else:
+        directive_count = int(turn.get("directiveCount") or 0)
+        if directive_count > 0:
+            # Count without payloads == the directive-drop fingerprint.
+            dropped = True
+    # A live pod enumerates its own specialist outcomes; fixtures supply them.
+    # The turn wins when it has them, because it is the primary observation and
+    # the parameter is the stand-in.
+    from_turn = turn.get("specialists")
+    source = from_turn if isinstance(from_turn, list) and from_turn else (specialist_statuses or [])
     specialists = [
         SpecialistObservation(
-            agent_id=str(s.get("agent_id") or ""), status=str(s.get("status") or "")
+            agent_id=str(s.get("agent_id") or s.get("agentId") or ""),
+            status=str(s.get("status") or ""),
         )
-        for s in (specialist_statuses or [])
+        for s in source
     ]
     return TurnObservation(
         path="pod",
@@ -271,6 +296,48 @@ def _rebuild_pod_from_frames(turn: dict[str, Any], frames: list[dict[str, Any]])
         specialists=obs.specialists,
         directives_dropped=False,
     )
+
+
+def _observe_pod_directives(delivered: list[Any]) -> list[DirectiveObservation]:
+    """Normalize a live pod's ``directives`` array into observations.
+
+    The pod's shape is ``{kind, payload, delegateAgentId}`` where ``kind`` is
+    ``action`` or ``prompt`` (``OneTextDirective``), and a delegate id may ride
+    alongside. The hub reaches the same three observation kinds through different
+    frame names, which is exactly why both are normalized to one vocabulary
+    before anything is compared -- comparing transports would report a difference
+    on every turn and mean nothing.
+
+    ``action_id`` is read under both spellings: the runtime stages payloads in
+    camelCase for the client, and curated fixtures were authored in snake_case.
+    Reading only one silently observed ``action_id=""`` for real turns, which
+    compares unequal against a hub frame that has the id.
+    """
+    observations: list[DirectiveObservation] = []
+    for entry in delivered:
+        if not isinstance(entry, dict):
+            continue
+        payload = entry.get("payload") or {}
+        payload = payload if isinstance(payload, dict) else {}
+        delegate = str(entry.get("delegateAgentId") or entry.get("delegate_agent_id") or "")
+        kind = str(entry.get("kind") or "")
+        if delegate:
+            observations.append(DirectiveObservation(kind="specialist", delegate_agent_id=delegate))
+            continue
+        if kind == "prompt":
+            observations.append(DirectiveObservation(kind="prompt"))
+            continue
+        observations.append(
+            DirectiveObservation(
+                kind="action",
+                action_id=str(payload.get("actionId") or payload.get("action_id") or ""),
+                # Same rule the hub applies: a directive that names no frontend
+                # execution target cannot drive the app, so it is hollow rather
+                # than dispatchable.
+                dispatchable=str(payload.get("execution") or "") == "frontend",
+            )
+        )
+    return _dedupe_directives(observations)
 
 
 def _dedupe_directives(directives: list[DirectiveObservation]) -> list[DirectiveObservation]:

@@ -335,6 +335,13 @@ consent_signing_alg=""
 consent_ed25519_kid=""
 dev_consent_ed25519_private_secret=""
 dev_consent_ed25519_public_keys_secret=""
+# The hosted-pod-tier opt-in, and the two flags that were built, tested, and then
+# enabled in no lane at all. Same `set -u` pre-initialisation rule as everything
+# above: assigned only inside the dev block.
+hosted_pod_tier=""
+hosted_pod_project=""
+pod_data_door=""
+consent_audit_chain=""
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # The simulation opt-in. hussh-managed pods are the SIMULATION tier under
   # docs/reference/architecture/private-agent-north-star.md, so GcpBackend now
@@ -464,6 +471,37 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # recovery affordance. The check is bounded and fails toward "waking", never
   # toward a spurious fresh setup that would change the person's agent identity.
   personal_agent_reachability="true"
+  # Permission to stand up a pod hussh operates. Its own flag as of 2026-08-25:
+  # this used to ride HUSHH_DEV_SIMULATION_ENABLED, which ALSO gates the reviewer
+  # phone-verification bypass, so shipping the hosted tier to a lane would have
+  # silently disabled phone verification there. `hosted_tier_guard` additionally
+  # requires HUSSH_POD_PROJECT to be set, so a lane that opts in without aiming
+  # its fleet refuses to provision rather than materialising pods in whatever
+  # project the hub happens to hold.
+  hosted_pod_tier="true"
+  # WHERE that fleet lives, stated rather than inferred. Until now nothing set
+  # this in any lane, so the project was resolved from the hub's own credentials
+  # -- which happens to be right on dev and is right by luck, not by statement.
+  # The resolver's first rule exists for exactly this, and it records the source
+  # on the handle, so a pod's registry row can now answer "who decided this
+  # project" with "an operator did" instead of "whatever we were holding".
+  #
+  # Dev pods live in the dev project today. When the dedicated hosting project
+  # lands, this line is the one value that moves the fleet -- which is the
+  # deployment-agnostic test the north star applies: setting a value, not
+  # editing code.
+  hosted_pod_project="${PROJECT_ID}"
+  # The consent-gated read doors that let an in-pod specialist see owner state
+  # without the pod ever holding a database credential. Built with fail-closed
+  # egress at two levels, five regression guards, and a projection allowlist --
+  # and set in NO lane, so the one door that exists (location) has been off
+  # everywhere since it shipped. Dev-only while managed-tier pod identity is
+  # asserted rather than verified; that is what the per-pod key binding closes.
+  pod_data_door="true"
+  # The per-subject consent audit hash chain (migration 904, parked dev-only).
+  # Same story: service complete, wired into the consent writes, enabled nowhere.
+  # A tamper-evident ledger nobody turned on is a ledger that proves nothing.
+  consent_audit_chain="true"
   # Ed25519 consent-token signing: non-repudiation staged on dev (Phase 6). The
   # flip is EXISTENCE-GATED on both secrets so the mint's timing can never break a
   # deploy, and deleting the two secrets + redeploying is the whole rollback (the
@@ -502,6 +540,10 @@ append_optional_env "HUSSH_POD_INGRESS" "${pod_ingress}"
 append_optional_env "POD_LIFECYCLE_LOG_ENABLED" "${pod_lifecycle_log}"
 append_optional_env "PERSONAL_AGENT_RECONCILE_ENABLED" "${personal_agent_reconcile}"
 append_optional_env "PERSONAL_AGENT_REACHABILITY_GATE" "${personal_agent_reachability}"
+append_optional_env "HUSSH_HOSTED_POD_TIER_ENABLED" "${hosted_pod_tier}"
+append_optional_env "HUSSH_POD_PROJECT" "${hosted_pod_project}"
+append_optional_env "POD_DATA_DOOR_ENABLED" "${pod_data_door}"
+append_optional_env "CONSENT_AUDIT_CHAIN_ENABLED" "${consent_audit_chain}"
 # Ed25519 consent signing (dev only; every value is empty elsewhere). The PRIVATE
 # key rides Secret Manager only -- never an env literal -- and the PUBLIC map is
 # mounted as hub env, which is exactly what gcp_backend's pod render reads to hand

@@ -609,6 +609,111 @@ async def _reserve_pending_agent_record(user_id: str) -> bool:
         return False
 
 
+async def _write_cloud_setup_marker(user_id: str) -> None:
+    """Record that this person finished the "where does my agent live" step.
+
+    Server-written, never client-asserted: a marker that can exist without a real,
+    recorded decision is a gate that does nothing.
+
+    Shared by BOTH doors deliberately. The setup hub gates on one ``cloud``
+    capability marker, so the hosted choice has to satisfy it through the identical
+    mechanism -- otherwise "host it with hussh" would leave onboarding stuck on a
+    step the person already completed, and the fix would be a second gating rule in
+    the frontend that could drift from this one.
+    """
+    try:
+        from hushh_mcp.onboarding_contract import normalize_setup_capability_ids
+        from hushh_mcp.services.vault_keys_service import VaultKeysService
+
+        service = VaultKeysService()
+        state = await service.get_pre_vault_state(user_id)
+        current = list(state.get("setupCapabilityIds") or [])
+        if "cloud" not in current:
+            await service.update_pre_vault_state(
+                user_id=user_id,
+                setup_capability_ids=normalize_setup_capability_ids([*current, "cloud"]),
+            )
+    except Exception:  # noqa: BLE001 - the choice is recorded; the marker can be retried
+        logger.warning("one_cloud_choice.marker_write_failed", exc_info=True)
+
+
+class HostedCloudSelectResponse(BaseModel):
+    deploymentTarget: str
+    # The claim the hosted tier is allowed to make, returned by the server so the
+    # client renders what the server actually stands behind rather than its own copy.
+    assurance: str
+    migratable: bool
+    nextStep: str
+
+
+@router.post("/byoc/hosted/select", response_model=HostedCloudSelectResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def select_hosted_cloud(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> HostedCloudSelectResponse:
+    """The third door: have hussh host this person's pod, for now.
+
+    Deliberately beside `save_byoc_project` rather than in a module of its own --
+    both routes write the same two registry columns and the same setup marker, and
+    splitting them across files is how two writers of one column drift apart.
+
+    There is nothing to authorize and nothing to prove here, which is the entire
+    point of the door: someone who arrives with a Google account and nothing else
+    can finish onboarding. What they get is the same pod image, their own instance,
+    sealed with keys only that pod holds -- and a one-click migration into their own
+    project whenever they want it. The claim is "hussh does not read this pod, and
+    here is the path to where it structurally cannot"; it is never "hussh cannot
+    read this pod", which only the user-owned targets earn.
+    """
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    repo = PersonalAgentRegistryRepo()
+
+    async def _attach_hosted() -> bool:
+        return bool(
+            await repo.set_hosted_cloud(
+                user_id=firebase_uid,
+                # Named here, not in the registry: the common layer must not be able
+                # to name a provider (test_deployment_boundary_holds). This route is
+                # the layer that knows a person chose the hosted tier.
+                deployment_target="gcp",
+            )
+        )
+
+    wrote = await _attach_hosted()
+    if not wrote:
+        # Identical reservation fallback to the BYOC door, for the identical reason:
+        # with provision-on-AI-connection at its default, a person who did everything
+        # right can arrive here with no registry row, and a permanent 409 telling them
+        # to re-verify an already-verified phone is a loop that cannot terminate.
+        if await _reserve_pending_agent_record(firebase_uid):
+            wrote = await _attach_hosted()
+    if not wrote:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NO_AGENT_RECORD",
+                "message": (
+                    "Verify your phone number first. Your agent's record is created then, "
+                    "and this is where its home gets attached to it."
+                ),
+            },
+        )
+
+    await _write_cloud_setup_marker(firebase_uid)
+
+    return HostedCloudSelectResponse(
+        deploymentTarget="gcp",
+        assurance=(
+            "Your agent runs as its own instance on hussh's infrastructure, sealed with "
+            "keys only it holds. hussh does not read it."
+        ),
+        migratable=True,
+        nextStep="Choose how your agent reaches a model next.",
+    )
+
+
 @router.post("/byoc/project/save", response_model=ByocProjectSaveResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def save_byoc_project(
@@ -715,22 +820,7 @@ async def save_byoc_project(
         )
 
     if authorized:
-        # Server-written, never client-asserted. A marker that can exist without a
-        # stored, proven project is a gate that does nothing.
-        try:
-            from hushh_mcp.onboarding_contract import normalize_setup_capability_ids
-            from hushh_mcp.services.vault_keys_service import VaultKeysService
-
-            service = VaultKeysService()
-            state = await service.get_pre_vault_state(firebase_uid)
-            current = list(state.get("setupCapabilityIds") or [])
-            if "cloud" not in current:
-                await service.update_pre_vault_state(
-                    user_id=firebase_uid,
-                    setup_capability_ids=normalize_setup_capability_ids([*current, "cloud"]),
-                )
-        except Exception:  # noqa: BLE001 - the cloud is recorded; the marker can be retried
-            logger.warning("byoc_project.marker_write_failed", exc_info=True)
+        await _write_cloud_setup_marker(firebase_uid)
 
     return ByocProjectSaveResponse(
         projectId=project,

@@ -49,19 +49,32 @@ class _DiscoverBackend:
         return self._handle
 
 
-def _handle(hushh_id="ha1_abc"):
+def _handle(hushh_id="ha1_abc", *, liveness_mode="economy"):
     return BackendHandle(
         external_agent_id=f"one-pod-{hushh_id}",
         a2a_route=f"a2a://{hushh_id}",
         status="live",
         backend="user_gcp",
-        backend_metadata={"url": "https://one-pod.run.app", "tenancy": "user-owned"},
+        # `discover` reads the LIVE service and computes the mode from its rendered
+        # minScale, so a discovered handle carries it exactly as a created one does.
+        backend_metadata={
+            "url": "https://one-pod.run.app",
+            "tenancy": "user-owned",
+            "livenessMode": liveness_mode,
+        },
     )
 
 
 def _cloud():
+    """Mirrors the real `UserCloud` fields adopt_orphan reads.
+
+    `model_credential_mode` is part of that dataclass and was missing here, so the
+    fake was quietly narrower than the thing it stood in for -- which is how a fake
+    stops testing the code and starts testing itself.
+    """
     return SimpleNamespace(
         deployment_target="user_gcp",
+        model_credential_mode="user_adc",
         is_user_owned=True,
         project="acme-user-proj",
         region="us-central1",
@@ -176,3 +189,41 @@ async def test_adopt_returns_none_for_a_non_byoc_cloud(monkeypatch):
     svc, registry, _b, _f = _service(monkeypatch, row=row, handle=_handle(), cloud=managed)
     assert await svc.adopt_orphan(user_id="uid-1") is None
     assert registry.upserts == []
+
+
+@pytest.mark.asyncio
+async def test_adopt_carries_the_liveness_mode_it_discovered(monkeypatch):
+    """An adopted pod's silence must be read by the rule the pod actually runs under.
+
+    `discover` computes the mode from the live service, and until now adopt_orphan
+    threw that answer away: the reconstructed row kept the column default of
+    `warm`, so the liveness sweep read a healthy scaled-to-zero pod's silence as a
+    fault and probed it awake -- billing a cold start on every pass, forever, for a
+    pod that was working the whole time. The bill is the symptom; the row lying
+    about what was bought is the defect.
+    """
+    row = {"status": "needs_reinit", "hushh_id": "ha1_abc", "phone_e164_hash": "x"}
+    svc, registry, _b, _f = _service(monkeypatch, row=row, handle=_handle(liveness_mode="economy"))
+
+    await svc.adopt_orphan(user_id="uid-1")
+
+    assert registry.upserts, "adoption wrote no row"
+    assert registry.upserts[0]["liveness_mode"] == "economy"
+
+
+@pytest.mark.asyncio
+async def test_adopt_records_where_the_pod_it_found_actually_lives(monkeypatch):
+    """The deployment axes travel with the reconstructed row too.
+
+    A row rebuilt without them reads as "the deployment default", which for a pod
+    discovered in the person's OWN project is exactly the wrong answer -- and it is
+    the answer the next provision, wake or migration would act on.
+    """
+    row = {"status": "needs_reinit", "hushh_id": "ha1_abc", "phone_e164_hash": "x"}
+    svc, registry, _b, _f = _service(monkeypatch, row=row, handle=_handle())
+
+    await svc.adopt_orphan(user_id="uid-1")
+
+    written = registry.upserts[0]
+    assert written["deployment_target"] == "user_gcp"
+    assert written["model_credential_mode"] == "user_adc"

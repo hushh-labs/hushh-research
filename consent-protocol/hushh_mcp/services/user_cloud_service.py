@@ -44,6 +44,19 @@ class UserCloud:
         return (self.deployment_target or "").strip() == "user_gcp"
 
     @property
+    def is_hosted(self) -> bool:
+        """This person chose to have hussh host their pod.
+
+        A third answer, and the reason it needs its own property rather than
+        `not is_user_owned`: an unset `deployment_target` means the person has not
+        chosen at all, which is a different state from having chosen hussh. The
+        first still has a decision pending in onboarding; the second is finished.
+        Collapsing them would make "I chose hussh" indistinguishable from "I have
+        not been asked yet", which is exactly the ambiguity the choice exists to end.
+        """
+        return (self.deployment_target or "").strip() == "gcp"
+
+    @property
     def is_ready_to_provision(self) -> bool:
         """A named cloud is not a reachable one.
 

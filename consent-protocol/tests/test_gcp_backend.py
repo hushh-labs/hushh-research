@@ -287,22 +287,21 @@ def _live(client) -> GcpBackend:
 
 @pytest.fixture
 def simulation_lane(monkeypatch):
-    """Declare the lane a live hussh-managed provision is only ever allowed in.
+    """Declare the lane a live hussh-operated provision is only ever allowed in.
 
-    Under the simulation/production separation in
-    `docs/reference/architecture/private-agent-north-star.md`, a pod that hussh
-    operates on hussh's infrastructure is the SIMULATION tier — so `GcpBackend`'s
-    live path calls `require_simulation_permitted` and refuses when no development
-    lane is stated. These tests exercise that live path, so they have to say which
-    lane they are standing in; without this fixture they raise
-    `SimulationNotPermittedError`, which is the guard working.
+    `GcpBackend`'s live path calls `require_hosted_pod_creates_permitted`, which
+    demands an explicit opt-in, a stated deploy lane, and a NAMED hosting project.
+    These tests exercise that live path, so they have to say where they are
+    standing; without this fixture they raise `HostedTierNotPermittedError`, which
+    is the guard working.
 
-    The refusal itself is asserted in `test_hushh_managed_is_simulation_only.py` —
-    kept there rather than here so this file stays about the backend and that one
-    stays about the boundary.
+    The refusal itself is asserted in `test_hosted_tier_guard.py` — kept there
+    rather than here so this file stays about the backend and that one stays about
+    the boundary. The fixture name is unchanged so the diff stays about the guard.
     """
-    monkeypatch.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    monkeypatch.setenv("HUSSH_HOSTED_POD_TIER_ENABLED", "1")
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSSH_POD_PROJECT", "hussh-pda-dev")
 
 
 async def test_live_provision_creates_service_and_returns_live_handle(simulation_lane):

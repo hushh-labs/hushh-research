@@ -30,26 +30,15 @@
     "grounded": true,
     "directiveCount": 1,
     "runtimeMode": "user_adc",
-    "frames": [
+    "directives": [
       {
-        "event": "tool_start",
-        "data": {
-          "action_id": "analysis.start",
+        "kind": "action",
+        "payload": {
+          "actionId": "analysis.start",
           "label": "Analyze NVIDIA",
-          "execution": "frontend",
-          "directive_id": "dir_x",
-          "conversation_id": "c1",
-          "context_revision": "conversation:c1"
-        }
-      },
-      {
-        "event": "tool_waiting",
-        "data": {
-          "action_id": "analysis.start",
-          "status": "waiting_for_frontend",
-          "directive_id": "dir_x",
           "execution": "frontend"
-        }
+        },
+        "delegateAgentId": null
       }
     ]
   },
