@@ -1589,6 +1589,212 @@ class TestIsBackendDirectPredicate:
         assert _is_backend_direct("route.one_location", {"person": "Sarah"}) is False
 
 
+class TestBackendDirectLocationShareSelected:
+    """location.share_selected -- backend-direct only once a person is named,
+    with the client-side coordinate encrypt-and-publish step handed off via
+    a new publish_location_envelopes directive rather than attempted here."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    @pytest.mark.asyncio
+    async def test_creates_a_grant_and_parks_a_publish_directive(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[{"userId": "u1", "displayName": "Sarah Chen", "keyId": "k1"}],
+            ),
+            patch.object(
+                OneLocationAgentService,
+                "create_grant",
+                autospec=True,
+                return_value={"id": "g1"},
+            ) as create_mock,
+        ):
+            result = await run_app_action(
+                "location.share_selected",
+                {"person": "Sarah", "duration_hours": "2"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert create_mock.call_args.kwargs == {
+            "owner_user_id": "user_1",
+            "recipient_user_id": "u1",
+            "recipient_key_id": "k1",
+            "duration_hours": 2.0,
+            "duration_mode": "timed",
+            "enforce_connection": True,
+        }
+        publish_key = f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"
+        assert publish_key in state
+        directive = state[publish_key]
+        assert directive["kind"] == "publish_location_envelopes"
+        assert directive["payload"]["shares"] == [
+            {
+                "grantId": "g1",
+                "recipientKeyId": "k1",
+                "recipientUserId": "u1",
+                "label": "Sarah Chen",
+            }
+        ]
+        # The result directive is a SEPARATE key from the publish directive --
+        # both must reach the browser, not just whichever key survives a
+        # state_delta merge last.
+        result_key = f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:result"
+        assert result_key in state
+        assert state[result_key]["kind"] == "action_result"
+
+    @pytest.mark.asyncio
+    async def test_handles_multiple_people_and_parks_one_share_per_grant(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[
+                    {"userId": "u1", "displayName": "Sarah Chen", "keyId": "k1"},
+                    {"userId": "u2", "displayName": "Abdul Gaffar", "keyId": "k2"},
+                ],
+            ),
+            patch.object(
+                OneLocationAgentService,
+                "create_grant",
+                autospec=True,
+                side_effect=[{"id": "g1"}, {"id": "g2"}],
+            ),
+        ):
+            result = await run_app_action(
+                "location.share_selected",
+                {"person": "Sarah Chen and Abdul", "duration_hours": "1"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        publish_key = f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"
+        shares = state[publish_key]["payload"]["shares"]
+        assert {s["grantId"] for s in shares} == {"g1", "g2"}
+
+    @pytest.mark.asyncio
+    async def test_asks_for_a_duration_before_ever_reaching_backend_direct(self):
+        # duration_hours is a contract-required slot for this action (the
+        # same generic _missing_required_slot check every action gets) --
+        # omitting it must be refused before create_grant is ever attempted,
+        # the same as it would be for the pre-existing frontend path.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(OneLocationAgentService, "create_grant", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "location.share_selected", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "input_needed"
+        assert result["missing_slot"] == "duration_hours"
+        create_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_until_stopped_is_a_real_open_ended_share(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[{"userId": "u1", "displayName": "Sarah Chen", "keyId": "k1"}],
+            ),
+            patch.object(
+                OneLocationAgentService, "create_grant", autospec=True, return_value={"id": "g1"}
+            ) as create_mock,
+        ):
+            await run_app_action(
+                "location.share_selected",
+                {"person": "Sarah", "duration_hours": "until_stopped"},
+                _tool_context(state),
+            )
+        assert create_mock.call_args.kwargs["duration_hours"] is None
+        assert create_mock.call_args.kwargs["duration_mode"] == "until_stopped"
+
+    @pytest.mark.asyncio
+    async def test_refuses_a_duration_outside_the_real_bounds(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[{"userId": "u1", "displayName": "Sarah Chen", "keyId": "k1"}],
+            ),
+            patch.object(OneLocationAgentService, "create_grant", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "location.share_selected",
+                {"person": "Sarah", "duration_hours": "48"},
+                _tool_context(state),
+            )
+        assert result["status"] == "failed"
+        create_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reports_ambiguous_matches_instead_of_guessing(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[
+                    {"userId": "u1", "displayName": "Sarah Chen", "keyId": "k1"},
+                    {"userId": "u2", "displayName": "Sarah Lee", "keyId": "k2"},
+                ],
+            ),
+            patch.object(OneLocationAgentService, "create_grant", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "location.share_selected",
+                {"person": "Sarah", "duration_hours": "1"},
+                _tool_context(state),
+            )
+        assert result["status"] == "failed"
+        assert "more than one connection" in result["message"].lower()
+        create_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_falls_through_to_the_normal_directive_when_no_person_is_named(self):
+        # No person slot -- must NOT go backend-direct. The tap-then-voice
+        # hybrid flow (select on screen, then say "share it") depends on
+        # this: share_selected's own local handler still reads
+        # selectedRecipientIds, not slots.person.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(OneLocationAgentService, "create_grant", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "location.share_selected", {"duration_hours": "1"}, _tool_context(state)
+            )
+        create_mock.assert_not_called()
+        assert result["status"] in ("ready_to_run", "confirm_pending")
+        directive_keys = [k for k in state if k.startswith(f"{_STATE_PENDING_DIRECTIVE}:")]
+        assert directive_keys, "expected a normal directive to be parked"
+        assert state[directive_keys[0]]["kind"] == "action"
+        assert state[directive_keys[0]]["payload"]["actionId"] == "location.share_selected"
+
+
 class TestBackendDirectLocationSendRequest:
     """location.send_request -- backend-direct only once a person is named;
     falls through to the existing composer-selection path otherwise, which
