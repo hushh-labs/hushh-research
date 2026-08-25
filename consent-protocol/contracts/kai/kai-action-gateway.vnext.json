@@ -7209,7 +7209,7 @@
         "duration",
         "selected"
       ],
-      "meaning": "Shares your live location with the people already selected in the share composer, for the length of time you say. It never chooses who: if nobody is selected it stops and asks you to pick someone first.",
+      "meaning": "Shares your live location with the people already selected in the share composer, for the length of time you say. If one or more people are named in the same turn (e.g. 'share my location with Alice and Bob for 2 hours'), it resolves and shares with them directly -- no need to select first. Otherwise it shares with whoever is already picked in the share composer, and never chooses who: if nobody is selected it stops and asks you to pick someone first.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7269,21 +7269,32 @@
         "goal_id": "goal.location.share_selected",
         "required_inputs": [
           {
+            "name": "person",
+            "prompt": "Who do you want to share with?",
+            "required": false,
+            "slot": "person",
+            "resolver": "spoken_person_name_list"
+          },
+          {
             "name": "duration_hours",
-            "prompt": "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "prompt": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
             "required": true,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
+              "0.25",
               "0.5",
               "1",
+              "2",
               "4",
+              "8",
               "24"
             ]
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
+          "person": "spoken_person_name_list",
           "duration_hours": "location_share_duration"
         },
         "workflow_steps": [
@@ -7749,14 +7760,17 @@
           },
           {
             "name": "duration_hours",
-            "prompt": "How long should it last now? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "prompt": "How long should it last now? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
             "required": true,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
+              "0.25",
               "0.5",
               "1",
+              "2",
               "4",
+              "8",
               "24"
             ]
           }

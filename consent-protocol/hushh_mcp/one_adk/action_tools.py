@@ -35,6 +35,11 @@ from hushh_mcp.one_adk.voice_domain_policy import (
     resolve_voice_domain,
     voice_domain_label,
 )
+from hushh_mcp.operons.location.policy import (
+    TIMED_LOCATION_SHARE_DURATION_MODE,
+    UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
+    normalize_duration_hours,
+)
 from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
     is_navigation_action,
@@ -427,7 +432,9 @@ async def _run_backend_direct_action(
         return {"status": "blocked", "message": reason}
 
     try:
-        result_message = await _execute_backend_direct_mutation(clean_id, clean_slots, user_id)
+        result_message = await _execute_backend_direct_mutation(
+            clean_id, clean_slots, user_id, tool_context
+        )
     except _BackendDirectConfirmationNeeded as exc:
         logger.info("one_adk_action_decision action=%s status=confirmation_needed", clean_id)
         return {"status": "blocked", "message": str(exc)}
@@ -482,6 +489,47 @@ def _park_action_result_directive(
         "kind": "action_result",
         "payload": {"actionId": action_id, "status": status, "message": message},
     }
+
+
+def _park_publish_location_envelopes_directive(
+    tool_context: ToolContext, shares: list[dict[str, str]]
+) -> None:
+    """Ask the browser to encrypt-and-publish the live coordinate for grants
+    location.share_selected just created backend-direct.
+
+    Coordinates must never reach the backend in plaintext -- this is the one
+    step a backend-direct mutation cannot do itself. Deliberately a NEW kind,
+    not the `kind: "action"` + delegateAgentId: "agent_location" shape the
+    older text-chat specialist pathway already uses for the same underlying
+    work (runLocationDirective's publish_share branch): reusing that shape
+    here would pull this into adk_live.py's issue()/settlement/GC
+    bookkeeping, which only ever applies to `kind == "action"` -- there is
+    nothing for the browser to settle back for this one, the grant already
+    exists. Payload carries only grantId/recipientKeyId/label per share,
+    never a public key: runLocationDirective already refuses to trust one
+    from a directive and re-reads it from server state itself.
+    """
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"] = {
+        "kind": "publish_location_envelopes",
+        "payload": {"shares": shares},
+    }
+
+
+def _parse_share_duration(value: Any) -> tuple[float | None, str]:
+    """A spoken/slot share duration -> (duration_hours, duration_mode).
+
+    "until_stopped" is the one non-numeric value SHARE_VOICE_DURATION_VALUES
+    (page.tsx) accepts -- everything else goes through the same authoritative
+    normalize_duration_hours() create_grant itself is built on, rather than
+    re-deriving the frontend's own silent clamp.
+    """
+    raw = str(value or "").strip()
+    if raw == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE:
+        return None, UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    try:
+        return normalize_duration_hours(raw), TIMED_LOCATION_SHARE_DURATION_MODE
+    except ValueError as exc:
+        raise OneLocationAgentError("LOCATION_SHARE_DURATION_INVALID", str(exc)) from exc
 
 
 def _resolve_named_circle(
@@ -552,7 +600,7 @@ def _parse_positive_hours(value: Any, *, default: float) -> float:
 
 
 async def _execute_backend_direct_mutation(
-    action_id: str, slots: dict[str, Any], user_id: str
+    action_id: str, slots: dict[str, Any], user_id: str, tool_context: ToolContext
 ) -> str:
     """Resolve slots and call the real service function. Raises on failure.
 
@@ -560,6 +608,10 @@ async def _execute_backend_direct_mutation(
     rather than left generic, for the same reason ``_proposal_summary`` in
     the Calendar service composes its own sentence: this is the one place
     that knows exactly what happened.
+
+    ``tool_context`` is only used by location.share_selected, to park the
+    ``publish_location_envelopes`` directive alongside the mutation -- every
+    other branch ignores it.
     """
     if action_id in ("location.leave_circle", "location.delete_circle"):
         circle_service = OneLocationCircleService()
@@ -735,6 +787,61 @@ async def _execute_backend_direct_mutation(
         note = _unresolved_people_note(resolution.unresolved, name_of, "request")
         verb = "Approved" if action_id == "location.approve_request" else "Declined"
         return f"{verb} {join_names_for_speech(settled_names)}'s request.{note}"
+
+    if action_id == "location.share_selected":
+        agent_service = OneLocationAgentService()
+        raw_people = str(slots.get("person") or "").strip()
+        candidates = agent_service.list_verified_recipients(owner_user_id=user_id)
+        name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_SHARE_TARGET_AMBIGUOUS",
+                    f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise OneLocationAgentError(
+                "LOCATION_SHARE_TARGET_NOT_FOUND",
+                f"{raw_people or 'That person'} is not one of your connections.",
+            )
+        duration_hours, duration_mode = _parse_share_duration(slots.get("duration_hours"))
+        shared_names: list[str] = []
+        shares: list[dict[str, str]] = []
+        for recipient in resolution.resolved:
+            recipient_name = str(recipient.get("displayName") or "them")
+            grant = agent_service.create_grant(
+                owner_user_id=user_id,
+                recipient_user_id=str(recipient.get("userId") or ""),
+                recipient_key_id=(str(recipient.get("keyId") or "") or None),
+                duration_hours=duration_hours,
+                duration_mode=duration_mode,
+                enforce_connection=True,
+            )
+            shared_names.append(recipient_name)
+            # No public key in this payload -- runLocationDirective re-reads
+            # it from server state itself rather than trusting a directive a
+            # model produced. Grants with no key yet still publish nothing
+            # (runLocationDirective's own "hasn't set up location sharing
+            # yet" refusal already covers that gap) -- unaffected here.
+            shares.append(
+                {
+                    "grantId": str(grant.get("id") or ""),
+                    "recipientKeyId": str(recipient.get("keyId") or ""),
+                    "recipientUserId": str(recipient.get("userId") or ""),
+                    "label": recipient_name,
+                }
+            )
+        _park_publish_location_envelopes_directive(tool_context, shares)
+        note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
+        # Reports success as soon as the grant exists -- the client-side
+        # encrypt-and-publish step this directive triggers is real async work
+        # a backend-direct call cannot await. If it later fails, the grant
+        # still exists (recipient sees "waiting for location"), which is
+        # already today's product state for that gap, not a new one.
+        return f"Shared your location with {join_names_for_speech(shared_names)}.{note}"
 
     if action_id == "location.send_request":
         agent_service = OneLocationAgentService()
