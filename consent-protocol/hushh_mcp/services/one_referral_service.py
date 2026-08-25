@@ -213,6 +213,17 @@ def get_referral_summary(user_id: str) -> dict:
     required_minutes = policy.required_active_seconds // 60
 
     with get_db_connection() as connection:
+        all_statuses = connection.execute(
+            text(
+                """
+                SELECT r.status
+                  FROM one_referral_relationships r
+                 WHERE r.referrer_user_id = :uid
+                """
+            ),
+            {"uid": user_id},
+        ).fetchall()
+
         rows = connection.execute(
             text(
                 """
@@ -237,9 +248,12 @@ def get_referral_summary(user_id: str) -> dict:
             {"uid": user_id},
         ).fetchall()
 
-    qualified = sum(1 for row in rows if row.status == QUALIFIED)
-    in_progress = sum(1 for row in rows if public_status(row.status) == "In progress")
-    under_review = sum(1 for row in rows if public_status(row.status) == "Under review")
+    # Counts must cover every referral relationship, not just the 50 shown in
+    # the Recent list below — a referrer with 63 referrals still sees 63
+    # counted, even though only 50 render as rows.
+    qualified = sum(1 for row in all_statuses if row.status == QUALIFIED)
+    in_progress = sum(1 for row in all_statuses if public_status(row.status) == "In progress")
+    under_review = sum(1 for row in all_statuses if public_status(row.status) == "Under review")
 
     referrals = []
     for row in rows:
