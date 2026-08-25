@@ -7663,6 +7663,30 @@ class OneLocationAgentService:
         )
         return [payload for row in rows if (payload := self._grant_payload(row))]
 
+    def list_active_recipient_grants(self, *, recipient_user_id: str) -> list[dict[str, Any]]:
+        """Who is currently sharing their location with me -- see list_active_owner_grants.
+
+        The received-side twin: same narrow-read reasoning, just the other
+        half of the grant relationship (scoped by recipient, joined to the
+        owner's identity instead of the recipient's).
+        """
+        rows = self._execute_many(
+            """
+            SELECT
+              g.*,
+              o.display_name AS owner_display_name,
+              o.phone_number AS owner_phone_number
+            FROM one_location_share_grants g
+            LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+            WHERE g.recipient_user_id = :recipient_user_id
+              AND g.status = 'active'
+            ORDER BY g.created_at DESC
+            LIMIT 50
+            """,
+            {"recipient_user_id": recipient_user_id},
+        )
+        return [payload for row in rows if (payload := self._grant_payload(row))]
+
     def list_pending_owner_requests(self, *, owner_user_id: str) -> list[dict[str, Any]]:
         """The owner's own pending access requests -- see list_active_owner_grants."""
         rows = self._execute_many(
