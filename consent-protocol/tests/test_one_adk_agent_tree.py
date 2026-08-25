@@ -3480,6 +3480,53 @@ class TestNamedShareChain:
         assert instruction.count("ASK FOR IT OUT LOUD") >= 3
         assert "then STOP and wait" in instruction
 
+    def test_circle_creation_and_adding_do_not_navigate_first(self):
+        """create_circle and add_to_circle are both backend-direct (unlike
+        remove_from_circle, which genuinely still needs the browser round
+        trip) -- the old instruction told One to start_app_goal and
+        navigate to Location for all three alike, which meant One walked
+        someone to a screen they never asked to see just to add a name to
+        a circle. Live testing found exactly this."""
+        instruction = ONE_IDENTITY_INSTRUCTION
+
+        assert "do NOT navigate anywhere first" in instruction
+        assert "location.create_circle" in instruction
+        assert "location.add_to_circle" in instruction
+        # remove_from_circle is the one real exception -- it is not in
+        # BACKEND_DIRECT_ACTION_IDS, so it still needs the escort. The
+        # instruction has to say so explicitly or a future edit could
+        # "fix" it into looking like the other two by mistake.
+        assert "'location.remove_from_circle' is NOT backend-direct" in instruction
+
+    def test_only_actions_with_no_backend_direct_path_still_navigate(self):
+        """Cross-check against the actual dispatch set rather than trust the
+        prose alone: every action BACKEND_DIRECT_ACTION_IDS or
+        BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS covers must not be
+        instructed to start_app_goal for itself -- if the instruction still
+        told One to navigate for an action the backend runs directly, the
+        two would have drifted apart the same way the retired three-call
+        chain did."""
+        from hushh_mcp.one_adk.action_tools import (
+            BACKEND_DIRECT_ACTION_IDS,
+            BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS,
+        )
+
+        instruction = ONE_IDENTITY_INSTRUCTION
+        backend_direct_ids = BACKEND_DIRECT_ACTION_IDS | BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS
+        for action_id in backend_direct_ids:
+            if action_id not in instruction:
+                continue  # not every backend-direct action gets its own paragraph
+            marker = f"start_app_goal with action id '{action_id}'"
+            assert marker not in instruction, action_id
+            marker_no_id = "start_app_goal and let it open Location"
+            # Only remove_from_circle is allowed to sit near that phrase.
+            if marker_no_id in instruction and action_id != "location.remove_from_circle":
+                nearby = instruction[
+                    max(0, instruction.index(marker_no_id) - 200) : instruction.index(marker_no_id)
+                    + 200
+                ]
+                assert action_id not in nearby, action_id
+
 
 def test_a_named_request_goes_to_its_journey_not_to_a_specialist():
     """The refusal that had no business happening.
