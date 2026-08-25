@@ -1,9 +1,10 @@
 "use client";
 
 import { User } from "lucide-react";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   clearVoiceCard,
   readVoiceCard,
@@ -64,6 +65,13 @@ export function VoiceActionCard() {
   const disambiguation = card?.kind === "choice" ? card : null;
   const [runningId, setRunningId] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+
+  // This card is always raised from a spoken turn, never a tap, so it can
+  // arrive while the bottom chrome is scrolled away. See the matching effect
+  // on pendingConfirmation in agent-bar.tsx for the same reasoning.
+  useEffect(() => {
+    if (card) snapKaiBottomChromeVisible();
+  }, [card]);
 
   const choose = useCallback(
     async (candidate: VoiceDisambiguationCandidate) => {

@@ -387,16 +387,15 @@ function TopShellBreadcrumbTrail({
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
+        const isLocationRoot = item.label === "Location";
         return (
           <span
             key={`${item.label}-${index}`}
             className={cn(
-              "flex min-w-0 items-center gap-1",
-              // The last crumb (current page) keeps its full label; earlier
-              // ancestors are allowed to shrink and truncate so a deep trail
-              // like "Profile > Preferences > Gemini" collapses gracefully on
-              // narrow iOS widths instead of colliding/overflowing the header.
-              isLast ? "shrink-0" : "min-w-0 shrink",
+              "flex items-center gap-1",
+              isLast || isLocationRoot
+                ? "shrink-0 whitespace-nowrap"
+                : "min-w-0 shrink",
             )}
           >
             {index > 0 ? (
@@ -408,7 +407,12 @@ function TopShellBreadcrumbTrail({
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="min-w-0 max-w-[9rem] shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
+                className={cn(
+                  "text-[color:var(--app-secondary-label)] transition-colors hover:text-current",
+                  isLocationRoot
+                    ? "shrink-0 whitespace-nowrap"
+                    : "min-w-0 max-w-[9rem] shrink truncate",
+                )}
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -423,10 +427,11 @@ function TopShellBreadcrumbTrail({
             ) : (
               <span
                 className={cn(
-                  "truncate",
                   isLast
                     ? "min-w-0 shrink-0 font-semibold text-current"
-                    : "min-w-0 shrink text-[color:var(--app-secondary-label)]",
+                    : isLocationRoot
+                      ? "shrink-0 whitespace-nowrap text-[color:var(--app-secondary-label)]"
+                      : "min-w-0 shrink truncate text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >

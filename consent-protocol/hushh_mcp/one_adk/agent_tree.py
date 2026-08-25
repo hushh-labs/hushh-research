@@ -57,6 +57,12 @@ from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
     journey_for_specialist_request,
     list_app_actions,
+    list_location_shared_with_me,
+    list_my_connections,
+    list_my_location_circles,
+    list_my_location_shares,
+    list_pending_connection_requests,
+    list_pending_location_requests,
     run_app_action,
     start_app_goal,
 )
@@ -1437,6 +1443,14 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
     connections, connected systems, consent) are plain function
     tools that call the existing governed adk_bridge handlers.
 
+    The Location/Connect `list_*` read tools and `run_app_action`'s
+    BACKEND_DIRECT_ACTION_IDS mutations are the deliberate line for what may
+    depend on the frontend at all: navigation (`open_screen`,
+    `start_app_goal`, `route.*`) is frontend-triggered because there's no
+    backend concept of "which screen is open" -- everything else here reads
+    or writes the real backend data directly, so a frontend screen rewrite
+    can never silently break what these tools return or do.
+
     Uses GoogleSearchTool(bypass_multi_tools_limit=True) rather than the bare
     google_search function-tool. Binding Gemini's native google_search
     directly alongside this many custom function/agent tools in the SAME
@@ -1482,6 +1496,12 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         ask_location_agent,
         ask_connected_systems_agent,
         ask_consent_agent,
+        list_my_location_circles,
+        list_my_location_shares,
+        list_location_shared_with_me,
+        list_pending_location_requests,
+        list_my_connections,
+        list_pending_connection_requests,
         calendar_summary,
         calendar_events,
         calendar_availability,
