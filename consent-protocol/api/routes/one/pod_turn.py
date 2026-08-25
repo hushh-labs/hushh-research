@@ -204,11 +204,22 @@ async def run_pod_turn(
     # count would report `grounded: true` for a turn that learned nothing.
     grounding = (payload.pkm_context or "").strip() or None
 
+    # The runner's SESSION (and therefore pod memory) is keyed by the AGENT's own
+    # identity, while user_id keeps carrying the person's uid to tools via session
+    # state. Pod memory is owner-scoped to the HusshID, and ADK hands the session
+    # key to `search_memory` -- keyed by the person's Firebase uid, the very first
+    # recall trips the isolation guard (observed live on the founder's pod,
+    # 2026-08-25). HUSSH_ID is the pod's own identity, rendered into every pod.
+    import os  # noqa: PLC0415
+
+    pod_own_id = (os.environ.get("HUSSH_ID") or "").strip() or None
+
     chunks: list[str] = []
     directives: list[Any] = []
     try:
         async for event in runner(
             user_id=user_id,
+            session_owner_id=pod_own_id,
             consent_token=consent_token,
             conversation_id=payload.conversation_id,
             message=payload.message,

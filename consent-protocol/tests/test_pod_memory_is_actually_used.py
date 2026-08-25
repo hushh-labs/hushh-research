@@ -127,3 +127,33 @@ def test_the_write_happens_after_the_empty_response_guard() -> None:
         "memory is written before the empty-response guard, so failed turns would be "
         "committed to the owner's durable log"
     )
+
+
+def test_pod_sessions_are_keyed_by_the_agents_identity() -> None:
+    """The live failure, pinned: pod memory is owner-scoped to the HusshID, and ADK
+    hands the SESSION's user_id to `search_memory` -- so a pod session keyed by the
+    person's Firebase uid trips the isolation guard on the very first recall
+    (observed on the founder's pod, 2026-08-25: "this pod serves 'ha1_…', asked for
+    'NH2O…'"). The runner therefore keys the session by `session_owner_id` when a
+    pod supplies it, while STATE_USER_ID keeps carrying the person's uid to tools.
+    """
+    source = _TEXT_RUNTIME.read_text()
+    assert 'session_key = str(session_owner_id or "").strip() or clean_user_id' in source
+    assert source.count("user_id=session_key,") >= 3, (
+        "create_session, run_async and the memory-commit get_session must all use "
+        "the session key, or ADK loses the session / memory search gets the wrong owner"
+    )
+    assert "STATE_USER_ID: clean_user_id," in source, (
+        "the person's uid must keep reaching tools via session state; only the "
+        "session KEY changes on a pod"
+    )
+
+
+def test_the_pod_turn_passes_the_pods_own_identity() -> None:
+    """The join, asserted at the caller: pod_turn reads the pod's own HUSSH_ID and
+    hands it to the runner as the session owner. Remove either half and the pod is
+    back to keying memory searches by the Firebase uid."""
+    pod_turn = Path(__file__).resolve().parents[1] / "api" / "routes" / "one" / "pod_turn.py"
+    source = pod_turn.read_text()
+    assert '(os.environ.get("HUSSH_ID") or "").strip() or None' in source
+    assert "session_owner_id=pod_own_id," in source

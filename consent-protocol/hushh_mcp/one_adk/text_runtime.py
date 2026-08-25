@@ -335,6 +335,7 @@ def _directive_fingerprint(directive: OneTextDirective) -> str:
 async def _stream_one_text_turn_once(
     *,
     user_id: str,
+    session_owner_id: str | None = None,
     consent_token: str,
     conversation_id: str,
     message: str,
@@ -361,6 +362,15 @@ async def _stream_one_text_turn_once(
     clean_conversation_id = str(conversation_id or "").strip()
     if not clean_user_id or not clean_conversation_id:
         raise ValueError("One text session identity is missing")
+    # The SESSION key, distinct from the person's uid. A single-owner pod's memory
+    # is owner-scoped to its HusshID, and ADK hands the session's user_id to
+    # `search_memory` -- so a pod session keyed by the person's Firebase uid trips
+    # the memory isolation guard on the first recall (observed live, 2026-08-25:
+    # "pod memory is owner-scoped: this pod serves 'ha1_…', asked for 'NH2O…'").
+    # The pod therefore keys its sessions by the AGENT's identity while
+    # STATE_USER_ID keeps carrying the person's uid to tools. Hub callers pass
+    # nothing and keep the person-keyed session exactly as before.
+    session_key = str(session_owner_id or "").strip() or clean_user_id
 
     session_service = InMemorySessionService()
     memory_service = _resolve_pod_memory_service()
@@ -394,7 +404,7 @@ async def _stream_one_text_turn_once(
     sanitized_context = dict(screen_context or {})
     session = await session_service.create_session(
         app_name=ONE_APP_NAME,
-        user_id=clean_user_id,
+        user_id=session_key,
         session_id=f"chat_{uuid.uuid4().hex}",
         state={
             STATE_USER_ID: clean_user_id,
@@ -438,7 +448,7 @@ async def _stream_one_text_turn_once(
     started_at = time.perf_counter()
     first_visible_at: float | None = None
     source = runner.run_async(
-        user_id=clean_user_id,
+        user_id=session_key,
         session_id=session.id,
         new_message=new_message,
         run_config=RunConfig(streaming_mode=StreamingMode.SSE),
@@ -506,7 +516,7 @@ async def _stream_one_text_turn_once(
             await memory_service.add_session_to_memory(
                 await session_service.get_session(
                     app_name=ONE_APP_NAME,
-                    user_id=clean_user_id,
+                    user_id=session_key,
                     session_id=session.id,
                 )
             )
@@ -543,6 +553,7 @@ def _resolve_pod_memory_service():
 async def stream_one_text_turn(
     *,
     user_id: str,
+    session_owner_id: str | None = None,
     consent_token: str,
     conversation_id: str,
     message: str,
@@ -572,6 +583,7 @@ async def stream_one_text_turn(
         try:
             async for event in _stream_one_text_turn_once(
                 user_id=user_id,
+                session_owner_id=session_owner_id,
                 consent_token=consent_token,
                 conversation_id=conversation_id,
                 message=message,
