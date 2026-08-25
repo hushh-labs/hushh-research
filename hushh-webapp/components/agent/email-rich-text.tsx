@@ -50,17 +50,32 @@ type FormattingAction =
   | "align-right";
 
 const FORMATTING_CONTROLS = [
-  { label: "Bold", icon: Bold, action: "bold" },
-  { label: "Italic", icon: Italic, action: "italic" },
-  { label: "Underline", icon: Underline, action: "underline" },
-  { label: "Heading", icon: Heading2, action: "heading" },
-  { label: "Bullet list", icon: List, action: "bullet-list" },
-  { label: "Numbered list", icon: ListOrdered, action: "numbered-list" },
-  { label: "Quote", icon: Quote, action: "quote" },
-  { label: "Align left", icon: AlignLeft, action: "align-left" },
-  { label: "Center text", icon: AlignCenter, action: "align-center" },
-  { label: "Align right", icon: AlignRight, action: "align-right" },
-] as const satisfies ReadonlyArray<{ label: string; icon: typeof Bold; action: FormattingAction }>;
+  { label: "Bold", action: "bold" },
+  { label: "Italic", action: "italic" },
+  { label: "Underline", action: "underline" },
+  { label: "Heading", action: "heading" },
+  { label: "Bullet list", action: "bullet-list" },
+  { label: "Numbered list", action: "numbered-list" },
+  { label: "Quote", action: "quote" },
+  { label: "Align left", action: "align-left" },
+  { label: "Center text", action: "align-center" },
+  { label: "Align right", action: "align-right" },
+] as const satisfies ReadonlyArray<{ label: string; action: FormattingAction }>;
+
+function formattingIcon(action: FormattingAction) {
+  switch (action) {
+    case "bold": return Bold;
+    case "italic": return Italic;
+    case "underline": return Underline;
+    case "heading": return Heading2;
+    case "bullet-list": return List;
+    case "numbered-list": return ListOrdered;
+    case "quote": return Quote;
+    case "align-left": return AlignLeft;
+    case "align-center": return AlignCenter;
+    case "align-right": return AlignRight;
+  }
+}
 
 const LINK_RE = /^\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)$/i;
 const INLINE_TOKEN_RE = /(\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)\s]+\)|\*\*[^*]+\*\*|\*[^*]+\*|\+\+[^+]+\+\+)/g;
@@ -441,20 +456,23 @@ export function EmailRichTextComposer({
     <div className="overflow-hidden rounded-[var(--app-radius-lg)] border border-border/80 bg-background shadow-sm">
       <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/30 px-2.5 py-2">
         <div aria-label="Text formatting" className="flex min-w-0 items-center gap-0.5" role="toolbar">
-          {FORMATTING_CONTROLS.map(({ label, icon: Icon, action }) => (
-            <Button
-              aria-label={label}
-              disabled={disabled || previewing}
-              key={label}
-              onClick={() => handleFormattingAction(action)}
-              size="icon"
-              type="button"
-              variant="ghost"
-              className="h-8 w-8 rounded-lg"
-            >
-              <Icon className="h-3.5 w-3.5" />
-            </Button>
-          ))}
+          {FORMATTING_CONTROLS.map(({ label, action }) => {
+            const Icon = formattingIcon(action);
+            return (
+              <Button
+                aria-label={label}
+                disabled={disabled || previewing}
+                key={label}
+                onClick={() => handleFormattingAction(action)}
+                size="icon"
+                type="button"
+                variant="ghost"
+                className="h-8 w-8 rounded-lg"
+              >
+                <Icon className="h-3.5 w-3.5" />
+              </Button>
+            );
+          })}
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
           {!previewing ? (
