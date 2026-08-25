@@ -78,3 +78,46 @@ def test_the_failed_status_is_spelled_one_way_everywhere() -> None:
         "spellings of one state is how the sweep lost track of it the first time."
     )
     assert "provisioning_failed" in _STALLED_POD_STATUSES
+
+
+def test_the_database_check_admits_every_status_code_writes() -> None:
+    """The same defect class, third file: the CHECK constraint is a vocabulary
+    READER living in SQL. Migration 907 enumerated the statuses without
+    `needs_reinit` while `mark_needs_reinit` wrote it -- so on dev the
+    reachability gate detected a gone host, the wake path tried to record the
+    verdict, and Postgres refused (observed 2026-08-25). The row stayed `active`
+    with a dead host and the recovery affordance never rendered.
+
+    Reads the LATEST personal_agent_registry_status_check definition from the
+    parked lane and asserts it admits every status any writer produces.
+    """
+    written = _written_statuses()
+    # Writers outside the provisioning service: the registry repo itself
+    # (mark_needs_reinit, mark_provisioning_failed) uses dict payloads.
+    repo = _BACKEND / "hushh_mcp" / "services" / "personal_agent_registry_repo.py"
+    written |= set(re.findall(r'"status":\s*"([a-z_]+)"', repo.read_text(encoding="utf-8")))
+    # The tombstone TABLE's own lifecycle status, written by the same repo module;
+    # it never touches personal_agent_registry.status and its constraint lives on
+    # personal_agent_tombstones. Excluded by name so a registry writer of the same
+    # string would still be caught.
+    written -= {"deprovision_requested"}
+
+    parked = sorted((_BACKEND / "db" / "migrations" / "parked").glob("*.sql"))
+    latest_check: str | None = None
+    for migration in parked:  # ascending: the last definition wins, like replay
+        source = migration.read_text(encoding="utf-8")
+        for match in re.finditer(
+            r"personal_agent_registry_status_check\s*.*?CHECK \(status IN \((.*?)\)\)",
+            source,
+            re.S,
+        ):
+            latest_check = match.group(1)
+    assert latest_check, "no personal_agent_registry_status_check found in the parked lane"
+    admitted = set(re.findall(r"'([a-z_]+)'", latest_check))
+
+    missing = written - admitted
+    assert not missing, (
+        f"code writes registry status(es) {sorted(missing)} that the LATEST database "
+        "CHECK refuses -- the write will fail at runtime exactly the way needs_reinit "
+        "did on dev, and the row will silently keep its stale status"
+    )
