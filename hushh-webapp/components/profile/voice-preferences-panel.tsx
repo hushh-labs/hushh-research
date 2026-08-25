@@ -44,7 +44,7 @@ function VoiceHeader() {
         One
       </h1>
       <PageSubtitle className="text-muted-foreground">
-        Voice engine version {VOICE_ENGINE_VERSION} — powered by Gemini Live
+        Voice engine {VOICE_ENGINE_VERSION} — powered by Gemini Live
       </PageSubtitle>
     </div>
   );
