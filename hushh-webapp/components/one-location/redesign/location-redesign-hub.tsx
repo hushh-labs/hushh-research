@@ -4087,7 +4087,9 @@ function ShareFlow({
           separatorInset
           className="[&>div:first-child]:mt-0"
         >
-          {shareableCircles.map((circle) => {
+          {[...shareableCircles]
+            .sort((a, b) => (a.name === "SMS Circle" ? 1 : b.name === "SMS Circle" ? -1 : 0))
+            .map((circle) => {
             const selected =
               vm.selectedShareCircleSelection?.circle.id === circle.id &&
               shareCircleFullySelected;
