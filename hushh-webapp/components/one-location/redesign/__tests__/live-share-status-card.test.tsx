@@ -250,7 +250,7 @@ describe("LiveShareStatusCard", () => {
       />,
     );
 
-    screen.getByRole("button", { name: "Share more" }).click();
+    screen.getByRole("button", { name: "Share with more" }).click();
     expect(onShareMore).toHaveBeenCalledTimes(1);
   });
 

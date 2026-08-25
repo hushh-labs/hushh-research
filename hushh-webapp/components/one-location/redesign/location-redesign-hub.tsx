@@ -1438,12 +1438,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                   : openFlow("check-in")
               }
               onSos={() => openFlow("sos")}
-              onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
               onOpenNeedsReview={() => openFlow("needs-review")}
               onRequestLocation={() => openFlow("ask")}
-              onOpenSettings={() => openFlow("settings")}
             />
           </LocationHubPanel>
 
@@ -1495,48 +1493,35 @@ function NowHub({
   onStartShare,
   onCheckIn,
   onSos,
-  onOpenMap,
   onOpenActiveShares,
   onOpenSharedWithMe,
   onOpenNeedsReview,
   onRequestLocation,
-  onOpenSettings,
 }: {
   vm: LocationHubViewModel;
   onStartShare: () => void;
   onCheckIn: () => void;
   onSos: () => void;
-  onOpenMap: () => void;
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
   onOpenNeedsReview: () => void;
   onRequestLocation: () => void;
-  onOpenSettings: () => void;
 }) {
   const activityRows = [
     {
-      leading: <LocationMenuListIcon name="active" />,
-      title: "Active shares",
-      value: vm.activeOwnerGrants.length,
-      ariaLabel: "Active shares",
-      onClick: onOpenActiveShares,
-      voiceControlId: "one-location-action-active-shares",
-      voiceActionId: "location.open_active_shares",
-    },
-    {
       leading: <LocationMenuListIcon name="pin" />,
-      title: "Shared With Me",
+      title: "Sharing with you",
       value: vm.receivedGrants.length,
-      ariaLabel: "Shared with me",
+      ariaLabel: "Sharing with you",
       onClick: onOpenSharedWithMe,
       voiceControlId: "one-location-action-shared-with-me",
       voiceActionId: "location.open_shared_with_me",
     },
     {
       leading: <LocationMenuListIcon name="review" />,
-      title: "Needs Review",
+      title: "Needs review",
       value: vm.pendingOwnerRequests.length,
-      ariaLabel: "Needs my review",
+      ariaLabel: "Needs review",
       onClick: onOpenNeedsReview,
       voiceControlId: "one-location-action-needs-review",
       voiceActionId: "location.open_needs_review",
@@ -1626,8 +1611,7 @@ function NowHub({
       />
 
       {activityRows.length ? (
-        <div className="space-y-2 pt-4">
-          <LocationNowGroupLabel>Activity</LocationNowGroupLabel>
+        <div className="pt-1">
           <LocationMenuListGroup testId="one-location-now-activity">
             {activityRows.map((row) => (
               <LocationMenuListRow
@@ -1644,42 +1628,6 @@ function NowHub({
           </LocationMenuListGroup>
         </div>
       ) : null}
-
-      <div className="space-y-2 pt-4">
-        <LocationNowGroupLabel>More</LocationNowGroupLabel>
-        <LocationMenuListGroup testId="one-location-now-more">
-          <LocationMenuListRow
-            leading={<LocationMenuListIcon name="map" />}
-            title="Map"
-            ariaLabel="Your Map"
-            onClick={onOpenMap}
-            testId="one-location-map-row"
-            voiceControlId="one-location-open-map"
-            voiceActionId="location.open_map"
-          />
-          <LocationMenuListRow
-            leading={<LocationMenuListIcon name="settings" />}
-            title="Settings"
-            ariaLabel="Settings"
-            onClick={onOpenSettings}
-            testId="one-location-settings-entry"
-            voiceControlId="one-location-action-settings"
-            voiceActionId="location.open_settings"
-          />
-        </LocationMenuListGroup>
-      </div>
-    </div>
-  );
-}
-
-function LocationNowGroupLabel({ children }: { children: ReactNode }) {
-  return (
-    <div
-      role="heading"
-      aria-level={2}
-      className="mb-2 pl-1 font-[family-name:var(--font-app-body)] text-[13px] font-normal leading-[18px] tracking-[-0.01em] text-[#8e8e93]"
-    >
-      {children}
     </div>
   );
 }
@@ -1832,10 +1780,9 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
   return (
     <section
       aria-label="Actions"
-      className="pt-4"
+      className="pt-1"
       data-testid="one-location-now-actions"
     >
-      <LocationNowGroupLabel>Actions</LocationNowGroupLabel>
       <div
         data-one-location-action-grid=""
         className="grid w-full grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4"
@@ -1852,7 +1799,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             aria-label={item.ariaLabel}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-[112px] min-w-0 flex-col items-center justify-center gap-4 rounded-[16px] bg-white px-5 py-[18px] text-center shadow-[0_1px_2px_rgba(0,0,0,0.018),0_2px_7px_rgba(0,0,0,0.018)] ring-1 ring-inset ring-black/[0.025] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[#1c1c1e] dark:hover:bg-white/5 dark:ring-white/10",
+              "group flex min-h-[100px] min-w-0 flex-col items-center justify-center gap-3 rounded-[16px] bg-white px-5 py-4 text-center shadow-[0_1px_2px_rgba(0,0,0,0.018),0_2px_7px_rgba(0,0,0,0.018)] ring-1 ring-inset ring-black/[0.025] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[#1c1c1e] dark:hover:bg-white/5 dark:ring-white/10",
             )}
           >
             <span
@@ -1882,7 +1829,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           data-voice-label={emergencyItem.ariaLabel}
           aria-label={emergencyItem.ariaLabel}
           onClick={emergencyItem.onClick}
-          className="group mt-4 flex min-h-[80px] w-full items-center justify-between gap-4 rounded-[16px] bg-[#fff7f7] px-5 py-4 text-left ring-1 ring-inset ring-[#ff3b30]/16 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[#fff3f3] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff3b30]/40 dark:bg-[#2a1f1f] dark:ring-[#ff3b30]/20 dark:hover:bg-[#302121]"
+          className="group mt-3 flex min-h-[68px] w-full items-center justify-between gap-4 rounded-[16px] bg-[#fff7f7] px-5 py-3 text-left ring-1 ring-inset ring-[#ff3b30]/16 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[#fff3f3] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff3b30]/40 dark:bg-[#2a1f1f] dark:ring-[#ff3b30]/20 dark:hover:bg-[#302121]"
         >
           <span className="flex min-w-0 items-center gap-4">
             <span

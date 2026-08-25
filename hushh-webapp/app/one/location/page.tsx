@@ -13038,7 +13038,7 @@ export function OneLocationAgentPageContent({
       <AppPageShell
         width="agent"
         fitContent
-        className="relative isolate"
+        className="relative isolate [--app-page-content-bottom-gap:0px]"
         nativeTest={nativeTestConfig}
       >
         <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">

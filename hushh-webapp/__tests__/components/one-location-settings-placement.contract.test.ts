@@ -16,20 +16,20 @@ const PROFILE_SOURCE = fs.readFileSync(
 );
 
 describe("One Location settings placement", () => {
-  it("keeps Settings as a compact Now-hub entry", () => {
+  it("keeps Settings out of the compact Now hub", () => {
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
-    expect(nowSource).toContain('testId="one-location-settings-entry"');
-    expect(nowSource).toContain('title="Settings"');
+    expect(nowSource).not.toContain('testId="one-location-settings-entry"');
+    expect(nowSource).not.toContain('title="Settings"');
     expect(nowSource).not.toContain('title="Privacy"');
   });
 
-  it("offers Ask for location inside the unified Actions grid", () => {
-    // Request location is an action, not status or utility. It belongs beside
-    // Share location, Check-In, and SMS in the Actions grid, while
-    // Settings stays quiet in More.
+  it("offers Ask for location inside the compact Now actions", () => {
+    // Request location is an action, not status or utility. The compact Now
+    // tab shows Ask, Check in, and SMS without dashboard section labels or a
+    // duplicated utility list.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
@@ -42,13 +42,11 @@ describe("One Location settings placement", () => {
     const actionsIndex = nowSource.indexOf("LocationActionGrid");
     const requestIndex = nowSource.indexOf('title: "Ask for location"');
     const activityIndex = nowSource.indexOf("one-location-now-activity");
-    const moreIndex = nowSource.indexOf("one-location-now-more");
-    const settingsIndex = nowSource.indexOf('title="Settings"');
     expect(actionsIndex).toBeGreaterThan(-1);
     expect(requestIndex).toBeGreaterThan(actionsIndex);
     expect(activityIndex).toBeGreaterThan(requestIndex);
-    expect(moreIndex).toBeGreaterThan(activityIndex);
-    expect(settingsIndex).toBeGreaterThan(moreIndex);
+    expect(nowSource).not.toContain("one-location-now-more");
+    expect(nowSource).not.toContain("LocationNowGroupLabel");
 
     // Reuses the existing ask flow rather than introducing a second one, so
     // voice and the search bar keep naming a single control.
