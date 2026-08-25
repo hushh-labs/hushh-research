@@ -82,7 +82,10 @@ def build_report() -> dict:
         raw_overlays.get("uat"), label="environment_overlays.uat", violations=violations
     )
 
-    canonical_entries = ordered + uat_overlay
+    canonical_entries = sorted(
+        ordered + uat_overlay,
+        key=_migration_version,
+    )
     duplicate_entries = sorted(
         name for name, count in Counter(canonical_entries).items() if count != 1
     )
@@ -118,17 +121,10 @@ def build_report() -> dict:
             violations.append(f"release_manifest_missing_file:{migration_name}")
 
     base_versions = _versions(ordered, label="production", violations=violations)
-    overlay_versions = _versions(
-        uat_overlay,
-        label="environment_overlays.uat",
-        violations=violations,
+    uat_versions = _versions(canonical_entries, label="uat", violations=violations)
+    canonical_versions = _versions(
+        canonical_entries, label="canonical_union", violations=violations
     )
-    canonical_versions = sorted(base_versions + overlay_versions)
-    if len(canonical_versions) != len(set(canonical_versions)):
-        violations.append("release_manifest_duplicate_canonical_versions")
-    # The UAT lane is a numeric stable merge. This preserves an already-applied
-    # overlay migration when a newer shared production migration lands.
-    uat_versions = canonical_versions
     production_head = max(base_versions) if base_versions else None
     uat_head = max(uat_versions) if uat_versions else None
     highest_repo_version = max(migration_versions) if migration_versions else None

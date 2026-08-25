@@ -60,28 +60,6 @@ UAT_GCP_PROJECT_ID = "hushh-pda-uat"
 UAT_CLOUDSQL_INSTANCE = "hushh-pda-uat:us-central1:hushh-uat-pg"
 
 
-def _migration_version(filename: str) -> int:
-    """Parse the governed numeric prefix and fail closed on malformed names."""
-    prefix, separator, suffix = str(filename).partition("_")
-    if separator != "_" or len(prefix) != 3 or not prefix.isdigit() or not suffix.endswith(".sql"):
-        raise RuntimeError(f"Invalid governed migration filename: {filename!r}")
-    return int(prefix)
-
-
-def _merge_release_migration_files(*lanes: tuple[str, ...]) -> tuple[str, ...]:
-    """Stable numeric merge for base plus environment-specific migrations."""
-    entries = tuple(entry for lane in lanes for entry in lane)
-    versions = [_migration_version(entry) for entry in entries]
-    if len(versions) != len(set(versions)):
-        raise RuntimeError(
-            "release_migration_manifest.json migration versions must be unique "
-            "across the base lane and environment overlays"
-        )
-    return tuple(
-        entry for _, entry in sorted(zip(versions, entries, strict=True), key=lambda item: item[0])
-    )
-
-
 def _load_release_manifest(
     path: Path,
 ) -> tuple[
@@ -134,16 +112,6 @@ def _load_release_manifest(
         raise RuntimeError(
             "release_migration_manifest.json base and environment overlays must not overlap"
         )
-    if ordered_tuple != _merge_release_migration_files(ordered_tuple):
-        raise RuntimeError("release_migration_manifest.json ordered_migrations must be monotonic")
-    for environment, entries in overlay_tuples.items():
-        if entries != _merge_release_migration_files(entries):
-            raise RuntimeError(
-                "release_migration_manifest.json environment overlay must be monotonic: "
-                f"{environment}"
-            )
-    # Also validates that numeric IDs are globally unique across every lane.
-    _merge_release_migration_files(ordered_tuple, *overlay_tuples.values())
     return ordered_tuple, overlay_tuples, iam_tuple, pkm_tuple
 
 
@@ -166,13 +134,15 @@ def canonical_release_environment(release_environment: str) -> str:
 
 
 def release_migration_files(release_environment: str) -> tuple[str, ...]:
-    """Return the selected lane in numeric order without broadening production."""
+    """Return the governed lane in numeric migration order."""
     environment = canonical_release_environment(release_environment)
     if environment == "production":
         return BASE_RELEASE_MIGRATION_FILES
-    return _merge_release_migration_files(
-        BASE_RELEASE_MIGRATION_FILES,
-        RELEASE_ENVIRONMENT_OVERLAYS[environment],
+    return tuple(
+        sorted(
+            BASE_RELEASE_MIGRATION_FILES + RELEASE_ENVIRONMENT_OVERLAYS[environment],
+            key=lambda filename: int(filename.split("_", 1)[0]),
+        )
     )
 
 

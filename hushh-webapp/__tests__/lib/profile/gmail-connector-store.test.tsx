@@ -23,7 +23,9 @@ vi.mock("@/lib/services/gmail-receipts-service", () => ({
 }));
 
 import {
+  beginGmailOAuthCompletion,
   clearConnectorStatus,
+  failGmailOAuthCompletion,
   getConnectorView,
   primeConnectorStatus,
   useGmailConnectorStatus,
@@ -72,6 +74,41 @@ describe("gmail-connector-store", () => {
     expect(populatedFirst).toBe(populatedSecond);
     expect(populatedFirst).not.toBe(emptyFirst);
     expect(populatedFirst.status?.google_email).toBe("akshat@hushh.ai");
+  });
+
+  it("keeps a direct OAuth completion in memory and clears it only on a verified outcome", () => {
+    beginGmailOAuthCompletion("user-oauth-return");
+    expect(getConnectorView("user-oauth-return")).toMatchObject({
+      loadingStatus: true,
+      oauthCompletionPending: true,
+    });
+    expect(
+      window.sessionStorage.getItem("kai_gmail_connector_cache_v1"),
+    ).not.toContain('"isOAuthCompletionPending":true');
+
+    primeConnectorStatus({
+      userId: "user-oauth-return",
+      source: "status",
+      status: {
+        configured: true,
+        connected: false,
+        status: "disconnected",
+        scope_csv: "",
+        auto_sync_enabled: false,
+        revoked: false,
+      },
+    });
+    expect(getConnectorView("user-oauth-return").oauthCompletionPending).toBe(true);
+
+    failGmailOAuthCompletion(
+      "user-oauth-return",
+      "Gmail connection could not be completed.",
+    );
+    expect(getConnectorView("user-oauth-return")).toMatchObject({
+      loadingStatus: false,
+      oauthCompletionPending: false,
+    });
+    clearConnectorStatus("user-oauth-return");
   });
 
   it("keeps same-run receipt progress monotonic when a lagging status response arrives", () => {

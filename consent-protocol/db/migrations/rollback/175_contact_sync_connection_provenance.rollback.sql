@@ -1,4 +1,4 @@
--- Rollback 171: preserve independent relationships without widening consent.
+-- Rollback 175: preserve independent relationships without widening consent.
 
 BEGIN;
 

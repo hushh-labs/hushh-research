@@ -39,6 +39,12 @@
       "job_id": "google_integrations_retention_report"
     },
     {
+      "family_id": "gmail_owner_approved_delivery",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "gmail_owner_delivery_retention_report"
+    },
+    {
       "family_id": "kai_brokerage_provider_cache",
       "owner": "backend-runtime-governance",
       "mode": "report_only",
@@ -359,6 +365,22 @@
       "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
       "plaintext_posture": "provider_cache_metadata",
       "expected_row_growth": "high_provider_sync"
+    },
+    {
+      "id": "gmail_owner_approved_delivery",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "gmail_owner_send_actions",
+        "google_email_send_actions"
+      ],
+      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services",
+      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Terminal action metadata is retained only for bounded delivery-state reconciliation and compacted by the owner-approved delivery retention process.",
+      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse and terminal metadata is compacted without retaining email content.",
+      "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information.",
+      "plaintext_posture": "short_lived_hmac_and_delivery_metadata_only",
+      "expected_row_growth": "low_per_user_action"
     },
     {
       "id": "google_integrations_provider_state",

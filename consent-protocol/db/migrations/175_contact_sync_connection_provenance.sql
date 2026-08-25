@@ -1,4 +1,4 @@
--- Migration 171: consent-safe contact-sync connection provenance
+-- Migration 175: consent-safe contact-sync connection provenance
 -- ==============================================================
 -- A current verified-phone match materializes a connection when the matched
 -- account remains contact-discoverable. The account can opt out of future

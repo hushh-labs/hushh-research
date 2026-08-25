@@ -24,9 +24,9 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "db" / "migrations" / "171_contact_sync_connection_provenance.sql"
+MIGRATION = ROOT / "db" / "migrations" / "175_contact_sync_connection_provenance.sql"
 ROLLBACK = (
-    ROOT / "db" / "migrations" / "rollback" / "171_contact_sync_connection_provenance.rollback.sql"
+    ROOT / "db" / "migrations" / "rollback" / "175_contact_sync_connection_provenance.rollback.sql"
 )
 
 
@@ -633,8 +633,8 @@ def test_migration_registers_combined_consent_provenance_budget_and_safe_rollbac
     assert "origin.origin_kind IN ('circle_member', 'legacy_invite')" in rollback
     assert "THEN 'request'" in rollback
     assert "THEN 'circle_invite'" in rollback
-    assert "171_contact_sync_connection_provenance.sql" in manifest["ordered_migrations"]
-    assert "171_contact_sync_connection_provenance.sql" in manifest["groups"]["iam"]
+    assert "175_contact_sync_connection_provenance.sql" in manifest["ordered_migrations"]
+    assert "175_contact_sync_connection_provenance.sql" in manifest["groups"]["iam"]
 
 
 def test_account_deletion_explicitly_purges_the_fk_free_abuse_budget() -> None:

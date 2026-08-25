@@ -35,7 +35,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 from sqlalchemy.pool import NullPool, QueuePool
 
-from db.connection import format_database_unavailable_details, local_database_unavailable_hint
+from db.connection import database_unavailable_hint, format_database_unavailable_details
 from db.query_telemetry import record_query
 
 load_dotenv()
@@ -616,7 +616,7 @@ class TableQuery:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
     def _execute_select(self, conn) -> QueryResult:
@@ -899,7 +899,7 @@ class DatabaseClient:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
     def rpc(self, function_name: str, params: Optional[dict] = None) -> QueryResult:
@@ -945,7 +945,7 @@ class DatabaseClient:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
 

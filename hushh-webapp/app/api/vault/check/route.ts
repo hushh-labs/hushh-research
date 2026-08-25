@@ -20,7 +20,10 @@ import {
 } from "@/app/api/_utils/request-id";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment, logSecurityEvent } from "@/lib/config";
-import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import {
+  isRequestTimeoutError,
+  resolveSlowRequestTimeoutMs,
+} from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
@@ -142,7 +145,7 @@ export async function GET(request: NextRequest) {
           response = await attempt(VAULT_CHECK_RETRY_TIMEOUT_MS);
         }
       } catch (firstError) {
-        if ((firstError as Error)?.name === "AbortError") {
+        if (isRequestTimeoutError(firstError)) {
           console.warn(
             `[API] request_id=${requestId} vault_check timed out after ${UPSTREAM_TIMEOUT_MS}ms; retrying with extended timeout`
           );

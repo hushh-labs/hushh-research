@@ -79,6 +79,11 @@ _DB_CONNECTION_ERROR_PATTERNS = (
     "timed out",
     "ssl syscall error: eof detected",
 )
+_DB_CONNECTION_CAPACITY_ERROR_PATTERNS = (
+    "remaining connection slots are reserved",
+    "too many connections",
+    "too many clients already",
+)
 
 # Database connection pool (singleton) and its init lock.
 # The lock ensures only one coroutine runs the create_pool() call even when
@@ -114,7 +119,10 @@ def _is_connection_unavailable_error(exc: BaseException) -> bool:
         if isinstance(current, (ConnectionError, OSError, TimeoutError)):
             return True
         message = str(current).strip().lower()
-        if message and any(pattern in message for pattern in _DB_CONNECTION_ERROR_PATTERNS):
+        if message and any(
+            pattern in message
+            for pattern in _DB_CONNECTION_ERROR_PATTERNS + _DB_CONNECTION_CAPACITY_ERROR_PATTERNS
+        ):
             return True
         current = current.__cause__ or current.__context__
     return False
@@ -137,8 +145,20 @@ def local_database_unavailable_hint() -> str | None:
     )
 
 
+def database_unavailable_hint(details: str) -> str | None:
+    """Return a recovery hint that matches the actual database failure class."""
+
+    normalized = str(details).strip().lower()
+    if any(pattern in normalized for pattern in _DB_CONNECTION_CAPACITY_ERROR_PATTERNS):
+        return (
+            "The shared database is at connection capacity. Wait briefly and retry; "
+            "do not restart the Cloud SQL proxy unless it is actually down."
+        )
+    return local_database_unavailable_hint()
+
+
 def format_database_unavailable_details(details: str) -> str:
-    hint = local_database_unavailable_hint()
+    hint = database_unavailable_hint(details)
     normalized = str(details).strip()
     if not hint:
         return normalized

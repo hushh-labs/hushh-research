@@ -50,6 +50,26 @@ describe("🔐 Protocol Compliance Audit", () => {
 
         process.env.NEXT_PUBLIC_APP_ENV = "development";
       });
+
+      it("forwards a Firebase bearer to the backend without requiring a second Admin SDK", async () => {
+        process.env.NEXT_PUBLIC_APP_ENV = "production";
+        const authorization = "Bearer browser-issued-firebase-token";
+        mockFetch({ wrappers: [], vaultKeyHash: "commitment" }, 200);
+
+        const response = await vaultGetRoute.GET(
+          createMockGET(
+            "/api/vault/get",
+            { userId: "test_user" },
+            { Authorization: authorization },
+          ),
+        );
+
+        expect(response.status).toBe(200);
+        const [, options] = (global.fetch as jest.Mock).mock.calls[0];
+        expect(new Headers(options.headers).get("Authorization")).toBe(authorization);
+
+        process.env.NEXT_PUBLIC_APP_ENV = "development";
+      });
     });
 
     describe("GET /api/vault/check", () => {

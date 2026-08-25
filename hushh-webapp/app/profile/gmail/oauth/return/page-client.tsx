@@ -19,7 +19,11 @@ import {
   sanitizeGmailUserMessage,
   stashProfileGmailReturnStatus,
 } from "@/lib/profile/mail-flow";
-import { primeConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import {
+  beginGmailOAuthCompletion,
+  failGmailOAuthCompletion,
+  primeConnectorStatus,
+} from "@/lib/profile/gmail-connector-store";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import {
   clearOnboardingConnectorIntent,
@@ -246,19 +250,61 @@ export default function ProfileGmailOAuthReturnPageClient({
       return;
     }
 
-    void (async () => {
-      const durableJourney = await PreVaultUserStateService.bootstrapState(
-        user.uid,
-        { force: true },
-      ).catch(() => null);
-      const pendingSetupAttempt = resolvePendingGmailSetupAttempt(
-        durableJourney,
-        onboardingIntent,
-      );
-      const shouldReturnToSetup = Boolean(pendingSetupAttempt);
-      setReturnToSetup(shouldReturnToSetup);
+    const popupAttempt = readGmailOAuthPopupAttempt();
+    const completesInBackground = !popupAttempt;
+
+    if (completesInBackground) {
+      // Preserve code/state only in this in-flight closure. Putting either in
+      // the Gmail URL or storage would make the faster handoff less safe.
+      beginGmailOAuthCompletion(user.uid);
+      router.replace(ROUTES.GMAIL);
+    } else {
+      // The main Gmail window already has its shell mounted. Bring it forward
+      // while this popup safely finishes the exchange, rather than leaving the
+      // person staring at a transient callback window.
       try {
-        setStage("completing");
+        window.opener?.focus();
+      } catch {
+        // Browser focus policy is best effort; settlement still follows.
+      }
+    }
+
+    void (async () => {
+      // Connecting Gmail is complete once this verified callback has stored
+      // the provider result. Setup acknowledgement is useful bookkeeping, but
+      // it must not hold the person on this transitional screen while Gmail
+      // can render its status and receipt placeholders.
+      const settleSuccessfulSetupInBackground = async () => {
+        const durableJourney = await PreVaultUserStateService.bootstrapState(
+          user.uid,
+          { force: true },
+        ).catch(() => null);
+        const pendingSetupAttempt = resolvePendingGmailSetupAttempt(
+          durableJourney,
+          onboardingIntent,
+        );
+        try {
+          if (!pendingSetupAttempt) return;
+
+          await settleGmailSetupAttempt({
+            userId: user.uid,
+            intent: pendingSetupAttempt,
+            phase: "capability_setup",
+            callbackState: "succeeded",
+          }).catch((error) => {
+            // Connector success remains authoritative if the resumable setup
+            // echo is temporarily unavailable.
+            console.warn(
+              "[GmailOAuthReturn] Failed to persist setup return:",
+              error,
+            );
+          });
+        } finally {
+          clearOnboardingConnectorIntent();
+        }
+      };
+      try {
+        if (!completesInBackground) setStage("completing");
         const idToken = await user.getIdToken();
 
         const status = await GmailReceiptsService.completeConnect({
@@ -275,36 +321,17 @@ export default function ProfileGmailOAuthReturnPageClient({
         });
         stashProfileGmailReturnStatus(status);
 
-        setStage("redirecting");
-        if (pendingSetupAttempt) {
-          const settled = await settleGmailSetupAttempt({
-            userId: user.uid,
-            intent: pendingSetupAttempt,
-            phase: "capability_setup",
-            callbackState: "succeeded",
-          }).catch((error) => {
-            // Connector success is authoritative even if the resumable journey
-            // echo is temporarily unavailable. Do not relabel a connected
-            // account as a failed OAuth callback.
-            console.warn(
-              "[GmailOAuthReturn] Failed to persist setup return:",
-              error,
-            );
-            return false;
-          });
-          clearOnboardingConnectorIntent();
-          if (settlePopupOpener({ outcome: "succeeded" })) {
-            return;
-          }
-          router.replace(
-            settled ? ROUTES.ONE_SETUP_GMAIL : buildProfileGmailReturnPath(),
-          );
-        } else {
-          if (settlePopupOpener({ outcome: "succeeded" })) {
-            return;
-          }
-          router.replace(buildProfileGmailReturnPath());
+        if (!completesInBackground) setStage("redirecting");
+        if (popupAttempt) {
+          // A popup can close as soon as it settles, so finish its durable
+          // acknowledgement before emitting the terminal result. The retained
+          // main Gmail window remains available throughout.
+          await settleSuccessfulSetupInBackground();
+          if (settlePopupOpener({ outcome: "succeeded" })) return;
         }
+
+        void settleSuccessfulSetupInBackground();
+        if (!completesInBackground) router.replace(ROUTES.GMAIL);
       } catch (completeError) {
         if (isRecoverableGmailOAuthReplayError(completeError)) {
           try {
@@ -322,43 +349,39 @@ export default function ProfileGmailOAuthReturnPageClient({
                 source: "oauth_return",
               });
               stashProfileGmailReturnStatus(status);
-              setStage("redirecting");
-              if (pendingSetupAttempt) {
-                const settled = await settleGmailSetupAttempt({
-                  userId: user.uid,
-                  intent: pendingSetupAttempt,
-                  phase: "capability_setup",
-                  callbackState: "succeeded",
-                }).catch((error) => {
-                  console.warn(
-                    "[GmailOAuthReturn] Failed to persist replay return:",
-                    error,
-                  );
-                  return false;
-                });
-                clearOnboardingConnectorIntent();
-                if (settlePopupOpener({ outcome: "succeeded" })) {
-                  return;
-                }
-                router.replace(
-                  settled
-                    ? ROUTES.ONE_SETUP_GMAIL
-                    : buildProfileGmailReturnPath(),
-                );
-              } else {
-                if (settlePopupOpener({ outcome: "succeeded" })) {
-                  return;
-                }
-                router.replace(buildProfileGmailReturnPath());
+              if (!completesInBackground) setStage("redirecting");
+              if (popupAttempt) {
+                await settleSuccessfulSetupInBackground();
+                if (settlePopupOpener({ outcome: "succeeded" })) return;
               }
+
+              void settleSuccessfulSetupInBackground();
+              if (!completesInBackground) router.replace(ROUTES.GMAIL);
               return;
             }
           } catch {
             // Fall through to the standard error path if status refresh fails.
           }
         }
+        if (completesInBackground) {
+          failGmailOAuthCompletion(
+            user.uid,
+            sanitizeGmailUserMessage(completeError, {
+              fallback: "Gmail connection could not be completed. Try again from Gmail.",
+            }),
+          );
+          return;
+        }
         setStage("error");
         setError(resolveErrorMessage(completeError));
+        const durableJourney = await PreVaultUserStateService.bootstrapState(
+          user.uid,
+          { force: true },
+        ).catch(() => null);
+        const pendingSetupAttempt = resolvePendingGmailSetupAttempt(
+          durableJourney,
+          onboardingIntent,
+        );
         if (pendingSetupAttempt) {
           await settleGmailSetupAttempt({
             userId: user.uid,
@@ -407,8 +430,8 @@ export default function ProfileGmailOAuthReturnPageClient({
           <HushhLoader
             label={
               stage === "redirecting"
-                ? "Returning to Gmail..."
-                : "Completing your Gmail connector setup..."
+                ? "Opening Gmail…"
+                : "Connecting your Gmail…"
             }
           />
         </AppPageContentRegion>
