@@ -118,6 +118,29 @@ test.describe("One Location onboarding feature story", () => {
     expect(appSource).not.toContain("feature-checkin-house-transparent");
   });
 
+  test("the artwork is not positioned from the viewport", async ({ page }) => {
+    for (const height of [667, 812, 844, 932]) {
+      await page.setViewportSize({ width: 390, height });
+      await page.setContent(buildHtml());
+      await awaitProductFont(page);
+
+      const measured = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll("[data-one-feature-row]")].map((row) =>
+          row.getBoundingClientRect(),
+        );
+        const artRects = [...document.querySelectorAll("[data-one-use-case-art]")].map((art) =>
+          art.getBoundingClientRect(),
+        );
+        return rows.every((row, index) => {
+          const art = artRects[index];
+          return art.top >= row.top + 12 && art.bottom <= row.bottom - 12;
+        });
+      });
+
+      expect(measured).toBe(true);
+    }
+  });
+
   for (const { w, h } of VIEWPORTS) {
     test(`keeps the story readable at ${w}x${h}`, async ({ page }) => {
       await page.setViewportSize({ width: w, height: h });
