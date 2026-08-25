@@ -1135,6 +1135,59 @@ async def list_pending_connection_requests(
     return {"status": "ok", "requests": requests}
 
 
+async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List this person's own asks for someone else's location still waiting
+    on that person's approve/decline -- the mirror of
+    list_pending_location_requests, which is the incoming direction."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    requests = OneLocationAgentService().list_pending_requester_requests(requester_user_id=user_id)
+    return {"status": "ok", "requests": requests}
+
+
+async def get_location_circle_members(circle: str, tool_context: ToolContext) -> dict[str, Any]:
+    """List who is actually in a named Location circle, by name and role.
+
+    list_my_location_circles only returns a member COUNT per circle, not who
+    they are -- this is the tool for "who's in Family" once the circle is
+    named. Resolves 'circle' the same way every backend-direct circle action
+    does (_resolve_named_circle): exact, then word-boundary, then substring,
+    refusing to guess on ambiguity.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    circle_service = OneLocationCircleService()
+    try:
+        resolved = _resolve_named_circle(circle_service, user_id, circle)
+        detail = circle_service.get_circle(user_id=user_id, circle_id=str(resolved.get("id") or ""))
+    except OneLocationCircleError as exc:
+        return {"status": "not_found", "message": str(exc)}
+    # Deliberately not the raw member payload: that also carries each
+    # member's public recipient key (keyId/publicKeyJwk/keyAlgorithm), which
+    # has no business flowing through a voice transcript even though it is
+    # cryptographically "public" -- the browser needs it to render a share
+    # picker, a spoken roster does not.
+    members = [
+        {
+            "displayName": str(member.get("displayName") or "Circle member"),
+            "role": str(member.get("role") or "member"),
+            "relationship": str(member.get("relationship") or "none"),
+        }
+        for member in (detail.get("members") or [])
+    ]
+    return {
+        "status": "ok",
+        "circle": {"name": str(detail.get("name") or ""), "kind": str(detail.get("kind") or "")},
+        "members": members,
+    }
+
+
 async def run_app_action(
     action_id: str, slots: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:

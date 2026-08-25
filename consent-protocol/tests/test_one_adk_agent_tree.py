@@ -36,11 +36,13 @@ from hushh_mcp.one_adk.action_tools import (
     _journey_slots,
     _navigation_journey_definition,
     continue_app_goal,
+    get_location_circle_members,
     list_app_actions,
     list_location_shared_with_me,
     list_my_connections,
     list_my_location_circles,
     list_my_location_shares,
+    list_my_outgoing_location_requests,
     list_pending_connection_requests,
     list_pending_location_requests,
     run_app_action,
@@ -2569,6 +2571,113 @@ class TestBackendDirectLocationReadTools:
         assert result["status"] == "ok"
         assert result["requests"][0]["requesterDisplayName"] == "Asker"
         assert requests_mock.call_args.kwargs == {"owner_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_my_outgoing_location_requests_reads_pending_requester_requests(self):
+        """The mirror of list_pending_location_requests, other direction --
+        without this, One had a tool for 'who is waiting on me' but none for
+        'who am I waiting on', which is exactly the gap live testing found."""
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_requester_requests",
+                autospec=True,
+                return_value=[{"id": "r2", "ownerDisplayName": "Sarah"}],
+            ) as requests_mock,
+        ):
+            result = await list_my_outgoing_location_requests(_tool_context(state))
+        assert result["status"] == "ok"
+        assert result["requests"][0]["ownerDisplayName"] == "Sarah"
+        assert requests_mock.call_args.kwargs == {"requester_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_get_location_circle_members_returns_names_not_just_a_count(self):
+        """list_my_location_circles only ever returns member_count -- this is
+        the tool for the actual names, which live testing found nothing
+        answered "who is in my Family circle" with."""
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "get_circle",
+                autospec=True,
+                return_value={
+                    "name": "Family",
+                    "kind": "trusted",
+                    "members": [
+                        {
+                            "displayName": "Sarah Chen",
+                            "role": "owner",
+                            "relationship": "self",
+                            "keyId": "should-not-leak",
+                            "publicKeyJwk": {"kty": "EC"},
+                        },
+                        {"displayName": "Alex Kim", "role": "member", "relationship": "connected"},
+                    ],
+                },
+            ) as get_circle_mock,
+        ):
+            result = await get_location_circle_members("Family", _tool_context(state))
+        assert result["status"] == "ok"
+        assert result["circle"] == {"name": "Family", "kind": "trusted"}
+        assert result["members"] == [
+            {"displayName": "Sarah Chen", "role": "owner", "relationship": "self"},
+            {"displayName": "Alex Kim", "role": "member", "relationship": "connected"},
+        ]
+        # Public key material never reaches the model, even though it is
+        # cryptographically "public" -- a voice transcript has no business
+        # carrying it.
+        assert "keyId" not in result["members"][0]
+        assert "publicKeyJwk" not in result["members"][0]
+        assert get_circle_mock.call_args.kwargs == {"user_id": "user_1", "circle_id": "c1"}
+
+    @pytest.mark.asyncio
+    async def test_get_location_circle_members_reports_not_found_instead_of_raising(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+        ):
+            result = await get_location_circle_members("Coworkers", _tool_context(state))
+        assert result["status"] == "not_found"
+        # _resolve_named_circle's not-found message names the circles that
+        # DO exist, so One can offer them, rather than repeating the miss.
+        assert "family" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_get_location_circle_members_reports_ambiguous_instead_of_guessing(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[
+                    {"id": "c1", "name": "Family Close"},
+                    {"id": "c2", "name": "Family Extended"},
+                ],
+            ),
+            patch.object(OneLocationCircleService, "get_circle", autospec=True) as get_circle_mock,
+        ):
+            result = await get_location_circle_members("Family", _tool_context(state))
+        assert result["status"] == "not_found"
+        assert "family" in result["message"].lower()
+        get_circle_mock.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_refuses_without_a_consent_token(self):

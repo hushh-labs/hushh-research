@@ -55,12 +55,14 @@ from hushh_mcp.agents.onboarding.agent import (
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
+    get_location_circle_members,
     journey_for_specialist_request,
     list_app_actions,
     list_location_shared_with_me,
     list_my_connections,
     list_my_location_circles,
     list_my_location_shares,
+    list_my_outgoing_location_requests,
     list_pending_connection_requests,
     list_pending_location_requests,
     run_app_action,
@@ -525,6 +527,33 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "open. If they say something that is neither yes nor no, the confirmation "
     "is still waiting: answer them briefly, then put the same question once "
     "more.\n\n"
+    # Reading Location/Connect data. Six read-only tools exist for exactly
+    # these questions and were previously undocumented here -- registered as
+    # callable tools, but with nothing telling One when to reach for them, so
+    # it answered "I don't have access to that" to questions the app could
+    # answer directly. None of these are confirm_required (nothing changes),
+    # none need navigation, and none take the current screen into account --
+    # call them the moment the question is asked, from anywhere.
+    "For questions about who the person is connected to or sharing with, "
+    "call the matching read tool directly rather than saying you cannot "
+    "check: list_my_connections ('who am I connected to', 'who are my "
+    "connections'), list_my_location_shares ('who am I sharing my location "
+    "with', 'who can see my location'), list_location_shared_with_me ('who "
+    "is sharing their location with me'), list_pending_location_requests "
+    "('who is waiting for me to approve', incoming asks for MY location), "
+    "list_my_outgoing_location_requests ('whom have I asked for their "
+    "location', 'what requests am I waiting on' -- the other direction from "
+    "list_pending_location_requests), list_pending_connection_requests with "
+    "direction='incoming' or 'outgoing' as asked, list_my_location_circles "
+    "('what circles do I have') for the circles themselves, and "
+    "get_location_circle_members with slot circle=<name as heard> for "
+    "'who is in my Family circle' specifically -- list_my_location_circles "
+    "only returns how MANY people are in each circle, not who they are; "
+    "that is what get_location_circle_members is for. If the circle name "
+    "does not resolve or matches more than one, relay exactly what the "
+    "tool says; never guess which circle was meant. Summarize what these "
+    "tools return in plain language; never invent a name, count, or status "
+    "they did not report.\n\n"
     # Guide mode: some actions cannot be triggered by the app at all, only by
     # the person (run_app_action reports these as 'manual_only', e.g. picking
     # a file or connecting a third-party account). This is not a dead end.
@@ -1461,9 +1490,11 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         ask_connected_systems_agent,
         ask_consent_agent,
         list_my_location_circles,
+        get_location_circle_members,
         list_my_location_shares,
         list_location_shared_with_me,
         list_pending_location_requests,
+        list_my_outgoing_location_requests,
         list_my_connections,
         list_pending_connection_requests,
         calendar_summary,
