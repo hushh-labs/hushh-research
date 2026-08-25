@@ -818,6 +818,39 @@ def test_list_active_owner_grants_is_scoped_to_this_owner_and_active_status(
     assert out[0]["recipientDisplayName"] == "Friend"
 
 
+def test_list_active_recipient_grants_is_scoped_to_this_recipient_and_active_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The received-side twin of list_active_owner_grants, for "who is sharing
+    # their location with me" -- scoped by recipient, joined to the owner's
+    # identity rather than the recipient's.
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "grant-1",
+                "owner_user_id": "friend",
+                "recipient_user_id": "me",
+                "owner_display_name": "Friend",
+                "status": "active",
+                "metadata": "{}",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_active_recipient_grants(recipient_user_id="me")
+    assert "g.recipient_user_id = :recipient_user_id" in captured["sql"]
+    assert "g.status = 'active'" in captured["sql"]
+    assert captured["params"] == {"recipient_user_id": "me"}
+    assert len(out) == 1
+    assert out[0]["id"] == "grant-1"
+    assert out[0]["ownerDisplayName"] == "Friend"
+
+
 def test_list_pending_owner_requests_is_scoped_to_this_owner_and_pending_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
