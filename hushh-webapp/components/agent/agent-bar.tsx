@@ -41,6 +41,10 @@ import {
   subscribeVoicePreferences,
 } from "@/lib/agent/voice-preferences";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import {
+  buildPublishLocationEnvelopesDirective,
+  runLocationDirective,
+} from "@/lib/agent/specialist-directive-runtime";
 import { ApiService } from "@/lib/services/api-service";
 import {
   getAgentVoiceStatusLabel,
@@ -734,6 +738,68 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           });
           return;
         }
+        if (event.directive.kind === "publish_location_envelopes") {
+          // Backend-direct: the grant(s) already exist server-side and their
+          // own action_result directive (above) has already rendered the
+          // completed card -- this directive carries only the one step a
+          // backend tool call can never do itself: capture the coordinate,
+          // encrypt it per recipient, and store it. Reuses the exact runtime
+          // the tap-to-confirm specialist flow already uses for this, kind
+          // "action"/type "publish_share", including its refusal to trust a
+          // directive-supplied recipient key -- runLocationDirective always
+          // re-reads it from server state. Deliberately not routed through
+          // the delegateAgentId handoff below: that path hands off to chat
+          // for a tap, and this has none to give -- it auto-fires.
+          const publishDirective = buildPublishLocationEnvelopesDirective(
+            event.directive.payload,
+          );
+          if (!publishDirective) {
+            console.warn(
+              "[AgentBar] Rejected malformed publish_location_envelopes directive.",
+            );
+            return;
+          }
+          if (!vaultOwnerToken) {
+            console.warn(
+              "[AgentBar] No vault token; cannot publish location envelopes.",
+            );
+            return;
+          }
+          void (async () => {
+            // runLocationDirective never throws -- every internal failure is
+            // caught inside it and reported as a resolved DelegateResult with
+            // status "failed" (see specialist-directive-runtime.ts), the same
+            // way the tap-to-confirm chat flow reads it. A try/catch here
+            // would never fire; the status is the only signal there is.
+            const result = await runLocationDirective(
+              publishDirective,
+              vaultOwnerToken,
+              user?.uid ?? null,
+            ).catch((error: unknown) => ({
+              status: "failed" as const,
+              detail: error instanceof Error ? error.message : "action failed",
+            }));
+            if (result.status === "completed") return;
+            // The model has already said "Shared with Sarah" by the time this
+            // can fail -- there is nothing left to retract. Surface a second,
+            // visible card explaining the publish itself failed, using the
+            // same action-run mechanism the completed card used, rather than
+            // silently leaving a grant with no location on it.
+            const message = result.detail || "Couldn't finish sharing your location.";
+            const failedActionId = "location.share_selected";
+            const run = appInteractionCoordinator.startActionRun({
+              actionId: failedActionId,
+              label: getKaiActionById(failedActionId)?.label ?? "Share location",
+              source: "voice",
+              message,
+            });
+            appInteractionCoordinator.updateActionRun(run.id, {
+              phase: "failed",
+              message,
+            });
+          })();
+          return;
+        }
         if (event.directive.kind === "action") {
           const actionId =
             typeof event.directive.payload?.actionId === "string"
@@ -1233,6 +1299,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       setVoiceStatus,
       switchPersona,
       user?.uid,
+      vaultOwnerToken,
     ],
   );
 
