@@ -61,8 +61,12 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 9. Developer tokens cannot mint `VAULT_OWNER`, unwrap the vault, or write PKM.
 10. Contact-sync graph mutation writes no location grant, envelope, SMS
     selection, scope proposal, PKM value, capability, or private-information
-    record. Contact-only relationships cannot use standing `all_contacts`
-    location auto-approval.
+    record. Once active, a contact-sync relationship follows the same
+    `all_contacts` standing auto-approval policy as a request-accepted
+    connection; the standing owner rule and a later eligible location request
+    remain required. If a superseded connection request carries pending scope
+    proposals, those proposals remain pending for explicit review and are never
+    activated by contact sync.
 11. Connected Systems never unlinks on timeout, authorization failure, MCP
     error, or malformed response; owner-confirmed recovery disconnects only the
     server-resolved active binding and preserves workflow/audit history.

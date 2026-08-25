@@ -134,6 +134,30 @@ def test_contact_sync_origin_persists_immutable_consent_evidence_without_proofs(
     assert "last4" not in metadata
 
 
+def test_contact_sync_cancels_only_requests_without_pending_scope_review():
+    conn = _Connection([[{"target_user_id": "user-b"}], [], [], []])
+
+    activated = ConnectionGraphService.activate_contact_sync_pairs(
+        conn,
+        requester_user_id="user-a",
+        activations=[
+            {
+                "target_user_id": "user-b",
+                "origin_metadata": {"authorization": "existing_connection_match"},
+            }
+        ],
+    )
+
+    assert activated == ["user-b"]
+    assert len(conn.calls) == 4
+    request_cancellation_sql = next(
+        sql for sql, _ in conn.calls if "UPDATE connection_requests request" in sql
+    )
+    assert "NOT EXISTS" in request_cancellation_sql
+    assert "FROM connection_scope_proposals proposal" in request_cancellation_sql
+    assert "proposal.status = 'pending'" in request_cancellation_sql
+
+
 def test_contact_sync_activation_filters_revoked_conflicts_from_every_projection():
     conn = _Connection([[{"target_user_id": "user-b"}], [], [], []])
 

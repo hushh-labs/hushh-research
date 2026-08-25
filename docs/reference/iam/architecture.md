@@ -91,6 +91,10 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 3. Investor receives pending request and can approve/deny/revoke.
 4. Active token grants scoped access only to approved domains/paths.
 5. Revocation and expiry immediately remove access rights.
+6. Connection provenance does not widen or narrow later consent policy: active
+   request-accepted and contact-sync relationships are evaluated identically by
+   owner-configured relationship rules. A connection alone grants no private
+   information or live-location capability.
 
 ## Ecosystem Contract Mapping
 
@@ -120,9 +124,11 @@ Private data is always consent-gated and scoped.
    suppresses future contact-sync attempts. A later explicit request/accept flow
    remains a separate user action.
 3. Contact-sync provenance may create only the canonical relationship, its
-   source ledger, pending-request cancellation, and the Trusted-list projection.
-   It never grants location, PKM, personal-information, consent-scope, Circle
-   sharing, SMS, envelope, or capability access.
+   source ledger, cancellation of redundant unscoped pending requests, and the
+   Trusted-list projection. A capability-bearing request stays pending for
+   explicit scope review. Contact sync never grants location, PKM,
+   personal-information, consent-scope, Circle sharing, SMS, envelope, or
+   capability access.
 4. Disabling the setting prevents future matches. Existing relationships remain
    visible and individually disconnectable so preference changes do not silently
    destroy a user's graph.

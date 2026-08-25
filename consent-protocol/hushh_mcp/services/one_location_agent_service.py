@@ -8701,44 +8701,6 @@ class OneLocationAgentService:
                         "This request needs approval.",
                         status_code=403,
                     )
-                if automatic_scope == "all_contacts":
-                    # Contact sync creates a relationship and discovery badge,
-                    # never standing location authority. A contact-only pair
-                    # can still request location, but the owner must approve it
-                    # manually unless another non-contact origin exists.
-                    active_origins = self._execute_many(
-                        """
-                        SELECT origin.origin_kind
-                        FROM connections connection
-                        JOIN connection_origins origin
-                          ON origin.connection_id = connection.id
-                         AND origin.status = 'active'
-                        WHERE connection.status = 'active'
-                          AND (
-                            (connection.user_a_id = :owner_user_id
-                             AND connection.user_b_id = :requester_user_id)
-                            OR
-                            (connection.user_b_id = :owner_user_id
-                             AND connection.user_a_id = :requester_user_id)
-                          )
-                        ORDER BY origin.origin_kind, origin.id
-                        FOR UPDATE OF connection, origin
-                        """,
-                        {
-                            "owner_user_id": owner_user_id,
-                            "requester_user_id": requester_user_id,
-                        },
-                    )
-                    active_origin_kinds = {
-                        str(origin.get("origin_kind") or "") for origin in active_origins
-                    }
-                    if active_origin_kinds == {"contact_sync"}:
-                        raise OneLocationAgentError(
-                            "LOCATION_AUTO_APPROVE_CONTACT_SYNC_REQUIRES_APPROVAL",
-                            "This contact-sync request needs your approval.",
-                            status_code=403,
-                        )
-
             requested_hours, requested_mode = _normalized_requested_duration(
                 duration_hours=request_row.get("requested_duration_hours"),
                 duration_mode=request_row.get("requested_duration_mode"),

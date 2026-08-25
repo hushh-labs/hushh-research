@@ -343,6 +343,11 @@ def test_sync_revalidates_every_match_and_writes_inside_one_transaction() -> Non
     for outcome in ("auto_connected", "already_connected", "suppressed"):
         assert outcome in source
 
+    graph_source = inspect.getsource(ConnectionGraphService.activate_contact_sync_pairs)
+    assert "FROM connection_scope_proposals proposal" in graph_source
+    assert "proposal.status = 'pending'" in graph_source
+    assert "NOT EXISTS" in graph_source
+
 
 def test_behavior_auto_connect_materializes_only_canonical_projections() -> None:
     service = _ContactSyncService()
@@ -579,10 +584,10 @@ async def test_combined_contact_sync_consent_is_default_off_and_versioned() -> N
     assert captured.value.status_code == 409
 
 
-def test_contact_only_pair_cannot_use_all_contacts_auto_approval() -> None:
+def test_contact_only_pair_reuses_canonical_all_contacts_auto_approval() -> None:
     source = inspect.getsource(OneLocationAgentService.approve_request)
-    assert "LOCATION_AUTO_APPROVE_CONTACT_SYNC_REQUIRES_APPROVAL" in source
-    assert 'active_origin_kinds == {"contact_sync"}' in source
+    assert "LOCATION_AUTO_APPROVE_CONTACT_SYNC_REQUIRES_APPROVAL" not in source
+    assert 'active_origin_kinds == {"contact_sync"}' not in source
 
 
 def test_migration_registers_combined_consent_provenance_budget_and_safe_rollback() -> None:

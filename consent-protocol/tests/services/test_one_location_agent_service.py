@@ -5176,7 +5176,7 @@ def test_auto_approval_mints_a_grant_for_a_current_contact() -> None:
     assert approval_event["metadata"]["auto_approve_enabled_at"] == enabled_at.isoformat()
 
 
-def test_contact_sync_only_connection_requires_manual_location_approval() -> None:
+def test_contact_sync_only_connection_uses_all_contacts_auto_approval() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
         user_id="user_b",
@@ -5187,25 +5187,34 @@ def test_contact_sync_only_connection_requires_manual_location_approval() -> Non
     for origin in service.connection_origins.values():
         origin["origin_kind"] = "contact_sync"
         origin["origin_key"] = "contact_sync:user_a"
-    service._seed_auto_approve_preference(rule_version=1)
+    enabled_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    service._seed_auto_approve_preference(enabled_at=enabled_at, rule_version=1)
     request = service.request_access(
         requester_user_id="user_b",
         owner_user_id="user_a",
         requested_duration_hours=1,
     )
 
-    with pytest.raises(OneLocationAgentError) as error:
-        service.approve_request(
-            owner_user_id="user_a",
-            request_id=request["id"],
-            duration_hours=None,
-            approval_mode="automatic",
-            auto_approve_rule_version=1,
-        )
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=None,
+        approval_mode="automatic",
+        auto_approve_rule_version=1,
+    )
 
-    assert error.value.code == "LOCATION_AUTO_APPROVE_CONTACT_SYNC_REQUIRES_APPROVAL"
-    assert service.requests[request["id"]]["status"] == "pending"
-    assert not service.grants
+    assert approved["request"]["status"] == "approved"
+    assert approved["grant"]["recipientUserId"] == "user_b"
+    assert approved["grant"]["durationHours"] == 1
+    approval_event = next(
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_access_approved"
+    )
+    assert approval_event["metadata"]["approval_mode"] == "automatic"
+    assert approval_event["metadata"]["auto_approve_scope_kind"] == "all_contacts"
+    assert approval_event["metadata"]["auto_approve_rule_version"] == 1
+    assert approval_event["metadata"]["auto_approve_enabled_at"] == enabled_at.isoformat()
 
 
 def test_auto_approval_rejects_a_caller_duration_override() -> None:

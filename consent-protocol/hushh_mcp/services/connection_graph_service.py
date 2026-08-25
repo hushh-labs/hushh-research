@@ -336,8 +336,10 @@ class ConnectionGraphService:
         The caller has already locked identities, discoverability, and existing
         canonical pairs in deterministic order. This helper owns the graph
         projection only: canonical connections, viewer-relative provenance,
-        pending-request cancellation, and mirrored trusted edges. It stores no
-        contact proof material and grants no location or information access.
+        unscoped pending-request cancellation, and mirrored trusted edges.
+        Requests carrying pending capability proposals stay open for explicit
+        review. This helper stores no contact proof material and grants no
+        location or information access.
         """
 
         requester = str(requester_user_id or "").strip()
@@ -506,6 +508,15 @@ class ConnectionGraphService:
                     OR
                     (request.requester_user_id = connection.user_b_id
                      AND request.addressee_user_id = connection.user_a_id)
+                  )
+                  -- Contact sync settles only the base relationship. Preserve
+                  -- capability-bearing requests so the addressee can still
+                  -- review every proposed scope explicitly.
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM connection_scope_proposals proposal
+                    WHERE proposal.connection_request_id = request.id
+                      AND proposal.status = 'pending'
                   )
                 """
             ),
