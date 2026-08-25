@@ -526,12 +526,16 @@ describe("top shell breadcrumbs", () => {
     ];
 
     for (const { path, label } of surfaces) {
+      const expectedItems =
+        path === "/one/location"
+          ? [{ label: "One" }]
+          : [{ label: "One", href: "/one" }, { label }];
       // No origin → Agents dashboard.
       expect(resolveTopShellBreadcrumb(path)).toEqual({
         backHref: "/one",
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: "/one" }, { label }],
+        items: expectedItems,
       });
 
       // Opened from the dashboard (?from=/one) → back to the dashboard, and the
@@ -542,7 +546,7 @@ describe("top shell breadcrumbs", () => {
         backHref: "/one",
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: "/one" }, { label }],
+        items: expectedItems,
       });
 
       // Unsafe / protocol-relative origins are rejected → Agents fallback.
@@ -719,8 +723,6 @@ describe("top shell breadcrumbs", () => {
       "Emergency contacts",
     ]);
   });
-
-
   it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
     // top-bar back returns to the hub (not Profile/dashboard) — "jaise aaya waise
