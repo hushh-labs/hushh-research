@@ -15,7 +15,7 @@ Every email stays editable and is only sent after your final approval.
  */
 export function buildEmailAgentIntroPrompt(recipient: string): string {
   const normalizedRecipient = recipient.trim();
-  return `Draft this standard intro email to ${normalizedRecipient}. Do not send it; I will review it first.
+  return `Please write an email to yourself at ${normalizedRecipient}. In the email, demonstrate the core features of the Gmail Agent. Do not send it; I will review it first.
 
 To: ${normalizedRecipient}
 Subject: ${EMAIL_AGENT_INTRO_SUBJECT}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, Mail, Send, X } from "lucide-react";
+import { Mail, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
 
 type EmailDraftCardProps = {
   initialInstruction: string;
+  initialDraft?: EmailDraft | null;
   /** The person explicitly asked One to draft from a Gmail entry point. */
   autoDraft?: boolean;
   getAuth: () => Promise<{
@@ -23,7 +24,10 @@ type EmailDraftCardProps = {
   } | null>;
   onRequireVault: () => void;
   onDismiss: () => void;
-  onSent: () => void;
+  /** Moves the reviewed draft into live, collapsible chat history immediately. */
+  onSendStarted?: (draft: EmailDraft) => string | null | undefined;
+  onSent: (attemptId?: string | null) => void;
+  onSendFailed?: (error: EmailDeliveryError, attemptId?: string | null) => void;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -43,21 +47,26 @@ function newIdempotencyKey(): string {
 
 export function EmailDraftCard({
   initialInstruction,
+  initialDraft = null,
   autoDraft = false,
   getAuth,
   onRequireVault,
   onDismiss,
+  onSendStarted,
   onSent,
+  onSendFailed,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>({
     ...EMPTY_DRAFT,
-    body: autoDraft ? "" : initialInstruction,
+    ...(initialDraft ?? {}),
+    body: initialDraft?.body ?? (autoDraft ? "" : initialInstruction),
   });
   const [missingDetails, setMissingDetails] = useState<string[]>([]);
-  const [busy, setBusy] = useState<"draft" | "send" | null>(null);
+  const [busy, setBusy] = useState<"draft" | null>(null);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
   const autoDraftStartedRef = useRef(false);
+  const sendStartedRef = useRef(false);
 
   const updateDraft = (field: keyof EmailDraft, value: string) => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -116,55 +125,57 @@ export function EmailDraftCard({
     void askOneToDraft();
   }, [askOneToDraft, autoDraft]);
 
-  const send = async () => {
-    const auth = await withAuth();
-    if (!auth) return;
-    const nextIdempotencyKey = newIdempotencyKey();
-    setBusy("send");
-    setError(null);
-    try {
-      // The visible draft is the owner's single review surface. This click
-      // creates and immediately executes a server-bound, single-use action
-      // for precisely these fields; chat text and the model cannot send mail.
-      const prepared = await EmailDeliveryService.prepare({
-        ...auth,
-        draft,
-        idempotencyKey: nextIdempotencyKey,
-      });
-      if (!prepared.actionId) {
-        throw new EmailDeliveryError(
-          "Email could not be prepared for sending.",
-          500,
-        );
-      }
-      const outcome = await EmailDeliveryService.send({
-        ...auth,
-        actionId: prepared.actionId,
-        draft,
-      });
-      if (outcome.outcomeUnknown) {
-        setError(
-          new EmailDeliveryError(
+  const send = () => {
+    if (sendStartedRef.current) return;
+    sendStartedRef.current = true;
+    const reviewedDraft = { ...draft };
+    // Close the editor before any token or provider request. The background
+    // work keeps a snapshot of the exact owner-reviewed fields.
+    const attemptId = onSendStarted?.(reviewedDraft) ?? null;
+
+    void (async () => {
+      try {
+        const auth = await getAuth();
+        if (!auth) {
+          onRequireVault();
+          throw new EmailDeliveryError("Unlock your vault and try again.", 403);
+        }
+        const prepared = await EmailDeliveryService.prepare({
+          ...auth,
+          draft: reviewedDraft,
+          idempotencyKey: newIdempotencyKey(),
+        });
+        if (!prepared.actionId) {
+          throw new EmailDeliveryError(
+            "Email could not be prepared for sending.",
+            500,
+          );
+        }
+        const outcome = await EmailDeliveryService.send({
+          ...auth,
+          actionId: prepared.actionId,
+          draft: reviewedDraft,
+        });
+        if (outcome.outcomeUnknown) {
+          throw new EmailDeliveryError(
             "We could not confirm delivery. Check Sent Mail before trying again.",
             502,
             "EMAIL_ACTION_OUTCOME_UNKNOWN",
-          ),
+          );
+        }
+        onSent(attemptId);
+      } catch (cause) {
+        onSendFailed?.(
+          cause instanceof EmailDeliveryError
+            ? cause
+            : new EmailDeliveryError(
+                "Email could not be sent. Review it and try again.",
+                500,
+              ),
+          attemptId,
         );
-        return;
       }
-      onSent();
-    } catch (cause) {
-      setError(
-        cause instanceof EmailDeliveryError
-          ? cause
-          : new EmailDeliveryError(
-              "Email could not be sent. Review it and try again.",
-              500,
-            ),
-      );
-    } finally {
-      setBusy(null);
-    }
+    })();
   };
 
   const disabled = busy !== null;
@@ -186,9 +197,7 @@ export function EmailDraftCard({
             <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
               {busy === "draft"
                 ? "One is preparing a draft from your request…"
-                : busy === "send"
-                  ? "Sending your reviewed email…"
-                  : "Review or edit the details, then send when ready."}
+                : "Review or edit the details, then send when ready."}
             </p>
           </div>
         </div>
@@ -315,11 +324,7 @@ export function EmailDraftCard({
           disabled={disabled}
           data-testid="one-email-draft-send"
         >
-          {busy === "send" ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Send className="h-3.5 w-3.5" />
-          )}
+          <Send className="h-3.5 w-3.5" />
           Send
         </Button>
       </div>

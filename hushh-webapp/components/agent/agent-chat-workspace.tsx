@@ -39,6 +39,10 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { EmailDraftCard } from "@/components/agent/email-draft-card";
+import {
+  EmailDeliveryHistoryCard,
+  type EmailDeliveryHistoryItem,
+} from "@/components/agent/email-delivery-history-card";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import {
@@ -169,6 +173,7 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import type { EmailDeliveryError, EmailDraft } from "@/lib/services/email-delivery-service";
 
 type AgentMessage = {
   id: string;
@@ -1297,6 +1302,14 @@ export function AgentChatWorkspace({
   const [emailDraftOpen, setEmailDraftOpen] = useState(false);
   const [emailDraftInstruction, setEmailDraftInstruction] = useState("");
   const [emailDraftAutoDraft, setEmailDraftAutoDraft] = useState(false);
+  const [emailDraftInitialValue, setEmailDraftInitialValue] =
+    useState<EmailDraft | null>(null);
+  // This is intentionally session-only. The normal user prompt is stored by
+  // the encrypted chat service, but raw email fields must not become durable
+  // chat/workflow records.
+  const [emailDeliveryHistory, setEmailDeliveryHistory] = useState<
+    EmailDeliveryHistoryItem[]
+  >([]);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
@@ -1402,6 +1415,8 @@ export function AgentChatWorkspace({
     }
     clearAgentPkmContext(user?.uid);
     setEmailDraftOpen(false);
+    setEmailDraftInitialValue(null);
+    setEmailDeliveryHistory([]);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
 
   useEffect(() => {
@@ -1822,6 +1837,8 @@ export function AgentChatWorkspace({
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
     setEmailDraftOpen(false);
+    setEmailDraftInitialValue(null);
+    setEmailDeliveryHistory([]);
     setSpecialistBusy(false);
     operationQueueRef.current.replace([]);
     calendarActionIdsRef.current.clear();
@@ -1846,6 +1863,65 @@ export function AgentChatWorkspace({
     setMessages((current) => [...current, message]);
   };
 
+  const closeEmailDraft = () => {
+    setEmailDraftOpen(false);
+    setEmailDraftInstruction("");
+    setEmailDraftAutoDraft(false);
+    setEmailDraftInitialValue(null);
+  };
+
+  const handleEmailSendStarted = (draft: EmailDraft): string => {
+    const id = `email-delivery-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setEmailDeliveryHistory((current) => [
+      ...current,
+      {
+        id,
+        instruction: emailDraftInstruction,
+        draft,
+        status: "sending",
+      },
+    ]);
+    closeEmailDraft();
+    return id;
+  };
+
+  const handleEmailSent = (attemptId?: string | null) => {
+    if (!attemptId) return;
+    setEmailDeliveryHistory((current) =>
+      current.map((item) =>
+        item.id === attemptId ? { ...item, status: "sent", errorMessage: null } : item,
+      ),
+    );
+  };
+
+  const handleEmailSendFailed = (
+    error: EmailDeliveryError,
+    attemptId?: string | null,
+  ) => {
+    if (!attemptId) return;
+    setEmailDeliveryHistory((current) =>
+      current.map((item) =>
+        item.id === attemptId
+          ? {
+              ...item,
+              status:
+                error.code === "EMAIL_ACTION_OUTCOME_UNKNOWN"
+                  ? "outcome_unknown"
+                  : "failed",
+              errorMessage: error.message,
+            }
+          : item,
+      ),
+    );
+  };
+
+  const retryEmailDelivery = (item: EmailDeliveryHistoryItem) => {
+    setEmailDraftInstruction(item.instruction);
+    setEmailDraftInitialValue(item.draft);
+    setEmailDraftAutoDraft(false);
+    setEmailDraftOpen(true);
+  };
+
   const openGmailEmailDraftFromDirective = useCallback(
     (event: SpecialistDirectiveEvent): boolean => {
       const payload = getGmailEmailDraftPayload(event);
@@ -1856,6 +1932,7 @@ export function AgentChatWorkspace({
         return true;
       }
       setEmailDraftInstruction(payload.instruction);
+      setEmailDraftInitialValue(null);
       setEmailDraftAutoDraft(true);
       setEmailDraftOpen(true);
       return true;
@@ -1901,9 +1978,7 @@ export function AgentChatWorkspace({
       const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
       handleCreateNewChat();
       skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
-      setEmailDraftInstruction(emailDraftInstruction);
-      setEmailDraftAutoDraft(true);
-      setEmailDraftOpen(true);
+      setQueuedHandoffPrompt(emailDraftInstruction);
       consumeHandoff(handoff.id);
       return;
     }
@@ -2176,6 +2251,11 @@ export function AgentChatWorkspace({
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
+      setEmailDraftOpen(false);
+      setEmailDraftInstruction("");
+      setEmailDraftAutoDraft(false);
+      setEmailDraftInitialValue(null);
+      setEmailDeliveryHistory([]);
       setPkmActivity([]);
       setPkmReviews([]);
       setPendingSpecialistDirective(null);
@@ -5144,29 +5224,24 @@ export function AgentChatWorkspace({
                 <div className="border-t border-border/70 pt-3">
                   <EmailDraftCard
                     initialInstruction={emailDraftInstruction}
+                    initialDraft={emailDraftInitialValue}
                     autoDraft={emailDraftAutoDraft}
                     getAuth={getEmailDeliveryAuth}
                     onRequireVault={() => setVaultDialogOpen(true)}
-                    onDismiss={() => {
-                      setEmailDraftOpen(false);
-                      setEmailDraftInstruction("");
-                      setEmailDraftAutoDraft(false);
-                    }}
-                    onSent={() => {
-                      setEmailDraftOpen(false);
-                      setEmailDraftInstruction("");
-                      setEmailDraftAutoDraft(false);
-                      appendMessage({
-                        id: `email-sent-${Date.now()}`,
-                        role: "assistant",
-                        text: "Your email was sent.",
-                        timestamp: formatNow(),
-                        status: "done",
-                      });
-                    }}
+                    onDismiss={closeEmailDraft}
+                    onSendStarted={handleEmailSendStarted}
+                    onSent={handleEmailSent}
+                    onSendFailed={handleEmailSendFailed}
                   />
                 </div>
               ) : null}
+              {emailDeliveryHistory.map((item) => (
+                <EmailDeliveryHistoryCard
+                  key={item.id}
+                  item={item}
+                  onRetry={retryEmailDelivery}
+                />
+              ))}
               <div ref={messagesEndRef} />
             </div>
           </div>

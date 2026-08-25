@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { ColumnDef } from "@tanstack/react-table";
+import { useRouter } from "next/navigation";
 import { Loader2, Lock, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,6 +17,7 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import GmailChatPanel from "@/components/gmail/gmail-chat-panel";
 import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
@@ -374,9 +376,11 @@ export default function GmailReceiptsPage({
   skippingSetup = false,
   voicePublisherRole = "route",
 }: GmailReceiptsPageProps) {
+  const router = useRouter();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
+  const createHandoff = useOneConversationSession((state) => state.createHandoff);
 
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [page, setPage] = useState(1);
@@ -783,17 +787,20 @@ export default function GmailReceiptsPage({
   }, [gmailActionBusy, user]);
 
   const handleTryEmailAgent = useCallback(() => {
-    if (!agentPopover || !emailAgentIntroRecipient) return;
+    if (!emailAgentIntroRecipient) return;
     const createdAtMs = Date.now();
-    agentPopover.openAgent({
-      handoff: {
-        id: `gmail-email-intro-${createdAtMs}`,
-        reason: "user_requested",
-        emailDraftInstruction: buildEmailAgentIntroPrompt(emailAgentIntroRecipient),
-        createdAtMs,
-      },
+    createHandoff({
+      id: `gmail-email-intro-${createdAtMs}`,
+      reason: "user_requested",
+      transcript: buildEmailAgentIntroPrompt(emailAgentIntroRecipient),
+      createdAtMs,
     });
-  }, [agentPopover, emailAgentIntroRecipient]);
+    if (agentPopover) {
+      agentPopover.openAgent();
+      return;
+    }
+    router.push(ROUTES.AGENT);
+  }, [agentPopover, createHandoff, emailAgentIntroRecipient, router]);
 
   useLocalOnboardingActionHandler("setup.connect_gmail", () => {
     if (journeyVariant !== "onboarding") {
@@ -1639,7 +1646,7 @@ export default function GmailReceiptsPage({
               <Button
                 type="button"
                 onClick={handleTryEmailAgent}
-                disabled={!agentPopover || !emailAgentIntroRecipient}
+                disabled={!emailAgentIntroRecipient}
                 className="w-full sm:w-auto"
               >
                 <Mail className="mr-2 h-4 w-4" />

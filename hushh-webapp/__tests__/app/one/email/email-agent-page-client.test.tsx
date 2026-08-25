@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const push = vi.fn();
 const openAgent = vi.fn();
+const createHandoff = vi.fn();
 let connected = false;
 
 vi.mock("next/navigation", () => ({
@@ -11,13 +12,18 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    user: { uid: "user-1", getIdToken: vi.fn() },
+    user: { uid: "user-1", email: "owner@example.com", getIdToken: vi.fn() },
     loading: false,
   }),
 }));
 
 vi.mock("@/components/agent/agent-popover-provider", () => ({
   useOptionalAgentPopover: () => ({ openAgent }),
+}));
+
+vi.mock("@/lib/agent/one-conversation-session", () => ({
+  useOneConversationSession: (selector: (state: { createHandoff: typeof createHandoff }) => unknown) =>
+    selector({ createHandoff }),
 }));
 
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
@@ -40,19 +46,19 @@ describe("EmailAgentPageClient", () => {
     expect(screen.getByRole("heading", { name: "Connect Gmail" })).toBeTruthy();
   });
 
-  it("opens One's approval-gated Gmail draft when Gmail is connected", () => {
+  it("starts a normal visible One chat prompt when Gmail is connected", () => {
     connected = true;
     render(<EmailAgentPageClient />);
 
     expect(screen.getByText("Gmail connected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try Email Agent with One" }));
 
-    expect(openAgent).toHaveBeenCalledWith({
-      handoff: expect.objectContaining({
+    expect(createHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({
         reason: "user_requested",
-        emailDraftInstruction:
-          "Help me draft an email. I will review and approve it before anything is sent.",
+        transcript: expect.stringContaining("owner@example.com"),
       }),
-    });
+    );
+    expect(openAgent).toHaveBeenCalledWith();
   });
 });

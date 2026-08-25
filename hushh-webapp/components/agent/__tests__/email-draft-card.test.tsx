@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EmailDraftCard } from "@/components/agent/email-draft-card";
@@ -120,20 +121,31 @@ describe("EmailDraftCard", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the reviewed email visible while it is being sent", async () => {
+  it("hands the reviewed email to background delivery and closes immediately", async () => {
     vi.mocked(EmailDeliveryService.prepare).mockImplementation(
       () => new Promise<never>(() => {}),
     );
 
-    render(
-      <EmailDraftCard
-        initialInstruction="Draft this"
-        getAuth={getAuth}
-        onRequireVault={vi.fn()}
-        onDismiss={vi.fn()}
-        onSent={vi.fn()}
-      />,
-    );
+    function ClosingHarness() {
+      const [open, setOpen] = useState(true);
+      return open ? (
+        <EmailDraftCard
+          initialInstruction="Draft this"
+          getAuth={getAuth}
+          onRequireVault={vi.fn()}
+          onDismiss={() => setOpen(false)}
+          onSendStarted={() => {
+            setOpen(false);
+            return "attempt-1";
+          }}
+          onSent={vi.fn()}
+        />
+      ) : (
+        <p>Draft closed</p>
+      );
+    }
+
+    render(<ClosingHarness />);
 
     fireEvent.change(screen.getByTestId("one-email-draft-to"), {
       target: { value: "person@example.com" },
@@ -143,9 +155,9 @@ describe("EmailDraftCard", () => {
     });
     fireEvent.click(screen.getByTestId("one-email-draft-send"));
 
-    expect(screen.getByTestId("one-email-draft-message")).toBeInTheDocument();
-    expect(screen.getByTestId("one-email-draft-send")).toHaveTextContent(
-      "Send",
+    expect(screen.getByText("Draft closed")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(EmailDeliveryService.prepare).toHaveBeenCalledTimes(1),
     );
   });
 
@@ -191,6 +203,7 @@ describe("EmailDraftCard", () => {
       outcomeUnknown: true,
     });
     const onSent = vi.fn();
+    const onSendFailed = vi.fn();
     render(
       <EmailDraftCard
         initialInstruction="Draft this"
@@ -198,6 +211,7 @@ describe("EmailDraftCard", () => {
         onRequireVault={vi.fn()}
         onDismiss={vi.fn()}
         onSent={onSent}
+        onSendFailed={onSendFailed}
       />,
     );
 
@@ -206,13 +220,11 @@ describe("EmailDraftCard", () => {
     });
     fireEvent.click(screen.getByTestId("one-email-draft-send"));
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          "We could not confirm delivery. Check Sent Mail before trying again.",
-        ),
-      ).toBeInTheDocument();
-    });
+    await waitFor(() => expect(onSendFailed).toHaveBeenCalledTimes(1));
+    expect(onSendFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EMAIL_ACTION_OUTCOME_UNKNOWN" }),
+      null,
+    );
     expect(onSent).not.toHaveBeenCalled();
   });
 });

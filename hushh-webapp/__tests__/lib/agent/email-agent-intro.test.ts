@@ -13,6 +13,7 @@ describe("buildEmailAgentIntroPrompt", () => {
     expect(prompt).toContain("To: me@example.com");
     expect(prompt).toContain(`Subject: ${EMAIL_AGENT_INTRO_SUBJECT}`);
     expect(prompt).toContain(EMAIL_AGENT_INTRO_BODY);
+    expect(prompt).toContain("demonstrate the core features of the Gmail Agent");
     expect(prompt).toContain("Do not send it; I will review it first.");
   });
 });

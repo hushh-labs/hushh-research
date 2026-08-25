@@ -5,6 +5,8 @@ import { CheckCircle2, Mail, MessageCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { buildEmailAgentIntroPrompt } from "@/lib/agent/email-agent-intro";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -18,9 +20,6 @@ import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 
-const EMAIL_AGENT_PROMPT =
-  "Help me draft an email. I will review and approve it before anything is sent.";
-
 /**
  * A compact entry point for Gmail-powered drafting. The connection itself is
  * owned by the Gmail workspace so the app has exactly one OAuth/token store.
@@ -29,6 +28,7 @@ export function EmailAgentPageClient() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const agentPopover = useOptionalAgentPopover();
+  const createHandoff = useOneConversationSession((state) => state.createHandoff);
   const gmail = useGmailConnectorStatus({
     userId: user?.uid || null,
     enabled: Boolean(user?.uid) && !authLoading,
@@ -37,6 +37,8 @@ export function EmailAgentPageClient() {
     refreshKey: user?.uid || "",
   });
   const connected = gmail.presentation.isConnected;
+  const emailAgentIntroRecipient =
+    gmail.status?.google_email?.trim() || user?.email?.trim() || null;
   const dataState = authLoading || gmail.loadingStatus
     ? "loading"
     : connected
@@ -45,21 +47,22 @@ export function EmailAgentPageClient() {
 
   const openOneForDraft = useCallback(() => {
     const createdAtMs = Date.now();
+    createHandoff({
+      id: `email-agent-prompt-${createdAtMs}`,
+      reason: "user_requested",
+      transcript: emailAgentIntroRecipient
+        ? buildEmailAgentIntroPrompt(emailAgentIntroRecipient)
+        : "Please help me draft an email. I will review it before anything is sent.",
+      createdAtMs,
+    });
     if (agentPopover) {
-      agentPopover.openAgent({
-        handoff: {
-          id: `email-agent-prompt-${createdAtMs}`,
-          reason: "user_requested",
-          emailDraftInstruction: EMAIL_AGENT_PROMPT,
-          createdAtMs,
-        },
-      });
+      agentPopover.openAgent();
       return;
     }
-    // This fallback retains navigation if this page is rendered outside the
-    // app provider. The normal app shell always uses the in-memory handoff.
+    // The handoff remains in the shared in-memory session for the legacy
+    // dedicated chat route too.
     router.push(ROUTES.AGENT);
-  }, [agentPopover, router]);
+  }, [agentPopover, createHandoff, emailAgentIntroRecipient, router]);
 
   return (
     <AppPageShell
@@ -95,7 +98,7 @@ export function EmailAgentPageClient() {
                 <div className="space-y-1">
                   <h2 className="font-semibold text-foreground">Gmail connected</h2>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    One can use your Gmail connection for receipt and inbox context, and help draft an email. Sending remains off until you enable it in Gmail, then review each draft and click Send email.
+                    One can use your Gmail connection for receipt and inbox context, and help draft an email. Review each draft, then click Send when you are ready.
                   </p>
                 </div>
               </div>

@@ -9,7 +9,7 @@ const source = readFileSync(
 );
 
 describe("Agent Chat email draft layout contract", () => {
-  it("keeps an open email draft in the conversation scroller and suspends the chat composer", () => {
+  it("keeps a draft in the conversation scroller, then hands send work to a collapsible history item", () => {
     expect(source).toContain("emailDraftOpen");
     expect(source).toContain("initialInstruction={emailDraftInstruction}");
     expect(source).toContain(
@@ -19,6 +19,9 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).toContain('payload.kind !== "gmail_email_draft"');
     expect(source).toContain("setEmailDraftAutoDraft(true);");
     expect(source).toContain("autoDraft={emailDraftAutoDraft}");
+    expect(source).toContain("onSendStarted={handleEmailSendStarted}");
+    expect(source).toContain("EmailDeliveryHistoryCard");
+    expect(source).toContain("setQueuedHandoffPrompt(emailDraftInstruction);");
     expect(source).not.toContain('aria-label="Draft an email"');
     expect(source).not.toContain(
       'className="shrink-0 border-t border-border/70 bg-background px-3 pt-3 sm:px-5"',
