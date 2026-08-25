@@ -8,7 +8,7 @@ or a sender address from the caller.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -91,8 +91,11 @@ async def gmail_email_draft(
         token_data=token_data,
     )
     try:
-        return await get_gmail_delivery_service().draft_from_instruction(
-            instruction=payload.instruction
+        return cast(
+            dict[str, Any],
+            await get_gmail_delivery_service().draft_from_instruction(
+                instruction=payload.instruction
+            ),
         )
     except Exception as exc:
         logger.warning("one.gmail_delivery.draft_failed error=%s", type(exc).__name__)
@@ -110,10 +113,13 @@ async def gmail_email_prepare(
         token_data=token_data,
     )
     try:
-        return await get_gmail_delivery_service().prepare(
-            user_id=user_id,
-            draft_payload=payload.model_dump(exclude={"idempotency_key"}),
-            idempotency_key=payload.idempotency_key,
+        return cast(
+            dict[str, Any],
+            await get_gmail_delivery_service().prepare(
+                user_id=user_id,
+                draft_payload=payload.model_dump(exclude={"idempotency_key"}),
+                idempotency_key=payload.idempotency_key,
+            ),
         )
     except Exception as exc:
         logger.warning("one.gmail_delivery.prepare_failed error=%s", type(exc).__name__)
@@ -131,10 +137,13 @@ async def gmail_email_send(
         token_data=token_data,
     )
     try:
-        return await get_gmail_delivery_service().execute(
-            user_id=user_id,
-            action_id=payload.action_id,
-            draft_payload=payload.model_dump(exclude={"action_id"}),
+        return cast(
+            dict[str, Any],
+            await get_gmail_delivery_service().execute(
+                user_id=user_id,
+                action_id=payload.action_id,
+                draft_payload=payload.model_dump(exclude={"action_id"}),
+            ),
         )
     except Exception as exc:
         logger.warning("one.gmail_delivery.send_failed error=%s", type(exc).__name__)
