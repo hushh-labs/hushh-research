@@ -42,7 +42,7 @@
      stale browser/native inset without sacrificing the real status-bar
      clearance needed by an edge-to-edge WebView. */
   padding: calc(clamp(28px, var(--app-safe-area-top-effective, 0px), 64px) + 12px)
-    24px clamp(16px, 3vh, 24px);
+    24px clamp(8px, 3vh, 24px);
   text-align: center;
 }
 
@@ -103,7 +103,7 @@
 .eyebrow {
   margin: 0;
   color: var(--foundation-dim);
-  font-size: clamp(10px, 1.3vh, 12px);
+  font-size: clamp(8px, 1.3vh, 12px);
   font-weight: 700;
   letter-spacing: 0.26em;
   line-height: 1;
@@ -112,15 +112,15 @@
 }
 
 .emoji {
-  margin-top: clamp(14px, 3.4vh, 32px);
-  font-size: clamp(30px, 5.4vh, 48px);
+  margin-top: clamp(6px, 2.6vh, 32px);
+  font-size: clamp(16px, 4.4vh, 48px);
   line-height: 1;
   filter: drop-shadow(0 8px 18px rgba(109, 67, 26, 0.16));
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both;
 }
 
 .title {
-  margin: clamp(6px, 1.3vh, 12px) 0 0;
+  margin: clamp(2px, 0.9vh, 12px) 0 0;
   font-family: var(--font-app-display);
   line-height: 1;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
@@ -148,7 +148,7 @@
   /* Bounded on both axes: a width-only clamp keeps growing on a short
      landscape viewport at exactly the moment the vertical room shrinks,
      which is what pushes the hero into the row above it. */
-  font-size: clamp(64px, min(24vw, 14vh), 116px);
+  font-size: clamp(36px, min(24vw, 11vh), 116px);
   font-weight: 800;
   letter-spacing: -4px;
   line-height: 1.04;
@@ -159,7 +159,7 @@
 .divider {
   width: 100%;
   height: 1px;
-  margin-top: clamp(14px, 3.6vh, 36px);
+  margin-top: clamp(6px, 2.6vh, 36px);
   background: linear-gradient(
     90deg,
     transparent,
@@ -171,9 +171,9 @@
 
 .tagline {
   max-width: 22rem;
-  margin: clamp(14px, 3.6vh, 36px) auto 0;
+  margin: clamp(6px, 2.6vh, 36px) auto 0;
   color: var(--foundation-ink);
-  font-size: clamp(17px, 2.3vh, 20px);
+  font-size: clamp(11px, 2.3vh, 20px);
   font-weight: 600;
   letter-spacing: -0.2px;
   line-height: 1.35;
@@ -186,9 +186,9 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  margin-top: clamp(12px, 2.6vh, 26px);
+  margin-top: clamp(4px, 1.8vh, 26px);
   color: var(--foundation-dim);
-  font-size: clamp(9.5px, 1.2vh, 11px);
+  font-size: clamp(6px, 1.2vh, 11px);
   font-weight: 700;
   letter-spacing: 0.16em;
   line-height: 1.2;
@@ -209,9 +209,9 @@
 
 .description {
   max-width: 23rem;
-  margin: clamp(14px, 3vh, 30px) auto 0;
+  margin: clamp(6px, 2vh, 30px) auto 0;
   color: var(--foundation-dim);
-  font-size: clamp(13px, 1.7vh, 16px);
+  font-size: clamp(7px, 1.7vh, 16px);
   line-height: 1.45;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
 }
@@ -221,7 +221,7 @@
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
-  padding-top: clamp(16px, 3vh, 26px);
+  padding-top: clamp(8px, 3vh, 26px);
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
 }
 
@@ -229,7 +229,7 @@
   position: relative;
   overflow: hidden;
   display: inline-flex;
-  min-height: clamp(48px, 6.4vh, 56px);
+  min-height: clamp(44px, 6.4vh, 56px);
   width: 100%;
   align-items: center;
   justify-content: center;
