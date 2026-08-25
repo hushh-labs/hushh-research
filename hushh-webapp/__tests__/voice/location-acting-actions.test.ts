@@ -49,12 +49,17 @@ describe("what a spoken Location action is allowed to do", () => {
     expect(slots.join(" ")).not.toMatch(/recipient|person|contact|name|who/i);
   });
 
-  it("offers only durations the composer itself has buttons for, and always asks", () => {
+  it("offers exactly the durations SHARE_VOICE_DURATION_VALUES accepts, and always asks", () => {
     // Bounded so a spoken number cannot become an arbitrary grant length.
+    // The composer's own one-tap buttons are narrower than this (15 min, 1
+    // hour, Custom, Until I stop -- see SHARE_DURATION_LADDER in
+    // duration-presets.tsx): voice is deliberately more permissive, matching
+    // page.tsx's SHARE_VOICE_DURATION_VALUES rather than the visible grid, so
+    // a spoken "half an hour" or "8 hours" is not refused for being off it.
     const input = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
       (spec) => spec.slot === "duration_hours",
     );
-    expect(input?.options).toEqual(["0.5", "1", "4", "24"]);
+    expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
     // Required: how long a live location stays visible is a real decision,
     // not something to assume from whatever the composer happened to be
     // showing. "Share with them" alone gets asked how long, every time,
