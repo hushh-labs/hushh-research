@@ -200,6 +200,13 @@ describe("SavedLocationsSection", () => {
       await screen.findByText("Kasturba Road, Bengaluru"),
     ).toBeInTheDocument();
     expect(screen.getByText("Home")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Encrypted in your vault."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("saved-location-icon-home")).toHaveAttribute(
+      "data-icon-tone",
+      "neutral-graphite",
+    );
     expect(screen.queryByText(/12\.9763|77\.5929/)).not.toBeInTheDocument();
     expect(mocks.loadSavedLocations).toHaveBeenCalledWith({
       userId: "user-123",
@@ -234,8 +241,8 @@ describe("SavedLocationsSection", () => {
     await screen.findByText("Kasturba Road, Bengaluru");
     expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
     expect(
-      screen.getByText(/resume location to save another place/i),
-    ).toBeInTheDocument();
+      screen.queryByText(/resume location to save another place/i),
+    ).not.toBeInTheDocument();
     expect(mocks.captureCurrentPosition).not.toHaveBeenCalled();
   });
 
@@ -273,9 +280,7 @@ describe("SavedLocationsSection", () => {
       await Promise.resolve();
     });
 
-    expect(
-      screen.queryByTestId("save-location-modal"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("save-location-modal")).not.toBeInTheDocument();
     expect(mocks.reverseGeocode).not.toHaveBeenCalled();
   });
 

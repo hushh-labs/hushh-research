@@ -2275,15 +2275,15 @@ function LocationDetailFlow({
                     isSmsTriggered={Boolean(group.smsGrant)}
                     name={ownerName}
                     statusLine={
-                      multiLane
-                        ? `${group.grants.length} live shares`
-                        : (
-                          <ActiveShareMetadata
-                            grant={grant}
-                            formatEndsAt={vm.formatDateTime}
-                            untilStoppedLabel="Until stopped"
-                          />
-                        )
+                      multiLane ? (
+                        `${group.grants.length} live shares`
+                      ) : (
+                        <ActiveShareMetadata
+                          grant={grant}
+                          formatEndsAt={vm.formatDateTime}
+                          untilStoppedLabel="Until stopped"
+                        />
+                      )
                     }
                     shareLanes={
                       multiLane ? (
@@ -2584,45 +2584,59 @@ function LocationSettingsFlow({
   }, [draftScope, vm]);
 
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-7 pb-[max(16px,env(safe-area-inset-bottom))]">
+    <div className="mx-auto w-full max-w-[640px] space-y-6 pb-[max(20px,env(safe-area-inset-bottom))]">
       {/* No header description. Each row below already says what it does, and
           the line that used to sit here ("Control live sharing") describes
           something this screen's first control no longer does. */}
-      <TaskFlowHeader eyebrow="Location" title="Settings" />
+      <TaskFlowHeader title="Settings" />
 
-      <SettingsGroup title="Automatic approval" separatorInset>
-        <SettingsRow
-          title="Auto-approve requests"
-          description={activeScopeLabel}
-          trailing={
-            <LocationToggle
-              checked={vm.autoApproveRequestsEnabled}
-              onChange={handleAutoApproveToggle}
-              label="Auto-approve requests"
-            />
-          }
-          trailingInteractive
-          onClick={openScopeSheet}
-          chevron
-          className="[--settings-row-py:14px]"
-          testId="one-location-auto-approve-row"
-        />
-      </SettingsGroup>
+      <LocationSettingSection title="Automatic approval">
+        <SettingsGroup
+          embedded
+          separatorInset
+          shellClassName="[--settings-group-radius:16px] shadow-none"
+          className="[--settings-row-description-gap:2px] [--type-row-description-size:13px] [--type-row-description-line:18px]"
+        >
+          <SettingsRow
+            title="Auto-approve requests"
+            description={activeScopeLabel}
+            trailing={
+              <LocationToggle
+                checked={vm.autoApproveRequestsEnabled}
+                onChange={handleAutoApproveToggle}
+                label="Auto-approve requests"
+              />
+            }
+            trailingInteractive
+            onClick={openScopeSheet}
+            chevron
+            className="[--settings-row-px:16px] [--settings-row-py:14px]"
+            testId="one-location-auto-approve-row"
+          />
+        </SettingsGroup>
+      </LocationSettingSection>
 
-      <SettingsGroup title="Safety" separatorInset>
-        <SettingsRow
-          title="Emergency contacts"
-          trailing={
-            <span className="text-[15px] leading-5 text-muted-foreground">
-              {smsContactCount}
-            </span>
-          }
-          onClick={onManageSmsContacts}
-          chevron
-          density="compact"
-          testId="one-location-sms-contacts-entry"
-        />
-      </SettingsGroup>
+      <LocationSettingSection title="Safety">
+        <SettingsGroup
+          embedded
+          separatorInset
+          shellClassName="[--settings-group-radius:16px] shadow-none"
+        >
+          <SettingsRow
+            title="Emergency contacts"
+            trailing={
+              <span className="text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+                {smsContactCount}
+              </span>
+            }
+            onClick={onManageSmsContacts}
+            chevron
+            density="compact"
+            className="[--settings-row-px:16px]"
+            testId="one-location-sms-contacts-entry"
+          />
+        </SettingsGroup>
+      </LocationSettingSection>
 
       <div>
         <SavedLocationsSection />
@@ -2714,6 +2728,23 @@ function LocationSettingsFlow({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function LocationSettingSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="w-full">
+      <p className="mb-2 px-[6px] text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+        {title}
+      </p>
+      {children}
+    </section>
   );
 }
 
@@ -2816,10 +2847,7 @@ function ActiveShareMetadata({
       ) : formatEndsAt ? (
         <span className="truncate">{`Access until ${formatEndsAt(grant.expiresAt)}`}</span>
       ) : (
-        <ShareCountdownText
-          expiresAt={grant.expiresAt}
-          className="truncate"
-        />
+        <ShareCountdownText expiresAt={grant.expiresAt} className="truncate" />
       )}
     </span>
   );
@@ -3229,14 +3257,12 @@ export function PeopleHub({
                         // and one not, were then indistinguishable except by a
                         // tint, which is the whole reason "is this the same
                         // person or a different one" is hard to answer here.
-                        subtitle={
-                          peopleShareStatus(
-                            shareGroup,
-                            receiving,
-                            vm.expiresCountdownLabel,
-                            vm.recipientSubtitle(r),
-                          )
-                        }
+                        subtitle={peopleShareStatus(
+                          shareGroup,
+                          receiving,
+                          vm.expiresCountdownLabel,
+                          vm.recipientSubtitle(r),
+                        )}
                         active={sharing || receiving}
                         first={i === 0}
                         action={
