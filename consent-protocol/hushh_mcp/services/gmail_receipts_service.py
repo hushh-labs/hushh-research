@@ -124,6 +124,7 @@ _MERCHANT_HINTS = {
 _RUN_CANCELED_MESSAGE = "Gmail sync canceled because the connection was disconnected."
 _RUN_STALE_MESSAGE = "Gmail sync expired before completion. Please start a new sync."
 _RUN_ORPHANED_MESSAGE = "Gmail sync worker stopped before reporting a final status."
+_RUN_INTERRUPTED_MESSAGE = "Gmail sync stopped before completion. You can start another sync."
 _RUN_PREEMPTED_MESSAGE = "Older Gmail backfill was paused so a newer sync could run."
 _RUN_HISTORY_GAP_MESSAGE = (
     "Gmail history cursor expired. Starting a recovery sync to rebuild the mailbox snapshot."
@@ -685,6 +686,53 @@ class GmailReceiptsService:
             },
         )
 
+    def _clear_interrupted_connection_sync_state(self, *, user_id: str) -> None:
+        """Keep a server restart from becoming a permanent Gmail health error."""
+
+        self.db.execute_raw(
+            """
+            UPDATE kai_gmail_connections
+            SET last_sync_status = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN 'idle'
+                    ELSE last_sync_status
+                END,
+                last_sync_error = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN NULL
+                    ELSE last_sync_error
+                END,
+                bootstrap_state = CASE
+                    WHEN bootstrap_state IN ('queued', 'running') THEN 'idle'
+                    ELSE bootstrap_state
+                END,
+                updated_at = NOW()
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id},
+        )
+
+    @staticmethod
+    async def _clear_interrupted_connection_sync_state_in_tx(*, conn: Any, user_id: str) -> None:
+        await conn.execute(
+            """
+            UPDATE kai_gmail_connections
+            SET last_sync_status = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN 'idle'
+                    ELSE last_sync_status
+                END,
+                last_sync_error = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN NULL
+                    ELSE last_sync_error
+                END,
+                bootstrap_state = CASE
+                    WHEN bootstrap_state IN ('queued', 'running') THEN 'idle'
+                    ELSE bootstrap_state
+                END,
+                updated_at = NOW()
+            WHERE user_id = $1
+            """,
+            user_id,
+        )
+
     async def _recover_active_run_in_tx(self, *, conn: Any, run: dict[str, Any]) -> bool:
         run_id = _clean_text(run.get("run_id"))
         user_id = _clean_text(run.get("user_id"))
@@ -699,8 +747,8 @@ class GmailReceiptsService:
                 cancelled_fn = getattr(task, "cancelled", None)
                 if callable(cancelled_fn):
                     cancelled = bool(cancelled_fn())
-                status = "canceled" if cancelled else "failed"
-                error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_ORPHANED_MESSAGE
+                status = "canceled"
+                error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_INTERRUPTED_MESSAGE
                 await conn.execute(
                     """
                     UPDATE kai_gmail_sync_runs
@@ -715,24 +763,16 @@ class GmailReceiptsService:
                     status,
                     error_message,
                 )
-                if status == "failed":
-                    await conn.execute(
-                        """
-                        UPDATE kai_gmail_connections
-                        SET last_sync_status = 'failed',
-                            last_sync_error = $2,
-                            updated_at = NOW()
-                        WHERE user_id = $1
-                        """,
-                        user_id,
-                        error_message,
-                    )
+                await self._clear_interrupted_connection_sync_state_in_tx(
+                    conn=conn,
+                    user_id=user_id,
+                )
                 return True
             if self._is_stale_active_run(run):
                 await conn.execute(
                     """
                     UPDATE kai_gmail_sync_runs
-                    SET status = 'failed',
+                    SET status = 'canceled',
                         error_message = $2,
                         completed_at = COALESCE(completed_at, NOW()),
                         updated_at = NOW()
@@ -742,16 +782,9 @@ class GmailReceiptsService:
                     run_id,
                     _RUN_STALE_MESSAGE,
                 )
-                await conn.execute(
-                    """
-                    UPDATE kai_gmail_connections
-                    SET last_sync_status = 'failed',
-                        last_sync_error = $2,
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                    """,
-                    user_id,
-                    _RUN_STALE_MESSAGE,
+                await self._clear_interrupted_connection_sync_state_in_tx(
+                    conn=conn,
+                    user_id=user_id,
                 )
                 self._cancel_local_sync_task(run_id)
                 return True
@@ -763,7 +796,7 @@ class GmailReceiptsService:
         await conn.execute(
             """
             UPDATE kai_gmail_sync_runs
-            SET status = 'failed',
+            SET status = 'canceled',
                 error_message = $2,
                 completed_at = COALESCE(completed_at, NOW()),
                 updated_at = NOW()
@@ -773,16 +806,9 @@ class GmailReceiptsService:
             run_id,
             _RUN_STALE_MESSAGE,
         )
-        await conn.execute(
-            """
-            UPDATE kai_gmail_connections
-            SET last_sync_status = 'failed',
-                last_sync_error = $2,
-                updated_at = NOW()
-            WHERE user_id = $1
-            """,
-            user_id,
-            _RUN_STALE_MESSAGE,
+        await self._clear_interrupted_connection_sync_state_in_tx(
+            conn=conn,
+            user_id=user_id,
         )
         return True
 
@@ -813,44 +839,31 @@ class GmailReceiptsService:
                     cancelled_fn = getattr(task, "cancelled", None)
                     if callable(cancelled_fn):
                         cancelled = bool(cancelled_fn())
-                    status = "canceled" if cancelled else "failed"
-                    error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_ORPHANED_MESSAGE
+                    status = "canceled"
+                    error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_INTERRUPTED_MESSAGE
                     self._mark_run_terminal(
                         run_id=current_run_id,
                         status=status,
                         error_message=error_message,
                     )
-                    if status == "failed":
-                        self._update_connection_sync_status(
-                            user_id=user_id,
-                            status="failed",
-                            error_message=error_message,
-                        )
+                    self._clear_interrupted_connection_sync_state(user_id=user_id)
                 elif self._is_stale_active_run(current):
                     self._mark_run_terminal(
                         run_id=current_run_id,
-                        status="failed",
+                        status="canceled",
                         error_message=_RUN_STALE_MESSAGE,
                     )
-                    self._update_connection_sync_status(
-                        user_id=user_id,
-                        status="failed",
-                        error_message=_RUN_STALE_MESSAGE,
-                    )
+                    self._clear_interrupted_connection_sync_state(user_id=user_id)
                     self._cancel_local_sync_task(current_run_id)
                 continue
             if not self._is_stale_active_run(current):
                 continue
             self._mark_run_terminal(
                 run_id=current_run_id,
-                status="failed",
+                status="canceled",
                 error_message=_RUN_STALE_MESSAGE,
             )
-            self._update_connection_sync_status(
-                user_id=user_id,
-                status="failed",
-                error_message=_RUN_STALE_MESSAGE,
-            )
+            self._clear_interrupted_connection_sync_state(user_id=user_id)
 
     def _llm_fallback_enabled(self) -> bool:
         return _to_bool(os.getenv("GMAIL_RECEIPT_LLM_FALLBACK_ENABLED"), False)

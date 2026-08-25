@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import GmailReceiptsPage from "@/components/gmail/gmail-receipts-page";
+import { GmailWorkspaceSkeleton } from "@/components/gmail/gmail-workspace-skeleton";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import {
@@ -57,6 +58,7 @@ function EnabledGmailOnboardingSetup() {
       <CapabilityVaultPrerequisite
         capabilityLabel="Gmail"
         routeKey={ROUTES.ONE_SETUP_GMAIL}
+        checkingFallback={<GmailWorkspaceSkeleton />}
       >
         <GmailReceiptsPage
           journeyVariant="onboarding"

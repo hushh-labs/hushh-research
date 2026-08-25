@@ -78,6 +78,23 @@ describe("CapabilityVaultPrerequisite", () => {
     expect(vaultMocks.checkVault).not.toHaveBeenCalled();
   });
 
+  it("can render safe route chrome while owner-token state is checked without mounting the capability", () => {
+    vaultMocks.checkVault.mockImplementation(() => new Promise(() => undefined));
+
+    render(
+      <CapabilityVaultPrerequisite
+        capabilityLabel="Gmail"
+        routeKey="/one/gmail"
+        checkingFallback={<div>Checking your Gmail status</div>}
+      >
+        <div>Gmail workspace</div>
+      </CapabilityVaultPrerequisite>,
+    );
+
+    expect(screen.getByText("Checking your Gmail status")).toBeTruthy();
+    expect(screen.queryByText("Gmail workspace")).toBeNull();
+  });
+
   it("retains the Login boundary for unauthenticated direct entry", async () => {
     vaultMocks.user = null;
 

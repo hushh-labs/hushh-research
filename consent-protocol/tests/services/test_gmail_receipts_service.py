@@ -628,7 +628,7 @@ async def test_queue_sync_recovers_stale_running_run_before_enqueuing_replacemen
     assert result["accepted"] is True
     assert conn.inserted is not None
     assert any(
-        "UPDATE kai_gmail_sync_runs" in query and "status = 'failed'" in query
+        "UPDATE kai_gmail_sync_runs" in query and "status = 'canceled'" in query
         for query, _ in conn.execute_calls
     )
 
@@ -751,9 +751,13 @@ def test_reconcile_active_runs_cancels_stale_live_task(monkeypatch):
 
     assert canceled["value"] is True
     assert any(
-        "UPDATE kai_gmail_sync_runs" in sql and params.get("status") == "failed"
+        "UPDATE kai_gmail_sync_runs" in sql and params.get("status") == "canceled"
         for sql, params in service._db.calls
         if params
+    )
+    assert any(
+        "UPDATE kai_gmail_connections" in sql and "last_sync_status IN ('queued', 'running')" in sql
+        for sql, _ in service._db.calls
     )
 
 
