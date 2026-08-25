@@ -16,53 +16,79 @@
   line-height: 1.45 !important;
 }
 
-.segmentedProgress {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-.segmentedProgress > span {
-  flex: 1 1 0%;
-  height: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--foundation-hairline) 86%, transparent);
-  transition: background-color 200ms ease;
-}
-.segmentedProgress > span[data-filled="true"] {
-  background: var(--foundation-gold-deep);
+.setupProgress {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 24px;
 }
 
-/* Flat editorial checklist — drop the grouped-card chrome, keep inset hairlines. */
+.setupProgressLabel {
+  font-family: var(--font-app-text);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.125rem;
+  color: var(--muted-foreground);
+}
+
+.setupProgressTrack {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foundation-hairline) 82%, transparent);
+}
+
+.setupProgressFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--app-accent);
+  transition: width 160ms ease;
+}
+
+/* Focused checklist — one grouped white list with inset hairlines. */
 .flatChecklist {
   display: grid;
-  gap: 1rem;
+  gap: 1.125rem;
 }
 
 .flatChecklist [data-slot="settings-group-shell"] {
-  --settings-group-radius: 0px;
+  --settings-group-radius: 18px;
   border: 0;
-  background: transparent;
-  border-radius: 0;
-  overflow: visible;
+  background: var(--app-card-surface-default-solid);
+  border-radius: 18px;
+  box-shadow: none;
 }
-/* Rows read on the page background (no per-row mobile surface fill). */
-.flatChecklist [data-testid="settings-row"] {
-  background: transparent;
+
+.flatChecklist :global([data-slot="settings-group-heading"]) {
+  font-family: var(--font-app-text);
+  font-size: 0.8125rem !important;
+  font-weight: 400 !important;
+  line-height: 1.125rem !important;
+  letter-spacing: 0 !important;
+  color: var(--muted-foreground) !important;
 }
 
 .flatChecklist :global([data-slot="settings-row-title"]),
 .stepGroup :global([data-slot="settings-row-title"]) {
   font-family: var(--font-app-text);
-  font-size: 0.9375rem !important;
-  font-weight: 600 !important;
-  line-height: 1.25 !important;
+  font-size: 1.0625rem !important;
+  font-weight: 400 !important;
+  line-height: 1.375rem !important;
   letter-spacing: 0 !important;
 }
 
 .flatChecklist :global([data-slot="settings-row-description"]),
 .stepGroup :global([data-slot="settings-row-description"]) {
   font-size: 0.8125rem !important;
-  line-height: 1.42 !important;
+  line-height: 1.125rem !important;
+  color: var(--muted-foreground) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setupProgressFill {
+    transition: none;
+  }
 }
 
 .stepHeader :global([data-slot="page-header-description"]) {
