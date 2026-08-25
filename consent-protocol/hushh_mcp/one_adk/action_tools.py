@@ -1081,6 +1081,8 @@ async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
         return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     shares = OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id)
     return {"status": "ok", "shares": shares}
 
@@ -1090,6 +1092,8 @@ async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, A
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
         return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     shares = OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id)
     return {"status": "ok", "shares": shares}
 
@@ -1099,6 +1103,8 @@ async def list_pending_location_requests(tool_context: ToolContext) -> dict[str,
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
         return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     requests = OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id)
     return {"status": "ok", "requests": requests}
 
@@ -1108,6 +1114,8 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
         return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     connections = ConnectionsService().list_connections(user_id=user_id)
     return {"status": "ok", "connections": connections}
 
@@ -1121,6 +1129,8 @@ async def list_pending_connection_requests(
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
         return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     requests = ConnectionsService().list_requests(user_id=user_id, direction=direction)
     return {"status": "ok", "requests": requests}
 
