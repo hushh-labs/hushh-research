@@ -2376,6 +2376,12 @@ class TestBackendDirectConnectionActions:
                     "hasMore": False,
                 },
             ) as search_mock,
+            patch.object(
+                ConnectionsService,
+                "get_voice_preferences",
+                autospec=True,
+                return_value={"shareScopesFromLastRequest": False, "updatedAt": None},
+            ),
             patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
         ):
             result = await run_app_action(
@@ -2386,7 +2392,14 @@ class TestBackendDirectConnectionActions:
         assert search_mock.call_args.kwargs["query"] == "Sarah"
         create_mock.assert_called_once()
         assert create_mock.call_args.args[1] == "user_1"
-        assert create_mock.call_args.kwargs == {"addressee_user_id": "u1"}
+        # Default (no reuse) still passes both scope-handle kwargs, just as
+        # None -- create_request already treats that identically to omitting
+        # them, so today's always-empty behavior is unchanged.
+        assert create_mock.call_args.kwargs == {
+            "addressee_user_id": "u1",
+            "requested_scope_handles": None,
+            "offered_scope_handles": None,
+        }
 
     @pytest.mark.asyncio
     async def test_send_request_handles_multiple_people_in_one_turn(self):
@@ -2407,6 +2420,12 @@ class TestBackendDirectConnectionActions:
                 autospec=True,
                 side_effect=fake_search_directory,
             ),
+            patch.object(
+                ConnectionsService,
+                "get_voice_preferences",
+                autospec=True,
+                return_value={"shareScopesFromLastRequest": False, "updatedAt": None},
+            ),
             patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
         ):
             result = await run_app_action(
@@ -2418,6 +2437,98 @@ class TestBackendDirectConnectionActions:
         assert create_mock.call_count == 2
         called_ids = {c.kwargs["addressee_user_id"] for c in create_mock.call_args_list}
         assert called_ids == {"u1", "u2"}
+
+    @pytest.mark.asyncio
+    async def test_send_request_reuses_last_scopes_when_the_toggle_is_on_and_history_exists(
+        self,
+    ):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={
+                    "items": [
+                        {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"}
+                    ],
+                    "hasMore": False,
+                },
+            ),
+            patch.object(
+                ConnectionsService,
+                "get_voice_preferences",
+                autospec=True,
+                return_value={"shareScopesFromLastRequest": True, "updatedAt": None},
+            ),
+            patch.object(
+                ConnectionsService,
+                "get_last_request_scope_handles",
+                autospec=True,
+                return_value={
+                    "requestedScopeHandles": ["location.live"],
+                    "offeredScopeHandles": ["calendar.busy"],
+                },
+            ) as history_mock,
+            patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        history_mock.assert_called_once()
+        assert history_mock.call_args.kwargs == {
+            "requester_user_id": "user_1",
+            "addressee_user_id": "u1",
+        }
+        assert create_mock.call_args.kwargs == {
+            "addressee_user_id": "u1",
+            "requested_scope_handles": ["location.live"],
+            "offered_scope_handles": ["calendar.busy"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_send_request_never_guesses_scopes_for_a_first_time_recipient(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={
+                    "items": [
+                        {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"}
+                    ],
+                    "hasMore": False,
+                },
+            ),
+            patch.object(
+                ConnectionsService,
+                "get_voice_preferences",
+                autospec=True,
+                return_value={"shareScopesFromLastRequest": True, "updatedAt": None},
+            ),
+            patch.object(
+                ConnectionsService,
+                "get_last_request_scope_handles",
+                autospec=True,
+                return_value={"requestedScopeHandles": [], "offeredScopeHandles": []},
+            ),
+            patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        # Empty history normalizes to None, identical to the toggle-off path --
+        # never an empty list standing in for "definitely no scopes chosen".
+        assert create_mock.call_args.kwargs == {
+            "addressee_user_id": "u1",
+            "requested_scope_handles": None,
+            "offered_scope_handles": None,
+        }
 
     @pytest.mark.asyncio
     async def test_send_request_reports_already_connected_as_success_not_failure(self):
