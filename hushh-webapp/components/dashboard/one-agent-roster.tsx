@@ -852,7 +852,11 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="mx-auto w-full max-w-[560px]"
+      // The roster sat flush against the header clearance while the launcher
+      // grid ended well short of the floating bottom bar, so the column read
+      // top-heavy. A small top offset drops the whole block (title, overflow
+      // menu, grid) into that slack.
+      className="mx-auto w-full max-w-[560px] pt-3 sm:pt-5"
     >
       <div className="mb-6 flex min-h-11 items-center justify-between gap-3">
         {isSearchOpen ? (
