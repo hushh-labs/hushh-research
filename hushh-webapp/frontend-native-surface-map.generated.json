@@ -2256,6 +2256,7 @@
       "voice_action_contract_file": "app/one/page.voice-action-contract.json",
       "voice_action_contract_ids": [
         "route.one_agents",
+        "route.one_feed",
         "route.one_location",
         "route.one_pkm",
         "route.voice_settings"
@@ -2403,9 +2404,11 @@
       },
       "voice_action_contract_file": "app/one/connect/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "connect.accept_request",
         "connect.cancel_request",
         "connect.open_nearby",
         "connect.open_people",
+        "connect.reject_request",
         "connect.remove_connection",
         "connect.search_people",
         "connect.send_request",
@@ -9059,5 +9062,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b94c39affab0bf2c4bc623c1416ecdf74ca2544d4a9bf7e79fff223115f77032"
+  "content_sha256": "2a0af5fd46c11366469a897aaeebe593368734424d1fafc0ad9f7aec937b23b7"
 }
