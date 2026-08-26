@@ -34,8 +34,19 @@ import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
 
 describe("CalendarAgentPage", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     mocks.getIdToken.mockResolvedValue("firebase-token");
+    vi.spyOn(window, "open").mockImplementation(
+      () =>
+        ({
+          close: vi.fn(),
+          document: { title: "" },
+          focus: vi.fn(),
+          location: { replace: vi.fn() },
+          sessionStorage: { setItem: vi.fn() },
+        }) as unknown as Window,
+    );
   });
 
   it("requests management access in the single initial Calendar authorization", async () => {
