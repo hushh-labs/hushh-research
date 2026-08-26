@@ -232,7 +232,15 @@ function deriveConnectorTaskKind(
     .trim()
     .toLowerCase();
   if (triggerSource === "connect") return "gmail_bootstrap";
-  if (triggerSource === "auto_daily" || triggerSource === "backfill") {
+  if (
+    triggerSource === "auto_daily" ||
+    triggerSource === "backfill" ||
+    triggerSource === "scheduled" ||
+    triggerSource === "background" ||
+    triggerSource === "system" ||
+    syncMode === "recent" ||
+    syncMode === "incremental"
+  ) {
     return "gmail_backfill";
   }
   return "gmail_manual_sync";
