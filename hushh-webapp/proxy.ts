@@ -2,12 +2,98 @@
 // Next.js 16 Proxy for Route Protection (formerly middleware.ts)
 
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import type { NextRequest, NextMiddlewareResult } from "next/server";
 import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
 import {
   LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX,
   PUBLIC_LOCATION_VIEW_PREFIX,
 } from "./lib/one-location/public-invite-url";
+
+// ============================================================================
+// Security headers (CS-3 fix, security assessment 2026-08-17)
+// ============================================================================
+// The app shipped with no Content-Security-Policy and no clickjacking/
+// HSTS/MIME-sniffing headers, so nothing in the browser stopped an injected
+// script from running or the page from being framed. The CSP uses a
+// per-request nonce (Next.js's documented pattern:
+// https://nextjs.org/docs/app/guides/content-security-policy) so the app's
+// own inline bootstrap/analytics scripts keep working without falling back
+// to 'unsafe-inline' on script-src, which would defeat the point.
+//
+// Only web/Cloud Run builds run this proxy (Capacitor static export does
+// not execute it), which matches the live host this was assessed against
+// (https://uat.one.hushh.ai).
+
+function buildCsp(nonce: string, isDev: boolean): string {
+  const directives: Record<string, string[]> = {
+    "default-src": ["'self'"],
+    "script-src": [
+      "'self'",
+      `'nonce-${nonce}'`,
+      // Next.js dev overlay/HMR needs eval; production never sets this.
+      ...(isDev ? ["'unsafe-eval'"] : []),
+      "https://www.googletagmanager.com",
+      "https://cdn.plaid.com",
+    ],
+    // style-src cannot execute JS, so 'unsafe-inline' here doesn't defeat the
+    // policy the way it would on script-src; kept permissive so component
+    // <style> blocks (e.g. chart theming) don't need per-component nonces.
+    "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+    "img-src": ["'self'", "data:", "blob:", "https:"],
+    "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
+    "connect-src": [
+      "'self'",
+      "https://api.hushh.ai",
+      "https://api.uat.hushh.ai",
+      "https://*.googleapis.com",
+      "https://www.google-analytics.com",
+      "https://www.googletagmanager.com",
+      "https://cdn.plaid.com",
+      "https://*.plaid.com",
+      ...(isDev ? ["ws:", "http://127.0.0.1:*"] : []),
+    ],
+    "frame-src": ["'self'", "https://cdn.plaid.com", "https://*.plaid.com"],
+    "worker-src": ["'self'", "blob:"],
+    "object-src": ["'none'"],
+    "base-uri": ["'self'"],
+    "form-action": ["'self'"],
+    "frame-ancestors": ["'self'"],
+  };
+
+  const policy = Object.entries(directives)
+    .map(([key, values]) => `${key} ${values.join(" ")}`)
+    .join("; ");
+
+  return isDev ? policy : `${policy}; upgrade-insecure-requests`;
+}
+
+/** Stamps the CSP + the rest of the security headers onto any response this
+ * proxy returns (redirect or pass-through). */
+function withSecurityHeaders(
+  response: NextMiddlewareResult,
+  nonce: string,
+): NextMiddlewareResult {
+  if (!response) return response;
+
+  const isDev = process.env.NODE_ENV !== "production";
+
+  response.headers.set("Content-Security-Policy", buildCsp(nonce, isDev));
+  response.headers.set("X-Frame-Options", "SAMEORIGIN");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set(
+    "Permissions-Policy",
+    "camera=(self), microphone=(self), geolocation=(self), payment=(), usb=(), interest-cohort=()",
+  );
+  if (!isDev) {
+    response.headers.set(
+      "Strict-Transport-Security",
+      "max-age=63072000; includeSubDomains; preload",
+    );
+  }
+
+  return response;
+}
 
 // Routes that don't require authentication (VaultLockGuard handles protected routes)
 const PUBLIC_ROUTES = [
@@ -49,6 +135,15 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host") || "";
 
+  // CS-3 fix: one nonce per request, forwarded to Server Components (see
+  // app/layout.tsx) via the x-nonce request header and bound into the CSP
+  // response header below via withSecurityHeaders.
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  const next = () =>
+    NextResponse.next({ request: { headers: requestHeaders } });
+
   const legacyHostTargets: Record<string, string> = {
     "uat.kai.hushh.ai": "uat.one.hushh.ai",
     "dev.kai.hushh.ai": "dev.one.hushh.ai",
@@ -59,7 +154,7 @@ export function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.host = legacyHostTarget;
     url.protocol = "https:";
-    return NextResponse.redirect(url, 301);
+    return withSecurityHeaders(NextResponse.redirect(url, 301), nonce);
   }
 
   const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[pathname];
@@ -75,7 +170,7 @@ export function proxy(request: NextRequest) {
         if (!url.searchParams.has(key)) url.searchParams.set(key, value);
       });
     }
-    return NextResponse.redirect(url);
+    return withSecurityHeaders(NextResponse.redirect(url), nonce);
   }
 
   for (const [legacyRoot, canonicalRoot] of [
@@ -94,17 +189,17 @@ export function proxy(request: NextRequest) {
     }
     const url = request.nextUrl.clone();
     url.pathname = `${canonicalRoot}${pathname.slice(legacyRoot.length)}`;
-    return NextResponse.redirect(url);
+    return withSecurityHeaders(NextResponse.redirect(url), nonce);
   }
 
   // Allow all API routes (they handle their own auth)
   if (pathname.startsWith(API_PREFIX)) {
-    return NextResponse.next();
+    return withSecurityHeaders(next(), nonce);
   }
 
   // Allow public routes
   if (PUBLIC_ROUTES.includes(pathname) || isPublicRoute(pathname)) {
-    return NextResponse.next();
+    return withSecurityHeaders(next(), nonce);
   }
 
   // Allow static files and Next.js internals
@@ -113,7 +208,7 @@ export function proxy(request: NextRequest) {
     pathname.startsWith("/favicon") ||
     pathname.includes(".")
   ) {
-    return NextResponse.next();
+    return withSecurityHeaders(next(), nonce);
   }
 
   // =========================================================================
@@ -130,7 +225,7 @@ export function proxy(request: NextRequest) {
   // Protected pages will redirect to "/login" if not authenticated.
   // =========================================================================
 
-  return NextResponse.next();
+  return withSecurityHeaders(next(), nonce);
 }
 
 export const config = {

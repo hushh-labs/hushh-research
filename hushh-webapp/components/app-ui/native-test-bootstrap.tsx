@@ -20,6 +20,11 @@ function updateBootstrapStatus(
   if (typeof window === "undefined") {
     return;
   }
+  // SECURITY: this bridge is page-writable; only trust it on a real native
+  // platform. See isTrustedNativeTestBridge in lib/testing/native-test.ts.
+  if (!Capacitor.isNativePlatform()) {
+    return;
+  }
   const bridge = window.__HUSHH_NATIVE_TEST__;
   if (!bridge?.enabled) {
     return;
@@ -340,7 +345,11 @@ export function NativeTestBootstrap() {
           "Vault owner token issue",
           VaultService.getOrIssueVaultOwnerToken(vaultUser.uid)
         );
-        if (typeof window !== "undefined" && window.__HUSHH_NATIVE_TEST__?.enabled) {
+        if (
+          typeof window !== "undefined" &&
+          Capacitor.isNativePlatform() &&
+          window.__HUSHH_NATIVE_TEST__?.enabled
+        ) {
           window.__HUSHH_NATIVE_TEST__.replayVaultUnlock = () => {
             unlockVault(decryptedKey, token, expiresAt);
           };

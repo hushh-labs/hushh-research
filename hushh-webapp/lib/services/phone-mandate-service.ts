@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import {
   normalizeStaticExportPathname,
@@ -26,6 +27,13 @@ export function shouldBypassPhoneMandateForLocalhost(hostname?: string | null): 
 
 function shouldBypassPhoneMandateForNativeRouteAudit(): boolean {
   if (typeof window === "undefined") {
+    return false;
+  }
+  // SECURITY: `window.__HUSHH_NATIVE_TEST__` is page-writable. Without the
+  // native-platform check, any injected script on the web origin could set
+  // `{ enabled: true, expectedUserId }` itself and bypass the phone mandate.
+  // See isTrustedNativeTestBridge in lib/testing/native-test.ts.
+  if (!Capacitor.isNativePlatform()) {
     return false;
   }
 

@@ -53,6 +53,10 @@ const config: NextConfig = {
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     minimumCacheTTL: 60,
     dangerouslyAllowSVG: true,
+    // CS-3 fix: served SVGs are sandboxed and cannot run script or be framed,
+    // which is Next.js's documented mitigation for allowing SVG at all.
+    // https://nextjs.org/docs/app/api-reference/components/image#dangerouslyallowsvg
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
     contentDispositionType: "inline",
   },
 

@@ -150,6 +150,13 @@ function HomeContent() {
 export default function Home() {
   return (
     <>
+      {/* NOTE: this JSON-LD script has no CSP nonce (see middleware.ts) because
+          this route is a Client Component and next/headers is server-only.
+          Under the new strict script-src it is silently blocked by the
+          browser — SEO structured data only, no functional or security
+          impact. If this needs to actually render again, split this file
+          into a thin async Server Component wrapper (reads the nonce) around
+          a client child, the same pattern used for app/layout.tsx. */}
       <JsonLd data={buildFaqGraph(HOME_FAQ)} />
       <NativeRouteMarker
         routeId="/"
