@@ -21,14 +21,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-} from "@/components/ui/popover";
-import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -95,10 +87,7 @@ export interface AnalysisHistoryDashboardProps {
   ephemeralEntry?: AnalysisHistoryEntry | null;
 }
 
-type PopoverAnchorPosition = {
-  left: number;
-  top: number;
-};
+
 
 interface DebateCoverageRow {
   key: string;
@@ -823,7 +812,6 @@ export function AnalysisHistoryDashboard({
   const historyMapRef = useRef<AnalysisHistoryMap>({});
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTicker, setVersionsTicker] = useState<string | null>(null);
-  const [versionsAnchor, setVersionsAnchor] = useState<PopoverAnchorPosition | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteAction>(null);
   const [deleteInFlight, setDeleteInFlight] = useState(false);
 
@@ -1044,23 +1032,13 @@ export function AnalysisHistoryDashboard({
   const closeVersions = useCallback(() => {
     setVersionsOpen(false);
     setVersionsTicker(null);
-    setVersionsAnchor(null);
   }, []);
 
   const openVersions = useCallback((
     ticker: string,
-    event?: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
+    _event?: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
   ) => {
-    const rect = event?.currentTarget.getBoundingClientRect();
     setVersionsTicker(ticker);
-    setVersionsAnchor(
-      rect
-        ? { left: rect.left + rect.width / 2, top: rect.bottom }
-        : {
-            left: typeof window === "undefined" ? 0 : window.innerWidth / 2,
-            top: typeof window === "undefined" ? 0 : window.innerHeight / 2,
-          },
-    );
     setVersionsOpen(true);
   }, []);
 
