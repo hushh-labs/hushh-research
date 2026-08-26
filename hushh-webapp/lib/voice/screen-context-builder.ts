@@ -615,8 +615,38 @@ function prioritizeAvailableActionIds(
     .map((actionId, index) => ({ actionId, index, rank: rankOf(actionId) }))
     .sort((left, right) => left.rank - right.rank || left.index - right.index)
     .map((entry) => entry.actionId);
+  // A wired route action is admitted by the relay whether or not it appears
+  // in this screen's own segment -- the model can still call it directly, or
+  // find it through list_app_actions -- and cross-screen navigation already
+  // has its own guaranteed GLOBAL_NAV_ACTION_IDS segment below. A local
+  // handler dropped past the cap has no such fallback: it comes back
+  // action_unavailable, which reads as a broken feature. So route actions
+  // never compete for one of the ACTION_ID_SCREEN_SEGMENT_CAP slots -- every
+  // slot goes to a local handler first, and only the leftover room (if any)
+  // is offered to route actions, preserving today's behavior on screens that
+  // do not have more local handlers than the cap can hold.
+  //
+  // Deliberately NOT extended to backend-direct local handlers
+  // (BACKEND_DIRECT_ACTION_IDS) even though they also bypass the inventory
+  // guard the same way: unlike a route action, a backend-direct local
+  // handler (e.g. add_to_circle) is often the exact verb a boosted subview
+  // exists to surface -- "surfaces the circle actions someone is looking at
+  // when the local handlers outgrow even the ranked cap" below asserts the
+  // People tab must still list add_to_circle. Being callable without a slot
+  // is not the same as the model knowing to call it; SUBVIEW_ACTION_BOOST's
+  // rank-0 priority is what protects that, not a cap exemption.
+  const isCapExempt = (actionId: string): boolean => {
+    const action = getKaiActionById(actionId);
+    return Boolean(
+      action &&
+        action.execution_target.status === "wired" &&
+        action.execution_target.path === "route",
+    );
+  };
+  const capCompeting = ranked.filter((actionId) => !isCapExempt(actionId));
+  const capExemptActions = ranked.filter(isCapExempt);
   if (
-    ranked.length > ACTION_ID_SCREEN_SEGMENT_CAP &&
+    capCompeting.length > ACTION_ID_SCREEN_SEGMENT_CAP &&
     process.env.NODE_ENV !== "production"
   ) {
     // Loud, and it names what was lost. This was a console.debug, and the
@@ -624,15 +654,10 @@ function prioritizeAvailableActionIds(
     // back from the relay as `action_unavailable`, which reads as "this
     // feature is broken" rather than "this screen declared more than the
     // context can carry". Location growing to 19 actions is what found it.
-    //
-    // Route-executing actions survive the cut in practice, because the relay
-    // admits navigation from any screen whether or not it was submitted here.
-    // So the ids that genuinely go missing are the local handlers, which is
-    // what naming them makes obvious.
-    const dropped = ranked.slice(ACTION_ID_SCREEN_SEGMENT_CAP);
+    const dropped = capCompeting.slice(ACTION_ID_SCREEN_SEGMENT_CAP);
     console.warn(
-      `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${ranked.length} ` +
-        `action ids but only ${ACTION_ID_SCREEN_SEGMENT_CAP} fit. ` +
+      `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${capCompeting.length} ` +
+        `local action ids but only ${ACTION_ID_SCREEN_SEGMENT_CAP} fit. ` +
         `Dropped: ${dropped.join(", ")}`,
     );
   }
@@ -642,9 +667,13 @@ function prioritizeAvailableActionIds(
   // combined list stays within AVAILABLE_ACTION_IDS_CAP, which the backend
   // accepts (Pydantic max_length is kept in sync).
   const screenSegment = enforceArrayDimensionCap(
-    ranked,
+    capCompeting,
     ACTION_ID_SCREEN_SEGMENT_CAP,
   ).items;
+  const remainingScreenSegmentRoom = ACTION_ID_SCREEN_SEGMENT_CAP - screenSegment.length;
+  if (remainingScreenSegmentRoom > 0) {
+    screenSegment.push(...capExemptActions.slice(0, remainingScreenSegmentRoom));
+  }
   if (!includeGlobalNavigation) return screenSegment;
   const combined = [...screenSegment];
   for (const navId of GLOBAL_NAV_ACTION_IDS) {

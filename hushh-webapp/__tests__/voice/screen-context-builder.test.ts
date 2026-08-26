@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   ACTION_ID_SCREEN_SEGMENT_CAP,
   ARRAY_DIMENSION_CAP_ERROR,
+  AVAILABLE_ACTION_IDS_CAP,
+  GLOBAL_NAV_ACTION_IDS,
   INVALID_ARRAY_TYPE_ERROR,
   STRUCTURED_CONTEXT_ARRAY_CAP,
   buildOneVoiceContextSnapshot,
@@ -56,6 +58,38 @@ function makeRuntimeState(
     },
   };
 }
+
+describe("the action-id cap invariant this file's own comments document", () => {
+  it("never lets the screen segment alone exceed the combined cap", () => {
+    // prioritizeAvailableActionIds only re-checks AVAILABLE_ACTION_IDS_CAP
+    // while appending the GLOBAL_NAV_ACTION_IDS segment on top of the
+    // already-built screen segment -- it never re-truncates the screen
+    // segment itself. If ACTION_ID_SCREEN_SEGMENT_CAP were ever raised past
+    // this bound, the combined array could exceed AVAILABLE_ACTION_IDS_CAP
+    // even though nothing here would report an error.
+    expect(ACTION_ID_SCREEN_SEGMENT_CAP).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
+  });
+
+  it("matches the backend's Pydantic max_length for available_action_ids", () => {
+    // consent-protocol/hushh_mcp/agents/onboarding/agent.py's
+    // OnboardingJourneyContext.available_action_ids has max_length=18 --
+    // see tests/test_onboarding_goal_agent.py's matching parity test on
+    // that side. There is no automated cross-language sync for this; both
+    // sides must be changed together, in the same commit.
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(18);
+  });
+
+  it("documents that a crowded screen already trades away some global-nav slots", () => {
+    // Not a bound that must hold -- the opposite: 14 + 8 already exceeds 18
+    // today, so the append loop in prioritizeAvailableActionIds already
+    // silently drops some GLOBAL_NAV_ACTION_IDS entries once a screen's own
+    // segment is full. Asserted here so a future reader sees this is known
+    // and accepted, not undiscovered.
+    expect(ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length).toBeGreaterThan(
+      AVAILABLE_ACTION_IDS_CAP,
+    );
+  });
+});
 
 // ── enforceArrayDimensionCap unit tests ───────────────────────────────────────
 

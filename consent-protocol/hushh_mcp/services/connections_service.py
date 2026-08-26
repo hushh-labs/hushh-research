@@ -14,7 +14,7 @@ import hashlib
 import inspect
 import logging
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import UUID
 
@@ -35,6 +35,23 @@ from hushh_mcp.services.feed_service import FeedService
 logger = logging.getLogger(__name__)
 
 _RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
+
+
+def _iso(value: Any) -> str | None:
+    """Stringify a DB-driver datetime before it leaves this service.
+
+    FastAPI's response encoder happily serializes a raw datetime for the REST
+    routes, but the voice tool layer hands this same dict straight to
+    Gemini Live's plain json.dumps, which does not -- a raw datetime there
+    crashes the whole live session with no result ever reaching the user.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return str(value.astimezone(timezone.utc).isoformat())
+    return str(value)
 
 # The SQL predicate for "this RIA profile is real enough to carry a capability".
 #
@@ -609,9 +626,9 @@ class ConnectionsService:
                 "label": _capability_label(row.get("capability_key")),
                 "description": _capability_description(row.get("capability_key")),
                 "status": str(row.get("status") or "pending"),
-                "createdAt": row.get("created_at"),
-                "expiresAt": row.get("expires_at"),
-                "resolvedAt": row.get("resolved_at"),
+                "createdAt": _iso(row.get("created_at")),
+                "expiresAt": _iso(row.get("expires_at")),
+                "resolvedAt": _iso(row.get("resolved_at")),
             }
             for row in rows
         ]
@@ -825,7 +842,7 @@ class ConnectionsService:
                 {
                     "type": str(row.get("event_type") or ""),
                     "reason": row.get("reason"),
-                    "createdAt": row.get("created_at"),
+                    "createdAt": _iso(row.get("created_at")),
                 }
             )
         return {
@@ -2477,7 +2494,7 @@ class ConnectionsService:
                 "addresseeUserId": str(r.get("addressee_user_id") or ""),
                 "status": str(r.get("status") or ""),
                 "message": r.get("message"),
-                "createdAt": r.get("created_at"),
+                "createdAt": _iso(r.get("created_at")),
                 "counterpartUserId": str(r.get("counterpart_user_id") or ""),
                 "counterpartDisplayName": r.get("counterpart_display_name"),
                 "scopes": self._proposal_items(str(r.get("id") or "")),
@@ -2899,7 +2916,7 @@ class ConnectionsService:
                 "userId": str(r.get("user_id") or ""),
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
-                "createdAt": r.get("created_at"),
+                "createdAt": _iso(r.get("created_at")),
                 "isRia": str(r.get("user_id") or "") in ria_user_ids,
                 "connectedFromContacts": bool(r.get("connected_from_contacts")),
             }

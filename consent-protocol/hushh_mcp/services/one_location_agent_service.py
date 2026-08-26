@@ -2589,6 +2589,12 @@ class OneLocationAgentService:
             "requesterUserId": str(row.get("requester_user_id") or ""),
             "requesterDisplayName": str(row.get("requester_display_name") or "") or None,
             "requesterMaskedPhone": _mask_phone(row.get("requester_phone_number")),
+            # Populated only by callers that joined the owner's identity (the
+            # requester's own outgoing-request view) -- absent, and so None,
+            # for list_pending_owner_requests, which never needs to tell the
+            # owner who the owner is.
+            "ownerDisplayName": str(row.get("owner_display_name") or "") or None,
+            "ownerMaskedPhone": _mask_phone(row.get("owner_phone_number")),
             "referredByUserId": str(row.get("referred_by_user_id") or "") or None,
             "status": str(row.get("status") or "pending"),
             "message": str(row.get("message") or "") or None,
@@ -7978,6 +7984,30 @@ class OneLocationAgentService:
             LIMIT 50
             """,
             {"owner_user_id": owner_user_id},
+        )
+        return [payload for row in rows if (payload := self._request_payload(row))]
+
+    def list_pending_requester_requests(self, *, requester_user_id: str) -> list[dict[str, Any]]:
+        """The mirror of list_pending_owner_requests: this person's own
+        outgoing asks still waiting on someone else's approve/decline.
+        Joins the owner's identity instead of the requester's, since the
+        requester already knows who they are."""
+        rows = self._execute_many(
+            """
+            SELECT
+              req.*,
+              owner.display_name AS owner_display_name,
+              owner.phone_number AS owner_phone_number,
+              extended.expires_at AS extends_grant_expires_at
+            FROM one_location_access_requests req
+            LEFT JOIN actor_identity_cache owner ON owner.user_id = req.owner_user_id
+            LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
+            WHERE req.requester_user_id = :requester_user_id
+              AND req.status = 'pending'
+            ORDER BY req.requested_at DESC
+            LIMIT 50
+            """,
+            {"requester_user_id": requester_user_id},
         )
         return [payload for row in rows if (payload := self._request_payload(row))]
 

@@ -1,3 +1,4 @@
+import json
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -1474,6 +1475,70 @@ def test_list_connections_makes_no_ria_query_when_you_have_none():
 
     assert out == []
     assert len(db.calls) == 1
+
+
+def test_list_connections_stringifies_a_real_driver_datetime():
+    """The DB driver hands back a real datetime, not the string these fixtures
+    use elsewhere. The voice read tool serializes this dict with plain
+    json.dumps (no FastAPI encoder to save it) -- a raw datetime here crashes
+    the whole live session with no result ever reaching the user, which is
+    exactly what happened when asking to check a connection by voice."""
+    svc = _svc()
+    rows = [
+        {
+            "connection_id": "conn-1",
+            "user_id": "user-b",
+            "display_name": "Bob",
+            "photo_url": None,
+            "created_at": datetime(2026, 7, 9, 0, 0, 0, tzinfo=timezone.utc),
+        }
+    ]
+    db = _RecordingDB([rows, []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_connections("user-a")
+    assert out[0]["createdAt"] == "2026-07-09T00:00:00+00:00"
+    json.dumps(out)
+
+
+def test_list_requests_stringifies_a_real_driver_datetime():
+    """Same crash, the other read tool: list_pending_connection_requests hands
+    this dict to the same plain json.dumps path, including the nested
+    proposal 'scopes' rows, which carry three datetime columns of their own."""
+    svc = _svc()
+    now = datetime(2026, 7, 9, 0, 0, 0, tzinfo=timezone.utc)
+    request_rows = [
+        {
+            "id": "req-1",
+            "requester_user_id": "user-a",
+            "addressee_user_id": "user-b",
+            "status": "pending",
+            "message": None,
+            "created_at": now,
+            "metadata": None,
+            "counterpart_user_id": "user-b",
+            "counterpart_display_name": "Bob",
+        }
+    ]
+    proposal_rows = [
+        {
+            "id": "prop-1",
+            "scope_handle": "handle-1",
+            "capability_key": "cap.demo",
+            "direction": "requester_to_addressee",
+            "status": "pending",
+            "created_at": now,
+            "expires_at": now,
+            "resolved_at": None,
+        }
+    ]
+    db = _RecordingDB([request_rows, proposal_rows])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_requests("user-a", direction="outgoing")
+    assert out[0]["createdAt"] == "2026-07-09T00:00:00+00:00"
+    assert out[0]["scopes"][0]["createdAt"] == "2026-07-09T00:00:00+00:00"
+    assert out[0]["scopes"][0]["expiresAt"] == "2026-07-09T00:00:00+00:00"
+    assert out[0]["scopes"][0]["resolvedAt"] is None
+    json.dumps(out)
 
 
 def test_remove_connection_revokes_connection_and_trusted_edges():
