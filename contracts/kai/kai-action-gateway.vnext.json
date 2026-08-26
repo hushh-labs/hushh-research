@@ -2712,6 +2712,241 @@
       }
     },
     {
+      "action_id": "connect.accept_request",
+      "surface_id": "one_connect",
+      "label": "Accept a connection request",
+      "aliases": [
+        "accept their connection request",
+        "accept the connection request from",
+        "connect back with",
+        "accept their request to connect"
+      ],
+      "search_keywords": [
+        "accept",
+        "connection",
+        "request",
+        "pending",
+        "incoming"
+      ],
+      "meaning": "Accepts pending connection requests you already received from the named people, before you have accepted -- multiple people can be named in one turn, e.g. 'Alice and Bob'. Forms a real, mutual connection once accepted. If the person you named already sent you a request instead of the other way around, this is the action that connects with them -- send_request would refuse and point here.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.accept_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending incoming request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.accept_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request should I accept?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name_list"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name_list"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Accept a connection request",
+            "failure_behavior": "stop",
+            "action_id": "connect.accept_request",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.reject_request",
+      "surface_id": "one_connect",
+      "label": "Decline a connection request",
+      "aliases": [
+        "decline their connection request",
+        "decline the connection request from",
+        "turn down their connection request",
+        "decline their request to connect"
+      ],
+      "search_keywords": [
+        "decline",
+        "reject",
+        "connection",
+        "request",
+        "pending",
+        "incoming"
+      ],
+      "meaning": "Declines pending connection requests you already received from the named people -- multiple people can be named in one turn, e.g. 'Alice and Bob'. Nothing is shared and no connection forms; they can ask again later.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.reject_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending incoming request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.reject_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request should I decline?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name_list"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name_list"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Decline a connection request",
+            "failure_behavior": "stop",
+            "action_id": "connect.reject_request",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "connect.remove_connection",
       "surface_id": "one_connect",
       "label": "Remove a connection",
@@ -10583,6 +10818,112 @@
             "settlement_target": {
               "route": "/one/pkm",
               "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_feed",
+      "surface_id": "one_agents",
+      "label": "Open Feed",
+      "aliases": [
+        "open my feed",
+        "open feed",
+        "go to my feed",
+        "show my feed",
+        "what's waiting for me"
+      ],
+      "search_keywords": [
+        "feed",
+        "activity",
+        "requests",
+        "invitations",
+        "notifications"
+      ],
+      "meaning": "Navigates to the Feed, which lists pending connection requests, circle invitations, and other activity waiting on the person's decision.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/feed"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/one/feed/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_feed",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_feed",
+            "label": "Open Feed",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
             }
           }
         ],

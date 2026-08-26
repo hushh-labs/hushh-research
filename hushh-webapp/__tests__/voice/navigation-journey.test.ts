@@ -48,14 +48,17 @@ describe("navigation journeys", () => {
     // the composer and firing it at whoever was still selected in it.
     expect(journeys).toEqual([
       "analysis.start",
-      // Connect's lifecycle pair. Both resolve one exact person from a
-      // server-authoritative list rather than from whatever the directory
-      // happens to be showing, and both are confirm_required: cancelling
-      // withdraws something the other person may be about to accept, and
-      // removing ends the connection Location sharing depends on.
+      // Connect's pending-request lifecycle: accept/reject resolve one exact
+      // request from the person's own incoming list, the same shape
+      // cancel_request already uses for outgoing ones. All three are
+      // confirm_required -- accepting and cancelling each commit the other
+      // person to something, and removing ends the connection Location
+      // sharing depends on.
+      "connect.accept_request",
       "connect.cancel_request",
       "connect.open_nearby",
       "connect.open_people",
+      "connect.reject_request",
       "connect.remove_connection",
       "connect.search_people",
       "connect.send_request",

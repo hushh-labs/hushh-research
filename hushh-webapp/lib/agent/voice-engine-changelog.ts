@@ -5,7 +5,7 @@
  * VOICE_ENGINE_VERSION in the same PR, so the version shown in the settings
  * header always matches the changelog under it.
  */
-export const VOICE_ENGINE_VERSION = "1.5";
+export const VOICE_ENGINE_VERSION = "1.6";
 
 export type VoiceEngineChangelogEntry = {
   version: string;
@@ -16,6 +16,20 @@ export type VoiceEngineChangelogEntry = {
 };
 
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
+  {
+    version: "1.6",
+    date: "2026-08-26",
+    title: "Accept or decline a connection request, hands-free",
+    description:
+      "Say \"accept their connection request\" or \"decline their request\" for a request waiting in your Feed -- no need to open it and tap. Asking to connect with someone who already asked you now points you straight to this instead of trying to send a second request.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-26",
+    title: "Fixed: Nearby Check-In said no places were found when the real problem was something else",
+    description:
+      "If location access was off or the search itself failed, Nearby Check-In said \"no plausible places nearby\" either way. It now says what actually went wrong, so it's clear whether to check permissions or just search for the place yourself.",
+  },
   {
     version: "1.5",
     date: "2026-08-26",

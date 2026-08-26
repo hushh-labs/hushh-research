@@ -190,6 +190,49 @@
         "docs/reference/one/one-voice-runtime-architecture.md"
       ],
       "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.one_feed",
+      "label": "Open Feed",
+      "meaning": "Navigates to the Feed, which lists pending connection requests, circle invitations, and other activity waiting on the person's decision.",
+      "aliases": [
+        "open my feed",
+        "open feed",
+        "go to my feed",
+        "show my feed",
+        "what's waiting for me"
+      ],
+      "search_keywords": [
+        "feed",
+        "activity",
+        "requests",
+        "invitations",
+        "notifications"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/feed"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/feed/page.tsx"
+      ],
+      "speaker_persona": "one"
     }
   ]
 }
