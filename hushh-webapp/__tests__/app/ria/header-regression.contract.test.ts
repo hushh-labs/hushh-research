@@ -54,4 +54,22 @@ describe("RIA shared header regression contract", () => {
     expect(riaPicks).toContain("density=\"compact\"");
     expect(riaPicks).toContain("stickyHeader");
   });
+
+  it("keeps RIA profile, clients, and picks on one shell measure and spacing rhythm", () => {
+    const riaProfile = read("app/ria/profile/page.tsx");
+    const riaClients = read("app/ria/clients/page.tsx");
+    const riaPicks = read("app/ria/picks/page.tsx");
+
+    expect(riaProfile).toContain("RiaPageShell");
+    expect(riaClients).toContain('width="standard"');
+    expect(riaPicks).toContain('width="standard"');
+    expect(riaClients).not.toContain('width="expanded"');
+    expect(riaPicks).not.toContain('width="expanded"');
+    expect(riaClients).toContain('<AppPageHeaderRegion className="pt-2 sm:pt-3">');
+    expect(riaPicks).toContain('<AppPageHeaderRegion className="pt-2 sm:pt-3">');
+    expect(riaClients).toContain("<SurfaceStack");
+    expect(riaClients).toContain('className="gap-8"');
+    expect(riaPicks).toContain("<SurfaceStack");
+    expect(riaPicks).toContain('className="gap-6"');
+  });
 });
