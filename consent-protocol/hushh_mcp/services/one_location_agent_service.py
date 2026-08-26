@@ -12,7 +12,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterator, cast
+from typing import Any, Iterator, TypedDict, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -70,6 +70,17 @@ _NOTIFICATION_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(1, int(os.getenv("ONE_LOCATION_NOTIFICATION_WORKERS", "2"))),
     thread_name_prefix="one-location-notify",
 )
+
+
+class _MetadataNotification(TypedDict):
+    user_id: str
+    notification_type: str
+    title: str
+    body: str
+    notification_tag: str
+    request_url: str
+    data: dict[str, str | None]
+
 
 COORDINATE_METADATA_KEYS = {
     "lat",
@@ -8608,7 +8619,7 @@ class OneLocationAgentService:
         requested_duration_hours: float | None = None,
         requested_duration_mode: str | None = None,
         extends_grant_id: str | None = None,
-        _notification_outbox: list[dict[str, Any]] | None = None,
+        _notification_outbox: list[_MetadataNotification] | None = None,
     ) -> dict[str, Any]:
         """Ask an owner for location access -- optionally for a named duration.
 
@@ -8826,7 +8837,7 @@ class OneLocationAgentService:
                 )
 
         if transitioned and notify_owner:
-            notification = {
+            notification: _MetadataNotification = {
                 "user_id": owner_user_id,
                 "notification_type": "location_access_request",
                 "title": (
@@ -9316,7 +9327,7 @@ class OneLocationAgentService:
         referred_user_id: str,
         message: str | None = None,
     ) -> dict[str, Any]:
-        notifications: list[dict[str, Any]] = []
+        notifications: list[_MetadataNotification] = []
         referral_created = False
         with self._event_bound_writer():
             self._execute_one(
