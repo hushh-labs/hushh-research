@@ -629,7 +629,7 @@ export function VaultFlow({
         toast.error(message);
       }
     } catch (err: any) {
-      console.error("Unlock error:", err);
+      console.warn("[VaultFlow] Unlock notice:", err?.message || err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
