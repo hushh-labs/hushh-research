@@ -105,9 +105,11 @@ function isSafeHref(value: string): boolean {
   return /^(https?:\/\/|mailto:)/i.test(value) && !/[\r\n]/.test(value);
 }
 
-/** Normalizes model JSON that accidentally exposes escaped line breaks. */
+/** Normalizes model JSON that accidentally exposes escaped line breaks or un-broken inline bullet lists. */
 export function normalizeRichEmailText(value: string): string {
-  return value.replaceAll("\\r\\n", "\n").replaceAll("\\n", "\n");
+  let normalized = value.replaceAll("\\r\\n", "\n").replaceAll("\\n", "\n");
+  normalized = normalized.replace(/([^\n])\s+[-*]\s+/g, "$1\n- ");
+  return normalized;
 }
 
 function parseBlocks(value: string): EmailBlock[] {
@@ -369,7 +371,9 @@ export function EmailRichTextComposer({
 }: RichEmailComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewedGeneratedContentRef = useRef(false);
-  const [previewing, setPreviewing] = useState(false);
+  const [previewing, setPreviewing] = useState(() => {
+    return Boolean(normalizeRichEmailText(value).trim());
+  });
   const [linkUrl, setLinkUrl] = useState("");
 
   useEffect(() => {
@@ -544,9 +548,6 @@ export function EmailRichTextComposer({
           value={value}
         />
       )}
-      <p className="border-t border-border/60 bg-muted/[0.18] px-4 py-2 text-xs text-muted-foreground sm:px-5">
-        Preview shows the rich email that recipients receive. Use Return for paragraphs and the toolbar for formatting.
-      </p>
     </div>
   );
 }

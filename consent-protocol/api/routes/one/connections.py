@@ -63,6 +63,10 @@ class LinkCircleInviteBody(BaseModel):
     peer_user_id: str
 
 
+class UpdateVoicePreferencesBody(BaseModel):
+    share_scopes_from_last_request: bool
+
+
 class ContactSyncLookup(BaseModel):
     lookup_id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     hash: str = Field(..., min_length=64, max_length=64, pattern=r"^[a-fA-F0-9]{64}$")
@@ -124,6 +128,30 @@ def list_connections(
             query=query or "",
             audience=audience or "all",
         )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/connect/voice-preferences")
+def get_connect_voice_preferences(firebase_uid: str = Depends(require_firebase_auth)):
+    try:
+        return {"preferences": _service().get_voice_preferences(user_id=firebase_uid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.patch("/connect/voice-preferences")
+def update_connect_voice_preferences(
+    body: UpdateVoicePreferencesBody,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return {
+            "preferences": _service().update_voice_preferences(
+                user_id=firebase_uid,
+                share_scopes_from_last_request=body.share_scopes_from_last_request,
+            )
+        }
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 

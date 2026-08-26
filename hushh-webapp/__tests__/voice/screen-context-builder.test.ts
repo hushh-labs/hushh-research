@@ -13,6 +13,7 @@ import {
   enforceArrayDimensionCap,
 } from "@/lib/voice/screen-context-builder";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import {
   clearVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
@@ -348,8 +349,34 @@ describe("buildStructuredScreenContext", () => {
         "route.kai_home",
         "route.ria_home",
         "route.profile_connected_systems",
+        "route.voice_settings",
       ])
     );
+  });
+
+  it("makes Voice Settings hands-free reachable from any screen", () => {
+    // The user's own request: reach Voice Settings without touching the
+    // screen, then tweak agent defaults from there. Mirrors the
+    // route.profile regression test above for the newly added contract.
+    window.history.pushState({}, "", "/marketplace");
+    document.body.innerHTML = "<h1>Connect</h1>";
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/marketplace", "marketplace"),
+      voiceContext: {},
+    });
+
+    const availableIds = (
+      context.screen_metadata as { available_action_ids: string[] }
+    ).available_action_ids;
+    expect(availableIds).toContain("route.voice_settings");
+
+    const action = getKaiActionById("route.voice_settings");
+    expect(action?.execution_target).toEqual({
+      status: "wired",
+      path: "route",
+      target: "/one/profile/preferences/voice",
+    });
   });
 
   it("caps multi-source context arrays before they enter the voice planner payload", () => {

@@ -5,7 +5,7 @@
  * VOICE_ENGINE_VERSION in the same PR, so the version shown in the settings
  * header always matches the changelog under it.
  */
-export const VOICE_ENGINE_VERSION = "1.4";
+export const VOICE_ENGINE_VERSION = "1.5";
 
 export type VoiceEngineChangelogEntry = {
   version: string;
@@ -16,6 +16,34 @@ export type VoiceEngineChangelogEntry = {
 };
 
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
+  {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "Your own defaults for what voice can do",
+    description:
+      "Auto-approving location requests, who can see you in Nearby Check-In, and whether a repeat connection request reuses your last choice are now settings you set once, in Voice Settings, instead of decisions made for you every time.",
+  },
+  {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "\"Open Voice Settings\" now works from anywhere",
+    description:
+      "Voice Settings is reachable hands-free from any screen -- say \"open voice settings\" to reach it and adjust anything above without touching the screen.",
+  },
+  {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "A repeat connection request can reuse what you offered last time",
+    description:
+      "Turn on \"Reuse scopes from last request\" in Voice Settings, and asking to connect with someone you've already asked before offers the same access as last time -- they still approve every request either way.",
+  },
+  {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "Check in nearby, hands-free",
+    description:
+      "Say \"check in near me\" to see the places closest to you, pick one by name, and finish the check-in -- all without opening the screen. \"Check out\" ends it from anywhere, no navigation needed.",
+  },
   {
     version: "1.4",
     date: "2026-08-25",

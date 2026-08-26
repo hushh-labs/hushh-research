@@ -61,6 +61,10 @@ from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
     OneLocationCircleService,
 )
+from hushh_mcp.services.one_location_nearby_presence_service import (
+    NearbyPresenceError,
+    OneLocationNearbyPresenceService,
+)
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
@@ -299,6 +303,7 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
         "connect.remove_connection",
         "connect.cancel_request",
         "connect.send_request",
+        "location.checkout_nearby",
     }
 )
 
@@ -340,7 +345,12 @@ def _is_backend_direct(clean_id: str, clean_slots: dict[str, Any]) -> bool:
 
 # Backend-direct errors that carry a spoken-safe .message, across the three
 # service modules these actions mutate through.
-_BackendDirectError = (OneLocationCircleError, OneLocationAgentError, ConnectionsError)
+_BackendDirectError = (
+    OneLocationCircleError,
+    OneLocationAgentError,
+    ConnectionsError,
+    NearbyPresenceError,
+)
 
 
 class _BackendDirectConfirmationNeeded(Exception):  # noqa: N818 - control-flow signal, not a failure
@@ -1007,6 +1017,26 @@ async def _execute_backend_direct_mutation(
             def _directory_name(c: dict[str, Any]) -> str:
                 return str(c.get("displayName") or "")
 
+            # Voice never chose scopes for a request before -- the tap flow's
+            # own dialog is where that choice normally lives, and skipping it
+            # must never be silent. This is the one opt-in exception: reuse
+            # exactly what THIS recipient was already asked/offered last time,
+            # never a guess extrapolated from someone else or a first request.
+            # Read lazily, once, only if a request actually reaches the point
+            # of being created -- every earlier outcome (ambiguous, not
+            # found, already connected) never needs this preference at all.
+            reuse_last_scopes: bool | None = None
+
+            def _reuse_last_scopes() -> bool:
+                nonlocal reuse_last_scopes
+                if reuse_last_scopes is None:
+                    reuse_last_scopes = bool(
+                        connections_service.get_voice_preferences(user_id=user_id).get(
+                            "shareScopesFromLastRequest"
+                        )
+                    )
+                return reuse_last_scopes
+
             sent_names: list[str] = []
             already_connected_names: list[str] = []
             blocked_notes: list[str] = []
@@ -1050,9 +1080,22 @@ async def _execute_backend_direct_mutation(
                 elif relationship != "none":
                     blocked_notes.append(f"a new request isn't available for {display_name}")
                 else:
+                    addressee_user_id = str(person.get("userId") or "")
+                    requested_scope_handles: list[str] | None = None
+                    offered_scope_handles: list[str] | None = None
+                    if _reuse_last_scopes():
+                        last_scopes = connections_service.get_last_request_scope_handles(
+                            requester_user_id=user_id,
+                            addressee_user_id=addressee_user_id,
+                        )
+                        requested_scope_handles = last_scopes["requestedScopeHandles"] or None
+                        offered_scope_handles = last_scopes["offeredScopeHandles"] or None
                     try:
                         connections_service.create_request(
-                            user_id, addressee_user_id=str(person.get("userId") or "")
+                            user_id,
+                            addressee_user_id=addressee_user_id,
+                            requested_scope_handles=requested_scope_handles,
+                            offered_scope_handles=offered_scope_handles,
                         )
                     except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
                         # A transient failure sending to person 2 of 3 must
@@ -1209,6 +1252,13 @@ async def _execute_backend_direct_mutation(
             f"Cancelled your connection request to {join_names_for_speech(cancelled_names)}.{note}",
             {"name": join_names_for_speech(cancelled_names)},
         )
+
+    if action_id == "location.checkout_nearby":
+        # No coordinates, no place, nothing client-only -- checking out only
+        # ever clears the caller's own presence row. No subject: this action
+        # never names a person or a place.
+        OneLocationNearbyPresenceService().checkout(user_id=user_id)
+        return "Checked you out. You're no longer visible to people nearby.", None
 
     raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
 

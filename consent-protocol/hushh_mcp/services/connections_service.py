@@ -2774,6 +2774,111 @@ class ConnectionsService:
             "audience": audience,
         }
 
+    @staticmethod
+    def _voice_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
+        updated_at = (row or {}).get("updated_at")
+        return {
+            "shareScopesFromLastRequest": bool(
+                (row or {}).get("share_scopes_from_last_request", False)
+            ),
+            "updatedAt": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+        }
+
+    def get_last_request_scope_handles(
+        self, *, requester_user_id: str, addressee_user_id: str
+    ) -> dict[str, list[str]]:
+        """Scope handles from this requester's most recent request to this
+        exact recipient, split by direction. Empty for a first-time
+        recipient -- there is deliberately no wider "usual scopes" fallback,
+        so a repeat request can only ever offer what this specific person was
+        already asked before, never a guess extrapolated from someone else.
+        """
+        latest_request = self._execute_one(
+            """
+            SELECT id
+            FROM connection_requests
+            WHERE requester_user_id = :requester_user_id
+              AND addressee_user_id = :addressee_user_id
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {
+                "requester_user_id": requester_user_id,
+                "addressee_user_id": addressee_user_id,
+            },
+        )
+        if not latest_request:
+            return {"requestedScopeHandles": [], "offeredScopeHandles": []}
+        proposals = self._execute_many(
+            """
+            SELECT scope_handle, direction
+            FROM connection_scope_proposals
+            WHERE connection_request_id = CAST(:request_id AS UUID)
+            """,
+            {"request_id": str(latest_request.get("id") or "")},
+        )
+        return {
+            "requestedScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "requested" and row.get("scope_handle")
+            ],
+            "offeredScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "offered" and row.get("scope_handle")
+            ],
+        }
+
+    def get_voice_preferences(self, *, user_id: str) -> dict[str, Any]:
+        """Return the standing default for voice-initiated connection requests.
+
+        A missing row means the person has never set a preference: reusing
+        scopes from a recipient's last request defaults off, matching
+        `connect.send_request`'s own current always-empty behavior. It never
+        grants access by itself -- the recipient still approves every
+        request -- so no lock or audit event is needed here.
+        """
+        row = self._execute_one(
+            """
+            SELECT share_scopes_from_last_request, updated_at
+            FROM connection_voice_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return self._voice_preferences_payload(row)
+
+    def update_voice_preferences(
+        self, *, user_id: str, share_scopes_from_last_request: bool
+    ) -> dict[str, Any]:
+        """Write the person's standing voice-request scope-sharing default."""
+        row = self._execute_one(
+            """
+            INSERT INTO connection_voice_preferences (
+              user_id, share_scopes_from_last_request, created_at, updated_at
+            ) VALUES (
+              :user_id, :share_scopes_from_last_request, NOW(), NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+              share_scopes_from_last_request = EXCLUDED.share_scopes_from_last_request,
+              updated_at = NOW()
+            RETURNING share_scopes_from_last_request, updated_at
+            """,
+            {
+                "user_id": user_id,
+                "share_scopes_from_last_request": share_scopes_from_last_request,
+            },
+        )
+        if not row:
+            raise ConnectionsError(
+                "CONNECTION_VOICE_PREFERENCES_UPDATE_FAILED",
+                "Could not update voice preferences.",
+                status_code=500,
+            )
+        return self._voice_preferences_payload(row)
+
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
         rows = self._execute_many(

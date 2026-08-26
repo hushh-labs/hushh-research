@@ -9691,6 +9691,383 @@
       }
     },
     {
+      "action_id": "location.nearby_check_in",
+      "surface_id": "one_location",
+      "label": "Start a nearby check-in",
+      "aliases": [
+        "check in near me",
+        "check in nearby",
+        "start a nearby check-in",
+        "check in at a nearby place",
+        "find nearby places to check in"
+      ],
+      "search_keywords": [
+        "check-in",
+        "nearby",
+        "places",
+        "start"
+      ],
+      "meaning": "Starts checking in to a nearby place: opens Check-In if not already there, then looks up the places closest to you right now. If the place is already named in the same turn and it matches one of the nearby results, confirm_nearby_check_in should be called next to finish. Otherwise it lists the nearby options for the person to choose from; if nothing plausible is nearby, Check-In stays open for the person to search manually.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one/location/map",
+          "/one/location/check-in"
+        ],
+        "screens": [
+          "one_location",
+          "one_location_map",
+          "one_location_check_in"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.nearby_check_in"
+      },
+      "control_ids": [
+        "one-location-check-in-nearby-places"
+      ],
+      "state_exposure": [
+        "nearby place candidates"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location/check-in"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.nearby_check_in",
+        "required_inputs": [
+          {
+            "name": "place",
+            "prompt": "Where are you checking in?",
+            "required": false,
+            "slot": "place",
+            "resolver": "spoken_place_name"
+          },
+          {
+            "name": "duration_minutes",
+            "prompt": "For how long -- 30 minutes, 1 hour, or 2 hours?",
+            "required": false,
+            "slot": "duration_minutes",
+            "resolver": "nearby_check_in_duration_minutes",
+            "options": [
+              "30",
+              "60",
+              "120"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "place": "spoken_place_name",
+          "duration_minutes": "nearby_check_in_duration_minutes"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Start a nearby check-in",
+            "failure_behavior": "stop",
+            "action_id": "location.nearby_check_in",
+            "settlement_target": {
+              "route": "/one/location/check-in",
+              "screen": "one_location_check_in"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.confirm_nearby_check_in",
+      "surface_id": "one_location",
+      "label": "Confirm the nearby check-in",
+      "aliases": [
+        "check in there",
+        "check in at that one",
+        "confirm that place",
+        "check in for an hour",
+        "yes check in there"
+      ],
+      "search_keywords": [
+        "check-in",
+        "confirm",
+        "nearby",
+        "duration"
+      ],
+      "meaning": "Finishes a nearby check-in already started by nearby_check_in: matches the named place against the nearby candidates it returned and, once a duration is given, checks in immediately. Only works after nearby_check_in has listed candidates in this conversation; if the named place does not match any of them, it stops and Check-In stays open for the person to search manually instead of guessing.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one/location/map",
+          "/one/location/check-in"
+        ],
+        "screens": [
+          "one_location",
+          "one_location_map",
+          "one_location_check_in"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.confirm_nearby_check_in"
+      },
+      "control_ids": [
+        "one-location-check-in-nearby-places"
+      ],
+      "state_exposure": [
+        "nearby place candidates",
+        "check-in duration"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.confirm_nearby_check_in",
+        "required_inputs": [
+          {
+            "name": "place",
+            "prompt": "Which place from the list?",
+            "required": true,
+            "slot": "place",
+            "resolver": "spoken_place_name"
+          },
+          {
+            "name": "duration_minutes",
+            "prompt": "For how long -- 30 minutes, 1 hour, or 2 hours?",
+            "required": true,
+            "slot": "duration_minutes",
+            "resolver": "nearby_check_in_duration_minutes",
+            "options": [
+              "30",
+              "60",
+              "120"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "place": "spoken_place_name",
+          "duration_minutes": "nearby_check_in_duration_minutes"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.confirm_nearby_check_in",
+            "label": "Confirm the nearby check-in",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.checkout_nearby",
+      "surface_id": "one_location",
+      "label": "Check out of Nearby Check-In",
+      "aliases": [
+        "check out",
+        "check me out",
+        "stop showing me nearby",
+        "end my check-in",
+        "check out of nearby"
+      ],
+      "search_keywords": [
+        "check-out",
+        "check out",
+        "nearby",
+        "presence",
+        "stop"
+      ],
+      "meaning": "Ends your current Nearby Check-In presence, so you stop showing up to people nearby. It does not affect any other kind of location share. Works from any screen -- you do not need to be on the Check-In or Map screens to check out.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one/location/map",
+          "/one/location/check-in"
+        ],
+        "screens": [
+          "one_location",
+          "one_location_map",
+          "one_location_check_in"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.checkout_nearby"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "nearby presence status"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.checkout_nearby",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.checkout_nearby",
+            "label": "Check out of Nearby Check-In",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.trigger_sos",
       "surface_id": "one_location",
       "label": "Send an SOS alert",
@@ -9892,6 +10269,112 @@
             "settlement_target": {
               "route": "/one",
               "screen": "one_agents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.voice_settings",
+      "surface_id": "one_agents",
+      "label": "Open Voice Settings",
+      "aliases": [
+        "voice settings",
+        "open voice settings",
+        "voice preferences",
+        "open voice preferences"
+      ],
+      "search_keywords": [
+        "voice",
+        "settings",
+        "preferences",
+        "defaults"
+      ],
+      "meaning": "Navigates to Voice Settings in Profile > Preferences, where voice controls and agent defaults can be adjusted.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/preferences/voice"
+        ],
+        "screens": [
+          "profile_preferences"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/preferences/voice"
+      },
+      "control_ids": [
+        "voice_preferences_panel"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/preferences/voice"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.voice_settings",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.voice_settings",
+            "label": "Open Voice Settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/preferences/voice",
+              "screen": "profile_preferences"
             }
           }
         ],

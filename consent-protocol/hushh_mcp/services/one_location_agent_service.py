@@ -6302,6 +6302,70 @@ class OneLocationAgentService:
             )
         return self._auto_approve_preference_payload(stored)
 
+    @staticmethod
+    def _nearby_check_in_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
+        return {
+            "visible": bool((row or {}).get("visible", True)) if row else True,
+            "allowConnectionRequests": bool((row or {}).get("allow_connection_requests", False)),
+            "updatedAt": _iso((row or {}).get("updated_at")) if row else None,
+        }
+
+    def get_nearby_check_in_defaults(self, *, user_id: str) -> dict[str, Any]:
+        """Return the standing defaults Nearby Check-In pre-fills each time.
+
+        A missing row means the person has never set a preference: visible
+        defaults on, connection requests default off, matching the tap flow's
+        own first-time defaults. Nothing executes automatically off this row
+        -- it only pre-fills a value the person still confirms on every
+        check-in -- so unlike auto-approve, no advisory lock or rule-version
+        guard is needed here.
+        """
+        row = self._execute_one(
+            """
+            SELECT visible, allow_connection_requests, updated_at
+            FROM one_location_nearby_check_in_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return self._nearby_check_in_preferences_payload(row)
+
+    def update_nearby_check_in_defaults(
+        self,
+        *,
+        user_id: str,
+        visible: bool,
+        allow_connection_requests: bool,
+    ) -> dict[str, Any]:
+        """Write the person's standing Nearby Check-In defaults."""
+        row = self._execute_one(
+            """
+            INSERT INTO one_location_nearby_check_in_preferences (
+              user_id, visible, allow_connection_requests, created_at, updated_at
+            ) VALUES (
+              :user_id, :visible, :allow_connection_requests, NOW(), NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+              visible = EXCLUDED.visible,
+              allow_connection_requests = EXCLUDED.allow_connection_requests,
+              updated_at = NOW()
+            RETURNING visible, allow_connection_requests, updated_at
+            """,
+            {
+                "user_id": user_id,
+                "visible": visible,
+                "allow_connection_requests": allow_connection_requests,
+            },
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_NEARBY_CHECK_IN_PREFERENCES_UPDATE_FAILED",
+                "Could not update Nearby Check-In defaults.",
+                status_code=500,
+            )
+        return self._nearby_check_in_preferences_payload(row)
+
     def _lock_current_auto_approve_preference(
         self,
         *,
@@ -7548,6 +7612,7 @@ class OneLocationAgentService:
         # state request fails visibly on database or permission errors. A real
         # missing row is still projected as off by this method.
         auto_approve_preference = self.get_auto_approve_preference(user_id=user_id)
+        nearby_check_in_preferences = self.get_nearby_check_in_defaults(user_id=user_id)
         _sections = self._run_read_queries_parallel(
             [
                 (
@@ -7785,6 +7850,7 @@ class OneLocationAgentService:
             "recipients": recipients,
             "circles": named_circles,
             "autoApprovePreference": auto_approve_preference,
+            "nearbyCheckInPreferences": nearby_check_in_preferences,
             "myRecipientKey": my_recipient_key,
             "ownerGrants": [
                 payload
