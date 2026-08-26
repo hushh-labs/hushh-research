@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import {
@@ -137,6 +138,78 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
           agentStates={entry.debate_transcript.round2 as Record<string, AgentState>}
         />
       ) : null}
+    </div>
+  );
+}
+
+function AnalysisResolvingEntryShell({
+  userAuthenticated,
+}: {
+  userAuthenticated: boolean;
+}) {
+  return (
+    <div
+      aria-busy="true"
+      className="w-full min-w-0 max-w-full"
+      data-testid="kai-analysis-primary"
+    >
+      <NativeTestBeacon
+        routeId={ROUTES.KAI_ANALYSIS}
+        marker="native-route-kai-analysis"
+        authState={userAuthenticated ? "authenticated" : "pending"}
+        dataState="loading"
+      />
+      <KaiWorkspaceHeader
+        workspace="analysis"
+        title="Analysis"
+        description="Opening saved analysis."
+      />
+      <AppPageContentRegion className="min-w-0 max-w-full">
+        <SurfaceStack compact className="min-w-0 max-w-full">
+          <div role="status" className="sr-only">
+            Loading saved analysis...
+          </div>
+
+          <SurfaceCard className="w-full">
+            <SurfaceCardContent className="space-y-3 px-3 py-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <Skeleton className="h-10 w-10 shrink-0 rounded-[var(--app-radius-lg)]" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-4 w-32 max-w-full" />
+                  <Skeleton className="h-3 w-48 max-w-full" />
+                </div>
+                <div className="hidden shrink-0 space-y-2 text-right sm:block">
+                  <Skeleton className="ml-auto h-4 w-20" />
+                  <Skeleton className="ml-auto h-3 w-14" />
+                </div>
+              </div>
+            </SurfaceCardContent>
+          </SurfaceCard>
+
+          <div
+            className="mx-auto flex w-full justify-center"
+            style={APP_MEASURE_STYLES.reading}
+          >
+            <Skeleton className="h-10 w-full rounded-full" />
+          </div>
+
+          <SurfaceCard className="w-full">
+            <SurfaceCardContent className="space-y-4 px-3 py-4">
+              <Skeleton className="h-4 w-36 max-w-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-11/12" />
+                <Skeleton className="h-3 w-4/5" />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Skeleton className="h-20 w-full rounded-[var(--app-card-radius-compact)]" />
+                <Skeleton className="h-20 w-full rounded-[var(--app-card-radius-compact)]" />
+                <Skeleton className="h-20 w-full rounded-[var(--app-card-radius-compact)]" />
+              </div>
+            </SurfaceCardContent>
+          </SurfaceCard>
+        </SurfaceStack>
+      </AppPageContentRegion>
     </div>
   );
 }
@@ -1305,7 +1378,9 @@ export function KaiAnalysisPageContent() {
             </div>
           </AppPageContentRegion>
         </div>
-      ) : !resolvingEntry ? (
+      ) : resolvingEntry ? (
+        <AnalysisResolvingEntryShell userAuthenticated={Boolean(user)} />
+      ) : (
         <div className="w-full min-w-0 max-w-full h-full overflow-hidden" data-testid="kai-analysis-primary">
           <NativeTestBeacon
             routeId={ROUTES.KAI_ANALYSIS}
@@ -1417,13 +1492,7 @@ export function KaiAnalysisPageContent() {
             </SurfaceStack>
           </AppPageContentRegion>
         </div>
-      ) : null}
-
-      {resolvingEntry ? (
-        <AppPageShell as="div" width="standard" className="flex min-h-64 items-center justify-center">
-          <HushhLoader variant="inline" label="Loading saved analysis..." />
-        </AppPageShell>
-      ) : null}
+      )}
     </>
   );
 }
