@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, Mail, Send, X } from "lucide-react";
+import { Loader2, Mail, Send, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,6 +72,7 @@ export function EmailDraftCard({
       htmlBody: richEmailHtmlFromMarkdown(body),
     };
   });
+  const [showCcBcc, setShowCcBcc] = useState(() => Boolean(draft.cc || draft.bcc));
   const [missingDetails, setMissingDetails] = useState<string[]>([]);
   const [busy, setBusy] = useState<"draft" | null>(null);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
@@ -122,6 +123,9 @@ export function EmailDraftCard({
         body: normalizeRichEmailText(next.body),
         htmlBody: richEmailHtmlFromMarkdown(normalizeRichEmailText(next.body)),
       });
+      if (next.cc || next.bcc) {
+        setShowCcBcc(true);
+      }
       setMissingDetails(next.missingDetails);
     } catch (cause) {
       setError(
@@ -275,77 +279,93 @@ export function EmailDraftCard({
       ) : (
         <div className="space-y-4 px-4 py-5 sm:px-5">
           <label className="block">
-          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            To
-          </span>
-          <Input
-            id={`${idPrefix}-to`}
-            data-testid="one-email-draft-to"
-            type="text"
-            value={draft.to}
-            onChange={(event) => updateDraft("to", event.target.value)}
-            disabled={disabled}
-            placeholder="name@example.com"
-            aria-label="To"
-            className="h-11 rounded-xl bg-background/70 text-[15px]"
-          />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-          {(["cc", "bcc"] as const).map((field) => (
-            <label key={field}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                {field === "cc" ? "Cc" : "Bcc"}
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                To
               </span>
-              <Input
-                id={`${idPrefix}-${field}`}
-                data-testid={`one-email-draft-${field}`}
-                type="text"
-                value={draft[field]}
-                onChange={(event) => updateDraft(field, event.target.value)}
-                disabled={disabled}
-                placeholder="Optional"
-                aria-label={field === "cc" ? "Cc" : "Bcc"}
-                className="h-10 rounded-xl bg-background/70 text-[15px]"
-              />
-            </label>
-          ))}
-          </div>
+              {!showCcBcc ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCcBcc(true)}
+                  className="text-xs font-medium text-primary transition-colors hover:underline focus-visible:outline-none"
+                >
+                  + CC / BCC
+                </button>
+              ) : null}
+            </div>
+            <Input
+              id={`${idPrefix}-to`}
+              data-testid="one-email-draft-to"
+              type="text"
+              value={draft.to}
+              onChange={(event) => updateDraft("to", event.target.value)}
+              disabled={disabled}
+              placeholder="name@example.com"
+              aria-label="To"
+              className="h-11 rounded-xl bg-background/70 text-[15px]"
+            />
+          </label>
+
+          {showCcBcc ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(["cc", "bcc"] as const).map((field) => (
+                <label key={field}>
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    {field === "cc" ? "Cc" : "Bcc"}
+                  </span>
+                  <Input
+                    id={`${idPrefix}-${field}`}
+                    data-testid={`one-email-draft-${field}`}
+                    type="text"
+                    value={draft[field]}
+                    onChange={(event) => updateDraft(field, event.target.value)}
+                    disabled={disabled}
+                    placeholder="Optional"
+                    aria-label={field === "cc" ? "Cc" : "Bcc"}
+                    className="h-10 rounded-xl bg-background/70 text-[15px]"
+                  />
+                </label>
+              ))}
+            </div>
+          ) : null}
+
           <label className="block">
-          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            Subject
-          </span>
-          <Input
-            id={`${idPrefix}-subject`}
-            data-testid="one-email-draft-subject"
-            type="text"
-            value={draft.subject}
-            onChange={(event) => updateDraft("subject", event.target.value)}
-            disabled={disabled}
-            aria-label="Subject"
-            className="h-11 rounded-xl bg-background/70 text-[15px] font-medium"
-          />
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              Subject
+            </span>
+            <Input
+              id={`${idPrefix}-subject`}
+              data-testid="one-email-draft-subject"
+              type="text"
+              value={draft.subject}
+              onChange={(event) => updateDraft("subject", event.target.value)}
+              disabled={disabled}
+              aria-label="Subject"
+              className="h-11 rounded-xl bg-background/70 text-[15px] font-medium"
+            />
           </label>
           <label className="block">
-          <span className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            <span>Message</span>
-            <span className="normal-case font-normal tracking-normal">Rich email</span>
-          </span>
-          <EmailRichTextComposer
-            disabled={disabled}
-            id={`${idPrefix}-message`}
-            onChange={(value) => updateDraft("body", value)}
-            showPreviewOnFirstContent={autoDraft}
-            value={draft.body}
-          />
+            <span className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <span>Message</span>
+              <span className="normal-case font-normal tracking-normal">Rich email</span>
+            </span>
+            <EmailRichTextComposer
+              disabled={disabled}
+              id={`${idPrefix}-message`}
+              onChange={(value) => updateDraft("body", value)}
+              showPreviewOnFirstContent={autoDraft}
+              value={draft.body}
+            />
           </label>
 
           {missingDetails.length > 0 ? (
-            <p
-              className="rounded-lg bg-muted/55 px-3 py-2 text-sm leading-5 text-muted-foreground"
+            <div
+              className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-sm font-medium text-amber-700 dark:text-amber-300"
               data-testid="one-email-draft-missing-details"
             >
-              One still needs: {missingDetails.join(", ")}.
-            </p>
+              <Sparkles className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <span>One still needs: {missingDetails.join(", ")}.</span>
+            </div>
           ) : null}
           {error ? (
             <p
