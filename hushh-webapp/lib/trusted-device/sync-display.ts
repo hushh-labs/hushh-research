@@ -1,0 +1,71 @@
+import { formatRelativeTime } from "@/lib/format/relative-time";
+
+/** The subset of a trusted-device row that drives the sync-status display. */
+export interface DeviceSyncFields {
+  status: "active" | "revoked" | string;
+  created_at?: number | null;
+  last_used_at?: number | null;
+  revoked_at?: number | null;
+  last_synced_at?: number | null;
+  sealed_at?: number | null;
+}
+
+export type SyncTone = "active" | "neutral" | "muted";
+
+export interface SyncDisplay {
+  label: string;
+  tone: SyncTone;
+}
+
+/**
+ * Bounded window separating "awaiting device seal confirmation" from the honest
+ * terminal "seal unconfirmed". Loosely tied to the native detector cadence.
+ */
+export const SEAL_CONFIRM_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Client-derived sync display from the raw server fields. The server emits only
+ * status and timestamps and never a display verdict, so all UI state is derived
+ * here and stays reload-stable given the same (fields, nowMs). It is
+ * deliberately honest:
+ *  - never claims a device is sealed as fact, only "device reported sealed";
+ *  - never relabels last_used_at (a capability mint) as a sync;
+ *  - renders anything it cannot classify as "unavailable", never a false
+ *    "stopped" or "revoked".
+ */
+export function deriveSyncDisplay(
+  device: DeviceSyncFields,
+  nowMs: number,
+): SyncDisplay {
+  if (device.status === "active") {
+    if (device.last_synced_at != null) {
+      return {
+        label: `Active · last synced ${formatRelativeTime(device.last_synced_at, nowMs)}`,
+        tone: "active",
+      };
+    }
+    return { label: "Active · not yet synced", tone: "neutral" };
+  }
+
+  if (device.status === "revoked") {
+    if (device.sealed_at != null) {
+      return {
+        label: `Revoked · device reported sealed ${formatRelativeTime(device.sealed_at, nowMs)}`,
+        tone: "muted",
+      };
+    }
+    const sinceRevoke =
+      device.revoked_at != null
+        ? nowMs - device.revoked_at
+        : Number.POSITIVE_INFINITY;
+    if (sinceRevoke <= SEAL_CONFIRM_WINDOW_MS) {
+      return {
+        label: "Revoked · awaiting device seal confirmation",
+        tone: "neutral",
+      };
+    }
+    return { label: "Revoked · seal unconfirmed", tone: "muted" };
+  }
+
+  return { label: "Sync status unavailable", tone: "muted" };
+}

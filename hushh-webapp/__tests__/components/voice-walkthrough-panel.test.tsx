@@ -71,7 +71,9 @@ describe("VoiceWalkthroughPanel", () => {
     appInteractionCoordinator.resetActionRunsForTests();
   });
 
-  it("renders nothing when walk-through mode is off, even with a running multi-step task", () => {
+  it("shows only the latest step when walk-through mode is off, even with a running multi-step task", () => {
+    // Walk-through mode gates GROUPING multiple steps into one panel, not
+    // whether a card shows at all -- every action still earns its own card.
     const first = appInteractionCoordinator.startActionRun({
       actionId: "location.open_now",
       label: "Open Location",
@@ -88,10 +90,12 @@ describe("VoiceWalkthroughPanel", () => {
 
     render(<VoiceWalkthroughPanel enabled={false} />);
 
-    expect(screen.queryByTestId("voice-walkthrough-panel")).toBeNull();
+    expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
+    expect(screen.getByText("Preparing Pick recipient")).toBeInTheDocument();
+    expect(screen.queryByText("Preparing Open Location")).toBeNull();
   });
 
-  it("stays hidden for a single-step task, since the bar already shows its status", () => {
+  it("shows a card for a single-step task with no subject, using its own message", () => {
     appInteractionCoordinator.startActionRun({
       actionId: "location.pause_updates",
       label: "Pause updates",
@@ -100,7 +104,27 @@ describe("VoiceWalkthroughPanel", () => {
 
     render(<VoiceWalkthroughPanel enabled />);
 
-    expect(screen.queryByTestId("voice-walkthrough-panel")).toBeNull();
+    expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
+    expect(screen.getByText("Preparing Pause updates")).toBeInTheDocument();
+  });
+
+  it("shows a single-step task's subject even when walk-through mode is off", () => {
+    const solo = appInteractionCoordinator.startActionRun({
+      actionId: "location.share_selected",
+      label: "Share location",
+      source: "voice",
+    });
+    appInteractionCoordinator.updateActionRun(solo.id, {
+      phase: "completed",
+      message: "Shared your location with Sarah Chen.",
+      subject: { name: "Sarah Chen" },
+    });
+
+    render(<VoiceWalkthroughPanel enabled={false} />);
+
+    expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
+    expect(screen.getByText("Shared your location with Sarah Chen.")).toBeInTheDocument();
+    expect(screen.getByText("Sarah Chen")).toBeInTheDocument();
   });
 
   it("shows a single-step task once a handler names who it's about", () => {
@@ -135,7 +159,7 @@ describe("VoiceWalkthroughPanel", () => {
     render(<VoiceWalkthroughPanel enabled />);
 
     expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
-    expect(screen.getByText("Send a connection request")).toBeInTheDocument();
+    expect(screen.getByText("Preparing Send a connection request")).toBeInTheDocument();
   });
 
   it("closing an active task aborts it and hides the card without it reappearing", () => {
@@ -206,7 +230,7 @@ describe("VoiceWalkthroughPanel", () => {
     render(<VoiceWalkthroughPanel enabled />);
 
     expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
-    expect(screen.getByText("Open Location")).toBeInTheDocument();
-    expect(screen.getByText("Pick recipient")).toBeInTheDocument();
+    expect(screen.getByText("Preparing Open Location")).toBeInTheDocument();
+    expect(screen.getByText("Preparing Pick recipient")).toBeInTheDocument();
   });
 });

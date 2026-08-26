@@ -840,6 +840,22 @@ def _anchor_coordinate(anchor: dict[str, Any], field: str) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _iso(value: Any) -> str | None:
+    """Stringify a DB-driver datetime before it leaves this service.
+
+    Check-in state reaches the live voice agent via "Save My Soul"; a raw
+    datetime surviving into a tool result crashes the session's plain
+    json.dumps with no result ever reaching the user.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return str(value.astimezone(timezone.utc).isoformat())
+    return str(value)
+
+
 def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "active",
@@ -847,8 +863,8 @@ def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, 
         "allowConnectionRequests": bool(row.get("allow_connection_requests")),
         "consentVersion": str(row.get("consent_version") or NEARBY_PRESENCE_CONSENT_VERSION),
         "radiusMeters": int(row.get("radius_meters") or NEARBY_PRESENCE_RADIUS_METERS),
-        "checkedInAt": row.get("checked_in_at"),
-        "expiresAt": row.get("expires_at"),
+        "checkedInAt": _iso(row.get("checked_in_at")),
+        "expiresAt": _iso(row.get("expires_at")),
         "placeLabel": str(anchor.get("label") or "Selected place"),
         # The owner's OWN anchor, returned only to the owner. It is the public
         # venue they picked, and the map needs it to keep showing where they

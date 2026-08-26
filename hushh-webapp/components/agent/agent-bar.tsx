@@ -726,6 +726,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           const resultPhase =
             event.directive.payload?.status === "failed" ? "failed" : "completed";
           const action = getKaiActionById(actionId);
+          const subject = parseVoiceSubject(
+            event.directive.payload as Record<string, unknown> | undefined,
+          );
           const run = appInteractionCoordinator.startActionRun({
             actionId,
             label: action?.label ?? actionId,
@@ -735,15 +738,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           appInteractionCoordinator.updateActionRun(run.id, {
             phase: resultPhase,
             message,
+            subject,
           });
           return;
         }
         if (event.directive.kind === "publish_location_envelopes") {
-          // Backend-direct: the grant(s) already exist server-side and their
-          // own action_result directive (above) has already rendered the
-          // completed card -- this directive carries only the one step a
-          // backend tool call can never do itself: capture the coordinate,
-          // encrypt it per recipient, and store it. Reuses the exact runtime
+          // Backend-direct: the grant(s) already exist server-side, and a
+          // separate action_result directive (same turn, not necessarily
+          // handled before or after this one -- the backend parks both
+          // under different hussh:pending_directive keys with no ordering
+          // guarantee between them) renders the completed card for them.
+          // This directive carries only the one step a backend tool call
+          // can never do itself: capture the coordinate, encrypt it per
+          // recipient, and store it. Reuses the exact runtime
           // the tap-to-confirm specialist flow already uses for this, kind
           // "action"/type "publish_share", including its refusal to trust a
           // directive-supplied recipient key -- runLocationDirective always

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 175,
+  "expected_migration_version": 176,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -1364,7 +1364,10 @@
       "status",
       "created_at",
       "last_used_at",
-      "revoked_at"
+      "revoked_at",
+      "last_synced_at",
+      "last_sync_cursor",
+      "sealed_at"
     ],
     "trusted_device_challenges": [
       "challenge_id",

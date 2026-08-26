@@ -41,8 +41,35 @@ describe("canonical workspace hierarchy", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
 
     expect(finance).toContain('width="reading"');
-    expect(finance).toContain('className="relative !px-0');
+    expect(finance).toContain('className="relative !px-0"');
     expect(finance).toContain('panelInset="page"');
     expect(finance).not.toContain('style={{ "--one-gutter": "0px" }}');
+  });
+
+  it("keeps Finance bottom chrome clearance owned by the shared scroll root", () => {
+    const finance = read("components/kai/kai-market-hub-page.tsx");
+
+    expect(finance).toContain('data-finance-workspace="true"');
+    expect(finance).toContain('heightMode="active"');
+    expect(finance).toContain('viewportMinHeight="0px"');
+    expect(finance).not.toContain('className="h-full w-full"');
+    expect(finance).not.toContain("pb-32");
+    expect(finance).not.toContain("pb-24");
+    expect(finance).not.toContain("pb-20");
+    expect(finance).not.toContain("--app-scroll-bottom-pad");
+    expect(finance).not.toContain("--bottom-chrome-stack-height");
+  });
+
+  it("keeps Finance Portfolio and Analysis from adding route-local bottom reserves", () => {
+    const portfolio = read("components/kai/views/dashboard-master-view.tsx");
+    const analysis = [
+      read("app/one/kai/analysis/page.tsx"),
+      read("components/kai/views/analysis-summary-view.tsx"),
+      read("components/kai/views/history-detail-view.tsx"),
+      read("components/kai/views/analysis-history-dashboard.tsx"),
+    ].join("\n");
+
+    expect(portfolio).not.toContain("pb-6");
+    expect(analysis).not.toContain("pb-safe");
   });
 });
