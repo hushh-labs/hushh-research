@@ -796,13 +796,80 @@ describe("named Circle flows", () => {
     expect(screen.getByRole("button", { name: "Delete circle" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Invite code/i }));
     expect(await screen.findByText(currentCode.code)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Replace code" }));
-    fireEvent.click(screen.getByRole("button", { name: "Replace code" }));
+    const inviteCodeSheet = screen.getByRole("dialog", {
+      name: "Invite code",
+    });
+    fireEvent.click(
+      within(inviteCodeSheet).getByRole("button", { name: "Replace code" }),
+    );
+    const confirmDialog = await screen.findByRole("alertdialog", {
+      name: "Replace invite code?",
+    });
+    expect(confirmDialog.closest('[data-slot="sheet-content"]')).toBeNull();
+    expect(confirmDialog).toHaveClass("z-[714]");
+    expect(
+      document.querySelector('[data-slot="alert-dialog-overlay"]'),
+    ).toHaveClass("z-[713]");
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Replace code" }),
+    );
 
     await waitFor(() =>
       expect(onGenerateCode).toHaveBeenCalledWith("circle-1", true),
     );
     expect(await screen.findByText(rotatedCode.code)).toBeTruthy();
+  });
+
+  it("dismisses only the replace-code confirmation and keeps the invite sheet close button responsive", async () => {
+    const currentCode = {
+      id: "code-1",
+      circleId: "circle-1",
+      code: "2345-6789-ABCD",
+      expiresAt: "2026-08-01T00:00:00Z",
+    };
+    const ownerCircle = {
+      ...circle("circle-1", "Family"),
+      activeInviteCode: currentCode,
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+      />,
+    );
+
+    expect(await screen.findByText("Family")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Invite code/i }));
+    expect(await screen.findByText(currentCode.code)).toBeTruthy();
+
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Invite code" })).getByRole(
+        "button",
+        { name: "Replace code" },
+      ),
+    );
+    const confirmDialog = await screen.findByRole("alertdialog", {
+      name: "Replace invite code?",
+    });
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Cancel" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("alertdialog", { name: "Replace invite code?" }),
+      ).toBeNull();
+    });
+    const inviteCodeSheet = screen.getByRole("dialog", {
+      name: "Invite code",
+    });
+    fireEvent.click(
+      within(inviteCodeSheet).getByRole("button", { name: "Close" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Invite code" })).toBeNull();
+    });
   });
 
   it("requires an explicit owner refresh for an unreadable legacy code", async () => {
