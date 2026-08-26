@@ -9,7 +9,20 @@
     BlinkMacSystemFont, var(--font-app-display);
   --landing-text: "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont,
     var(--font-app-body);
+  /* A readable-but-secondary ink for the supporting lines (tagline sits
+     above this at full --foundation-ink; the motions row and description
+     sit below it at --foundation-dim). Keeps them legible without making
+     every line compete at the same weight. */
+  --landing-secondary-ink: color-mix(
+    in oklab,
+    var(--foundation-ink) 55%,
+    var(--foundation-dim) 45%
+  );
   font-family: var(--landing-text);
+  /* A faint wash above the shared decorative canvas (unchanged) so its grain
+     and drifting motes read as texture instead of visual noise competing
+     with the content on top of them. */
+  background: color-mix(in oklab, var(--background) 10%, transparent);
   /* The outer app scroll root already reserves --app-scroll-bottom-pad of
      clearance below this element for the fixed onboarding Agent Bar (see
      app/providers.tsx), then adds it back as its own padding-bottom. Sizing
@@ -50,37 +63,42 @@
      normally 44–59px, so cap this defensive gutter at 64px. This contains a
      stale browser/native inset without sacrificing the real status-bar
      clearance needed by an edge-to-edge WebView. */
-  padding: calc(clamp(28px, var(--app-safe-area-top-effective, 0px), 64px) + 12px)
+  padding: calc(clamp(28px, var(--app-safe-area-top-effective, 0px), 64px) + 8px)
     24px clamp(8px, 3vh, 24px);
   text-align: center;
 }
 
 /* ── Brand row: wordmark + public nav share the top of the page instead of
-      splitting the wordmark up here and the links below the CTA. Styled as
-      a single frosted-glass pill (the app's existing glass material tokens,
-      not a new surface) rather than sitting bare on the canvas. ── */
+      splitting the wordmark up here and the links below the CTA. A single
+      pill sized to its own content (not the full column width) so the
+      wordmark and the links read as one intentionally-grouped mark rather
+      than two things pinned to opposite edges of an otherwise empty bar.
+      The glass itself favors transparency over opacity — it should read as
+      a soft refraction of what's behind it, not a solid card. ── */
 .brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: clamp(8px, 3vw, 16px);
-  width: 100%;
-  padding: clamp(2px, 0.6vh, 6px) clamp(6px, 2vw, 10px) clamp(2px, 0.6vh, 6px)
-    clamp(10px, 3vw, 18px);
+  justify-content: center;
+  gap: clamp(14px, 4vw, 26px);
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: clamp(1px, 0.4vh, 4px) clamp(10px, 2.6vw, 16px);
   border-radius: 999px;
-  background: var(--app-glass-surface);
-  border: 1px solid var(--app-glass-border);
-  box-shadow: var(--app-glass-shadow);
-  -webkit-backdrop-filter: blur(var(--app-shell-surface-blur, 20px))
-    saturate(150%);
-  backdrop-filter: blur(var(--app-shell-surface-blur, 20px)) saturate(150%);
+  background: color-mix(in oklab, var(--app-glass-surface) 58%, transparent);
+  border: 0.5px solid
+    color-mix(in oklab, var(--app-glass-border) 55%, transparent);
+  box-shadow: 0 4px 16px -12px
+    color-mix(in oklab, var(--foundation-ink) 20%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
   transform: translate3d(0, 0, 0);
   will-change: transform;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 
 .wordmark {
-  height: clamp(24px, 2.8vh, 34px);
+  height: clamp(22px, 2.6vh, 30px);
   width: auto;
   flex-shrink: 0;
 }
@@ -135,15 +153,15 @@
 }
 
 .emoji {
-  margin-top: clamp(6px, 2.6vh, 32px);
-  font-size: clamp(16px, 4.4vh, 48px);
+  margin-top: clamp(6px, 2vh, 20px);
+  font-size: clamp(14px, 3.6vh, 40px);
   line-height: 1;
   filter: drop-shadow(0 8px 18px rgba(109, 67, 26, 0.16));
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both;
 }
 
 .title {
-  margin: clamp(2px, 0.9vh, 12px) 0 0;
+  margin: clamp(2px, 0.7vh, 8px) 0 0;
   font-family: var(--landing-display);
   line-height: 1;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
@@ -183,13 +201,13 @@
 }
 
 .divider {
-  width: 100%;
+  width: min(88px, 28%);
   height: 1px;
-  margin-top: clamp(6px, 2.6vh, 36px);
+  margin: clamp(6px, 2vh, 20px) auto 0;
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in oklab, var(--foundation-gold-deep) 34%, transparent),
+    color-mix(in oklab, var(--foundation-gold-deep) 20%, transparent),
     transparent
   );
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 370ms both;
@@ -197,7 +215,7 @@
 
 .tagline {
   max-width: 22rem;
-  margin: clamp(6px, 2.6vh, 36px) auto 0;
+  margin: clamp(6px, 2vh, 20px) auto 0;
   color: var(--foundation-ink);
   font-family: var(--landing-display);
   font-size: clamp(11px, 2.3vh, 20px);
@@ -213,11 +231,11 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  margin-top: clamp(4px, 1.8vh, 26px);
-  color: var(--foundation-dim);
-  font-size: clamp(6px, 1.2vh, 11px);
+  margin-top: clamp(4px, 1.4vh, 14px);
+  color: var(--landing-secondary-ink);
+  font-size: clamp(8px, 1.35vh, 12.5px);
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.13em;
   line-height: 1.2;
   text-transform: uppercase;
   white-space: nowrap;
@@ -236,8 +254,8 @@
 
 .description {
   max-width: 23rem;
-  margin: clamp(6px, 2vh, 30px) auto 0;
-  color: var(--foundation-dim);
+  margin: clamp(6px, 1.6vh, 16px) auto 0;
+  color: var(--landing-secondary-ink);
   font-size: clamp(7px, 1.7vh, 16px);
   letter-spacing: -0.01em;
   line-height: 1.45;
@@ -246,10 +264,12 @@
 
 .footer {
   align-self: end;
+  display: flex;
+  justify-content: center;
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
-  padding-top: clamp(8px, 3vh, 26px);
+  padding-top: clamp(8px, 2vh, 16px);
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
 }
 
@@ -258,7 +278,11 @@
   overflow: hidden;
   display: inline-flex;
   min-height: clamp(44px, 6.4vh, 56px);
-  width: 100%;
+  /* Narrower than the column: a full-width pill here reads as the same
+     visual weight as the fixed voice bar directly beneath it. Falling short
+     of that width is what makes this one read as the deliberate primary
+     action instead of another edge-to-edge bar. */
+  width: 83%;
   align-items: center;
   justify-content: center;
   gap: 10px;
