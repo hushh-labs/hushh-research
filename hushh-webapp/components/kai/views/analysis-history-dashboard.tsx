@@ -1121,7 +1121,7 @@ export function AnalysisHistoryDashboard({
 
   // ----- Populated state -----
   return (
-    <div className="w-full space-y-6 overflow-hidden">
+    <div className="w-full space-y-6">
       {/* Data Table */}
       <DataTable
         columns={columns}
