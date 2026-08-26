@@ -117,7 +117,7 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
   }
 
   return (
-    <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+    <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
       <RoundTabsCard
         roundNumber={1}
         title="Initial Deep Analysis"

@@ -10,7 +10,7 @@ BEGIN
       INTO has_rows;
     IF has_rows THEN
       RAISE EXCEPTION
-        'migration_176_rollback_refused_nonempty_table:one_location_nearby_check_in_preferences';
+        'migration_177_rollback_refused_nonempty_table:one_location_nearby_check_in_preferences';
     END IF;
   END IF;
 END

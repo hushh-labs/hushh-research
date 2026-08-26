@@ -10,7 +10,7 @@ BEGIN
       INTO has_rows;
     IF has_rows THEN
       RAISE EXCEPTION
-        'migration_177_rollback_refused_nonempty_table:connection_voice_preferences';
+        'migration_178_rollback_refused_nonempty_table:connection_voice_preferences';
     END IF;
   END IF;
 END

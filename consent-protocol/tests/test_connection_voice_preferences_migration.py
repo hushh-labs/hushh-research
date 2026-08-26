@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "177_connection_voice_preferences.sql"
-ROLLBACK_NAME = "177_connection_voice_preferences.rollback.sql"
+MIGRATION_NAME = "178_connection_voice_preferences.sql"
+ROLLBACK_NAME = "178_connection_voice_preferences.rollback.sql"
 TABLE = "connection_voice_preferences"
 REQUIRED_COLUMNS = {
     "user_id",
@@ -28,7 +28,7 @@ def test_connection_voice_preferences_migration_is_release_governed_and_reversib
     assert "REFERENCES actor_profiles(user_id) ON DELETE CASCADE" in migration
     assert "share_scopes_from_last_request BOOLEAN NOT NULL DEFAULT FALSE" in migration
     assert f"DROP TABLE IF EXISTS {TABLE}" in rollback
-    assert "migration_177_rollback_refused_nonempty_table" in rollback
+    assert "migration_178_rollback_refused_nonempty_table" in rollback
     assert MIGRATION_NAME in manifest["ordered_migrations"]
     assert MIGRATION_NAME in manifest["groups"]["iam"]
 

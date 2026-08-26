@@ -1870,6 +1870,15 @@ export function CircleDetailFlow({
               <SheetContent
                 side="bottom"
                 aria-describedby={undefined}
+                onEscapeKeyDown={(event) => {
+                  if (replaceCodeConfirmOpen) event.preventDefault();
+                }}
+                onFocusOutside={(event) => {
+                  if (replaceCodeConfirmOpen) event.preventDefault();
+                }}
+                onPointerDownOutside={(event) => {
+                  if (replaceCodeConfirmOpen) event.preventDefault();
+                }}
                 className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
               >
                 <SheetHeader className="text-left">
@@ -1910,40 +1919,15 @@ export function CircleDetailFlow({
                       {codeCopied ? "Copied" : "Copy code"}
                     </Button>
                     {canRotateInviteCode ? (
-                      <AlertDialog
-                        open={replaceCodeConfirmOpen}
-                        onOpenChange={setReplaceCodeConfirmOpen}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => setReplaceCodeConfirmOpen(true)}
+                        className="h-11 w-full rounded-full"
                       >
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            disabled={busy}
-                            className="h-11 w-full rounded-full"
-                          >
-                            Replace code
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent size="sm">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Replace invite code?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              The current code will stop working.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              disabled={busy}
-                              onClick={() => void generateCode(true)}
-                            >
-                              Replace code
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                        Replace code
+                      </Button>
                     ) : null}
                   </div>
                 ) : inviteCodeNeedsOwnerRotation && !canRotateInviteCode ? (
@@ -1980,6 +1964,35 @@ export function CircleDetailFlow({
                 )}
               </SheetContent>
             </Sheet>
+          ) : null}
+
+          {canViewInviteCode && canRotateInviteCode ? (
+            <AlertDialog
+              open={replaceCodeConfirmOpen}
+              onOpenChange={setReplaceCodeConfirmOpen}
+            >
+              <AlertDialogContent
+                size="sm"
+                overlayClassName="z-[713]"
+                className="z-[714]"
+              >
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Replace invite code?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The current code will stop working.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={busy}
+                    onClick={() => void generateCode(true)}
+                  >
+                    Replace code
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           ) : null}
 
           <Sheet
