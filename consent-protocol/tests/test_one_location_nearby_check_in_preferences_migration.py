@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "176_one_location_nearby_check_in_preferences.sql"
-ROLLBACK_NAME = "176_one_location_nearby_check_in_preferences.rollback.sql"
+MIGRATION_NAME = "177_one_location_nearby_check_in_preferences.sql"
+ROLLBACK_NAME = "177_one_location_nearby_check_in_preferences.rollback.sql"
 TABLE = "one_location_nearby_check_in_preferences"
 REQUIRED_COLUMNS = {
     "user_id",
@@ -30,7 +30,7 @@ def test_nearby_check_in_preferences_migration_is_release_governed_and_reversibl
     assert "visible BOOLEAN NOT NULL DEFAULT TRUE" in migration
     assert "allow_connection_requests BOOLEAN NOT NULL DEFAULT FALSE" in migration
     assert f"DROP TABLE IF EXISTS {TABLE}" in rollback
-    assert "migration_176_rollback_refused_nonempty_table" in rollback
+    assert "migration_177_rollback_refused_nonempty_table" in rollback
     assert MIGRATION_NAME in manifest["ordered_migrations"]
     assert MIGRATION_NAME in manifest["groups"]["iam"]
 

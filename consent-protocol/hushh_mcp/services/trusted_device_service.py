@@ -103,6 +103,14 @@ class TrustedDeviceStore(Protocol):
 
     def touch_device(self, *, user_id: str, device_id: str, now_ms: int) -> None: ...
 
+    def record_sync(
+        self, *, user_id: str, device_id: str, cursor: int | None, now_ms: int
+    ) -> None: ...
+
+    def get_device_status(self, *, user_id: str, device_id: str) -> dict[str, Any] | None: ...
+
+    def seal_device(self, *, user_id: str, device_id: str, now_ms: int) -> bool: ...
+
     def audit(
         self,
         *,
@@ -245,7 +253,10 @@ class PostgresTrustedDeviceStore:
     def list_devices(self, *, user_id: str) -> list[dict[str, Any]]:
         return (
             self._db.table("trusted_devices")
-            .select("device_id,device_name,platform,status,created_at,last_used_at,revoked_at")
+            .select(
+                "device_id,device_name,platform,status,created_at,last_used_at,"
+                "revoked_at,last_synced_at,last_sync_cursor,sealed_at"
+            )
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .execute()
@@ -330,6 +341,43 @@ class PostgresTrustedDeviceStore:
             .eq("status", "active")
             .execute()
         )
+
+    def record_sync(self, *, user_id: str, device_id: str, cursor: int | None, now_ms: int) -> None:
+        updates: dict[str, Any] = {"last_synced_at": now_ms}
+        if cursor is not None:
+            updates["last_sync_cursor"] = cursor
+        (
+            self._db.table("trusted_devices")
+            .update(updates)
+            .eq("user_id", user_id)
+            .eq("device_id", device_id)
+            .eq("status", "active")
+            .execute()
+        )
+
+    def get_device_status(self, *, user_id: str, device_id: str) -> dict[str, Any] | None:
+        rows = (
+            self._db.table("trusted_devices")
+            .select("device_id,status,revoked_at,last_synced_at,sealed_at")
+            .eq("user_id", user_id)
+            .eq("device_id", device_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0] if rows else None
+
+    def seal_device(self, *, user_id: str, device_id: str, now_ms: int) -> bool:
+        result = self._db.execute_raw(
+            """UPDATE trusted_devices
+               SET sealed_at = :now_ms
+               WHERE user_id = :user_id AND device_id = :device_id
+                 AND status = 'revoked' AND sealed_at IS NULL
+               RETURNING device_id""",
+            {"user_id": user_id, "device_id": device_id, "now_ms": now_ms},
+        )
+        return bool(result.data)
 
     def audit(
         self,
@@ -420,6 +468,13 @@ def _safe_device(row: dict[str, Any]) -> dict[str, Any]:
         "created_at": int(row.get("created_at") or 0),
         "last_used_at": int(row["last_used_at"]) if row.get("last_used_at") else None,
         "revoked_at": int(row["revoked_at"]) if row.get("revoked_at") else None,
+        "last_synced_at": (
+            int(row["last_synced_at"]) if row.get("last_synced_at") is not None else None
+        ),
+        "last_sync_cursor": (
+            int(row["last_sync_cursor"]) if row.get("last_sync_cursor") is not None else None
+        ),
+        "sealed_at": int(row["sealed_at"]) if row.get("sealed_at") is not None else None,
     }
 
 
@@ -617,6 +672,76 @@ class TrustedDeviceService:
                 created_at=now_ms,
             )
         return revoked
+
+    def device_status(self, *, user_id: str, device_id: str) -> dict[str, Any] | None:
+        """Own-device liveness read for the native runtime.
+
+        Returns the caller's own device status and revocation/sync metadata, or
+        None when no such row exists (mapped to a uniform 404 at the route so an
+        unknown or foreign device_id cannot be enumerated). Never returns a
+        capability or vault material; enforcement is unaffected.
+        """
+        if not _DEVICE_ID_RE.fullmatch(device_id):
+            return None
+        row = self._store.get_device_status(user_id=user_id, device_id=device_id)
+        if not row:
+            return None
+        return {
+            "device_id": device_id,
+            "status": str(row.get("status") or "revoked"),
+            "revoked_at": int(row["revoked_at"]) if row.get("revoked_at") else None,
+            "last_synced_at": (int(row["last_synced_at"]) if row.get("last_synced_at") else None),
+        }
+
+    def record_sync(self, *, user_id: str, device_id: str, cursor: int | None = None) -> None:
+        """Stamp last_synced_at (and the high-water cursor) for an active device.
+
+        Best-effort telemetry: callers must swallow failures so a stamp problem
+        never fails the device-sync read that triggered it. Only active devices
+        are updated, so a revoked device can never be resurrected by a stamp.
+        """
+        if not _DEVICE_ID_RE.fullmatch(device_id):
+            return
+        self._store.record_sync(
+            user_id=user_id, device_id=device_id, cursor=cursor, now_ms=_now_ms()
+        )
+
+    def seal_device(self, *, user_id: str, device_id: str) -> dict[str, Any] | None:
+        """Record the native runtime's advisory seal confirmation after a remote
+        revoke. One-way and idempotent: it can only stamp sealed_at on an
+        already-revoked row and can never flip a device back to active. Returns
+        the device status with sealed_at, or None when there is no such device.
+
+        Enforcement never consults sealed_at; this closes the audit loop only.
+        """
+        if not _DEVICE_ID_RE.fullmatch(device_id):
+            return None
+        row = self._store.get_device_status(user_id=user_id, device_id=device_id)
+        if not row:
+            return None
+        if str(row.get("status")) != "revoked":
+            return {
+                "device_id": device_id,
+                "status": str(row.get("status") or "active"),
+                "sealed_at": int(row["sealed_at"]) if row.get("sealed_at") else None,
+            }
+        now_ms = _now_ms()
+        newly_sealed = self._store.seal_device(user_id=user_id, device_id=device_id, now_ms=now_ms)
+        if newly_sealed:
+            self._store.audit(
+                user_id=user_id,
+                device_id=device_id,
+                event_type="device_sealed",
+                created_at=now_ms,
+                metadata={"advisory": True, "reason": "remote_revoke"},
+            )
+            sealed_at: int | None = now_ms
+        else:
+            existing = self._store.get_device_status(user_id=user_id, device_id=device_id)
+            sealed_at = (
+                int(existing["sealed_at"]) if existing and existing.get("sealed_at") else None
+            )
+        return {"device_id": device_id, "status": "revoked", "sealed_at": sealed_at}
 
     def create_challenge(self, *, user_id: str, device_id: str) -> dict[str, Any]:
         device = self._store.get_active_device(user_id=user_id, device_id=device_id)
