@@ -1833,16 +1833,26 @@ class BrokerFundingService:
         transfer_id: str,
         for_update: bool = False,
     ) -> dict[str, Any] | None:
-        lock_clause = "FOR UPDATE" if for_update else ""
-        rows = self._execute_transfer_sql(
-            f"""
+        query = (
+            """
             SELECT *
             FROM kai_funding_transfers
             WHERE user_id = :user_id
               AND transfer_id = :transfer_id
             LIMIT 1
-            {lock_clause}
-            """,
+            FOR UPDATE
+            """
+            if for_update
+            else """
+            SELECT *
+            FROM kai_funding_transfers
+            WHERE user_id = :user_id
+              AND transfer_id = :transfer_id
+            LIMIT 1
+            """
+        )
+        rows = self._execute_transfer_sql(
+            query,
             {
                 "user_id": user_id,
                 "transfer_id": transfer_id,

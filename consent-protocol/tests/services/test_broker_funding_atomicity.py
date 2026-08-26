@@ -344,6 +344,38 @@ def _seed_creation_event(service: BrokerFundingService, database: _AtomicFunding
     database.persistence_log.clear()
 
 
+@pytest.mark.parametrize(
+    ("for_update", "expects_lock"),
+    [(False, False), (True, True)],
+)
+def test_fetch_transfer_row_uses_static_optional_lock_query(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    for_update: bool,
+    expects_lock: bool,
+) -> None:
+    service = BrokerFundingService()
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def _execute(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        calls.append((" ".join(sql.split()), params))
+        return [{"transfer_id": "transfer-1", "user_id": "user-1"}]
+
+    monkeypatch.setattr(service, "_execute_transfer_sql", _execute)
+
+    row = service._fetch_transfer_row(
+        user_id="user-1",
+        transfer_id="transfer-1",
+        for_update=for_update,
+    )
+
+    assert row == {"transfer_id": "transfer-1", "user_id": "user-1"}
+    assert len(calls) == 1
+    query, params = calls[0]
+    assert query.endswith("FOR UPDATE") is expects_lock
+    assert params == {"user_id": "user-1", "transfer_id": "transfer-1"}
+
+
 @pytest.mark.asyncio
 async def test_terminal_event_failure_rolls_back_status_and_never_pushes(monkeypatch):
     database = _AtomicFundingDb()
