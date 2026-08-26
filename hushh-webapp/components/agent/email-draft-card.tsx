@@ -277,22 +277,9 @@ export function EmailDraftCard({
           </div>
         </div>
       ) : (
-        <div className="space-y-4 px-4 py-5 sm:px-5">
-          <label className="block">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                To
-              </span>
-              {!showCcBcc ? (
-                <button
-                  type="button"
-                  onClick={() => setShowCcBcc(true)}
-                  className="text-xs font-medium text-primary transition-colors hover:underline focus-visible:outline-none"
-                >
-                  + CC / BCC
-                </button>
-              ) : null}
-            </div>
+        <div className="space-y-3 px-4 py-4 sm:px-5">
+          <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+            <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">To</span>
             <Input
               id={`${idPrefix}-to`}
               data-testid="one-email-draft-to"
@@ -300,17 +287,26 @@ export function EmailDraftCard({
               value={draft.to}
               onChange={(event) => updateDraft("to", event.target.value)}
               disabled={disabled}
-              placeholder="name@example.com"
+              placeholder="Recipients"
               aria-label="To"
-              className="h-11 rounded-xl bg-background/70 text-[15px]"
+              className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
             />
-          </label>
+            {!showCcBcc ? (
+              <button
+                type="button"
+                onClick={() => setShowCcBcc(true)}
+                className="ml-auto shrink-0 text-xs font-medium text-primary transition-colors hover:underline focus-visible:outline-none"
+              >
+                + CC / BCC
+              </button>
+            ) : null}
+          </div>
 
           {showCcBcc ? (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               {(["cc", "bcc"] as const).map((field) => (
-                <label key={field}>
-                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                <div className="flex items-center gap-2 border-b border-border/60 py-1.5" key={field}>
+                  <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">
                     {field === "cc" ? "Cc" : "Bcc"}
                   </span>
                   <Input
@@ -322,17 +318,15 @@ export function EmailDraftCard({
                     disabled={disabled}
                     placeholder="Optional"
                     aria-label={field === "cc" ? "Cc" : "Bcc"}
-                    className="h-10 rounded-xl bg-background/70 text-[15px]"
+                    className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
                   />
-                </label>
+                </div>
               ))}
             </div>
           ) : null}
 
-          <label className="block">
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Subject
-            </span>
+          <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+            <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">Subject</span>
             <Input
               id={`${idPrefix}-subject`}
               data-testid="one-email-draft-subject"
@@ -340,15 +334,13 @@ export function EmailDraftCard({
               value={draft.subject}
               onChange={(event) => updateDraft("subject", event.target.value)}
               disabled={disabled}
+              placeholder="Subject"
               aria-label="Subject"
-              className="h-11 rounded-xl bg-background/70 text-[15px] font-medium"
+              className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] font-medium shadow-none focus-visible:ring-0"
             />
-          </label>
-          <label className="block">
-            <span className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              <span>Message</span>
-              <span className="normal-case font-normal tracking-normal">Rich email</span>
-            </span>
+          </div>
+
+          <div className="pt-2">
             <EmailRichTextComposer
               disabled={disabled}
               id={`${idPrefix}-message`}
@@ -356,7 +348,7 @@ export function EmailDraftCard({
               showPreviewOnFirstContent={autoDraft}
               value={draft.body}
             />
-          </label>
+          </div>
 
           {missingDetails.length > 0 ? (
             <div
