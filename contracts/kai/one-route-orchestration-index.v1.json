@@ -2855,6 +2855,8 @@
         "location.approve_request",
         "location.change_share_duration",
         "location.chat.turn",
+        "location.checkout_nearby",
+        "location.confirm_nearby_check_in",
         "location.create_circle",
         "location.decline_circle_invite",
         "location.decline_request",
@@ -2862,6 +2864,7 @@
         "location.delete_saved_location",
         "location.find_contacts",
         "location.leave_circle",
+        "location.nearby_check_in",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -2911,9 +2914,9 @@
       "route_pattern": "/one/location/check-in",
       "page_file": "app/one/location/check-in/page.tsx",
       "route_mode": "hidden",
-      "orchestration_class": "transitional",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.location.check-in",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.location.check-in",
         "purpose": "Let the person pick a real place within 500 m and become briefly discoverable to opted-in people there. Distinct from the map, which shows only people who already share with this account.",
@@ -2941,13 +2944,16 @@
       },
       "canonical_screen": "one_location_check_in",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "location.confirm_nearby_check_in",
+        "location.nearby_check_in"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-one-location-check-in"
     },
     {
@@ -3028,6 +3034,8 @@
       "canonical_screen": "one_location_map",
       "voice_contract_file": null,
       "action_ids": [
+        "location.confirm_nearby_check_in",
+        "location.nearby_check_in",
         "location.open_check_in",
         "location.open_map"
       ],

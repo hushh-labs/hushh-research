@@ -1357,6 +1357,59 @@ class TestBackendDirectCircleActions:
         assert result["status"] == "completed"
 
 
+class TestBackendDirectCheckoutNearby:
+    """location.checkout_nearby has no slots and names no person or place --
+    it only ever clears the caller's own Nearby Check-In presence row, so
+    unlike the circle/grant actions above it needs no resolution step at
+    all."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _valid_token(self, user_id: str = "user_1"):
+        return (True, None, SimpleNamespace(user_id=user_id))
+
+    @pytest.mark.asyncio
+    async def test_checkout_nearby_executes_directly_with_no_slots(self):
+        from hushh_mcp.services.one_location_nearby_presence_service import (
+            OneLocationNearbyPresenceService,
+        )
+
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationNearbyPresenceService, "checkout", autospec=True
+            ) as checkout_mock,
+        ):
+            result = await run_app_action(
+                "location.checkout_nearby", {}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "checked you out" in result["message"].lower()
+        checkout_mock.assert_called_once()
+        assert checkout_mock.call_args.kwargs == {"user_id": "user_1"}
+        directive_keys = [k for k in state if k.startswith(f"{_STATE_PENDING_DIRECTIVE}:")]
+        assert directive_keys == [f"{_STATE_PENDING_DIRECTIVE}:location.checkout_nearby:result"]
+        parked = state[directive_keys[0]]
+        assert parked["kind"] == "action_result"
+        assert parked["payload"] == {
+            "actionId": "location.checkout_nearby",
+            "status": "completed",
+            "message": result["message"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_checkout_nearby_refuses_without_a_consent_token(self):
+        state = {STATE_USER_ID: "user_1"}  # no STATE_CONSENT_TOKEN
+        result = await run_app_action("location.checkout_nearby", {}, _tool_context(state))
+        assert result["status"] == "blocked"
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+
 class TestBackendDirectGrantActions:
     """location.stop_share / approve_request / decline_request go straight
     through OneLocationAgentService, resolved against the owner's own narrow
