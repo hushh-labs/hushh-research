@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, Loader2, UsersRound } from "lucide-react";
 
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
 import { ContactListControls } from "@/components/one-location/redesign/contact-picker/list-controls";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 type MemberRow = {
   userId: string;
   label: string;
+  fromContacts: boolean;
   /** Set when the member cannot receive SMS yet; explains why, inline. */
   blockedReason: string | null;
 };
@@ -104,6 +106,7 @@ export function CircleMemberPicker({
     return selection.ready.map((target) => ({
       userId: target.recipient.userId,
       label: recipientLabel(target.recipient),
+      fromContacts: Boolean(target.recipient.connectedFromContacts),
       blockedReason: null,
     }));
   }, [recipientLabel, selection]);
@@ -118,6 +121,7 @@ export function CircleMemberPicker({
         .map((item) => ({
           userId: item.member.userId,
           label: recipientLabel(item.member),
+          fromContacts: Boolean(item.member.connectedFromContacts),
           blockedReason: item.label,
         }))
     );
@@ -301,8 +305,13 @@ export function CircleMemberPicker({
                     >
                       <ContactAvatar label={row.label} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
-                          {row.label}
+                        <span className="flex min-w-0 items-start gap-1.5">
+                          <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+                            {row.label}
+                          </span>
+                          {row.fromContacts ? (
+                            <ContactSourceBadge className="mt-px shrink-0" />
+                          ) : null}
                         </span>
                         {row.blockedReason ? (
                           <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">

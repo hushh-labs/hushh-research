@@ -30,6 +30,7 @@ import {
   UsersRound,
 } from "lucide-react";
 
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -39,7 +40,16 @@ import {
   filterPeopleByQuery,
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
-import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
+import {
+  ButtonLabel,
+  HelperText,
+  MediumRowLabel,
+  PageSubtitle,
+  RowDescription,
+  SectionLabel as AppSectionLabel,
+  StatusText,
+  TrailingAction,
+} from "@/components/app-ui/typography";
 import {
   isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
@@ -147,6 +157,7 @@ function ContactRow({
   locked,
   completed,
   label,
+  fromContacts,
   isLast,
   onToggle,
 }: {
@@ -155,6 +166,7 @@ function ContactRow({
   locked: boolean;
   completed: boolean;
   label: string;
+  fromContacts?: boolean;
   isLast: boolean;
   onToggle: () => void;
 }) {
@@ -173,25 +185,33 @@ function ContactRow({
     >
       <span
         className={cn(
-          "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+          "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full",
           CONTACT_AVATAR_TONE,
         )}
         aria-hidden
       >
-        {initialsOf(label)}
+        <StatusText as="span">{initialsOf(label)}</StatusText>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[16px] font-semibold text-foreground">
-          {label}
+        <span className="flex min-w-0 items-start gap-1.5">
+          <MediumRowLabel as="span" className="min-w-0 flex-1 truncate">
+            {label}
+          </MediumRowLabel>
+          {fromContacts ? (
+            <ContactSourceBadge className="mt-px shrink-0" />
+          ) : null}
         </span>
         {completed ? (
-          <span className="block truncate text-[12px] text-emerald-600 dark:text-emerald-400">
+          <StatusText
+            as="span"
+            className="block truncate text-[color:var(--app-success)]"
+          >
             Already shared in this check-in
-          </span>
+          </StatusText>
         ) : !ready ? (
-          <span className="block truncate text-[13px] leading-[18px] text-[#8E8E93]">
+          <RowDescription as="span" className="block truncate">
             Hasn't set up sharing yet
-          </span>
+          </RowDescription>
         ) : null}
       </span>
       <span
@@ -237,6 +257,13 @@ export function CheckInFlow({
   const [circleSelection, setCircleSelection] =
     useState<CircleRecipientSelection | null>(null);
   const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
+  // Trusted is an auto-managed contact-sync view and may contain thousands of
+  // connections. Private Check-In must stay an explicit, bounded choice, so
+  // only user-managed/SMS Circles and direct contacts are selectable here.
+  const selectableCircles = useMemo(
+    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    [vm.circles],
+  );
   const [confirmedPoint, setConfirmedPoint] =
     useState<PlainLocationPoint | null>(null);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
@@ -515,9 +542,9 @@ export function CheckInFlow({
         <button
           type="button"
           onClick={close}
-          className="shrink-0 pt-1 text-[15px] text-[color:var(--app-accent)]"
+          className="shrink-0 pt-1 text-[color:var(--app-accent)]"
         >
-          Cancel
+          <TrailingAction as="span">Cancel</TrailingAction>
         </button>
       </div>
 
@@ -528,12 +555,12 @@ export function CheckInFlow({
         >
           <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]" />
           <div>
-            <p className="text-[15px] font-semibold leading-5 text-foreground">
+            <MediumRowLabel as="p">
               Nearby and private sharing are separate
-            </p>
-            <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
+            </MediumRowLabel>
+            <PageSubtitle as="p" className="mt-1">
               Nearby sees your name only. Selected people get this share.
-            </p>
+            </PageSubtitle>
           </div>
         </section>
       ) : null}
@@ -543,7 +570,7 @@ export function CheckInFlow({
       <section className={cn(CARD, "overflow-hidden")}>
         <div className="flex items-center gap-3 px-4 py-[13px]">
           <div className="min-w-0 flex-1">
-            <p className="text-[16px] font-semibold text-foreground">
+            <MediumRowLabel as="p">
               {confirmedPoint
                 ? "Location confirmed for this share"
                 : point
@@ -551,14 +578,14 @@ export function CheckInFlow({
                     ? "Live location ready"
                     : "Location needs a refresh"
                   : "No location yet"}
-            </p>
-            <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
+            </MediumRowLabel>
+            <PageSubtitle as="p" className="mt-1">
               {point
                 ? confirmedPoint
                   ? `${accuracy ?? "Location found"} · Using the spot you confirmed`
                   : `${accuracy ?? "Location found"} · ${vm.formatDateTime(point.capturedAt)}`
                 : "Find your location to check in."}
-            </p>
+            </PageSubtitle>
           </div>
           <button
             type="button"
@@ -585,22 +612,22 @@ export function CheckInFlow({
           </button>
         </div>
         {point && !pointIsFresh ? (
-          <p className="px-4 pb-3 text-xs font-medium text-amber-700 dark:text-amber-300">
+          <HelperText className="px-4 pb-3 !text-[color:var(--app-warning)]">
             {confirmationExpired
               ? "That expired. Edit and confirm again."
               : "Refresh so the location you review is no more than one minute old."}
-          </p>
+          </HelperText>
         ) : null}
         {recipientKeyChanged ? (
-          <p className="px-4 pb-3 text-xs font-medium text-amber-700 dark:text-amber-300">
+          <HelperText className="px-4 pb-3 !text-[color:var(--app-warning)]">
             A selected person&apos;s secure key changed. Edit and reconfirm this
             private share.
-          </p>
+          </HelperText>
         ) : null}
         {vm.myLocationError ? (
-          <p className="px-4 pb-3 text-xs font-medium text-red-600 dark:text-red-300">
+          <HelperText className="px-4 pb-3 !text-[color:var(--app-destructive)]">
             {vm.myLocationError}
-          </p>
+          </HelperText>
         ) : null}
         {point ? (
           <div className="px-3 pb-3">
@@ -615,9 +642,9 @@ export function CheckInFlow({
 
       {/* WHO SHOULD KNOW? */}
       <SectionLabel>Who should know?</SectionLabel>
-      {vm.circles.length ? (
+      {selectableCircles.length ? (
         <div className={cn(CARD, "mb-2 overflow-hidden")}>
-          {vm.circles.map((circle, index) => {
+          {selectableCircles.map((circle, index) => {
             const selected =
               circleSelection?.circle.id === circle.id && circleFullySelected;
             // STATE BEATS CATEGORY: a circle is the people role, but one
@@ -637,7 +664,7 @@ export function CheckInFlow({
                 aria-pressed={selected}
                 className={cn(
                   "flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left",
-                  index < vm.circles.length - 1 &&
+                  index < selectableCircles.length - 1 &&
                     "border-b border-black/[0.06] dark:border-white/[0.08]",
                   selected &&
                     "bg-[color:var(--app-accent-soft)]",
@@ -653,28 +680,28 @@ export function CheckInFlow({
                   <UsersRound className="h-[17px] w-[17px]" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+                  <MediumRowLabel as="span" className="block truncate">
                     {circle.name}
-                  </span>
-                  <span className="block text-[15px] leading-5 text-muted-foreground">
+                  </MediumRowLabel>
+                  <RowDescription as="span" className="block">
                     {selected
                       ? `${circleSelection.ready.length} ready now`
                       : circleMemberCountLabel(circle.memberCount)}
-                  </span>
+                  </RowDescription>
                 </span>
-                <span className="text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)]">
+                <TrailingAction as="span">
                   {circleLoadingId === circle.id
                     ? "Loading…"
                     : selected
                       ? "Selected"
                       : "Select all"}
-                </span>
+                </TrailingAction>
               </button>
             );
           })}
           {circleSelection ? (
             <>
-              <p className="border-t border-[color:var(--app-separator)] px-4 py-2.5 text-[15px] leading-[20px] text-[#8E8E93]">
+              <HelperText className="border-t border-[color:var(--app-separator)] px-4 py-2.5">
                 Current ready members only. Future members are not added to this
                 check-in.
                 {circleSelection.excluded.filter(
@@ -686,7 +713,7 @@ export function CheckInFlow({
                       ).length
                     } not ready.`
                   : ""}
-              </p>
+              </HelperText>
               {/* Grow this Circle in-context: invite an existing connection or
                   share the invite code, so a user can pull loved ones in right
                   before they check in — especially when few members are ready. */}
@@ -703,6 +730,9 @@ export function CheckInFlow({
                   onShareCode={vm.onShareNamedCircleCodeById}
                   onLoadEligibleConnections={
                     vm.onLoadNamedCircleEligibleConnections
+                  }
+                  onLoadEligibleConnectionsPage={
+                    vm.onLoadNamedCircleEligibleConnectionsPage
                   }
                   onInviteConnections={vm.onInviteNamedCircleConnections}
                   onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
@@ -727,7 +757,7 @@ export function CheckInFlow({
           onChange={(event) => setSearch(event.target.value)}
           disabled={retryLocked}
           placeholder="Search contacts…"
-          className="min-w-0 flex-1 bg-transparent text-[15px] leading-5 text-foreground outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
+          className="ui-text-input-value min-w-0 flex-1 bg-transparent outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
         />
       </div>
       {filtered.length ? (
@@ -741,6 +771,7 @@ export function CheckInFlow({
                 locked={retryLocked}
                 completed={completedRecipientIds.includes(recipient.userId)}
                 label={vm.recipientLabel(recipient)}
+                fromContacts={recipient.connectedFromContacts}
                 isLast={index === filtered.length - 1}
                 onToggle={() => toggle(recipient.userId)}
               />
@@ -749,11 +780,13 @@ export function CheckInFlow({
         </div>
       ) : (
         <div
-          className={cn(CARD, "p-5 text-center text-sm text-muted-foreground")}
+          className={cn(CARD, "p-5 text-center")}
         >
-          {contacts.length === 0
-            ? "No contacts yet. Add people to your Circle."
-          : "No matching contacts."}
+          <PageSubtitle as="span">
+            {contacts.length === 0
+              ? "No contacts yet. Add people to your Circle."
+              : "No matching contacts."}
+          </PageSubtitle>
         </div>
       )}
       {completedRecipientIds.length > 0 ? (
@@ -761,13 +794,13 @@ export function CheckInFlow({
           className="mt-3 rounded-[12px] border border-[color:var(--app-success-border)] bg-[color:var(--app-success-tint)] px-4 py-3"
           data-testid="private-check-in-partial-success"
         >
-          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+          <StatusText as="p" className="text-[color:var(--app-success)]">
             Shared with {completedRecipientIds.length}{" "}
             {completedRecipientIds.length === 1 ? "person" : "people"} already
-          </p>
-          <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
+          </StatusText>
+          <PageSubtitle as="p" className="mt-1">
             Edits apply only to people still waiting.
-          </p>
+          </PageSubtitle>
         </section>
       ) : null}
 
@@ -789,14 +822,14 @@ export function CheckInFlow({
               retryLocked && "cursor-not-allowed opacity-60",
             )}
           >
-            {option.label}
+            <StatusText as="span">{option.label}</StatusText>
           </button>
         ))}
       </div>
-      <p className="mt-2 flex items-center gap-1.5 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
+      <PageSubtitle as="p" className="mt-2 flex items-center gap-1.5 px-1">
         <Shield className="h-3 w-3 shrink-0" strokeWidth={1.5} />
         Stops automatically.
-      </p>
+      </PageSubtitle>
 
       {/* MESSAGE — encrypted with the reviewed point for selected recipients. */}
       <SectionLabel>Message</SectionLabel>
@@ -809,25 +842,25 @@ export function CheckInFlow({
           disabled={retryLocked}
           rows={2}
           placeholder={DEFAULT_CHECK_IN_MESSAGE}
-          className="w-full resize-none bg-transparent text-[15px] leading-5 text-foreground outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
+          className="ui-text-input-value w-full resize-none bg-transparent outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
         />
-        <p className="mt-2 text-right text-[12px] text-[color:var(--app-tertiary-label)]">
+        <HelperText className="mt-2 text-right !text-[color:var(--app-tertiary-label)]">
           {message.length}/{CHECK_IN_MESSAGE_MAX_LENGTH}
-        </p>
+        </HelperText>
       </div>
-      <p className="mb-[18px] mt-2 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
+      <PageSubtitle as="p" className="mb-[18px] mt-2 px-1">
         {retryLocked
           ? "Encrypted. Sends again to the people it missed."
           : "Encrypted with your location."}
-      </p>
+      </PageSubtitle>
       {retryLocked ? (
         <button
           type="button"
-          className="mb-3 w-full rounded-full border border-black/[0.12] py-3 text-sm font-semibold text-foreground transition-colors hover:bg-black/[0.03] dark:border-white/[0.14] dark:hover:bg-white/[0.05]"
+          className="mb-3 w-full rounded-full border border-[color:var(--app-separator)] py-3 text-[color:var(--app-label)] transition-colors hover:bg-[color:var(--app-secondary-surface)]"
           disabled={busy}
           onClick={editAndReconfirm}
         >
-          Edit and confirm again
+          <ButtonLabel as="span">Edit and confirm again</ButtonLabel>
         </button>
       ) : null}
 
@@ -837,7 +870,7 @@ export function CheckInFlow({
         onClick={() => void submit()}
         disabled={!canSubmit || busy}
         className={cn(
-          "flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-4 text-[17px] font-medium text-[color:var(--app-accent-fg)] transition-opacity",
+          "flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-4 text-[color:var(--app-accent-fg)] transition-opacity",
           (!canSubmit || busy) && "opacity-50",
         )}
       >
@@ -846,23 +879,25 @@ export function CheckInFlow({
         ) : (
           <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={1.8} />
         )}
-        {point
-          ? recipientKeyChanged
-            ? "Their security key changed - confirm again"
-            : confirmationExpired
-            ? "Confirm your location again"
-            : !pointIsFresh
-            ? "Refresh your location first"
-            : selectedReadyCount > 0
-              ? entrySource === "nearby"
-                ? `Share location with ${selectedReadyCount} ${
-                    selectedReadyCount === 1 ? "person" : "people"
-                  }`
-                : `Check in with ${selectedReadyCount} ${
-                    selectedReadyCount === 1 ? "person" : "people"
-                  }`
-              : "Choose who to tell"
-          : "Get your location first"}
+        <ButtonLabel as="span">
+          {point
+            ? recipientKeyChanged
+              ? "Their security key changed - confirm again"
+              : confirmationExpired
+                ? "Confirm your location again"
+                : !pointIsFresh
+                  ? "Refresh your location first"
+                  : selectedReadyCount > 0
+                    ? entrySource === "nearby"
+                      ? `Share location with ${selectedReadyCount} ${
+                          selectedReadyCount === 1 ? "person" : "people"
+                        }`
+                      : `Check in with ${selectedReadyCount} ${
+                          selectedReadyCount === 1 ? "person" : "people"
+                        }`
+                    : "Choose who to tell"
+            : "Get your location first"}
+        </ButtonLabel>
       </button>
     </div>
   );

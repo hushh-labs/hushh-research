@@ -1,5 +1,37 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const {
+  mockGetState,
+  mockUpdateNearbyCheckInPreferences,
+  mockUpdateAutoApprovePreference,
+  mockUpdateSosVoicePreference,
+} = vi.hoisted(() => ({
+  mockGetState: vi.fn(),
+  mockUpdateNearbyCheckInPreferences: vi.fn(),
+  mockUpdateAutoApprovePreference: vi.fn(),
+  mockUpdateSosVoicePreference: vi.fn(),
+}));
+const { mockGetVoicePreferences, mockUpdateVoicePreferences } = vi.hoisted(() => ({
+  mockGetVoicePreferences: vi.fn(),
+  mockUpdateVoicePreferences: vi.fn(),
+}));
+
+vi.mock("@/lib/one-location/service", () => ({
+  OneLocationService: {
+    getState: mockGetState,
+    updateNearbyCheckInPreferences: mockUpdateNearbyCheckInPreferences,
+    updateAutoApprovePreference: mockUpdateAutoApprovePreference,
+    updateSosVoicePreference: mockUpdateSosVoicePreference,
+  },
+}));
+
+vi.mock("@/lib/services/connections-service", () => ({
+  ConnectionsService: {
+    getVoicePreferences: mockGetVoicePreferences,
+    updateVoicePreferences: mockUpdateVoicePreferences,
+  },
+}));
 
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import {
@@ -143,5 +175,112 @@ describe("VoicePreferencesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /What can I say/ }));
 
     expect(onOpenExamples).toHaveBeenCalledTimes(1);
+  });
+
+  it("Location agent defaults load from state and persist through the dedicated endpoint", async () => {
+    mockGetState.mockResolvedValue({
+      recipients: [],
+      autoApprovePreference: { enabled: false, scope: null, enabledAt: null, ruleVersion: 0 },
+      nearbyCheckInPreferences: { visible: true, allowConnectionRequests: false },
+    });
+    mockUpdateNearbyCheckInPreferences.mockResolvedValue({
+      visible: true,
+      allowConnectionRequests: true,
+    });
+
+    render(
+      <VoicePreferencesPanel
+        userId={userId}
+        vaultOwnerToken="vault-token"
+        onOpenChangelog={() => {}}
+        onOpenExamples={() => {}}
+      />,
+    );
+
+    const toggle = await screen.findByRole("switch", {
+      name: "Allow connection requests",
+    });
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(mockUpdateNearbyCheckInPreferences).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        visible: true,
+        allowConnectionRequests: true,
+      }),
+    );
+  });
+
+  it("SOS default loads as Open the screen and persists a pick through the dedicated endpoint", async () => {
+    mockGetState.mockResolvedValue({
+      recipients: [],
+      autoApprovePreference: { enabled: false, scope: null, enabledAt: null, ruleVersion: 0 },
+      nearbyCheckInPreferences: { visible: true, allowConnectionRequests: false },
+      sosVoicePreference: { defaultAction: "open" },
+    });
+    mockUpdateSosVoicePreference.mockResolvedValue({
+      defaultAction: "trigger",
+    });
+
+    render(
+      <VoicePreferencesPanel
+        userId={userId}
+        vaultOwnerToken="vault-token"
+        onOpenChangelog={() => {}}
+        onOpenExamples={() => {}}
+      />,
+    );
+
+    const combobox = await screen.findByRole("combobox", {
+      name: "In an emergency",
+    });
+    expect(combobox.textContent).toContain("Open the screen");
+
+    fireEvent.click(combobox);
+    fireEvent.click(screen.getByRole("option", { name: "Send the alert" }));
+
+    await waitFor(() =>
+      expect(mockUpdateSosVoicePreference).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        defaultAction: "trigger",
+      }),
+    );
+  });
+
+  it("Connect agent defaults load from the voice-preferences endpoint and persist on toggle", async () => {
+    mockGetVoicePreferences.mockResolvedValue({
+      shareScopesFromLastRequest: false,
+      updatedAt: null,
+    });
+    mockUpdateVoicePreferences.mockResolvedValue({
+      shareScopesFromLastRequest: true,
+      updatedAt: null,
+    });
+    const getIdToken = vi.fn().mockResolvedValue("id-token");
+
+    render(
+      <VoicePreferencesPanel
+        userId={userId}
+        getIdToken={getIdToken}
+        onOpenChangelog={() => {}}
+        onOpenExamples={() => {}}
+      />,
+    );
+
+    const toggle = await screen.findByRole("switch", {
+      name: "Reuse scopes from last request",
+    });
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(mockUpdateVoicePreferences).toHaveBeenCalledWith({
+        idToken: "id-token",
+        shareScopesFromLastRequest: true,
+      }),
+    );
   });
 });

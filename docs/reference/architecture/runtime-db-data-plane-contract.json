@@ -428,6 +428,7 @@
         "one_location_envelopes",
         "one_location_events",
         "one_location_map_preferences",
+        "one_location_nearby_check_in_preferences",
         "one_location_nearby_presences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
@@ -435,7 +436,8 @@
         "one_location_recipient_keys",
         "one_location_referrals",
         "one_location_sms_contacts",
-        "one_location_share_grants"
+        "one_location_share_grants",
+        "one_location_sos_voice_preferences"
       ],
       "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
@@ -551,12 +553,14 @@
       "exact_tables": [
         "connection_requests",
         "connections",
-        "connection_origins"
+        "connection_origins",
+        "contact_sync_lookup_budgets",
+        "connection_voice_preferences"
       ],
-      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 126 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 125. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active.",
-      "retention_policy": "Active origins keep their canonical connection active. Revoked origins, revoked canonical connections, and terminal requests are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is either party. Membership leave/removal/Circle deletion revokes only the matching named_circle origins and recomputes each canonical pair; direct and other-Circle origins survive. connection_origins cascade when their canonical connection is deleted.",
-      "trust_boundary": "Backend stores only connection and source-provenance metadata (user references, Circle reference, status, source, optional plaintext message on a direct request, timestamps). A connection or Circle origin grants no location access, SMS selection, capability, envelope, coordinate, PKM value, or trusted_connections authorization on its own.",
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, viewer-relative contact_sync provenance, and one or more named Circles. Contact sync requires the target's explicit versioned combined find-and-auto-connect consent, revalidates the submitted digest against the current verified phone, and writes every eligible non-suppressed match as canonical graph projections transactionally. contact_sync_lookup_budgets is the Postgres-authoritative cross-instance abuse-budget seam; SlowAPI is only the outer request-count guard. Named Circle join/accept writes only named_circle origins. The canonical pair remains active while any origin is active.",
+      "retention_policy": "Active origins keep their canonical connection active. Revoked canonical connection rows persist for the lifetime of either account because they are the durable disconnect-suppression tombstone that prevents contact sync from resurrecting a relationship; an explicit request/accept may reactivate them. Revoked origins and terminal requests may be compacted under their bounded operational policy without deleting that canonical tombstone. Lookup-budget buckets contain counts only and are pruned after two days on the next sync by that user.",
+      "deletion_behavior": "Delete rows where the deleting account is either party. Membership leave/removal/Circle deletion revokes only the matching named_circle origins and recomputes each canonical pair; direct and other-Circle origins survive. connection_origins cascade when their canonical connection is deleted. AccountService explicitly deletes contact_sync_lookup_budgets; the table deliberately has no vault FK so a Firebase-authenticated pre-vault account is handled by explicit route policy rather than an incidental constraint failure.",
+      "trust_boundary": "Backend stores only connection and source-provenance metadata (user references, Circle reference, status, source, optional plaintext message on a direct request, timestamps) plus aggregate lookup counts. It stores no contact hash, phone digits, or address-book rows. A connection or contact/Circle origin grants no location access, automatic all_contacts approval, SMS selection, capability, envelope, coordinate, PKM value, or information access on its own.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_connection"
     },
@@ -568,10 +572,10 @@
       "exact_tables": [
         "trusted_devices"
       ],
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used tracking, and revocation through TrustedDeviceService.",
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService.",
       "retention_policy": "Retain active device registrations while the account exists; retain revoked metadata only for bounded security review before compaction.",
       "deletion_behavior": "Delete all device rows on account deletion; explicit device revocation immediately disables new challenges and records the revocation timestamp.",
-      "trust_boundary": "Public P-256 device keys and device metadata only; never private keys, Firebase tokens, vault passphrases, vault keys, decrypted PKM, or developer credentials.",
+      "trust_boundary": "Public P-256 device keys and device metadata only, including PKM device-sync cursors and remote-revoke seal timestamps; never private keys, Firebase tokens, vault passphrases, vault keys, decrypted PKM, or developer credentials.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "low_per_user"
     },

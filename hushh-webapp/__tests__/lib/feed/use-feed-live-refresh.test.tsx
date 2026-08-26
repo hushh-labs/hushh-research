@@ -98,6 +98,19 @@ describe("useFeedLiveRefresh", () => {
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 
+  it("defers action signals from a hidden tab until it becomes visible", () => {
+    const refresh = vi.fn();
+    renderHook(() => useFeedLiveRefresh(refresh));
+
+    setVisibility("hidden");
+    dispatchFeedStateChanged("action");
+    window.dispatchEvent(new Event("focus"));
+    expect(refresh).not.toHaveBeenCalled();
+
+    setVisibility("visible");
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("does nothing at all when disabled, and detaches every listener on unmount", () => {
     const disabled = vi.fn();
     renderHook(() => useFeedLiveRefresh(disabled, false));

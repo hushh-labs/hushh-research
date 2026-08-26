@@ -245,6 +245,7 @@ jobs:
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
+            --one-location-read-only-state-enabled "false" \
             --hushh-trusted-device-enabled "false" \
             --hushh-tech-client-enabled "false" \
             --hushh-tech-allowed-consent-scopes "" \

@@ -2712,6 +2712,241 @@
       }
     },
     {
+      "action_id": "connect.accept_request",
+      "surface_id": "one_connect",
+      "label": "Accept a connection request",
+      "aliases": [
+        "accept their connection request",
+        "accept the connection request from",
+        "connect back with",
+        "accept their request to connect"
+      ],
+      "search_keywords": [
+        "accept",
+        "connection",
+        "request",
+        "pending",
+        "incoming"
+      ],
+      "meaning": "Accepts pending connection requests you already received from the named people, before you have accepted -- multiple people can be named in one turn, e.g. 'Alice and Bob'. Forms a real, mutual connection once accepted. If the person you named already sent you a request instead of the other way around, this is the action that connects with them -- send_request would refuse and point here.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.accept_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending incoming request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.accept_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request should I accept?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name_list"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name_list"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Accept a connection request",
+            "failure_behavior": "stop",
+            "action_id": "connect.accept_request",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.reject_request",
+      "surface_id": "one_connect",
+      "label": "Decline a connection request",
+      "aliases": [
+        "decline their connection request",
+        "decline the connection request from",
+        "turn down their connection request",
+        "decline their request to connect"
+      ],
+      "search_keywords": [
+        "decline",
+        "reject",
+        "connection",
+        "request",
+        "pending",
+        "incoming"
+      ],
+      "meaning": "Declines pending connection requests you already received from the named people -- multiple people can be named in one turn, e.g. 'Alice and Bob'. Nothing is shared and no connection forms; they can ask again later.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.reject_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending incoming request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.reject_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request should I decline?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name_list"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name_list"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Decline a connection request",
+            "failure_behavior": "stop",
+            "action_id": "connect.reject_request",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "connect.remove_connection",
       "surface_id": "one_connect",
       "label": "Remove a connection",
@@ -5871,12 +6106,11 @@
       "surface_id": "one_location",
       "label": "Open emergency SOS",
       "aliases": [
-        "sos",
-        "emergency",
-        "panic",
-        "emergency alert",
-        "help",
-        "open sos"
+        "open sos",
+        "open the sos screen",
+        "show me sos",
+        "sos screen",
+        "open emergency screen"
       ],
       "search_keywords": [
         "sos",
@@ -5885,7 +6119,7 @@
         "help",
         "panic"
       ],
-      "meaning": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this to look at the screen or manage contacts, not to alert anyone -- to send a real alert immediately, use trigger_sos.",
+      "meaning": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this only when the person explicitly asks to look at the screen or manage contacts, not for a bare or ambiguous emergency phrase like 'help' or 'save me' -- those go to sos_default instead, which respects the person's own SOS default. To send a real alert immediately, use trigger_sos.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9691,6 +9925,383 @@
       }
     },
     {
+      "action_id": "location.nearby_check_in",
+      "surface_id": "one_location",
+      "label": "Start a nearby check-in",
+      "aliases": [
+        "check in near me",
+        "check in nearby",
+        "start a nearby check-in",
+        "check in at a nearby place",
+        "find nearby places to check in"
+      ],
+      "search_keywords": [
+        "check-in",
+        "nearby",
+        "places",
+        "start"
+      ],
+      "meaning": "Starts checking in to a nearby place: opens Check-In if not already there, then looks up the places closest to you right now. If the place is already named in the same turn and it matches one of the nearby results, confirm_nearby_check_in should be called next to finish. Otherwise it lists the nearby options for the person to choose from; if nothing plausible is nearby, Check-In stays open for the person to search manually.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one/location/map",
+          "/one/location/check-in"
+        ],
+        "screens": [
+          "one_location",
+          "one_location_map",
+          "one_location_check_in"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.nearby_check_in"
+      },
+      "control_ids": [
+        "one-location-check-in-nearby-places"
+      ],
+      "state_exposure": [
+        "nearby place candidates"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location/check-in"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.nearby_check_in",
+        "required_inputs": [
+          {
+            "name": "place",
+            "prompt": "Where are you checking in?",
+            "required": false,
+            "slot": "place",
+            "resolver": "spoken_place_name"
+          },
+          {
+            "name": "duration_minutes",
+            "prompt": "For how long -- 30 minutes, 1 hour, or 2 hours?",
+            "required": false,
+            "slot": "duration_minutes",
+            "resolver": "nearby_check_in_duration_minutes",
+            "options": [
+              "30",
+              "60",
+              "120"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "place": "spoken_place_name",
+          "duration_minutes": "nearby_check_in_duration_minutes"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Start a nearby check-in",
+            "failure_behavior": "stop",
+            "action_id": "location.nearby_check_in",
+            "settlement_target": {
+              "route": "/one/location/check-in",
+              "screen": "one_location_check_in"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.confirm_nearby_check_in",
+      "surface_id": "one_location",
+      "label": "Confirm the nearby check-in",
+      "aliases": [
+        "check in there",
+        "check in at that one",
+        "confirm that place",
+        "check in for an hour",
+        "yes check in there"
+      ],
+      "search_keywords": [
+        "check-in",
+        "confirm",
+        "nearby",
+        "duration"
+      ],
+      "meaning": "Finishes a nearby check-in already started by nearby_check_in: matches the named place against the nearby candidates it returned and, once a duration is given, checks in immediately. Only works after nearby_check_in has listed candidates in this conversation; if the named place does not match any of them, it stops and Check-In stays open for the person to search manually instead of guessing.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one/location/map",
+          "/one/location/check-in"
+        ],
+        "screens": [
+          "one_location",
+          "one_location_map",
+          "one_location_check_in"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.confirm_nearby_check_in"
+      },
+      "control_ids": [
+        "one-location-check-in-nearby-places"
+      ],
+      "state_exposure": [
+        "nearby place candidates",
+        "check-in duration"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.confirm_nearby_check_in",
+        "required_inputs": [
+          {
+            "name": "place",
+            "prompt": "Which place from the list?",
+            "required": true,
+            "slot": "place",
+            "resolver": "spoken_place_name"
+          },
+          {
+            "name": "duration_minutes",
+            "prompt": "For how long -- 30 minutes, 1 hour, or 2 hours?",
+            "required": true,
+            "slot": "duration_minutes",
+            "resolver": "nearby_check_in_duration_minutes",
+            "options": [
+              "30",
+              "60",
+              "120"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "place": "spoken_place_name",
+          "duration_minutes": "nearby_check_in_duration_minutes"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.confirm_nearby_check_in",
+            "label": "Confirm the nearby check-in",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.checkout_nearby",
+      "surface_id": "one_location",
+      "label": "Check out of Nearby Check-In",
+      "aliases": [
+        "check out",
+        "check me out",
+        "stop showing me nearby",
+        "end my check-in",
+        "check out of nearby"
+      ],
+      "search_keywords": [
+        "check-out",
+        "check out",
+        "nearby",
+        "presence",
+        "stop"
+      ],
+      "meaning": "Ends your current Nearby Check-In presence, so you stop showing up to people nearby. It does not affect any other kind of location share. Works from any screen -- you do not need to be on the Check-In or Map screens to check out.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one/location/map",
+          "/one/location/check-in"
+        ],
+        "screens": [
+          "one_location",
+          "one_location_map",
+          "one_location_check_in"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.checkout_nearby"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "nearby presence status"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.checkout_nearby",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.checkout_nearby",
+            "label": "Check out of Nearby Check-In",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.trigger_sos",
       "surface_id": "one_location",
       "label": "Send an SOS alert",
@@ -9698,8 +10309,7 @@
         "send an sos",
         "trigger sos",
         "send an emergency alert",
-        "i need help",
-        "call for help"
+        "send help now"
       ],
       "search_keywords": [
         "sos",
@@ -9708,7 +10318,7 @@
         "help",
         "send"
       ],
-      "meaning": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
+      "meaning": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. Use this only when the person explicitly says to send, trigger, or call for help right now -- for a bare or ambiguous emergency phrase like 'help' or 'save me', use sos_default instead, which respects the person's own SOS default rather than assuming they meant send. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9782,6 +10392,123 @@
             "label": "Send an SOS alert",
             "failure_behavior": "stop",
             "action_id": "location.trigger_sos",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.sos_default",
+      "surface_id": "one_location",
+      "label": "Emergency (SOS)",
+      "aliases": [
+        "sos",
+        "emergency",
+        "panic",
+        "emergency alert",
+        "help",
+        "help me",
+        "save me",
+        "i need help",
+        "i'm in danger",
+        "turn on sos",
+        "activate sos",
+        "start sos"
+      ],
+      "search_keywords": [
+        "sos",
+        "emergency",
+        "alert",
+        "help",
+        "panic",
+        "save",
+        "danger"
+      ],
+      "meaning": "Handles a bare or ambiguous emergency phrase -- 'save me', 'sos', 'help', 'emergency', 'turn on sos' -- by doing whatever the person's own SOS default says: either opening the SOS screen so they can decide, or going straight to the send-alert confirm card. Change the default in Voice Settings. Never use this for an explicit 'open the SOS screen' (use open_sos) or an explicit 'send an SOS' (use trigger_sos) -- those always do exactly what they say, regardless of this default.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.sos_default"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active sos incident"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.sos_default",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Emergency (SOS)",
+            "failure_behavior": "stop",
+            "action_id": "location.sos_default",
             "settlement_target": {
               "route": "/one/location",
               "screen": "one_location"
@@ -9892,6 +10619,112 @@
             "settlement_target": {
               "route": "/one",
               "screen": "one_agents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.voice_settings",
+      "surface_id": "one_agents",
+      "label": "Open Voice Settings",
+      "aliases": [
+        "voice settings",
+        "open voice settings",
+        "voice preferences",
+        "open voice preferences"
+      ],
+      "search_keywords": [
+        "voice",
+        "settings",
+        "preferences",
+        "defaults"
+      ],
+      "meaning": "Navigates to Voice Settings in Profile > Preferences, where voice controls and agent defaults can be adjusted.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/preferences/voice"
+        ],
+        "screens": [
+          "profile_preferences"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/preferences/voice"
+      },
+      "control_ids": [
+        "voice_preferences_panel"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/preferences/voice"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.voice_settings",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.voice_settings",
+            "label": "Open Voice Settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/preferences/voice",
+              "screen": "profile_preferences"
             }
           }
         ],
@@ -10100,6 +10933,112 @@
             "settlement_target": {
               "route": "/one/pkm",
               "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_feed",
+      "surface_id": "one_agents",
+      "label": "Open Feed",
+      "aliases": [
+        "open my feed",
+        "open feed",
+        "go to my feed",
+        "show my feed",
+        "what's waiting for me"
+      ],
+      "search_keywords": [
+        "feed",
+        "activity",
+        "requests",
+        "invitations",
+        "notifications"
+      ],
+      "meaning": "Navigates to the Feed, which lists pending connection requests, circle invitations, and other activity waiting on the person's decision.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/feed"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/one/feed/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_feed",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_feed",
+            "label": "Open Feed",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
             }
           }
         ],

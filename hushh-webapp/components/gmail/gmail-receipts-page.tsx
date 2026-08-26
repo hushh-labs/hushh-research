@@ -493,10 +493,15 @@ export default function GmailReceiptsPage({
     [isVaultUnlocked, user, vaultOwnerToken],
   );
 
+  const idTokenProvider = useCallback(
+    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+    [user],
+  );
+
   const gmail = useGmailConnectorStatus({
     userId: user?.uid || null,
     enabled: Boolean(user?.uid) && !loading,
-    idTokenProvider: user?.getIdToken ? () => user.getIdToken() : null,
+    idTokenProvider: user?.getIdToken ? idTokenProvider : null,
     routeHref:
       journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_GMAIL : ROUTES.GMAIL,
     refreshKey: user?.uid || "",
@@ -553,7 +558,7 @@ export default function GmailReceiptsPage({
     void loadReceipts(1);
   }, [canLoad, hasSealedReceiptAccess, loadReceipts, loading, user?.uid]);
 
-  const syncing = gmail.refreshingStatus || gmail.syncingRun;
+  const syncing = gmail.syncingRun;
   const isConnected = gmail.presentation.isConnected;
   const emailAgentIntroRecipient =
     gmail.status?.google_email?.trim() || user?.email?.trim() || null;
@@ -776,9 +781,9 @@ export default function GmailReceiptsPage({
           fallback:
             "We couldn't start Gmail connection right now. Please try again in a moment.",
         });
-        console.error(
+        console.warn(
           "[ProfileReceiptsPage] Failed to start Gmail OAuth:",
-          error,
+          error instanceof Error ? error.message : error,
         );
         toast.error(message);
         return false;

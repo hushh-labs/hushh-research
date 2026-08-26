@@ -8,14 +8,19 @@ call Google until the owner presses the confirmation control.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.services.google_calendar_service import get_google_calendar_service
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+logger = logging.getLogger(__name__)
+
+_CALENDAR_UNAVAILABLE_MESSAGE = "I couldn't reach your calendar just now. Try again in a moment."
 
 _STATE_USER_ID = "hussh:user_id"
 _STATE_TIMEZONE = "hussh:timezone"
@@ -35,7 +40,11 @@ def _timezone(tool_context: ToolContext) -> str:
     value = str(tool_context.state.get(_STATE_TIMEZONE) or "UTC").strip() or "UTC"
     try:
         ZoneInfo(value)
-    except ZoneInfoNotFoundError:
+    except (ValueError, ZoneInfoNotFoundError):
+        # ZoneInfo raises ValueError, not ZoneInfoNotFoundError, for a key
+        # shaped like an absolute or relative path (e.g. "../etc", "/UTC") --
+        # _display_time below and nav_agent.py's own timezone guard already
+        # catch both; this one caught only the narrower of the two.
         return "UTC"
     return value
 
@@ -81,6 +90,37 @@ def _handle_connection_error(
     )
 
 
+async def _run_calendar_read(
+    tool_context: ToolContext, call: Callable[[str], Awaitable[dict[str, Any]]]
+) -> dict[str, Any]:
+    """Resolve the user id and run a Calendar read call inside one error
+    boundary, converting any failure into a clean result instead of letting
+    it escape the tool.
+
+    An uncaught exception from a voice tool crashes the whole live session
+    (Gemini Live's tool-response path has no error boundary of its own) --
+    the same failure class a raw datetime once caused, just triggered by an
+    exception instead of a serialization gap. GoogleConnectionError covers
+    401/403 (needs a fresh connection, handled by _handle_connection_error)
+    and other provider status codes (a rate limit, a 5xx, ...); the plain
+    Exception catch covers what the HTTP client itself can raise on a
+    timeout or connection failure, which is not a GoogleConnectionError at
+    all.
+    """
+    try:
+        user_id = _user_id(tool_context)
+        return await call(user_id)
+    except GoogleConnectionError as exc:
+        directive = _handle_connection_error(tool_context, exc, access_level="read")
+        if directive is not None:
+            return directive
+        logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
+        return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_calendar_call_failed reason=unexpected")
+        return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
+
+
 def _iso_window(tool_context: ToolContext, days: int) -> tuple[str, str]:
     clean_days = max(1, min(int(days), 31))
     zone = ZoneInfo(_timezone(tool_context))
@@ -104,18 +144,15 @@ def _calendar_iso(value: str, tool_context: ToolContext) -> str:
 
 async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str, Any]:
     """Get calendar events for the next 1–31 days so One can summarize them."""
-    user_id = _user_id(tool_context)
     start_at, end_at = _iso_window(tool_context, days)
-    try:
+
+    async def _call(user_id: str) -> dict[str, Any]:
         result = await get_google_calendar_service().list_events(
             user_id=user_id, start_at=start_at, end_at=end_at, max_results=100
         )
-    except GoogleConnectionError as exc:
-        directive = _handle_connection_error(tool_context, exc, access_level="read")
-        if directive is not None:
-            return directive
-        raise
-    return {"status": "ok", "range_start": start_at, "range_end": end_at, **result}
+        return {"status": "ok", "range_start": start_at, "range_end": end_at, **result}
+
+    return await _run_calendar_read(tool_context, _call)
 
 
 async def calendar_events(
@@ -128,20 +165,18 @@ async def calendar_events(
     Use this before rescheduling or cancelling so you use the event id returned
     by Google rather than guessing one.
     """
-    try:
+
+    async def _call(user_id: str) -> dict[str, Any]:
         return {
             "status": "ok",
             **await get_google_calendar_service().list_events(
-                user_id=_user_id(tool_context),
+                user_id=user_id,
                 start_at=_calendar_iso(start_at, tool_context),
                 end_at=_calendar_iso(end_at, tool_context),
             ),
         }
-    except GoogleConnectionError as exc:
-        directive = _handle_connection_error(tool_context, exc, access_level="read")
-        if directive is not None:
-            return directive
-        raise
+
+    return await _run_calendar_read(tool_context, _call)
 
 
 async def calendar_availability(
@@ -150,20 +185,18 @@ async def calendar_availability(
     end_at: str,
 ) -> dict[str, Any]:
     """Check busy periods in an exact ISO-8601, time-zone-qualified interval."""
-    try:
+
+    async def _call(user_id: str) -> dict[str, Any]:
         return {
             "status": "ok",
             **await get_google_calendar_service().freebusy(
-                user_id=_user_id(tool_context),
+                user_id=user_id,
                 start_at=_calendar_iso(start_at, tool_context),
                 end_at=_calendar_iso(end_at, tool_context),
             ),
         }
-    except GoogleConnectionError as exc:
-        directive = _handle_connection_error(tool_context, exc, access_level="read")
-        if directive is not None:
-            return directive
-        raise
+
+    return await _run_calendar_read(tool_context, _call)
 
 
 async def calendar_free_slots(
@@ -180,22 +213,20 @@ async def calendar_free_slots(
     availability. Once a person chooses a slot, use the normal proposal tool
     so the browser still presents the final explicit confirmation.
     """
-    try:
+
+    async def _call(user_id: str) -> dict[str, Any]:
         return {
             "status": "ok",
             **await get_google_calendar_service().find_openings(
-                user_id=_user_id(tool_context),
+                user_id=user_id,
                 start_at=_calendar_iso(start_at, tool_context),
                 end_at=_calendar_iso(end_at, tool_context),
                 duration_minutes=duration_minutes,
                 limit=limit,
             ),
         }
-    except GoogleConnectionError as exc:
-        directive = _handle_connection_error(tool_context, exc, access_level="read")
-        if directive is not None:
-            return directive
-        raise
+
+    return await _run_calendar_read(tool_context, _call)
 
 
 async def propose_calendar_event(
@@ -278,10 +309,27 @@ async def _propose(
         directive = _handle_connection_error(tool_context, exc, access_level="manage")
         if directive is not None:
             return directive
-        raise
-    plan = proposal["plan"]
+        logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
+        return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_calendar_call_failed reason=unexpected")
+        return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
+    plan = proposal.get("plan")
+    proposal_id = proposal.get("proposal_id")
+    expires_at = proposal.get("expires_at")
+    if not isinstance(plan, dict) or not proposal_id or not expires_at:
+        # Defensive: today's propose() always supplies all three. If that
+        # contract ever drifts, a bracket-indexed KeyError here would
+        # otherwise escape the tool the same way an uncaught exception
+        # anywhere else in it would.
+        logger.error("one_adk_calendar_propose_malformed action=%s", action)
+        return {
+            "status": "failed",
+            "message": "Could not prepare that calendar change. Try again in a moment.",
+        }
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
-    conflicts = plan.get("conflicts") if isinstance(plan.get("conflicts"), list) else []
+    raw_conflicts = plan.get("conflicts")
+    conflicts: list[object] = raw_conflicts if isinstance(raw_conflicts, list) else []
     # Presentation belongs to the active chat session, not to the provider's
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
@@ -297,16 +345,16 @@ async def _propose(
         "delegateAgentId": "agent_calendar",
         "payload": {
             "type": "calendar.execute_proposal",
-            "proposalId": proposal["proposal_id"],
+            "proposalId": proposal_id,
             "action": action,
             "summary": summary,
             "confirmLabel": confirm_label,
-            "expiresAt": proposal["expires_at"],
+            "expiresAt": expires_at,
         },
     }
     return {
         "status": "confirmation_required",
-        "proposal_id": proposal["proposal_id"],
+        "proposal_id": proposal_id,
         "plan": plan,
         "conflicts": conflicts,
         "message": (

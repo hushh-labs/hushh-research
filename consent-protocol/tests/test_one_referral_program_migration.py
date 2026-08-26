@@ -78,17 +78,16 @@ def test_migration_is_registered_in_release_order() -> None:
     assert (MIGRATIONS_DIR / "rollback" / ROLLBACK).exists()
 
 
-def test_the_production_lane_stays_below_every_uat_only_migration() -> None:
-    # The release gate concatenates `ordered_migrations + environment_overlays.uat`
-    # and requires the result to ascend. This is why the Hushh Tech UAT
-    # foundation moved 162 -> 164 when 163 landed, and 164 -> 166 when this one
-    # did. Without the move the Governance lane fails on a file this feature
-    # never otherwise touches.
+def test_base_and_uat_overlay_ids_are_unique_and_individually_monotonic() -> None:
+    # Environment overlays keep their applied IDs forever. New shared
+    # migrations can land above them; the release runner performs the stable
+    # numeric merge for UAT without broadening the production lane.
     manifest = _manifest()
     ordered = [_version(name) for name in manifest["ordered_migrations"]]
     overlay = [_version(name) for name in manifest["environment_overlays"]["uat"]]
     assert ordered == sorted(ordered)
-    assert max(ordered) < min(overlay)
+    assert overlay == sorted(overlay)
+    assert len(ordered + overlay) == len(set(ordered + overlay))
 
 
 def test_schema_contracts_track_the_new_head() -> None:

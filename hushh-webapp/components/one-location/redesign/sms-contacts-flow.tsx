@@ -97,11 +97,18 @@ export function SmsContactsFlow({
   recipientSubtitle,
   isRecipientShareReady,
 }: SmsContactsFlowProps) {
+  // Defense in depth for direct callers: Trusted is auto-populated by contact
+  // sync and can contain thousands of people, so it must never become a bulk
+  // emergency-SMS selector. User-managed and SMS Circles stay available.
+  const selectableCircles = useMemo(
+    () => circles.filter((circle) => circle.systemKind !== "trusted"),
+    [circles],
+  );
   // Circles first, as the issue orders them -- unless there are none, in
   // which case landing on an empty tab makes the screen look broken before
   // the person has done anything.
   const [tab, setTab] = useState<SmsContactsTab>(() =>
-    circles.length ? "circles" : "all-contacts",
+    selectableCircles.length ? "circles" : "all-contacts",
   );
   const [pendingRemoval, setPendingRemoval] =
     useState<OneLocationRecipient | null>(null);
@@ -126,11 +133,15 @@ export function SmsContactsFlow({
   const visibleCircles = useMemo(
     () =>
       sortByContactMode(
-        filterByContactQuery(circles, circleQuery, (circle) => circle.name),
+        filterByContactQuery(
+          selectableCircles,
+          circleQuery,
+          (circle) => circle.name,
+        ),
         circleSort,
         (circle) => circle.name,
       ),
-    [circleQuery, circleSort, circles],
+    [circleQuery, circleSort, selectableCircles],
   );
 
   const visibleContacts = useMemo(
@@ -236,7 +247,7 @@ export function SmsContactsFlow({
               data-testid="sms-circles-panel"
             >
               <ContactListControls
-                sourceCount={circles.length}
+                sourceCount={selectableCircles.length}
                 query={circleQuery}
                 onQueryChange={setCircleQuery}
                 sortMode={circleSort}
@@ -319,6 +330,7 @@ export function SmsContactsFlow({
                       <ContactRow
                         label={label}
                         subtitle={recipientSubtitle(recipient)}
+                        fromContacts={recipient.connectedFromContacts}
                         selected={selectedIds.has(recipient.userId)}
                         ready={isRecipientShareReady(recipient)}
                         busy={busyKey === "sms-contact:" + recipient.userId}
@@ -368,7 +380,7 @@ export function SmsContactsFlow({
             the tested one -- and only wider viewports re-centre it. */}
         <AlertDialogContent
           size="sm"
-          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-xl"
+          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-[var(--app-card-shadow-standard)] dark:md:!shadow-none"
         >
           <AlertDialogHeader className="!place-items-center !text-center sm:!place-items-center sm:!text-center">
             {/* The person being removed, not a warning about them. A solid
@@ -415,7 +427,7 @@ export function SmsContactsFlow({
             <AlertDialogCancel
               variant="secondary"
               disabled={removing}
-              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-foreground hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
+              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-[color:var(--app-label)] hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
             >
               Cancel
             </AlertDialogCancel>

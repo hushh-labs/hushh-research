@@ -37,12 +37,23 @@ describe("Connect page layout contract", () => {
       "utf8",
     );
 
-    const connectionRow = source.match(
-      /sortedConnections\.map[\s\S]*?<SettingsRow[\s\S]*?\/>/,
-    )?.[0];
-    expect(connectionRow, "the connections list still renders a SettingsRow").toBeTruthy();
-    expect(connectionRow).not.toMatch(/^\s*stackTrailingOnMobile\s*$/m);
-    expect(connectionRow).toContain("trailing=");
+    const connectionsMapStart = source.indexOf(
+      "sortedConnections.map((connection) => (",
+    );
+    const connectionsPagerStart = source.indexOf(
+      "{connectionsHasMore ?",
+      connectionsMapStart,
+    );
+    const connectionRows = source.slice(
+      connectionsMapStart,
+      connectionsPagerStart,
+    );
+    expect(
+      connectionRows,
+      "the connections list still renders a SettingsRow",
+    ).toContain("<SettingsRow");
+    expect(connectionRows).not.toMatch(/^\s*stackTrailingOnMobile\s*$/m);
+    expect(connectionRows).toContain("trailing=");
   });
 
   it("hard-gates Connect and the private agent on live in-memory vault state", () => {

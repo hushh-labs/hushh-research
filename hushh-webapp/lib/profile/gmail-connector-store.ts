@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -232,7 +232,15 @@ function deriveConnectorTaskKind(
     .trim()
     .toLowerCase();
   if (triggerSource === "connect") return "gmail_bootstrap";
-  if (triggerSource === "auto_daily" || triggerSource === "backfill") {
+  if (
+    triggerSource === "auto_daily" ||
+    triggerSource === "backfill" ||
+    triggerSource === "scheduled" ||
+    triggerSource === "background" ||
+    triggerSource === "system" ||
+    syncMode === "recent" ||
+    syncMode === "incremental"
+  ) {
     return "gmail_backfill";
   }
   return "gmail_manual_sync";
@@ -1045,31 +1053,37 @@ export function useGmailConnectorStatus(
     () => getConnectorView(normalizedUserId),
     () => getConnectorView(normalizedUserId),
   );
-  const idTokenProvider = options.idTokenProvider || null;
+  const idTokenProviderRef = useRef(options.idTokenProvider || null);
+  useEffect(() => {
+    idTokenProviderRef.current = options.idTokenProvider || null;
+  }, [options.idTokenProvider]);
+
   const routeHref = options.routeHref || ROUTES.GMAIL;
   const enabled = options.enabled !== false && Boolean(normalizedUserId);
   const refreshKey = options.refreshKey || "";
 
   const refreshStatus = useCallback(
     async (refreshOptions?: { force?: boolean }) => {
-      if (!enabled || !normalizedUserId || !idTokenProvider) {
+      const provider = idTokenProviderRef.current;
+      if (!enabled || !normalizedUserId || !provider) {
         return getConnectorView(normalizedUserId).status;
       }
-      const idToken = await idTokenProvider();
+      const idToken = await provider();
       return fetchStatusFromNetwork({
         userId: normalizedUserId,
         idToken,
         force: refreshOptions?.force,
         routeHref,
-        idTokenProvider,
+        idTokenProvider: provider,
       });
     },
-    [enabled, idTokenProvider, normalizedUserId, routeHref],
+    [enabled, normalizedUserId, routeHref],
   );
 
   const disconnectGmail = useCallback(async () => {
-    if (!enabled || !normalizedUserId || !idTokenProvider) return null;
-    const idToken = await idTokenProvider();
+    const provider = idTokenProviderRef.current;
+    if (!enabled || !normalizedUserId || !provider) return null;
+    const idToken = await provider();
     const next = await GmailReceiptsService.disconnect({
       idToken,
       userId: normalizedUserId,
@@ -1082,11 +1096,12 @@ export function useGmailConnectorStatus(
       source: "disconnect",
     });
     return next;
-  }, [enabled, idTokenProvider, normalizedUserId, routeHref]);
+  }, [enabled, normalizedUserId, routeHref]);
 
   const syncNow = useCallback(async () => {
-    if (!enabled || !normalizedUserId || !idTokenProvider) return null;
-    const idToken = await idTokenProvider();
+    const provider = idTokenProviderRef.current;
+    if (!enabled || !normalizedUserId || !provider) return null;
+    const idToken = await provider();
     const response = await GmailReceiptsService.syncNow({
       idToken,
       userId: normalizedUserId,
@@ -1119,19 +1134,20 @@ export function useGmailConnectorStatus(
         },
         routeHref,
         source: "sync",
-        idTokenProvider,
+        idTokenProvider: provider,
       });
     } else {
       void refreshStatus({ force: true });
     }
 
     return response;
-  }, [enabled, idTokenProvider, normalizedUserId, refreshStatus, routeHref]);
+  }, [enabled, normalizedUserId, refreshStatus, routeHref]);
 
   useEffect(() => {
-    if (!enabled || !normalizedUserId || !idTokenProvider) return;
+    const provider = idTokenProviderRef.current;
+    if (!enabled || !normalizedUserId || !provider) return;
     void refreshStatus({ force: false });
-  }, [enabled, idTokenProvider, normalizedUserId, refreshKey, refreshStatus]);
+  }, [enabled, normalizedUserId, refreshKey, refreshStatus]);
 
   const presentation = useMemo(
     () =>
@@ -1167,10 +1183,10 @@ export function useGmailConnectorStatus(
           status,
           routeHref,
           source: "oauth_return",
-          idTokenProvider,
+          idTokenProvider: idTokenProviderRef.current,
         });
       },
-      [idTokenProvider, normalizedUserId, routeHref],
+      [normalizedUserId, routeHref],
     ),
   };
 }

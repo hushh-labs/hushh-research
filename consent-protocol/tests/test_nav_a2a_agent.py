@@ -1,14 +1,44 @@
 import inspect
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch, is_wired_specialist
-from hushh_mcp.adk_bridge.nav_agent import NavAgent
+from hushh_mcp.adk_bridge.nav_agent import NavAgent, _friendly_expiry, _parse_datetime
 from hushh_mcp.consent.token import issue_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_db import ConsentDBService
+
+
+def test_parse_datetime_accepts_iso_strings() -> None:
+    parsed = _parse_datetime("2026-08-11T10:00:00Z")
+    assert parsed == datetime(2026, 8, 11, 10, 0, 0, tzinfo=UTC)
+
+
+def test_parse_datetime_accepts_epoch_milliseconds() -> None:
+    # consent_db.py's audit/token rows carry expires_at/issued_at as epoch
+    # milliseconds (compared against now_ms throughout that module), not an
+    # ISO string. datetime.fromisoformat rejects a bare digit string, so
+    # without this the value fell through to being spoken aloud as a raw
+    # number instead of a date.
+    epoch_ms = "1785283200000"
+    parsed = _parse_datetime(epoch_ms)
+    assert parsed is not None
+    assert parsed == datetime.fromtimestamp(int(epoch_ms) / 1000, tz=UTC)
+
+
+def test_parse_datetime_rejects_garbage() -> None:
+    assert _parse_datetime("not a date") is None
+
+
+def test_friendly_expiry_never_speaks_a_raw_epoch_number() -> None:
+    entry = {"expires_at": "1785283200000"}
+    result = _friendly_expiry(entry, timezone=ZoneInfo("UTC"))
+    assert "1785283200000" not in result
+    assert "until" in result
 
 
 @pytest.fixture(autouse=True)

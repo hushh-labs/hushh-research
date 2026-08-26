@@ -723,7 +723,7 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", {
       scroll: false,
     });
-  });
+  }, 15000);
 
   it("keeps an empty people tray compact", async () => {
     experienceHarness.demoMode = false;

@@ -48,14 +48,17 @@ describe("navigation journeys", () => {
     // the composer and firing it at whoever was still selected in it.
     expect(journeys).toEqual([
       "analysis.start",
-      // Connect's lifecycle pair. Both resolve one exact person from a
-      // server-authoritative list rather than from whatever the directory
-      // happens to be showing, and both are confirm_required: cancelling
-      // withdraws something the other person may be about to accept, and
-      // removing ends the connection Location sharing depends on.
+      // Connect's pending-request lifecycle: accept/reject resolve one exact
+      // request from the person's own incoming list, the same shape
+      // cancel_request already uses for outgoing ones. All three are
+      // confirm_required -- accepting and cancelling each commit the other
+      // person to something, and removing ends the connection Location
+      // sharing depends on.
+      "connect.accept_request",
       "connect.cancel_request",
       "connect.open_nearby",
       "connect.open_people",
+      "connect.reject_request",
       "connect.remove_connection",
       "connect.search_people",
       "connect.send_request",
@@ -90,6 +93,12 @@ describe("navigation journeys", () => {
       "location.delete_circle",
       "location.delete_saved_location",
       "location.leave_circle",
+      // The nearby check-in resolve step: finds nearby places from wherever
+      // the person is and navigates to Check-In to show them, the same shape
+      // as select_share_recipient. confirm_nearby_check_in is deliberately
+      // absent for the same reason share_selected is: arriving and checking
+      // in unattended is the thing that must not happen.
+      "location.nearby_check_in",
       "location.pause_updates",
       "location.remove_emergency_contact",
       "location.remove_from_circle",
@@ -113,6 +122,11 @@ describe("navigation journeys", () => {
       // and automatic sharing decides whether approved people keep receiving
       // updates without you doing anything.
       "location.set_auto_share",
+      // A bare emergency phrase ("save me", "sos") resolves per the
+      // person's own stored default -- open the screen, or go straight to
+      // trigger_sos's own confirm card below. Escorted for the same reason
+      // trigger_sos is: said from wherever the person is, not just Location.
+      "location.sos_default",
       "location.stop_share",
       "location.stop_sos",
       // The highest-consequence action on this surface. Escorted the same

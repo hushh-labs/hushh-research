@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { cn } from "@/lib/utils";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 
@@ -76,7 +77,7 @@ export function ContactGroup({
 
 export function EmptyStateCard({ message }: { message: string }) {
   return (
-    <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-muted-foreground shadow-none transition-all duration-200 ease-out">
+    <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-[color:var(--app-secondary-label)] shadow-none transition-all duration-200 ease-out">
       <p className="max-w-[280px]">{message}</p>
     </div>
   );
@@ -124,7 +125,7 @@ export function ContactRowAction({
       onClick={onAdd}
       disabled={busy || !ready}
       aria-label={`Add ${label}`}
-      className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-muted-foreground"
+      className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)]"
     >
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : ready ? "Add" : "Setup"}
     </button>
@@ -134,6 +135,7 @@ export function ContactRowAction({
 export function ContactRow({
   label,
   subtitle,
+  fromContacts,
   selected,
   busy,
   ready,
@@ -142,6 +144,7 @@ export function ContactRow({
 }: {
   label: string;
   subtitle?: string | null;
+  fromContacts?: boolean;
   selected: boolean;
   busy: boolean;
   ready: boolean;
@@ -155,11 +158,16 @@ export function ContactRow({
     >
       <ContactAvatar label={label} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
-          {label}
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
+            {label}
+          </span>
+          {fromContacts ? (
+            <ContactSourceBadge className="mt-px shrink-0" />
+          ) : null}
         </span>
         {subtitle ? (
-          <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
+          <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </span>
         ) : null}

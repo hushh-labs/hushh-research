@@ -5,7 +5,7 @@
  * VOICE_ENGINE_VERSION in the same PR, so the version shown in the settings
  * header always matches the changelog under it.
  */
-export const VOICE_ENGINE_VERSION = "1.4";
+export const VOICE_ENGINE_VERSION = "1.6";
 
 export type VoiceEngineChangelogEntry = {
   version: string;
@@ -16,6 +16,55 @@ export type VoiceEngineChangelogEntry = {
 };
 
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
+  {
+    version: "1.6",
+    date: "2026-08-26",
+    title: "Set what \"help\" does in an emergency",
+    description:
+      "Choose in Voice Settings whether a bare emergency phrase like \"save me\" or \"SOS\" opens the SOS screen or goes straight to sending the alert. Either way, sending still needs an explicit confirmation -- this only changes how fast you get there.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-26",
+    title: "Accept or decline a connection request, hands-free",
+    description:
+      "Say \"accept their connection request\" or \"decline their request\" for a request waiting in your Feed -- no need to open it and tap. Asking to connect with someone who already asked you now points you straight to this instead of trying to send a second request.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-26",
+    title: "Fixed: Nearby Check-In said no places were found when the real problem was something else",
+    description:
+      "If location access was off or the search itself failed, Nearby Check-In said \"no plausible places nearby\" either way. It now says what actually went wrong, so it's clear whether to check permissions or just search for the place yourself.",
+  },
+  {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "Your own defaults for what voice can do",
+    description:
+      "Auto-approving location requests, who can see you in Nearby Check-In, and whether a repeat connection request reuses your last choice are now settings you set once, in Voice Settings, instead of decisions made for you every time.",
+  },
+  {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "\"Open Voice Settings\" now works from anywhere",
+    description:
+      "Voice Settings is reachable hands-free from any screen -- say \"open voice settings\" to reach it and adjust anything above without touching the screen.",
+  },
+  {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "A repeat connection request can reuse what you offered last time",
+    description:
+      "Turn on \"Reuse scopes from last request\" in Voice Settings, and asking to connect with someone you've already asked before offers the same access as last time -- they still approve every request either way.",
+  },
+  {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "Check in nearby, hands-free",
+    description:
+      "Say \"check in near me\" to see the places closest to you, pick one by name, and finish the check-in -- all without opening the screen. \"Check out\" ends it from anywhere, no navigation needed.",
+  },
   {
     version: "1.4",
     date: "2026-08-25",

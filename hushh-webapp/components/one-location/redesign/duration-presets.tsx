@@ -79,7 +79,7 @@ export const DURATION_GRID_CLASS =
 export const DURATION_CELL_CLASS =
   "flex min-h-11 items-center justify-center whitespace-nowrap rounded-[14px] border px-2 text-center text-[15px] font-semibold leading-5 transition-colors touch-manipulation sm:px-4";
 export const DURATION_CELL_OFF_CLASS =
-  "border-border/70 bg-background text-foreground";
+  "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]";
 export const DURATION_CELL_ON_CLASS =
   "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]";
 

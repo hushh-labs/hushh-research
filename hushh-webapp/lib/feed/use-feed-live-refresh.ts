@@ -48,7 +48,10 @@ export function useFeedLiveRefresh(
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
 
-    const run = () => refreshRef.current();
+    const run = () => {
+      if (document.visibilityState !== "visible") return;
+      refreshRef.current();
+    };
 
     let timer: number | null = null;
     const startPolling = () => {

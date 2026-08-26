@@ -18,33 +18,35 @@
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 const TEST_SOURCE = `
 import { renderToStaticMarkup } from "react-dom/server";
 import { writeFileSync } from "node:fs";
+import { MapPin } from "lucide-react";
 import path from "node:path";
-import { it } from "vitest";
+import { afterEach, it, vi } from "vitest";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 
 /**
  * The three rows the tester reported, with the widest action label in the set.
  * Row 1 is the reported one; row 2 is a chevron-only row; row 3 is the row that
  * looked fine in a wide screenshot and collides on every phone.
  */
-const ROWS = [
+const ROWS: FeedActionable[] = [
   {
     id: "extend",
     title: "JHUMMA KUMARI",
     description: "Requesting 4 hours more of your live location.",
     displayTimestamp: Date.parse("2026-08-17T03:04:00Z"),
-    icon: undefined,
-    iconTone: "amber",
+    sortAt: Date.parse("2026-08-17T03:04:00Z"),
+    icon: MapPin,
+    iconTone: "orange",
     actions: [
-      { id: "deny", label: "Deny", tone: "neutral", onSelect: () => {} },
-      { id: "approve", label: "Approve 4 hours more", tone: "primary", onSelect: () => {} },
+      { key: "deny", label: "Deny", tone: "danger", confirm: true, run: () => {} },
+      { key: "approve", label: "Approve 4 hours more", tone: "primary", run: () => {} },
     ],
   },
   {
@@ -52,7 +54,9 @@ const ROWS = [
     title: "Smirthika Dharmalingam",
     description: "Smirthika Dharmalingam wants to see your location through Location.",
     displayTimestamp: Date.parse("2026-08-17T02:34:00Z"),
-    iconTone: "amber",
+    sortAt: Date.parse("2026-08-17T02:34:00Z"),
+    icon: MapPin,
+    iconTone: "orange",
     actions: [],
     chevron: true,
     href: "#",
@@ -62,15 +66,21 @@ const ROWS = [
     title: "Smirthika Dharmalingam",
     description: "Safety check-in",
     displayTimestamp: Date.parse("2026-08-17T02:34:00Z"),
-    iconTone: "amber",
+    sortAt: Date.parse("2026-08-17T02:34:00Z"),
+    icon: MapPin,
+    iconTone: "orange",
     actions: [
-      { id: "deny", label: "Deny", tone: "neutral", onSelect: () => {} },
-      { id: "approve", label: "Approve 1 hour", tone: "primary", onSelect: () => {} },
+      { key: "deny", label: "Deny", tone: "danger", confirm: true, run: () => {} },
+      { key: "approve", label: "Approve 1 hour", tone: "primary", run: () => {} },
     ],
   },
 ];
 
+afterEach(() => vi.useRealTimers());
+
 it("captures the Needs you rows", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-17T12:00:00Z"));
   const html = ROWS.map((item) =>
     renderToStaticMarkup(<FeedActionableRow item={item} />),
   ).join("\\n");
@@ -84,13 +94,16 @@ it("captures the Needs you rows", () => {
 });
 `;
 
-const dir = mkdtempSync(path.join(tmpdir(), "feed-fixture-"));
-const testFile = path.join(process.cwd(), "__tests__", "__capture-feed-fixture.test.tsx");
+const dir = mkdtempSync(path.join(process.cwd(), "__tests__", ".feed-fixture-"));
+const testFile = path.join(dir, "capture-feed-fixture.test.tsx");
+const vitestCli = path.join(process.cwd(), "node_modules", "vitest", "vitest.mjs");
 writeFileSync(testFile, TEST_SOURCE);
 try {
-  execFileSync("npx", ["vitest", "run", testFile], { stdio: "inherit" });
+  execFileSync(process.execPath, [vitestCli, "run", testFile], {
+    env: { ...process.env, TZ: "UTC" },
+    stdio: "inherit",
+  });
   console.log("Wrote e2e/fixtures/feed-needs-you-rows.html from the real component.");
 } finally {
-  rmSync(testFile, { force: true });
   rmSync(dir, { recursive: true, force: true });
 }

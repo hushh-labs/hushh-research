@@ -7,7 +7,7 @@
  *
  * The connections lane owns them. These tests hold that line.
  */
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const CONNECTION_ID = "conn-req-1";
@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   consentItems: [] as Array<Record<string, unknown>>,
   connectionRequests: [] as Array<Record<string, unknown>>,
+  appTasks: [] as Array<Record<string, unknown>>,
+  dismissTask: vi.fn(),
   pendingCount: 0,
 }));
 
@@ -88,8 +90,9 @@ vi.mock("@/lib/services/debate-run-manager", () => ({
 
 vi.mock("@/lib/services/app-background-task-service", () => ({
   AppBackgroundTaskService: {
-    getState: () => ({ tasks: [] }),
+    getState: () => ({ tasks: mocks.appTasks }),
     subscribe: () => () => {},
+    dismissTask: mocks.dismissTask,
   },
   isAppBackgroundTaskVisible: () => true,
 }));
@@ -100,11 +103,23 @@ vi.mock("@/lib/services/consent-center-service", () => ({
 }));
 
 vi.mock("@/lib/services/connections-service", () => ({
-  ConnectionsService: { listRequests: vi.fn(), accept: vi.fn(), reject: vi.fn() },
+  ConnectionsService: {
+    listRequests: vi.fn(),
+    accept: vi.fn(),
+    reject: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/consent/consent-sheet-route", () => ({
-  buildConsentCenterHref: () => "/one/consent?surface=pending",
+  buildConsentCenterHref: (
+    view: string,
+    options?: { requestId?: string; from?: string },
+  ) => {
+    const params = new URLSearchParams({ tab: view });
+    if (options?.requestId) params.set("requestId", options.requestId);
+    if (options?.from) params.set("from", options.from);
+    return `/one/consent?${params.toString()}`;
+  },
 }));
 
 vi.mock("@/lib/consent/consent-display", () => ({
@@ -145,6 +160,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
     vi.clearAllMocks();
     mocks.consentItems = [];
     mocks.connectionRequests = [];
+    mocks.appTasks = [];
     mocks.pendingCount = 0;
   });
 
@@ -194,5 +210,77 @@ describe("useFeedActionables — connection request de-duplication", () => {
     expect(result.current.actionables).toHaveLength(1);
     expect(result.current.actionables[0].id).toBe("consent:consent-1");
     expect(result.current.actionables[0].description).toBe("your holdings");
+  });
+
+  it("links to the full Consent Center when pending requests exceed the loaded page", () => {
+    mocks.pendingCount = 21;
+    mocks.consentItems = Array.from({ length: 20 }, (_, index) => ({
+      id: `consent-${index + 1}`,
+      request_id: `consent-${index + 1}`,
+      kind: "incoming_request",
+      status: "pending",
+      action: "REQUESTED",
+      counterpart_type: "ria",
+      counterpart_label: `Advisor ${index + 1}`,
+      scope_description: "your holdings",
+    }));
+
+    const { result } = renderHook(() => useFeedActionables());
+    const overflow = result.current.actionables.find(
+      (item) => item.id === "consent:overflow",
+    );
+
+    expect(result.current.actionables).toHaveLength(21);
+    expect(overflow).toMatchObject({
+      title: "View all pending requests",
+      description: "1 more pending request is waiting in Consent Center.",
+      href: "/one/consent?tab=pending&from=%2Fone%2Ffeed",
+      chevron: true,
+      actions: [],
+    });
+  });
+
+  it("keeps failed background work visible with recovery and dismiss actions", () => {
+    mocks.appTasks = [
+      {
+        taskId: "import-1",
+        userId: "user-1",
+        kind: "portfolio_import",
+        title: "Portfolio import",
+        description: "Importing your portfolio",
+        status: "failed",
+        routeHref: "/one/kai/portfolio",
+        startedAt: "2026-08-26T08:00:00.000Z",
+        updatedAt: "2026-08-26T08:01:00.000Z",
+        completedAt: "2026-08-26T08:01:00.000Z",
+        error: "Import needs your attention.",
+        dismissedAt: null,
+        metadata: null,
+        visibility: "passive",
+        groupLabel: null,
+        visibleAfterMs: 0,
+        autoClearAfterMs: 0,
+        runningStaleAfterMs: 0,
+      },
+    ];
+
+    const { result } = renderHook(() => useFeedActionables());
+    const failedTask = result.current.actionables.find(
+      (item) => item.id === "task:import-1",
+    );
+
+    expect(failedTask).toMatchObject({
+      description: "Import needs your attention.",
+      spinning: false,
+    });
+    expect(failedTask?.actions.map((action) => action.key)).toEqual([
+      "open",
+      "dismiss",
+    ]);
+
+    act(() => {
+      failedTask?.actions.find((action) => action.key === "dismiss")?.run();
+    });
+    expect(mocks.dismissTask).toHaveBeenCalledWith("import-1");
   });
 });

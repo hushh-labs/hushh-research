@@ -21,6 +21,8 @@ import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
 import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -52,7 +54,11 @@ export function KaiMarketHubPage() {
       return;
     beginRouteTransition(
       destination.href,
-      () => router.replace(destination.href, { scroll: false }),
+      () => {
+        scrollAppToTop();
+        resetKaiBottomChromeVisibility();
+        router.replace(destination.href);
+      },
       "tap",
       "contextual",
     );
@@ -60,6 +66,8 @@ export function KaiMarketHubPage() {
 
   useEffect(() => {
     setVisibleTab(activeTab);
+    scrollAppToTop();
+    resetKaiBottomChromeVisibility();
   }, [activeTab]);
 
   useEffect(() => {
@@ -97,7 +105,7 @@ export function KaiMarketHubPage() {
       as="div"
       fitContent
       width="reading"
-      className="relative !px-0 pb-20 sm:pb-24"
+      className="relative !px-0"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -112,9 +120,10 @@ export function KaiMarketHubPage() {
         options={FINANCE_TAB_DEFINITION.tabs}
         onSelectionChange={(value) => setVisibleTab(value as PortfolioTab)}
         onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
-        panelInset="page"
         heightMode="active"
-        viewportMinHeight="0"
+        holdHeightDuringTransition={false}
+        panelInset="page"
+        viewportMinHeight="0px"
       >
         <div className="w-full">
           <AppPageContentRegion>

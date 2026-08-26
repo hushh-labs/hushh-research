@@ -19,6 +19,25 @@ export type OneLocationAutoApprovePreference = {
   updatedAt?: string | null;
 };
 
+export type OneLocationNearbyCheckInPreference = {
+  visible: boolean;
+  allowConnectionRequests: boolean;
+  updatedAt?: string | null;
+};
+
+/**
+ * What a bare emergency voice phrase ("save me", "turn on sos") does:
+ * "open" shows the SOS screen, "trigger" goes straight to the send-alert
+ * confirm card. Neither sends an alert by itself -- trigger_sos's own
+ * confirm card is never skipped.
+ */
+export type OneLocationSosVoiceDefaultAction = "open" | "trigger";
+
+export type OneLocationSosVoicePreference = {
+  defaultAction: OneLocationSosVoiceDefaultAction;
+  updatedAt?: string | null;
+};
+
 export type OneLocationRecommendationTier =
   | "needs_action"
   | "trusted_circle"
@@ -64,6 +83,14 @@ export type OneLocationRecipient = {
   profileHeadline?: string | null;
   verificationBadge?: string | null;
   lastInteractionAt?: string | null;
+  connectedFromContacts?: boolean;
+};
+
+export type OneLocationRecipientPage = {
+  items: OneLocationRecipient[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
 };
 
 export type OneLocationViewerCapabilities = {
@@ -367,6 +394,7 @@ export type OneLocationCircleMember = {
   relationship?: OneLocationCircleMemberRelationship;
   /** False when there is nothing to request: self, connected, or already pending. */
   canConnect?: boolean;
+  connectedFromContacts?: boolean;
 };
 
 export type OneLocationCircleMemberRelationship =
@@ -381,6 +409,20 @@ export type OneLocationCircleDetail = OneLocationCircleSummary & {
   activeInviteCode?: OneLocationCircleInviteCode | null;
   /** True only for a legacy active code that must be explicitly rotated by the owner. */
   inviteCodeNeedsOwnerRotation?: boolean;
+};
+
+/** Circle metadata/capabilities returned without materializing its roster. */
+export type OneLocationCircleOverview = OneLocationCircleSummary & {
+  activeInviteCode?: OneLocationCircleInviteCode | null;
+  /** True only for a legacy active code that must be explicitly rotated by the owner. */
+  inviteCodeNeedsOwnerRotation?: boolean;
+};
+
+export type OneLocationCircleMemberPage = {
+  items: OneLocationCircleMember[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
 };
 
 export type OneLocationCircleInviteCode = {
@@ -406,6 +448,7 @@ export type OneLocationCircleEligibleConnection = {
   displayName: string;
   photoUrl?: string | null;
   connectedAt?: string | null;
+  connectedFromContacts?: boolean;
 };
 
 export type OneLocationCircleMemberInviteStatus =
@@ -438,6 +481,13 @@ export type OneLocationCircleEligibleConnections = {
   pendingInvites: OneLocationCircleMemberInvite[];
   remainingCapacity: number;
 };
+
+export type OneLocationCircleEligibleConnectionsPage =
+  OneLocationCircleEligibleConnections & {
+    page: number;
+    hasMore: boolean;
+    totalCount: number;
+  };
 
 export type OneLocationNetworkConnection = {
   id: string;
@@ -477,6 +527,10 @@ export type OneLocationState = {
   circles?: OneLocationCircleSummary[];
   /** Server-owned, cross-device standing approval rule. */
   autoApprovePreference?: OneLocationAutoApprovePreference;
+  /** Server-owned Nearby Check-In visibility and connection-request defaults. */
+  nearbyCheckInPreferences?: OneLocationNearbyCheckInPreference;
+  /** Server-owned default for a bare emergency voice phrase (open vs trigger). */
+  sosVoicePreference?: OneLocationSosVoicePreference;
   /** Pending targeted invitations for this user to join a named Circle. */
   circleMemberInvites?: OneLocationCircleMemberInvite[];
   myRecipientKey?: OneLocationMyRecipientKey | null;

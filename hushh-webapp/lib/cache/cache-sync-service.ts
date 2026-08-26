@@ -18,6 +18,7 @@ import {
   forgetOneLocationControlPreference,
 } from "@/lib/one-location/location-control-state";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
+import type { FeedListResponse } from "@/lib/services/feed-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
 
@@ -28,6 +29,16 @@ function toNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function feedIdAtOrBefore(id: string, watermark: string): boolean {
+  try {
+    return BigInt(id) <= BigInt(watermark);
+  } catch {
+    // Feed IDs are numeric today. Exact matching is the only safe fallback if
+    // that contract ever changes; lexical ordering would mark unrelated rows.
+    return id === watermark;
+  }
 }
 
 function deriveAttributeCount(
@@ -613,6 +624,59 @@ export class CacheSyncService {
   }
 
   /**
+   * Optimistically settle Feed read state while the authoritative watermark is
+   * posted. This is the sole cache owner for that mutation: components never
+   * patch or invalidate Feed keys directly.
+   */
+  static onFeedReadStarted(userId: string, upToId: string): void {
+    if (!userId || !upToId) return;
+    const cache = CacheService.getInstance();
+    const listKey = CACHE_KEYS.FEED_LIST(userId);
+    const snapshot = cache.peek<FeedListResponse>(listKey);
+    let remainingUnread = 0;
+
+    if (snapshot) {
+      const items = snapshot.data.items.map((item) => {
+        if (!item.read && feedIdAtOrBefore(item.id, upToId)) {
+          return { ...item, read: true };
+        }
+        if (!item.read) remainingUnread += 1;
+        return item;
+      });
+      cache.set(
+        listKey,
+        {
+          ...snapshot.data,
+          items,
+          unread_count: remainingUnread,
+        },
+        CACHE_TTL.SHORT,
+      );
+    }
+
+    cache.set(
+      CACHE_KEYS.FEED_UNREAD_COUNT(userId),
+      remainingUnread,
+      CACHE_TTL.SHORT,
+    );
+  }
+
+  /** A successful watermark keeps the optimistic list and recounts rows that
+   * may have arrived concurrently after that watermark. */
+  static onFeedReadSettled(userId: string): void {
+    if (!userId) return;
+    CacheService.getInstance().invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(userId));
+  }
+
+  /** Restore both projections from authority after a failed read mutation. */
+  static onFeedReadFailed(userId: string): void {
+    if (!userId) return;
+    const cache = CacheService.getInstance();
+    cache.invalidate(CACHE_KEYS.FEED_LIST(userId));
+    cache.invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(userId));
+  }
+
+  /**
    * One-to-One requests can add, revoke, or leave capabilities unchanged.
    * Keep every affected surface on the same invalidation contract rather than
    * letting each request UI guess which RIA/Market resources it owns.
@@ -626,6 +690,18 @@ export class CacheSyncService {
     CacheService.getInstance().invalidate(
       CACHE_KEYS.CONNECTIONS_INCOMING(userId),
     );
+  }
+
+  /**
+   * A contact sync can mutate the connection graph and every viewer-relative
+   * provenance projection in the same request. Invalidate both the generic
+   * connection/consent tiers and One Location's combined state resource.
+   */
+  static onConnectionGraphMutated(userId: string): void {
+    if (!userId) return;
+    this.onConnectionCapabilityMutated(userId);
+    OneLocationStateResource.invalidate(userId);
+    clearLocationWorkspaceMemory(userId);
   }
 
   /**

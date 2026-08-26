@@ -1109,7 +1109,7 @@ export function AnalysisHistoryDashboard({
   // ----- Loading state -----
   if (loading) {
     return (
-      <div className="w-full pb-safe">
+      <div className="w-full">
         <SurfaceCard className="overflow-hidden">
           <SurfaceCardContent className="flex min-h-52 items-center justify-center p-6">
             <HushhLoader variant="inline" label="Loading analysis history…" />
@@ -1122,7 +1122,7 @@ export function AnalysisHistoryDashboard({
   // ----- Empty state -----
   if (entries.length === 0) {
     return (
-      <div className="w-full space-y-6 pb-safe">
+      <div className="w-full space-y-6">
         <EmptyState />
         {showDebateInputs ? (
           <DebateInputsCard
@@ -1138,7 +1138,7 @@ export function AnalysisHistoryDashboard({
 
   // ----- Populated state -----
   return (
-    <div className="w-full space-y-6 pb-safe overflow-hidden">
+    <div className="w-full space-y-6">
       {/* Data Table */}
       <DataTable
         columns={columns}

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   ACTION_ID_SCREEN_SEGMENT_CAP,
   ARRAY_DIMENSION_CAP_ERROR,
+  AVAILABLE_ACTION_IDS_CAP,
+  GLOBAL_NAV_ACTION_IDS,
   INVALID_ARRAY_TYPE_ERROR,
   STRUCTURED_CONTEXT_ARRAY_CAP,
   buildOneVoiceContextSnapshot,
@@ -11,6 +13,7 @@ import {
   enforceArrayDimensionCap,
 } from "@/lib/voice/screen-context-builder";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import {
   clearVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
@@ -55,6 +58,38 @@ function makeRuntimeState(
     },
   };
 }
+
+describe("the action-id cap invariant this file's own comments document", () => {
+  it("never lets the screen segment alone exceed the combined cap", () => {
+    // prioritizeAvailableActionIds only re-checks AVAILABLE_ACTION_IDS_CAP
+    // while appending the GLOBAL_NAV_ACTION_IDS segment on top of the
+    // already-built screen segment -- it never re-truncates the screen
+    // segment itself. If ACTION_ID_SCREEN_SEGMENT_CAP were ever raised past
+    // this bound, the combined array could exceed AVAILABLE_ACTION_IDS_CAP
+    // even though nothing here would report an error.
+    expect(ACTION_ID_SCREEN_SEGMENT_CAP).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
+  });
+
+  it("matches the backend's Pydantic max_length for available_action_ids", () => {
+    // consent-protocol/hushh_mcp/agents/onboarding/agent.py's
+    // OnboardingJourneyContext.available_action_ids has max_length=18 --
+    // see tests/test_onboarding_goal_agent.py's matching parity test on
+    // that side. There is no automated cross-language sync for this; both
+    // sides must be changed together, in the same commit.
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(18);
+  });
+
+  it("documents that a crowded screen already trades away some global-nav slots", () => {
+    // Not a bound that must hold -- the opposite: 14 + 8 already exceeds 18
+    // today, so the append loop in prioritizeAvailableActionIds already
+    // silently drops some GLOBAL_NAV_ACTION_IDS entries once a screen's own
+    // segment is full. Asserted here so a future reader sees this is known
+    // and accepted, not undiscovered.
+    expect(ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length).toBeGreaterThan(
+      AVAILABLE_ACTION_IDS_CAP,
+    );
+  });
+});
 
 // ── enforceArrayDimensionCap unit tests ───────────────────────────────────────
 
@@ -314,8 +349,34 @@ describe("buildStructuredScreenContext", () => {
         "route.kai_home",
         "route.ria_home",
         "route.profile_connected_systems",
+        "route.voice_settings",
       ])
     );
+  });
+
+  it("makes Voice Settings hands-free reachable from any screen", () => {
+    // The user's own request: reach Voice Settings without touching the
+    // screen, then tweak agent defaults from there. Mirrors the
+    // route.profile regression test above for the newly added contract.
+    window.history.pushState({}, "", "/marketplace");
+    document.body.innerHTML = "<h1>Connect</h1>";
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/marketplace", "marketplace"),
+      voiceContext: {},
+    });
+
+    const availableIds = (
+      context.screen_metadata as { available_action_ids: string[] }
+    ).available_action_ids;
+    expect(availableIds).toContain("route.voice_settings");
+
+    const action = getKaiActionById("route.voice_settings");
+    expect(action?.execution_target).toEqual({
+      status: "wired",
+      path: "route",
+      target: "/one/profile/preferences/voice",
+    });
   });
 
   it("caps multi-source context arrays before they enter the voice planner payload", () => {

@@ -2256,8 +2256,10 @@
       "voice_action_contract_file": "app/one/page.voice-action-contract.json",
       "voice_action_contract_ids": [
         "route.one_agents",
+        "route.one_feed",
         "route.one_location",
-        "route.one_pkm"
+        "route.one_pkm",
+        "route.voice_settings"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -2402,9 +2404,11 @@
       },
       "voice_action_contract_file": "app/one/connect/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "connect.accept_request",
         "connect.cancel_request",
         "connect.open_nearby",
         "connect.open_people",
+        "connect.reject_request",
         "connect.remove_connection",
         "connect.search_people",
         "connect.send_request",
@@ -4078,6 +4082,8 @@
         "location.add_to_circle",
         "location.approve_request",
         "location.change_share_duration",
+        "location.checkout_nearby",
+        "location.confirm_nearby_check_in",
         "location.create_circle",
         "location.decline_circle_invite",
         "location.decline_request",
@@ -4085,6 +4091,7 @@
         "location.delete_saved_location",
         "location.find_contacts",
         "location.leave_circle",
+        "location.nearby_check_in",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -4115,6 +4122,7 @@
         "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
+        "location.sos_default",
         "location.stop_share",
         "location.stop_sos",
         "location.trigger_sos"
@@ -4148,12 +4156,28 @@
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
           "backend_endpoint_family": "/api/one/location/{circles,circle-codes,circle-member-invites,sms-contacts}/*",
           "native_transport": "CapacitorHttp direct backend via the shared One Location service"
+        },
+        {
+          "service_file": "lib/services/connections-service.ts",
+          "service_methods": [
+            "syncContacts"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/connections/contact-sync",
+          "native_transport": "CapacitorHttp direct backend via ConnectionsService after local contact normalization and hashing"
         }
       ],
       "native_plugin_dependencies": [
         {
           "package": "@capacitor/share",
           "integration": "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs"
+        },
+        {
+          "package": "HushhContacts",
+          "integration": "Read-only local address-book source; raw contact records stay in WebView memory while normalized phone hashes are sent through ConnectionsService",
+          "ios": "CNContactStore read on a background queue with limited-access and truncation metadata",
+          "android": "READ_CONTACTS content-provider scan on Dispatchers.IO with distinct-contact totals and truncation metadata"
         }
       ],
       "thread_and_consent_contract": {
@@ -9039,5 +9063,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "10ec1c3fc0e6e1fcf354ea5d62936ff24c99c68d003c63bfa80d566354d32d84"
+  "content_sha256": "8a3cc62ababd8676000cee9e350557414ce4742aeab11683b46863604a381bf6"
 }

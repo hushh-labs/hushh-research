@@ -14,6 +14,7 @@ import hashlib
 import inspect
 import logging
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import UUID
 
@@ -22,13 +23,39 @@ from sqlalchemy import text
 from db.db_client import get_db
 from hushh_mcp.services.connection_graph_service import (
     ORIGIN_DIRECT_REQUEST,
+    activate_contact_sync_connections_bulk,
     ensure_connection_origin,
+    lock_connection_graph_users,
 )
-from hushh_mcp.services.feed_service import FeedService
+from hushh_mcp.services.contact_sync_contract import (
+    CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+)
+from hushh_mcp.services.requester_identity import label_from_identity_row
 
 logger = logging.getLogger(__name__)
 
 _RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
+_CONNECTION_FEED_EVENT_TYPES = frozenset(
+    {"connection_accepted", "connection_rejected", "connection_revoked"}
+)
+
+
+def _iso(value: Any) -> str | None:
+    """Stringify a DB-driver datetime before it leaves this service.
+
+    FastAPI's response encoder happily serializes a raw datetime for the REST
+    routes, but the voice tool layer hands this same dict straight to
+    Gemini Live's plain json.dumps, which does not -- a raw datetime there
+    crashes the whole live session with no result ever reaching the user.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return str(value.astimezone(timezone.utc).isoformat())
+    return str(value)
+
 
 # The SQL predicate for "this RIA profile is real enough to carry a capability".
 #
@@ -63,6 +90,11 @@ DIRECTORY_AUDIENCES = (
     DIRECTORY_AUDIENCE_PEOPLE,
     DIRECTORY_AUDIENCE_RIA,
 )
+
+CONTACT_SYNC_MAX_LOOKUPS = 1000
+CONTACT_SYNC_MINUTE_LOOKUP_LIMIT = 12_000
+CONTACT_SYNC_DAY_LOOKUP_LIMIT = 20_000
+CONTACT_SYNC_TRUSTED_PROJECTION_BATCH_SIZE = 100
 
 # Single source of truth for connection-capability display metadata. Both the
 # offer catalog and the receiver-facing proposal list read from here so the two
@@ -208,26 +240,86 @@ class ConnectionsService:
         return result.data or []
 
     def _display_name_for(self, user_id: str) -> str | None:
-        """Best-effort full display name for a user, for feed copy only.
+        """Best-effort canonical relationship-safe label for Feed copy.
 
-        Reads the same `actor_identity_cache.display_name` the connection and
-        directory queries already surface, so this never widens what the app
-        exposes about a mutual connection. Returns None when unresolved, letting
-        the feed fall back to its safe generic line.
+        The cache can contain the raw Firebase uid in ``display_name`` for a
+        user who has not synced an identity yet. Reuse the same canonical
+        display-name/email-handle ladder as push notifications so a technical
+        identifier never becomes human-facing Feed copy.
         """
         uid = (user_id or "").strip()
         if not uid:
             return None
         try:
             row = self._execute_one(
-                "SELECT display_name FROM actor_identity_cache WHERE user_id = :uid",
+                """
+                SELECT user_id, display_name, email
+                FROM actor_identity_cache
+                WHERE user_id = :uid
+                LIMIT 1
+                """,
                 {"uid": uid},
             )
         except Exception:  # noqa: BLE001 - name is cosmetic; never break the action
             logger.exception("connections.feed_display_name_lookup_failed")
             return None
-        name = str((row or {}).get("display_name") or "").strip()
-        return name or None
+        label = label_from_identity_row(row, allow_email_handle=True)
+        return label or None
+
+    def _record_connection_feed_transition(
+        self,
+        *,
+        owner_user_id: str,
+        counterpart_user_id: str,
+        actor_user_id: str,
+        event_type: str,
+        source_row_id: str,
+    ) -> None:
+        """Persist relationship history on the owning mutation transaction.
+
+        ``_execute_one`` automatically reuses ``_transaction_connection`` in
+        production. Unlike the best-effort Feed helper, failures here must
+        propagate so an accepted/rejected/revoked relationship can never
+        commit without the two corresponding, source-idempotent Feed rows.
+        """
+
+        owner = (owner_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        actor = (actor_user_id or "").strip()
+        source_id = (source_row_id or "").strip()
+        if not owner or not counterpart or not actor or not source_id:
+            raise ValueError("Connection Feed transitions require complete identities.")
+        if event_type not in _CONNECTION_FEED_EVENT_TYPES:
+            raise ValueError(f"Unsupported connection Feed event type: {event_type}")
+
+        counterpart_label = self._display_name_for(counterpart)
+        self._execute_one(
+            """
+            INSERT INTO feed_events (
+              user_id, source_domain, event_type, metadata, source_row_id
+            )
+            VALUES (
+              :owner_user_id,
+              'connections',
+              :event_type,
+              jsonb_strip_nulls(jsonb_build_object(
+                'actor_is_self', :actor_is_self,
+                'counterpart_label',
+                  NULLIF(LEFT(BTRIM(:counterpart_label), 160), '')
+              )),
+              :source_row_id
+            )
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            """,
+            {
+                "owner_user_id": owner,
+                "event_type": event_type,
+                "actor_is_self": owner == actor,
+                "counterpart_label": counterpart_label,
+                "source_row_id": source_id,
+            },
+        )
 
     @staticmethod
     def _row_mapping(row: Any) -> dict[str, Any]:
@@ -274,6 +366,104 @@ class ConnectionsService:
             return
         with connection.begin_nested():
             yield
+
+    def reserve_contact_sync_lookup_budget(self, user_id: str, lookup_count: int) -> None:
+        """Atomically consume the cross-instance contact-sync abuse budget.
+
+        SlowAPI remains an inexpensive outer request-count guard. This budget
+        is lookup-weighted and Postgres-authoritative, so splitting a large
+        address book across requests or Cloud Run instances cannot multiply
+        the allowance. The table/service seam can move to Redis/Memorystore
+        later without changing the route contract.
+        """
+
+        requester_id = str(user_id or "").strip()
+        count = int(lookup_count)
+        if not requester_id:
+            raise ConnectionsError(
+                "CONTACT_SYNC_AUTH_REQUIRED", "Sign in before syncing contacts.", status_code=401
+            )
+        if count < 1 or count > CONTACT_SYNC_MAX_LOOKUPS:
+            raise ConnectionsError(
+                "CONTACT_SYNC_LOOKUP_COUNT_INVALID",
+                f"Sync between 1 and {CONTACT_SYNC_MAX_LOOKUPS} contacts at a time.",
+                status_code=422,
+            )
+
+        with self._transaction():
+            if getattr(self, "_transaction_connection", None) is None:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_TRANSACTION_UNAVAILABLE",
+                    "Contact sync is temporarily unavailable.",
+                    status_code=503,
+                )
+            requester = self._execute_one(
+                """
+                SELECT user_id
+                FROM actor_identity_cache
+                WHERE user_id = :user_id
+                  AND phone_verified = TRUE
+                  AND phone_number IS NOT NULL
+                LIMIT 1
+                """,
+                {"user_id": requester_id},
+            )
+            if not requester:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
+                    "Verify your phone number before syncing contacts.",
+                    status_code=403,
+                )
+            # Bound per-user retention while charging. Fixed UTC buckets are
+            # sufficient for abuse control and keep the write path index-only.
+            self._execute_many(
+                """
+                DELETE FROM contact_sync_lookup_budgets
+                WHERE user_id = :user_id
+                  AND bucket_start < date_trunc('day', NOW()) - INTERVAL '2 days'
+                RETURNING user_id
+                """,
+                {"user_id": requester_id},
+            )
+            charged = self._execute_many(
+                """
+                INSERT INTO contact_sync_lookup_budgets (
+                  user_id, bucket_kind, bucket_start, lookup_count, updated_at
+                )
+                VALUES
+                  (
+                    :user_id, 'minute', date_trunc('minute', NOW()),
+                    :lookup_count, NOW()
+                  ),
+                  (
+                    :user_id, 'day', date_trunc('day', NOW()),
+                    :lookup_count, NOW()
+                  )
+                ON CONFLICT (user_id, bucket_kind, bucket_start) DO UPDATE SET
+                  lookup_count = contact_sync_lookup_budgets.lookup_count
+                    + EXCLUDED.lookup_count,
+                  updated_at = NOW()
+                WHERE contact_sync_lookup_budgets.lookup_count + EXCLUDED.lookup_count
+                  <= CASE EXCLUDED.bucket_kind
+                    WHEN 'minute' THEN :minute_limit
+                    ELSE :day_limit
+                  END
+                RETURNING bucket_kind
+                """,
+                {
+                    "user_id": requester_id,
+                    "lookup_count": count,
+                    "minute_limit": CONTACT_SYNC_MINUTE_LOOKUP_LIMIT,
+                    "day_limit": CONTACT_SYNC_DAY_LOOKUP_LIMIT,
+                },
+            )
+            if {str(row.get("bucket_kind") or "") for row in charged} != {"minute", "day"}:
+                # Raising inside engine.begin() rolls both bucket charges back.
+                raise ConnectionsError(
+                    "CONTACT_SYNC_LOOKUP_BUDGET_EXCEEDED",
+                    "You have checked many contacts recently. Try again later.",
+                    status_code=429,
+                )
 
     # ---- Resolution ----
     def _resolve_query(self, owner_user_id: str, query: str) -> str:
@@ -500,12 +690,76 @@ class ConnectionsService:
                 "label": _capability_label(row.get("capability_key")),
                 "description": _capability_description(row.get("capability_key")),
                 "status": str(row.get("status") or "pending"),
-                "createdAt": row.get("created_at"),
-                "expiresAt": row.get("expires_at"),
-                "resolvedAt": row.get("resolved_at"),
+                "createdAt": _iso(row.get("created_at")),
+                "expiresAt": _iso(row.get("expires_at")),
+                "resolvedAt": _iso(row.get("resolved_at")),
             }
             for row in rows
         ]
+
+    def _expire_pending_scope_proposals(self, request_id: str) -> int:
+        """Settle review choices whose consent window elapsed.
+
+        Acceptance owns the parent request lock. This compare-and-transition
+        still makes a concurrent maintenance sweep harmless: only the winner
+        receives rows and therefore only the winner writes EXPIRED events.
+        """
+        rows = self._execute_many(
+            """
+            UPDATE connection_scope_proposals
+            SET status = 'expired', resolved_at = COALESCE(resolved_at, NOW())
+            WHERE connection_request_id = :request_id
+              AND status = 'pending'
+              AND expires_at <= NOW()
+            RETURNING id
+            """,
+            {"request_id": request_id},
+        )
+        for row in rows:
+            self._record_scope_event(
+                str(row.get("id") or ""),
+                event_type="EXPIRED",
+                actor_user_id=None,
+                reason="scope_review_window_expired",
+            )
+        return len(rows)
+
+    def _reviewable_scope_proposals(self, request_id: str) -> list[dict[str, Any]]:
+        """Lock and return only still-current bilateral scope choices."""
+        return self._execute_many(
+            """
+            SELECT id, scope_handle, capability_key, direction,
+                   owner_user_id, receiver_user_id, status, expires_at
+            FROM connection_scope_proposals
+            WHERE connection_request_id = :request_id
+              AND status = 'pending'
+              AND expires_at > NOW()
+            ORDER BY created_at ASC, id ASC
+            FOR UPDATE
+            """,
+            {"request_id": request_id},
+        )
+
+    def _scope_proposal_history_exists(self, request_id: str) -> bool:
+        """Return whether a request ever carried a bilateral scope choice.
+
+        Expiry maintenance may settle a proposal before a caller retries the
+        request. The immutable proposal row is therefore the durable signal
+        that a now-empty pending request was a scope-review envelope, rather
+        than an ordinary connection request.
+        """
+        return bool(
+            self._execute_one(
+                """
+                SELECT id
+                FROM connection_scope_proposals
+                WHERE connection_request_id = :request_id
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """,
+                {"request_id": request_id},
+            )
+        )
 
     def expire_due_capabilities(self) -> int:
         """Expire proposal-bound capability projections atomically.
@@ -520,7 +774,7 @@ class ConnectionsService:
                 """
                 UPDATE connection_scope_proposals
                 SET status = 'expired', resolved_at = COALESCE(resolved_at, NOW())
-                WHERE status = 'active' AND expires_at <= NOW()
+                WHERE status IN ('pending', 'active') AND expires_at <= NOW()
                 RETURNING id
                 """
             )
@@ -652,7 +906,7 @@ class ConnectionsService:
                 {
                     "type": str(row.get("event_type") or ""),
                     "reason": row.get("reason"),
-                    "createdAt": row.get("created_at"),
+                    "createdAt": _iso(row.get("created_at")),
                 }
             )
         return {
@@ -723,6 +977,37 @@ class ConnectionsService:
             self._assert_directory_visible(requester_user_id, target)
 
         with self._transaction():
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            # Contact sync, disconnect, and request creation share this sorted
+            # per-user gate. Whichever action wins is fully visible to the next
+            # one, so a stale client cannot leave a redundant pending request
+            # immediately after an automatic connection is created.
+            active_connection = None
+            if transaction_connection is not None:
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={requester_user_id, target},
+                )
+                active_connection = self._execute_one(
+                    """
+                    SELECT id
+                    FROM connections
+                    WHERE user_a_id = LEAST(:a, :b)
+                      AND user_b_id = GREATEST(:a, :b)
+                      AND status = 'active'
+                    LIMIT 1
+                    """,
+                    {"a": requester_user_id, "b": target},
+                )
+            requested_scopes = self._resolve_scope_handles(target, requested_scope_handles)
+            offered_scopes = self._resolve_scope_handles(requester_user_id, offered_scope_handles)
+            if active_connection and not requested_scopes and not offered_scopes:
+                raise ConnectionsError(
+                    "CONNECTION_ALREADY_CONNECTED",
+                    "You are already connected with this person.",
+                    status_code=409,
+                )
+
             # Idempotent: if a pending request already exists (either direction), return it.
             existing = self._execute_one(
                 """
@@ -733,15 +1018,119 @@ class ConnectionsService:
                     (requester_user_id = :a AND addressee_user_id = :b)
                     OR (requester_user_id = :b AND addressee_user_id = :a)
                   )
+                ORDER BY created_at ASC, id ASC
                 LIMIT 1
+                FOR UPDATE
                 """,
                 {"a": requester_user_id, "b": target},
             )
             if existing:
-                return self._request_payload(existing)
+                # A pending request is idempotent only when it represents the
+                # same bilateral scope envelope. Returning an older request
+                # for a newly selected scope is a false success: the new scope
+                # was never proposed. Runtime transactions settle expired
+                # choices, lock the remaining proposal set, and compare it in
+                # the existing request's direction before returning it.
+                if transaction_connection is not None:
+                    existing_request_id = str(existing.get("id") or "")
+                    proposals = self._reviewable_scope_proposals(existing_request_id)
+                    expired_count = self._expire_pending_scope_proposals(existing_request_id)
+                    caller_requested = {scope["handle"] for scope in requested_scopes}
+                    caller_offered = {scope["handle"] for scope in offered_scopes}
+                    stale_scope_envelope = bool(expired_count)
+                    if (
+                        not proposals
+                        and not stale_scope_envelope
+                        and active_connection
+                        and (caller_requested or caller_offered)
+                    ):
+                        stale_scope_envelope = self._scope_proposal_history_exists(
+                            existing_request_id
+                        )
+                    if not proposals and stale_scope_envelope:
+                        cancelled = self._execute_one(
+                            """
+                            UPDATE connection_requests
+                            SET status = 'cancelled',
+                                responded_at = COALESCE(responded_at, NOW()),
+                                updated_at = NOW(),
+                                metadata = COALESCE(metadata, '{}'::jsonb)
+                                  || jsonb_build_object(
+                                    'supersededReason', 'scope_review_expired'
+                                  )
+                            WHERE id = CAST(:request_id AS UUID)
+                              AND status = 'pending'
+                            RETURNING id
+                            """,
+                            {"request_id": existing_request_id},
+                        )
+                        if not cancelled:
+                            raise ConnectionsError(
+                                "CONNECTION_SCOPE_REVIEW_STALE",
+                                "A connection scope changed or expired. Review the request again.",
+                                status_code=409,
+                            )
+                        # Continue below and create a fresh request envelope in
+                        # this same transaction. The expired proposal audit and
+                        # parent cancellation therefore commit with its replacement.
+                        existing = None
+                    else:
+                        existing_requested = {
+                            str(proposal.get("scope_handle") or "")
+                            for proposal in proposals
+                            if str(proposal.get("direction") or "") == "requested"
+                        }
+                        existing_offered = {
+                            str(proposal.get("scope_handle") or "")
+                            for proposal in proposals
+                            if str(proposal.get("direction") or "") == "offered"
+                        }
+                        same_direction = str(existing.get("requester_user_id") or "") == (
+                            requester_user_id
+                        )
+                        has_scopes = bool(
+                            existing_requested
+                            or existing_offered
+                            or caller_requested
+                            or caller_offered
+                        )
+                        if has_scopes and (
+                            not same_direction
+                            or existing_requested != caller_requested
+                            or existing_offered != caller_offered
+                        ):
+                            raise ConnectionsError(
+                                "CONNECTION_SCOPE_REVIEW_ALREADY_PENDING",
+                                "A different connection scope review is already pending.",
+                                status_code=409,
+                            )
+                if existing:
+                    return self._request_payload(existing)
 
-            requested_scopes = self._resolve_scope_handles(target, requested_scope_handles)
-            offered_scopes = self._resolve_scope_handles(requester_user_id, offered_scope_handles)
+            # `accept_request` owns the pending-request row rather than this
+            # graph gate. If it was already accepting the row when our first
+            # connection read ran, the pending SELECT above waits for that
+            # transaction and then sees no pending row. Re-read the canonical
+            # graph after that wait so its newly committed connection cannot
+            # be followed by a redundant unscoped request.
+            if transaction_connection is not None and active_connection is None:
+                active_connection = self._execute_one(
+                    """
+                    SELECT id
+                    FROM connections
+                    WHERE user_a_id = LEAST(:a, :b)
+                      AND user_b_id = GREATEST(:a, :b)
+                      AND status = 'active'
+                    LIMIT 1
+                    """,
+                    {"a": requester_user_id, "b": target},
+                )
+                if active_connection and not requested_scopes and not offered_scopes:
+                    raise ConnectionsError(
+                        "CONNECTION_ALREADY_CONNECTED",
+                        "You are already connected with this person.",
+                        status_code=409,
+                    )
 
             row = self._execute_one(
                 """
@@ -832,9 +1221,11 @@ class ConnectionsService:
         Exact radius was checked against encrypted anchors immediately before
         this call. The presence versions bind that assessment to this transaction:
         if either owner checks out, expires, or checks in elsewhere first, no
-        request is written. Both presence rows are locked in canonical owner-id
-        order so opposite-direction requests cannot race past one another. The
-        nearby source is deliberately not copied into durable request metadata.
+        request is written. The alias is resolved without a row lock, then the
+        same sorted graph gate as contact sync is acquired before both presence
+        rows are locked and revalidated. Opposite-direction and contact-sync
+        writes therefore cannot race past one another. The nearby source is
+        deliberately not copied into durable request metadata.
         """
 
         requester = (requester_user_id or "").strip()
@@ -855,11 +1246,10 @@ class ConnectionsService:
         }
         db = get_db()
         with db.engine.begin() as conn:
-            # READ COMMITTED takes a fresh snapshot per statement. Acquiring and
-            # consuming the canonical pair locks first means the mutation query
-            # below can see a reverse pending request committed by a waiter that
-            # held these same locks immediately before this transaction.
-            conn.execute(
+            # Resolve the opaque alias before the shared graph gate without
+            # holding a presence row. Taking a presence lock first would invert
+            # account-reset's graph-gate -> presence order and create a deadlock.
+            candidate_rows = conn.execute(
                 text(
                     """
                     SELECT p.owner_user_id
@@ -874,11 +1264,23 @@ class ConnectionsService:
                       AND p.status = 'active'
                       AND p.expires_at > NOW()
                     ORDER BY p.owner_user_id
-                    FOR UPDATE OF p
                     """
                 ),
                 params,
             ).fetchall()
+            candidate_owner_ids = {
+                str(self._row_mapping(row).get("owner_user_id") or "").strip()
+                for row in candidate_rows
+            }
+            candidate_targets = sorted(candidate_owner_ids - {requester})
+            if requester not in candidate_owner_ids or len(candidate_targets) != 1:
+                return None
+            target_user_id = candidate_targets[0]
+            lock_connection_graph_users(
+                conn,
+                user_ids={requester, target_user_id},
+            )
+            params = {**params, "target_user_id": target_user_id}
 
             result = conn.execute(
                 text(
@@ -911,6 +1313,7 @@ class ConnectionsService:
                       JOIN locked target
                         ON target.participant_alias = CAST(:participant_alias AS UUID)
                        AND target.owner_user_id <> viewer.owner_user_id
+                       AND target.owner_user_id = :target_user_id
                       WHERE viewer.owner_user_id = :requester_user_id
                         AND viewer.version = :requester_presence_version
                         AND target.version = :target_presence_version
@@ -1272,6 +1675,7 @@ class ConnectionsService:
         actor_user_id: str,
         selected_requested_scope_handles: list[str] | None,
         selected_offered_scope_handles: list[str] | None,
+        proposals: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         selected_requested = {
             str(handle or "").strip() for handle in (selected_requested_scope_handles or [])
@@ -1279,23 +1683,17 @@ class ConnectionsService:
         selected_offered = {
             str(handle or "").strip() for handle in (selected_offered_scope_handles or [])
         }
-        proposals = self._execute_many(
-            """
-            SELECT id, scope_handle, capability_key, direction, owner_user_id, receiver_user_id, status
-            FROM connection_scope_proposals
-            WHERE connection_request_id = :request_id AND status = 'pending'
-            ORDER BY created_at ASC, id ASC
-            """,
-            {"request_id": request_id},
+        reviewable_proposals = (
+            self._reviewable_scope_proposals(request_id) if proposals is None else proposals
         )
         known_requested = {
             str(proposal.get("scope_handle") or "")
-            for proposal in proposals
+            for proposal in reviewable_proposals
             if str(proposal.get("direction") or "") == "requested"
         }
         known_offered = {
             str(proposal.get("scope_handle") or "")
-            for proposal in proposals
+            for proposal in reviewable_proposals
             if str(proposal.get("direction") or "") == "offered"
         }
         if not selected_requested.issubset(known_requested) or not selected_offered.issubset(
@@ -1307,7 +1705,7 @@ class ConnectionsService:
                 status_code=409,
             )
         results: list[dict[str, Any]] = []
-        for proposal in proposals:
+        for proposal in reviewable_proposals:
             direction = str(proposal.get("direction") or "")
             scope_handle = str(proposal.get("scope_handle") or "")
             selected = scope_handle in (
@@ -1333,15 +1731,23 @@ class ConnectionsService:
                     # for any separate materialization contract.
                     activated = True
                 next_status = "active" if activated else "declined"
-            self._execute_one(
+            transitioned = self._execute_one(
                 """
                 UPDATE connection_scope_proposals
                 SET status = :status, resolved_at = NOW()
-                WHERE id = CAST(:proposal_id AS UUID) AND status = 'pending'
+                WHERE id = CAST(:proposal_id AS UUID)
+                  AND status = 'pending'
+                  AND expires_at > NOW()
                 RETURNING id
                 """,
                 {"status": next_status, "proposal_id": str(proposal.get("id") or "")},
             )
+            if not transitioned:
+                raise ConnectionsError(
+                    "CONNECTION_SCOPE_REVIEW_STALE",
+                    "A connection scope changed or expired. Review the request again.",
+                    status_code=409,
+                )
             self._record_scope_event(
                 str(proposal.get("id") or ""),
                 event_type="ACTIVATED" if next_status == "active" else "DECLINED",
@@ -1429,6 +1835,57 @@ class ConnectionsService:
                 )
         except Exception:  # noqa: BLE001 - a projection cannot roll back consent
             logger.exception("connections.trusted_circle_join_failed")
+
+    def _join_trusted_system_circles_bulk(
+        self,
+        *,
+        pairs: list[tuple[str, str]],
+    ) -> None:
+        """Project Trusted rosters after the canonical graph has committed.
+
+        Each bounded batch owns a fresh transaction and shares a per-user
+        advisory gate with account reset/deletion. The Circle SQL revalidates
+        the active graph, so a cleanup that wins the gate cannot be undone by a
+        late best-effort projection.
+        """
+
+        canonical_pairs = sorted(
+            {
+                (str(first or "").strip(), str(second or "").strip())
+                for first, second in pairs
+                if str(first or "").strip()
+                and str(second or "").strip()
+                and str(first or "").strip() != str(second or "").strip()
+            }
+        )
+        if not canonical_pairs:
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        for start in range(0, len(canonical_pairs), CONTACT_SYNC_TRUSTED_PROJECTION_BATCH_SIZE):
+            batch = canonical_pairs[start : start + CONTACT_SYNC_TRUSTED_PROJECTION_BATCH_SIZE]
+            try:
+                with self._transaction():
+                    connection = getattr(self, "_transaction_connection", None)
+                    if connection is None:
+                        logger.info("connections.trusted_circle_bulk_join_skipped_no_transaction")
+                        return
+                    lock_connection_graph_users(
+                        connection,
+                        user_ids={user_id for pair in batch for user_id in pair},
+                    )
+                    OneLocationCircleService.ensure_trusted_memberships_for_pairs(
+                        connection,
+                        pairs=batch,
+                        source="connection",
+                    )
+            except Exception:  # noqa: BLE001 - a projection can self-heal on bootstrap
+                logger.exception(
+                    "connections.trusted_circle_bulk_join_failed batch_start=%s",
+                    start,
+                )
 
     def _end_one_location_circle_memberships(
         self,
@@ -1608,6 +2065,95 @@ class ConnectionsService:
             {"user_a": user_a_id, "user_b": user_b_id},
         )
 
+    def _cancel_pending_pair_requests(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+        actor_user_id: str,
+    ) -> int:
+        """Settle every still-reviewable envelope when a pair disconnects.
+
+        The graph advisory gate is already held by the caller. Expired choices
+        retain expiry semantics; current choices are declined by the explicit
+        disconnect. Cancelling the parent in the same statement prevents a
+        later acceptance from silently recreating the relationship or a grant.
+        """
+        rows = self._execute_many(
+            """
+            WITH pending_requests AS MATERIALIZED (
+              SELECT request.id
+              FROM connection_requests request
+              WHERE request.status = 'pending'
+                AND (
+                  (request.requester_user_id = :user_a
+                   AND request.addressee_user_id = :user_b)
+                  OR
+                  (request.requester_user_id = :user_b
+                   AND request.addressee_user_id = :user_a)
+                )
+              ORDER BY request.created_at ASC, request.id ASC
+              FOR UPDATE
+            ),
+            expired_proposals AS (
+              UPDATE connection_scope_proposals proposal
+              SET status = 'expired',
+                  resolved_at = COALESCE(proposal.resolved_at, NOW())
+              FROM pending_requests request
+              WHERE proposal.connection_request_id = request.id
+                AND proposal.status = 'pending'
+                AND proposal.expires_at <= NOW()
+              RETURNING proposal.id
+            ),
+            expired_events AS (
+              INSERT INTO connection_scope_proposal_events (
+                connection_scope_proposal_id, event_type,
+                actor_user_id, reason
+              )
+              SELECT id, 'EXPIRED', NULL, 'scope_review_window_expired'
+              FROM expired_proposals
+              RETURNING id
+            ),
+            declined_proposals AS (
+              UPDATE connection_scope_proposals proposal
+              SET status = 'declined',
+                  resolved_at = COALESCE(proposal.resolved_at, NOW())
+              FROM pending_requests request
+              WHERE proposal.connection_request_id = request.id
+                AND proposal.status = 'pending'
+                AND (proposal.expires_at IS NULL OR proposal.expires_at > NOW())
+              RETURNING proposal.id
+            ),
+            declined_events AS (
+              INSERT INTO connection_scope_proposal_events (
+                connection_scope_proposal_id, event_type,
+                actor_user_id, reason
+              )
+              SELECT id, 'DECLINED', :actor_user_id, 'connection_disconnected'
+              FROM declined_proposals
+              RETURNING id
+            )
+            UPDATE connection_requests request
+            SET status = 'cancelled',
+                responded_at = COALESCE(request.responded_at, NOW()),
+                updated_at = NOW(),
+                metadata = COALESCE(request.metadata, '{}'::jsonb)
+                  || jsonb_build_object(
+                    'supersededReason', 'connection_disconnected'
+                  )
+            FROM pending_requests pending
+            WHERE request.id = pending.id
+              AND request.status = 'pending'
+            RETURNING request.id
+            """,
+            {
+                "user_a": user_a_id,
+                "user_b": user_b_id,
+                "actor_user_id": actor_user_id,
+            },
+        )
+        return len(rows)
+
     def accept_request(
         self,
         user_id: str,
@@ -1618,7 +2164,41 @@ class ConnectionsService:
     ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         with self._transaction():
-            req = self._load_request(request_id, for_update=True)
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is not None:
+                # Read the immutable participants before taking any row lock so
+                # every graph writer can acquire the same sorted advisory gate
+                # first. Locking the request before the connection row creates
+                # the inverse of contact-sync/disconnect ordering and can
+                # deadlock accept against either path.
+                candidate = self._load_request(request_id, for_update=False)
+                if str(candidate.get("addressee_user_id")) != user_id:
+                    raise ConnectionsError(
+                        "CONNECTION_NOT_ADDRESSEE",
+                        "Only the addressee can accept.",
+                        status_code=403,
+                    )
+                candidate_requester = str(candidate.get("requester_user_id") or "")
+                candidate_addressee = str(candidate.get("addressee_user_id") or "")
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={candidate_requester, candidate_addressee},
+                )
+                req = self._load_request(request_id, for_update=True)
+                if (
+                    str(req.get("requester_user_id") or "") != candidate_requester
+                    or str(req.get("addressee_user_id") or "") != candidate_addressee
+                ):
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_CHANGED",
+                        "The connection request changed while it was being reviewed.",
+                        status_code=409,
+                    )
+            else:
+                # Lightweight unit doubles do not expose a transaction
+                # connection. Preserve their single-read behavior; every real
+                # runtime database goes through the gated path above.
+                req = self._load_request(request_id, for_update=True)
             if str(req.get("addressee_user_id")) != user_id:
                 raise ConnectionsError(
                     "CONNECTION_NOT_ADDRESSEE", "Only the addressee can accept.", status_code=403
@@ -1635,7 +2215,9 @@ class ConnectionsService:
                     "CONNECTION_NOT_PENDING", "Request is no longer pending.", status_code=409
                 )
 
-            pending_proposals = self._proposal_items(str(req.get("id") or ""))
+            canonical_request_id = str(req.get("id") or "")
+            self._expire_pending_scope_proposals(canonical_request_id)
+            pending_proposals = self._reviewable_scope_proposals(canonical_request_id)
             if pending_proposals and (
                 selected_requested_scope_handles is None or selected_offered_scope_handles is None
             ):
@@ -1716,10 +2298,11 @@ class ConnectionsService:
             # 88 of 390 accepts.
             self._join_trusted_system_circles(user_a_id=user_a, user_b_id=user_b)
             scope_results = self._resolve_scope_proposals(
-                request_id=str(req.get("id") or ""),
+                request_id=canonical_request_id,
                 actor_user_id=user_id,
                 selected_requested_scope_handles=selected_requested_scope_handles,
                 selected_offered_scope_handles=selected_offered_scope_handles,
+                proposals=pending_proposals,
             )
             self._execute_one(
                 """
@@ -1731,26 +2314,15 @@ class ConnectionsService:
                 {"id": req.get("id")},
             )
             connection_id = (connection or {}).get("id")
-
-        # Feed is a best-effort, post-commit projection. It must not cause a
-        # caller to retry an already-authorized connection transition.
-        for owner, counterpart in ((user_id, requester), (requester, user_id)):
-            try:
-                counterpart_metadata: dict[str, Any] = {
-                    "counterpart_user_id": counterpart,
-                    "actor_is_self": owner == user_id,
-                }
-                counterpart_name = self._display_name_for(counterpart)
-                if counterpart_name:
-                    counterpart_metadata["counterpart_label"] = counterpart_name
-                FeedService().record_event(
-                    user_id=owner,
-                    source_domain="connections",
+            source_request_id = str(req.get("id") or "")
+            for owner, counterpart in ((user_id, requester), (requester, user_id)):
+                self._record_connection_feed_transition(
+                    owner_user_id=owner,
+                    counterpart_user_id=counterpart,
+                    actor_user_id=user_id,
                     event_type="connection_accepted",
-                    metadata=counterpart_metadata,
+                    source_row_id=source_request_id,
                 )
-            except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
-                logger.exception("connections.accepted_feed_projection_failed")
 
         # Accepting a connection grants nothing on its own. Location sharing is
         # opt-in and one-directional: it starts only when a person explicitly
@@ -1826,7 +2398,16 @@ class ConnectionsService:
                 raise ConnectionsError(
                     "CONNECTION_NOT_ADDRESSEE", "Only the addressee can reject.", status_code=403
                 )
-            self._execute_one(
+            request_status = str(req.get("status") or "")
+            if request_status == "rejected":
+                return {"status": "rejected", "requestId": req.get("id")}
+            if request_status != "pending":
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
+            updated_request = self._execute_one(
                 """
                 UPDATE connection_requests
                 SET status = 'rejected', responded_at = NOW(), updated_at = NOW()
@@ -1835,6 +2416,12 @@ class ConnectionsService:
                 """,
                 {"id": req.get("id")},
             )
+            if not updated_request:
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
             self._resolve_pending_scope_proposals(
                 str(req.get("id") or ""),
                 status="declined",
@@ -1842,23 +2429,15 @@ class ConnectionsService:
                 reason="connection_rejected",
             )
             requester = str(req.get("requester_user_id"))
-        for owner, counterpart in ((requester, user_id), (user_id, requester)):
-            try:
-                rejected_metadata: dict[str, Any] = {
-                    "counterpart_user_id": counterpart,
-                    "actor_is_self": owner == user_id,
-                }
-                rejected_name = self._display_name_for(counterpart)
-                if rejected_name:
-                    rejected_metadata["counterpart_label"] = rejected_name
-                FeedService().record_event(
-                    user_id=owner,
-                    source_domain="connections",
+            source_request_id = str(req.get("id") or "")
+            for owner, counterpart in ((requester, user_id), (user_id, requester)):
+                self._record_connection_feed_transition(
+                    owner_user_id=owner,
+                    counterpart_user_id=counterpart,
+                    actor_user_id=user_id,
                     event_type="connection_rejected",
-                    metadata=rejected_metadata,
+                    source_row_id=source_request_id,
                 )
-            except Exception:  # noqa: BLE001 - projection cannot roll back rejection
-                logger.exception("connections.rejected_feed_projection_failed")
         return {"status": "rejected", "requestId": req.get("id")}
 
     def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
@@ -1975,7 +2554,7 @@ class ConnectionsService:
                 "addresseeUserId": str(r.get("addressee_user_id") or ""),
                 "status": str(r.get("status") or ""),
                 "message": r.get("message"),
-                "createdAt": r.get("created_at"),
+                "createdAt": _iso(r.get("created_at")),
                 "counterpartUserId": str(r.get("counterpart_user_id") or ""),
                 "counterpartDisplayName": r.get("counterpart_display_name"),
                 "scopes": self._proposal_items(str(r.get("id") or "")),
@@ -2158,36 +2737,64 @@ class ConnectionsService:
             # accepts `audience` and splits in SQL.
             people = self._filter_people_by_audience(people, audience)
 
-        # Load the caller's pending requests (both directions) and active
-        # connections once, then classify each person in Python.
+        # Annotate only the returned page. Reading the caller's entire pending
+        # and connected graph here made a 20-row directory page scale with all
+        # 5,000 relationships instead of with the page the caller can see.
+        page_user_ids = sorted(
+            {str(person.get("userId") or "") for person in people} - {"", user_id}
+        )
         out_pending = {
             str(r.get("addressee_user_id") or "")
-            for r in self._execute_many(
-                """
+            for r in (
+                self._execute_many(
+                    """
                 SELECT addressee_user_id FROM connection_requests
-                WHERE requester_user_id = :user_id AND status = 'pending'
+                WHERE requester_user_id = :user_id
+                  AND addressee_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
+                  AND status = 'pending'
                 """,
-                {"user_id": user_id},
+                    {"user_id": user_id, "page_user_ids": page_user_ids},
+                )
+                if page_user_ids
+                else []
             )
         }
         in_pending = {
             str(r.get("requester_user_id") or "")
-            for r in self._execute_many(
-                """
+            for r in (
+                self._execute_many(
+                    """
                 SELECT requester_user_id FROM connection_requests
-                WHERE addressee_user_id = :user_id AND status = 'pending'
+                WHERE addressee_user_id = :user_id
+                  AND requester_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
+                  AND status = 'pending'
                 """,
-                {"user_id": user_id},
+                    {"user_id": user_id, "page_user_ids": page_user_ids},
+                )
+                if page_user_ids
+                else []
             )
         }
         connected: set[str] = set()
-        for r in self._execute_many(
-            """
-            SELECT user_a_id, user_b_id FROM connections
-            WHERE status = 'active' AND (user_a_id = :user_id OR user_b_id = :user_id)
-            """,
-            {"user_id": user_id},
-        ):
+        connection_rows = (
+            self._execute_many(
+                """
+                SELECT user_a_id, user_b_id FROM connections
+                WHERE status = 'active'
+                  AND (
+                    (user_a_id = :user_id
+                     AND user_b_id = ANY(CAST(:page_user_ids AS TEXT[])))
+                    OR
+                    (user_b_id = :user_id
+                     AND user_a_id = ANY(CAST(:page_user_ids AS TEXT[])))
+                  )
+                """,
+                {"user_id": user_id, "page_user_ids": page_user_ids},
+            )
+            if page_user_ids
+            else []
+        )
+        for r in connection_rows:
             a = str(r.get("user_a_id") or "")
             b = str(r.get("user_b_id") or "")
             connected.add(b if a == user_id else a)
@@ -2226,13 +2833,126 @@ class ConnectionsService:
             "audience": audience,
         }
 
+    @staticmethod
+    def _voice_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
+        updated_at = (row or {}).get("updated_at")
+        return {
+            "shareScopesFromLastRequest": bool(
+                (row or {}).get("share_scopes_from_last_request", False)
+            ),
+            "updatedAt": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+        }
+
+    def get_last_request_scope_handles(
+        self, *, requester_user_id: str, addressee_user_id: str
+    ) -> dict[str, list[str]]:
+        """Scope handles from this requester's most recent request to this
+        exact recipient, split by direction. Empty for a first-time
+        recipient -- there is deliberately no wider "usual scopes" fallback,
+        so a repeat request can only ever offer what this specific person was
+        already asked before, never a guess extrapolated from someone else.
+        """
+        latest_request = self._execute_one(
+            """
+            SELECT id
+            FROM connection_requests
+            WHERE requester_user_id = :requester_user_id
+              AND addressee_user_id = :addressee_user_id
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {
+                "requester_user_id": requester_user_id,
+                "addressee_user_id": addressee_user_id,
+            },
+        )
+        if not latest_request:
+            return {"requestedScopeHandles": [], "offeredScopeHandles": []}
+        proposals = self._execute_many(
+            """
+            SELECT scope_handle, direction
+            FROM connection_scope_proposals
+            WHERE connection_request_id = CAST(:request_id AS UUID)
+            """,
+            {"request_id": str(latest_request.get("id") or "")},
+        )
+        return {
+            "requestedScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "requested" and row.get("scope_handle")
+            ],
+            "offeredScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "offered" and row.get("scope_handle")
+            ],
+        }
+
+    def get_voice_preferences(self, *, user_id: str) -> dict[str, Any]:
+        """Return the standing default for voice-initiated connection requests.
+
+        A missing row means the person has never set a preference: reusing
+        scopes from a recipient's last request defaults off, matching
+        `connect.send_request`'s own current always-empty behavior. It never
+        grants access by itself -- the recipient still approves every
+        request -- so no lock or audit event is needed here.
+        """
+        row = self._execute_one(
+            """
+            SELECT share_scopes_from_last_request, updated_at
+            FROM connection_voice_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return self._voice_preferences_payload(row)
+
+    def update_voice_preferences(
+        self, *, user_id: str, share_scopes_from_last_request: bool
+    ) -> dict[str, Any]:
+        """Write the person's standing voice-request scope-sharing default."""
+        row = self._execute_one(
+            """
+            INSERT INTO connection_voice_preferences (
+              user_id, share_scopes_from_last_request, created_at, updated_at
+            ) VALUES (
+              :user_id, :share_scopes_from_last_request, NOW(), NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+              share_scopes_from_last_request = EXCLUDED.share_scopes_from_last_request,
+              updated_at = NOW()
+            RETURNING share_scopes_from_last_request, updated_at
+            """,
+            {
+                "user_id": user_id,
+                "share_scopes_from_last_request": share_scopes_from_last_request,
+            },
+        )
+        if not row:
+            raise ConnectionsError(
+                "CONNECTION_VOICE_PREFERENCES_UPDATE_FAILED",
+                "Could not update voice preferences.",
+                status_code=500,
+            )
+        return self._voice_preferences_payload(row)
+
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
         rows = self._execute_many(
             """
             SELECT c.id AS connection_id,
                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
-                   a.display_name, a.photo_url, c.created_at
+                   a.display_name, a.photo_url, c.created_at,
+                   EXISTS (
+                     SELECT 1
+                     FROM connection_origins contact_origin
+                     WHERE contact_origin.connection_id = c.id
+                       AND contact_origin.status = 'active'
+                       AND contact_origin.origin_kind = 'contact_sync'
+                       AND contact_origin.source_ref = :user_id
+                   ) AS connected_from_contacts
             FROM connections c
             LEFT JOIN actor_identity_cache a
               ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
@@ -2256,31 +2976,626 @@ class ConnectionsService:
                 "userId": str(r.get("user_id") or ""),
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
-                "createdAt": r.get("created_at"),
+                "createdAt": _iso(r.get("created_at")),
                 "isRia": str(r.get("user_id") or "") in ria_user_ids,
+                "connectedFromContacts": bool(r.get("connected_from_contacts")),
             }
             for r in rows
         ]
 
+    def list_connections_page(
+        self,
+        user_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+        audience: str = DIRECTORY_AUDIENCE_ALL,
+    ) -> dict[str, Any]:
+        """Return a stable bounded connection page without truncating legacy reads."""
+
+        viewer_id = str(user_id or "").strip()
+        normalized_page = max(1, int(page or 1))
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        normalized_query = str(query or "").strip().lower()
+        normalized_audience = str(audience or DIRECTORY_AUDIENCE_ALL).strip().lower()
+        if normalized_audience not in {DIRECTORY_AUDIENCE_ALL, DIRECTORY_AUDIENCE_RIA}:
+            normalized_audience = DIRECTORY_AUDIENCE_ALL
+        offset = (normalized_page - 1) * normalized_limit
+
+        rows = self._execute_many(
+            f"""
+            WITH filtered AS (
+              SELECT
+                connection.id AS connection_id,
+                CASE
+                  WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                  ELSE connection.user_a_id
+                END AS user_id,
+                identity.display_name, identity.photo_url, connection.created_at,
+                LOWER(BTRIM(COALESCE(
+                  NULLIF(identity.display_name, ''),
+                  CASE
+                    WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                    ELSE connection.user_a_id
+                  END
+                ))) AS normalized_name
+              FROM connections connection
+              LEFT JOIN actor_identity_cache identity
+                ON identity.user_id = CASE
+                  WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                  ELSE connection.user_a_id
+                END
+              WHERE connection.status = 'active'
+                AND (
+                  connection.user_a_id = :user_id
+                  OR connection.user_b_id = :user_id
+                )
+                AND (
+                  :query = ''
+                  OR POSITION(
+                    :query IN LOWER(BTRIM(COALESCE(
+                      NULLIF(identity.display_name, ''),
+                      CASE
+                        WHEN connection.user_a_id = :user_id
+                        THEN connection.user_b_id
+                        ELSE connection.user_a_id
+                      END
+                    )))
+                  ) > 0
+                )
+                AND (
+                  :audience = 'all'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_filter
+                    WHERE ria_filter.user_id = CASE
+                      WHEN connection.user_a_id = :user_id
+                      THEN connection.user_b_id
+                      ELSE connection.user_a_id
+                    END
+                      AND {_RIA_VERIFIED_STATUS_SQL}
+                  )
+                )
+            ),
+            total AS (
+              SELECT COUNT(*)::BIGINT AS total_count FROM filtered
+            ),
+            page_rows AS (
+              SELECT *
+              FROM filtered
+              ORDER BY normalized_name, user_id, connection_id
+              OFFSET :offset
+              LIMIT :limit
+            )
+            SELECT
+              page_rows.connection_id, page_rows.user_id,
+              page_rows.display_name, page_rows.photo_url,
+              page_rows.created_at, page_rows.normalized_name,
+              total.total_count,
+              CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
+                SELECT 1
+                FROM connection_origins contact_origin
+                WHERE contact_origin.connection_id = page_rows.connection_id
+                  AND contact_origin.status = 'active'
+                  AND contact_origin.origin_kind = 'contact_sync'
+                  AND contact_origin.source_ref = :user_id
+              ) END AS connected_from_contacts,
+              CASE WHEN page_rows.user_id IS NULL THEN FALSE ELSE EXISTS (
+                SELECT 1
+                FROM ria_profiles ria_annotation
+                WHERE ria_annotation.user_id = page_rows.user_id
+                  AND {_RIA_VERIFIED_STATUS_SQL}
+              ) END AS is_ria
+            FROM total
+            LEFT JOIN page_rows ON TRUE
+            ORDER BY page_rows.normalized_name, page_rows.user_id,
+                     page_rows.connection_id
+            """,  # nosec B608 - the RIA predicate is a static module constant.
+            {
+                "user_id": viewer_id,
+                "query": normalized_query,
+                "audience": normalized_audience,
+                "offset": offset,
+                "limit": normalized_limit,
+            },
+        )
+        total_count = int((rows[0] if rows else {}).get("total_count") or 0)
+        page_rows = [row for row in rows if row.get("connection_id")]
+        items = [
+            {
+                "connectionId": str(row.get("connection_id") or ""),
+                "userId": str(row.get("user_id") or ""),
+                "displayName": row.get("display_name"),
+                "photoUrl": row.get("photo_url"),
+                "createdAt": row.get("created_at"),
+                "isRia": bool(row.get("is_ria")),
+                "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            }
+            for row in page_rows
+        ]
+        return {
+            "items": items,
+            "page": normalized_page,
+            "hasMore": offset + len(items) < total_count,
+            "totalCount": total_count,
+            "audience": normalized_audience,
+        }
+
+    def sync_contact_matches(
+        self,
+        user_id: str,
+        *,
+        phone_lookups: list[dict[str, Any]],
+        matches: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Materialize eligible contact matches without broadening consent.
+
+        Matching remains read-only and happens before this method. This method
+        re-derives every digest from the current verified server phone, locks
+        relationship state, and writes all canonical graph projections inside
+        one transaction. It never creates a location/information grant.
+        """
+
+        requester_id = str(user_id or "").strip()
+        if not requester_id:
+            raise ConnectionsError(
+                "CONTACT_SYNC_AUTH_REQUIRED", "Sign in before syncing contacts.", status_code=401
+            )
+        if len(phone_lookups) > CONTACT_SYNC_MAX_LOOKUPS or len(matches) > CONTACT_SYNC_MAX_LOOKUPS:
+            raise ConnectionsError(
+                "CONTACT_SYNC_LOOKUP_COUNT_INVALID",
+                f"Sync at most {CONTACT_SYNC_MAX_LOOKUPS} contacts at a time.",
+                status_code=422,
+            )
+
+        proofs: dict[str, tuple[str, str]] = {}
+        for lookup in phone_lookups:
+            lookup_id = str(lookup.get("lookup_id") or "").strip()
+            digest = str(lookup.get("hash") or "").strip().lower()
+            last4 = str(lookup.get("last4") or "").strip()
+            proof_valid = (
+                bool(lookup_id)
+                and len(digest) == 64
+                and all(ch in "0123456789abcdef" for ch in digest)
+                and len(last4) == 4
+                and all(ch in "0123456789" for ch in last4)
+            )
+            if not proof_valid:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_LOOKUP_PROOF_INVALID",
+                    "Each contact-sync proof must include a SHA-256 digest and exactly four trailing digits.",
+                    status_code=422,
+                )
+            proofs[lookup_id] = (digest, last4)
+
+        normalized_matches: list[dict[str, Any]] = []
+        seen_lookup_ids: set[str] = set()
+        for match in matches:
+            lookup_id = str(match.get("lookup_id") or "").strip()
+            target_user_id = str(match.get("user_id") or "").strip()
+            if (
+                not lookup_id
+                or lookup_id in seen_lookup_ids
+                or lookup_id not in proofs
+                or not target_user_id
+                or target_user_id == requester_id
+            ):
+                continue
+            seen_lookup_ids.add(lookup_id)
+            normalized_matches.append({**match, "lookup_id": lookup_id, "user_id": target_user_id})
+
+        if not normalized_matches:
+            return {
+                "checkedLookupCount": len(phone_lookups),
+                "matchedCount": 0,
+                "autoConnectedCount": 0,
+                "alreadyConnectedCount": 0,
+                "requestRequiredCount": 0,
+                "suppressedCount": 0,
+                "indeterminateLookupIds": [],
+                "items": [],
+            }
+
+        candidate_user_ids = sorted({str(item["user_id"]) for item in normalized_matches})
+        proof_items = sorted(
+            (
+                str(item["lookup_id"]),
+                proofs[str(item["lookup_id"])][0],
+                proofs[str(item["lookup_id"])][1],
+            )
+            for item in normalized_matches
+        )
+        outcomes: list[dict[str, Any]] = []
+        trusted_projection_pairs: list[tuple[str, str]] = []
+        with self._transaction():
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is None:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_TRANSACTION_UNAVAILABLE",
+                    "Contact sync is temporarily unavailable.",
+                    status_code=503,
+                )
+            # Reset/deletion takes this same gate before touching Circles or
+            # connections. Acquire it before every graph row lock so cleanup
+            # cannot finish a DELETE and then be followed by a late edge
+            # recreation for either side of the pair.
+            lock_connection_graph_users(
+                transaction_connection,
+                user_ids={requester_id, *candidate_user_ids},
+            )
+            # Connections precede identity in the global lock order used by
+            # full account deletion. Existing rows are locked first so contact
+            # sync never holds the identity SHARE lock while waiting for a
+            # transaction that already owns the same connection row.
+            existing_rows = self._execute_many(
+                """
+                SELECT
+                  connection.id, connection.user_a_id, connection.user_b_id,
+                  connection.status,
+                  CASE
+                    WHEN connection.user_a_id = :requester_id THEN connection.user_b_id
+                    ELSE connection.user_a_id
+                  END AS target_user_id
+                FROM connections connection
+                WHERE (
+                    connection.user_a_id = :requester_id
+                    AND connection.user_b_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                  ) OR (
+                    connection.user_b_id = :requester_id
+                    AND connection.user_a_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                  )
+                ORDER BY connection.user_a_id, connection.user_b_id
+                FOR UPDATE
+                """,
+                {"requester_id": requester_id, "candidate_user_ids": candidate_user_ids},
+            )
+            existing_by_target: dict[str, dict[str, Any]] = {}
+            for row in existing_rows:
+                target = str(row.get("target_user_id") or "")
+                if target in candidate_user_ids and {
+                    str(row.get("user_a_id") or ""),
+                    str(row.get("user_b_id") or ""),
+                } == {requester_id, target}:
+                    existing_by_target[target] = row
+
+            # Exact proof uniqueness is an identity-cache invariant at the
+            # mutation boundary, not merely a property of the earlier async
+            # lookup. SHARE is compatible across concurrent syncs while it
+            # blocks every INSERT/UPDATE/DELETE writer's ROW EXCLUSIVE lock.
+            # The recount below and all graph writes therefore observe one
+            # stable set of verified phone bindings. This avoids selecting an
+            # arbitrary account if a stale duplicate arrives between match and
+            # mutation without forcing a risky data-cleanup migration.
+            self._execute_many("LOCK TABLE actor_identity_cache IN SHARE MODE")
+            # Read requester and candidate identities in canonical order. The
+            # table SHARE lock already keeps those rows stable through commit,
+            # so row locks would add contention without strengthening safety.
+            locked_identity_rows = self._execute_many(
+                """
+                SELECT user_id, phone_number, phone_verified, display_name,
+                       photo_url, custom_photo_url
+                FROM actor_identity_cache
+                WHERE user_id = ANY(CAST(:identity_user_ids AS TEXT[]))
+                ORDER BY user_id
+                """,
+                {"identity_user_ids": sorted({requester_id, *candidate_user_ids})},
+            )
+            locked_identities = {str(row.get("user_id") or ""): row for row in locked_identity_rows}
+            requester = locked_identities.get(requester_id) or {}
+            if (
+                not bool(requester.get("phone_verified"))
+                or not str(requester.get("phone_number") or "").strip()
+            ):
+                raise ConnectionsError(
+                    "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
+                    "Verify your phone number before syncing contacts.",
+                    status_code=403,
+                )
+            proof_match_rows = self._execute_many(
+                """
+                WITH submitted_lookup AS (
+                  SELECT lookup_id, digest_hex, last4
+                  FROM UNNEST(
+                    CAST(:lookup_ids AS TEXT[]),
+                    CAST(:digest_hexes AS TEXT[]),
+                    CAST(:last4_values AS TEXT[])
+                  ) AS submitted(lookup_id, digest_hex, last4)
+                ),
+                correlated_identity AS (
+                  SELECT
+                    submitted.lookup_id,
+                    identity.user_id,
+                    COUNT(*) OVER (
+                      PARTITION BY submitted.lookup_id
+                    ) AS match_count
+                  FROM submitted_lookup submitted
+                  JOIN actor_identity_cache identity
+                    ON RIGHT(
+                      regexp_replace(identity.phone_number, '[^0-9]', '', 'g'), 4
+                    ) = submitted.last4
+                   AND encode(
+                     digest(
+                       convert_to(
+                         '+' || regexp_replace(
+                           identity.phone_number, '[^0-9]', '', 'g'
+                         ),
+                         'UTF8'
+                       ),
+                       'sha256'
+                     ),
+                     'hex'
+                   ) = submitted.digest_hex
+                  WHERE identity.phone_verified = TRUE
+                    AND identity.phone_number IS NOT NULL
+                )
+                SELECT lookup_id, user_id, match_count
+                FROM correlated_identity
+                ORDER BY lookup_id, user_id
+                """,
+                {
+                    "lookup_ids": [item[0] for item in proof_items],
+                    "digest_hexes": [item[1] for item in proof_items],
+                    "last4_values": [item[2] for item in proof_items],
+                },
+            )
+            unambiguous_target_by_lookup = {
+                str(row.get("lookup_id") or ""): str(row.get("user_id") or "")
+                for row in proof_match_rows
+                if int(row.get("match_count") or 0) == 1
+                and str(row.get("user_id") or "") != requester_id
+            }
+            identity_rows: list[dict[str, Any]] = []
+            for match in normalized_matches:
+                lookup_id = str(match["lookup_id"])
+                target_user_id = str(match["user_id"])
+                identity = locked_identities.get(target_user_id) or {}
+                digits = "".join(
+                    ch for ch in str(identity.get("phone_number") or "") if ch in "0123456789"
+                )
+                expected_digest, expected_last4 = proofs[lookup_id]
+                current_digest = (
+                    hashlib.sha256(f"+{digits}".encode("utf-8")).hexdigest() if digits else ""
+                )
+                if (
+                    bool(identity.get("phone_verified"))
+                    and digits[-4:] == expected_last4
+                    and current_digest == expected_digest
+                    and unambiguous_target_by_lookup.get(lookup_id) == target_user_id
+                ):
+                    identity_rows.append({**identity, "lookup_id": lookup_id})
+            revalidated_user_ids = sorted({str(row.get("user_id") or "") for row in identity_rows})
+            profile_rows = self._execute_many(
+                """
+                SELECT user_id, contact_discoverable,
+                       contact_sync_consent_enabled_at,
+                       contact_sync_consent_rule_version,
+                       contact_sync_consent_contract_version
+                FROM actor_profiles
+                WHERE user_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                ORDER BY user_id
+                -- Circle membership flows deliberately lock profiles before
+                -- connections. Contact sync already holds existing connection
+                -- rows, so waiting here would invert that order and deadlock.
+                -- A busy profile is omitted and fails closed for this run.
+                FOR UPDATE SKIP LOCKED
+                """,
+                {"candidate_user_ids": revalidated_user_ids},
+            )
+            profiles = {str(row.get("user_id") or ""): row for row in profile_rows}
+            eligible_rows_by_lookup: dict[str, list[dict[str, Any]]] = {}
+            for row in identity_rows:
+                target_user_id = str(row.get("user_id") or "")
+                profile = profiles.get(target_user_id) or {}
+                enriched = {
+                    **row,
+                    "contact_discoverable": profile.get("contact_discoverable", False),
+                    "contact_sync_consent_enabled_at": profile.get(
+                        "contact_sync_consent_enabled_at"
+                    ),
+                    "contact_sync_consent_rule_version": int(
+                        profile.get("contact_sync_consent_rule_version") or 0
+                    ),
+                    "contact_sync_consent_contract_version": profile.get(
+                        "contact_sync_consent_contract_version"
+                    ),
+                }
+                if (
+                    enriched["contact_discoverable"]
+                    and enriched["contact_sync_consent_enabled_at"] is not None
+                    and enriched["contact_sync_consent_rule_version"] > 0
+                    and enriched["contact_sync_consent_contract_version"]
+                    == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+                ):
+                    eligible_rows_by_lookup.setdefault(str(row.get("lookup_id") or ""), []).append(
+                        enriched
+                    )
+            activations: list[dict[str, Any]] = []
+            for match in sorted(
+                normalized_matches,
+                key=lambda item: (str(item["user_id"]), str(item["lookup_id"])),
+            ):
+                lookup_id = str(match["lookup_id"])
+                target_user_id = str(match["user_id"])
+                eligible_rows = eligible_rows_by_lookup.get(lookup_id) or []
+                identity = eligible_rows[0] if len(eligible_rows) == 1 else {}
+                proof_valid = bool(
+                    identity and str(identity.get("user_id") or "") == target_user_id
+                )
+                if not proof_valid:
+                    # The async match is only a candidate. A preference or
+                    # verified phone can change before this transaction; stale
+                    # candidates become checked-unmatched and write nothing.
+                    continue
+                existing = existing_by_target.get(target_user_id)
+                existing_status = str((existing or {}).get("status") or "")
+
+                outcome = "auto_connected"
+                if existing_status == "revoked":
+                    # A disconnect is an explicit suppression tombstone even
+                    # for a pair that predated contact-sync provenance.
+                    outcome = "suppressed"
+                elif existing_status == "active":
+                    activations.append(
+                        {
+                            "target_user_id": target_user_id,
+                            "origin_metadata": {"authorization": "existing_connection_match"},
+                        }
+                    )
+                    outcome = "already_connected"
+                else:
+                    # A match is emitted only after the target's current verified
+                    # phone and contact-discoverability setting are revalidated
+                    # under this transaction. Matching therefore materializes
+                    # the contact-sourced connection immediately. This remains
+                    # relationship metadata only: no location or information
+                    # capability is granted here.
+                    consent_enabled_at = identity["contact_sync_consent_enabled_at"]
+                    serialized_consent_enabled_at = (
+                        consent_enabled_at.isoformat()
+                        if hasattr(consent_enabled_at, "isoformat")
+                        else str(consent_enabled_at)
+                    )
+                    activations.append(
+                        {
+                            "target_user_id": target_user_id,
+                            "origin_metadata": {
+                                "authorization": "verified_phone_contact_match",
+                                "targetConsentEnabledAt": serialized_consent_enabled_at,
+                                "targetConsentRuleVersion": identity[
+                                    "contact_sync_consent_rule_version"
+                                ],
+                                "targetConsentContractVersion": identity[
+                                    "contact_sync_consent_contract_version"
+                                ],
+                            },
+                        }
+                    )
+
+                outcomes.append(
+                    {
+                        "lookupId": lookup_id,
+                        "userId": target_user_id,
+                        "displayName": identity.get("display_name"),
+                        "photoUrl": identity.get("custom_photo_url") or identity.get("photo_url"),
+                        "outcome": outcome,
+                    }
+                )
+
+            if activations:
+                activated_target_ids = set(
+                    activate_contact_sync_connections_bulk(
+                        transaction_connection,
+                        requester_user_id=requester_id,
+                        activations=activations,
+                    )
+                )
+                if activated_target_ids:
+                    trusted_projection_pairs = [
+                        (requester_id, str(activation["target_user_id"]))
+                        for activation in activations
+                        if str(activation["target_user_id"]) in activated_target_ids
+                    ]
+                # A canonical row can become a disconnect tombstone after the
+                # earlier FOR UPDATE scan only when it did not exist yet. The
+                # conditional bulk upsert refuses that conflict; report it as
+                # suppressed and never create its origin/trusted/Circle rows.
+                for item in outcomes:
+                    if (
+                        item["outcome"] in {"auto_connected", "already_connected"}
+                        and str(item["userId"]) not in activated_target_ids
+                    ):
+                        item["outcome"] = "suppressed"
+
+        if trusted_projection_pairs:
+            self._join_trusted_system_circles_bulk(pairs=trusted_projection_pairs)
+
+        counts = {
+            "auto_connected": sum(item["outcome"] == "auto_connected" for item in outcomes),
+            "already_connected": sum(item["outcome"] == "already_connected" for item in outcomes),
+            "request_required": sum(item["outcome"] == "request_required" for item in outcomes),
+            "suppressed": sum(item["outcome"] == "suppressed" for item in outcomes),
+        }
+        outcome_lookup_ids = {str(item["lookupId"]) for item in outcomes}
+        indeterminate_lookup_ids = sorted(
+            {
+                str(item["lookup_id"])
+                for item in normalized_matches
+                if str(item["lookup_id"]) not in outcome_lookup_ids
+            }
+        )
+        return {
+            "checkedLookupCount": len(phone_lookups),
+            "matchedCount": len(outcomes),
+            "autoConnectedCount": counts["auto_connected"],
+            "alreadyConnectedCount": counts["already_connected"],
+            "requestRequiredCount": counts["request_required"],
+            "suppressedCount": counts["suppressed"],
+            # These opaque lookups matched during the initial read but could
+            # not be revalidated under the mutation transaction (for example,
+            # a concurrent consent change or busy profile lock). The client
+            # must keep them out of both match results and invitation targets.
+            "indeterminateLookupIds": indeterminate_lookup_ids,
+            "items": outcomes,
+        }
+
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         with self._transaction():
-            # Lock the graph edge before revoking its capability descendants.
-            row = self._execute_one(
+            # Resolve the immutable pair without taking a row lock, then share
+            # the same deterministic per-user graph gate as contact sync,
+            # reset, deletion, and Trusted-Circle projection. Acquiring this
+            # gate before ``connections FOR UPDATE`` preserves the global lock
+            # order and prevents a late projection from restoring a roster
+            # entry after this disconnect commits.
+            candidate = self._execute_one(
                 """
                 SELECT id, user_a_id, user_b_id, status
                 FROM connections
                 WHERE id = :id
                   AND (user_a_id = :user_id OR user_b_id = :user_id)
                 LIMIT 1
-                FOR UPDATE
                 """,
                 {"id": (connection_id or "").strip(), "user_id": user_id},
             )
-            if not row:
+            if not candidate:
                 return {"removed": 0}
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is not None:
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={
+                        str(candidate.get("user_a_id") or ""),
+                        str(candidate.get("user_b_id") or ""),
+                    },
+                )
+                # Revalidate membership and pair identity after waiting for the
+                # advisory gate; the row may have changed while we waited.
+                row = self._execute_one(
+                    """
+                    SELECT id, user_a_id, user_b_id, status
+                    FROM connections
+                    WHERE id = :id
+                      AND (user_a_id = :user_id OR user_b_id = :user_id)
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    {"id": (connection_id or "").strip(), "user_id": user_id},
+                )
+                if not row:
+                    return {"removed": 0}
+            else:
+                # Lightweight unit doubles have no transaction connection;
+                # production databases always take the gated revalidation.
+                row = candidate
             user_a = row.get("user_a_id")
             user_b = row.get("user_b_id")
+            if transaction_connection is not None:
+                self._cancel_pending_pair_requests(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                    actor_user_id=user_id,
+                )
             self._revoke_pair_capabilities(
                 user_a_id=str(user_a or ""),
                 user_b_id=str(user_b or ""),
@@ -2298,12 +3613,29 @@ class ConnectionsService:
                 """,
                 {"a": user_a, "b": user_b},
             )
+            # Persist the disconnect in the provenance ledger. In particular,
+            # a revoked canonical row is the contact-sync suppression tombstone
+            # even when this pair predates the contact_sync origin kind.
+            self._execute_many(
+                """
+                UPDATE connection_origins
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE connection_id = CAST(:connection_id AS UUID)
+                  AND status = 'active'
+                  AND origin_kind IN (
+                    'direct_request', 'circle_member', 'legacy_invite',
+                    'import', 'contact_sync'
+                  )
+                RETURNING id
+                """,
+                {"connection_id": (connection_id or "").strip()},
+            )
             conn = self._execute_one(
                 """
                 UPDATE connections
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE id = :id AND status = 'active'
-                RETURNING id
+                RETURNING id, revoked_at
                 """,
                 {"id": (connection_id or "").strip()},
             )
@@ -2312,33 +3644,21 @@ class ConnectionsService:
                     user_a_id=str(user_a or ""),
                     user_b_id=str(user_b or ""),
                 )
-        if conn:
-            user_a_id = str(user_a or "")
-            user_b_id = str(user_b or "")
-            user_a_name = self._display_name_for(user_a_id)
-            user_b_name = self._display_name_for(user_b_id)
-            a_metadata: dict[str, Any] = {
-                "counterpart_user_id": user_b_id,
-                "actor_is_self": user_a_id == user_id,
-            }
-            if user_b_name:
-                a_metadata["counterpart_label"] = user_b_name
-            b_metadata: dict[str, Any] = {
-                "counterpart_user_id": user_a_id,
-                "actor_is_self": user_b_id == user_id,
-            }
-            if user_a_name:
-                b_metadata["counterpart_label"] = user_a_name
-            FeedService().record_event(
-                user_id=user_a_id,
-                source_domain="connections",
-                event_type="connection_revoked",
-                metadata=a_metadata,
-            )
-            FeedService().record_event(
-                user_id=user_b_id,
-                source_domain="connections",
-                event_type="connection_revoked",
-                metadata=b_metadata,
-            )
+                user_a_id = str(user_a or "")
+                user_b_id = str(user_b or "")
+                connection_source_id = str(conn.get("id") or connection_id)
+                revoked_at = conn.get("revoked_at")
+                if revoked_at:
+                    connection_source_id = f"{connection_source_id}:{revoked_at}"
+                for owner, counterpart in (
+                    (user_a_id, user_b_id),
+                    (user_b_id, user_a_id),
+                ):
+                    self._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id=counterpart,
+                        actor_user_id=user_id,
+                        event_type="connection_revoked",
+                        source_row_id=connection_source_id,
+                    )
         return {"removed": 1 if conn else 0}

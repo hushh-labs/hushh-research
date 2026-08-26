@@ -17,6 +17,7 @@ import logging
 import re
 import secrets
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -200,6 +201,58 @@ def _human_display_name(name: Any, user_id: Any) -> str:
     if len(cleaned) >= 20 and " " not in cleaned and cleaned.isalnum():
         return ""
     return cleaned
+
+
+def _identity_label(
+    *,
+    user_id: Any,
+    display_name: Any,
+    email: Any = None,
+    fallback: str = "Someone",
+) -> str:
+    """Resolve a relationship-scoped label without ever exposing a raw id."""
+
+    from hushh_mcp.services.requester_identity import label_from_identity_row
+
+    return label_from_identity_row(
+        {
+            "user_id": str(user_id or ""),
+            "display_name": display_name,
+            "email": email,
+        },
+        fallback=fallback,
+    )
+
+
+def _record_circle_event(
+    conn: Any,
+    *,
+    owner_user_id: str,
+    actor_user_id: str,
+    event_type: str,
+    metadata: dict[str, Any],
+) -> None:
+    """Write a Circle transition to the One Location audit ledger atomically."""
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO one_location_events (
+              owner_user_id, actor_user_id, event_type, metadata
+            )
+            VALUES (
+              :owner_user_id, :actor_user_id, :event_type,
+              CAST(:metadata AS JSONB)
+            )
+            """
+        ),
+        {
+            "owner_user_id": owner_user_id,
+            "actor_user_id": actor_user_id,
+            "event_type": event_type,
+            "metadata": json.dumps(metadata, separators=(",", ":")),
+        },
+    )
 
 
 def _is_product_managed(row: dict[str, Any]) -> bool:
@@ -562,6 +615,7 @@ class OneLocationCircleService:
             # required for the same reason it is everywhere else a connection
             # can start.
             "canConnect": (relationship == "none" and bool(row.get("phone_verified"))),
+            "connectedFromContacts": bool(row.get("connected_from_contacts")),
         }
 
     @staticmethod
@@ -597,6 +651,7 @@ class OneLocationCircleService:
             "displayName": display_name or "Connection",
             "photoUrl": str(row.get("custom_photo_url") or row.get("photo_url") or "") or None,
             "connectedAt": _iso(row.get("connected_at")),
+            "connectedFromContacts": bool(row.get("connected_from_contacts")),
         }
 
     @staticmethod
@@ -785,6 +840,23 @@ class OneLocationCircleService:
                   recipient_key.key_id, recipient_key.public_key_jwk,
                   recipient_key.algorithm,
                   recipient_key.created_at AS key_created_at,
+                  EXISTS (
+                    SELECT 1
+                    FROM connections contact_connection
+                    JOIN connection_origins contact_origin
+                      ON contact_origin.connection_id = contact_connection.id
+                     AND contact_origin.status = 'active'
+                     AND contact_origin.origin_kind = 'contact_sync'
+                     AND contact_origin.source_ref = :viewer_user_id
+                    WHERE contact_connection.status = 'active'
+                      AND (
+                        (contact_connection.user_a_id = :viewer_user_id
+                         AND contact_connection.user_b_id = membership.user_id)
+                        OR
+                        (contact_connection.user_b_id = :viewer_user_id
+                         AND contact_connection.user_a_id = membership.user_id)
+                      )
+                  ) AS connected_from_contacts,
                   CASE
                     WHEN membership.user_id = :viewer_user_id THEN 'self'
                     WHEN EXISTS (
@@ -869,6 +941,222 @@ class OneLocationCircleService:
             raise
         except Exception as exc:
             raise self._safe_db_failure("detail", exc) from exc
+
+    def get_circle_overview(self, *, user_id: str, circle_id: str) -> dict[str, Any]:
+        """Return Circle metadata and capabilities without materializing its roster."""
+
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        try:
+            result = self._db.execute_raw(
+                """
+                SELECT
+                  c.id, c.name, c.kind, c.member_limit, c.is_system,
+                  c.system_kind, c.created_at, c.updated_at,
+                  c.owner_user_id, :user_id AS viewer_user_id, mine.role,
+                  owner_identity.display_name AS owner_display_name,
+                  active_code.id AS code_id,
+                  active_code.circle_id AS code_circle_id,
+                  active_code.code_hash,
+                  active_code.expires_at AS code_expires_at,
+                  active_code.metadata AS code_metadata,
+                  (SELECT COUNT(*) FROM one_location_circle_memberships active_member
+                   WHERE active_member.circle_id = c.id
+                     AND active_member.status = 'active') AS member_count
+                FROM one_location_circles c
+                LEFT JOIN actor_identity_cache owner_identity
+                  ON owner_identity.user_id = c.owner_user_id
+                JOIN one_location_circle_memberships mine
+                  ON mine.circle_id = c.id
+                 AND mine.user_id = :user_id
+                 AND mine.status = 'active'
+                 AND (c.system_kind IS DISTINCT FROM 'trusted'
+                      OR c.owner_user_id = :user_id)
+                LEFT JOIN LATERAL (
+                  SELECT code.id, code.circle_id, code.code_hash,
+                         code.expires_at, code.metadata
+                  FROM one_location_circle_invite_codes code
+                  WHERE code.circle_id = c.id
+                    AND code.status = 'active'
+                    AND code.expires_at > NOW()
+                  ORDER BY code.created_at DESC
+                  LIMIT 1
+                ) active_code ON TRUE
+                WHERE c.id = CAST(:circle_id AS UUID)
+                  AND c.status = 'active'
+                """,
+                {"user_id": user_id, "circle_id": cleaned_circle_id},
+            )
+            row = next(iter(result.data or []), None)
+            if not row:
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_NOT_FOUND", "Circle not found.", status_code=404
+                )
+            circle = self._circle_summary(dict(row))
+            invite_code = self._invite_code_payload(
+                {
+                    "id": row.get("code_id"),
+                    "circle_id": row.get("code_circle_id"),
+                    "code_hash": row.get("code_hash"),
+                    "expires_at": row.get("code_expires_at"),
+                    "metadata": row.get("code_metadata"),
+                }
+                if row.get("code_id")
+                else None
+            )
+            can_view = bool((circle.get("viewerCapabilities") or {}).get("canViewInviteCode"))
+            circle["activeInviteCode"] = invite_code if can_view else None
+            circle["inviteCodeNeedsOwnerRotation"] = bool(row.get("code_id") and not invite_code)
+            return circle
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("overview", exc) from exc
+
+    def list_circle_members_page(
+        self,
+        *,
+        user_id: str,
+        circle_id: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Return one authorized, searchable roster page with page-local annotations.
+
+        Search mirrors `_member_payload`'s visible label. Hidden email domains
+        and raw identity values are intentionally absent from normalized_name.
+        """
+
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        normalized_page = max(1, int(page or 1))
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        normalized_query = str(query or "").strip().lower()
+        offset = (normalized_page - 1) * normalized_limit
+        try:
+            result = self._db.execute_raw(
+                """
+                WITH authorized_circle AS (
+                  SELECT circle.id, circle.owner_user_id
+                  FROM one_location_circles circle
+                  JOIN one_location_circle_memberships viewer
+                    ON viewer.circle_id = circle.id
+                   AND viewer.user_id = :viewer_user_id
+                   AND viewer.status = 'active'
+                  WHERE circle.id = CAST(:circle_id AS UUID)
+                    AND circle.status = 'active'
+                    AND (circle.system_kind IS DISTINCT FROM 'trusted'
+                         OR circle.owner_user_id = :viewer_user_id)
+                ), candidates AS (
+                  SELECT membership.user_id, membership.role, membership.joined_at,
+                         identity.display_name, identity.email, identity.photo_url,
+                         identity.custom_photo_url, identity.phone_verified,
+                         LOWER(CASE
+                           WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
+                            AND BTRIM(identity.display_name) <> membership.user_id
+                            AND LOWER(BTRIM(identity.display_name)) NOT LIKE 'ria:%'
+                            AND BTRIM(identity.display_name) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                            AND NOT (
+                              POSITION('@' IN BTRIM(identity.display_name)) = 0
+                              AND POSITION(' ' IN BTRIM(identity.display_name)) = 0
+                              AND LENGTH(BTRIM(identity.display_name)) >= 20
+                            ) THEN BTRIM(identity.display_name)
+                           WHEN POSITION('@' IN BTRIM(COALESCE(identity.email, ''))) > 1
+                            AND LOWER(BTRIM(SPLIT_PART(identity.email, '@', 1))) NOT LIKE 'ria:%'
+                            AND BTRIM(SPLIT_PART(identity.email, '@', 1)) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                            AND NOT (
+                              POSITION(' ' IN BTRIM(SPLIT_PART(identity.email, '@', 1))) = 0
+                              AND LENGTH(BTRIM(SPLIT_PART(identity.email, '@', 1))) >= 20
+                            ) THEN BTRIM(SPLIT_PART(identity.email, '@', 1))
+                           ELSE 'Circle member'
+                         END) AS normalized_name
+                  FROM authorized_circle circle
+                  JOIN one_location_circle_memberships membership
+                    ON membership.circle_id = circle.id
+                   AND membership.status = 'active'
+                  LEFT JOIN actor_identity_cache identity
+                    ON identity.user_id = membership.user_id
+                ), filtered AS (
+                  SELECT * FROM candidates
+                  WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                ), total AS (
+                  SELECT COUNT(*)::BIGINT AS total_count,
+                         EXISTS (SELECT 1 FROM authorized_circle) AS authorized
+                  FROM filtered
+                ), page_rows AS (
+                  SELECT * FROM filtered
+                  ORDER BY normalized_name, user_id
+                  OFFSET :offset LIMIT :limit
+                )
+                SELECT page_rows.*,
+                       recipient_key.key_id, recipient_key.public_key_jwk,
+                       recipient_key.algorithm,
+                       recipient_key.created_at AS key_created_at,
+                       total.total_count, total.authorized,
+                       CASE WHEN page_rows.user_id IS NULL THEN FALSE ELSE EXISTS (
+                         SELECT 1 FROM connections contact_connection
+                         JOIN connection_origins contact_origin
+                           ON contact_origin.connection_id = contact_connection.id
+                          AND contact_origin.status = 'active'
+                          AND contact_origin.origin_kind = 'contact_sync'
+                          AND contact_origin.source_ref = :viewer_user_id
+                         WHERE contact_connection.status = 'active'
+                           AND contact_connection.user_a_id = LEAST(:viewer_user_id, page_rows.user_id)
+                           AND contact_connection.user_b_id = GREATEST(:viewer_user_id, page_rows.user_id)
+                       ) END AS connected_from_contacts,
+                       CASE
+                         WHEN page_rows.user_id = :viewer_user_id THEN 'self'
+                         WHEN EXISTS (SELECT 1 FROM connections connected
+                           WHERE connected.status = 'active'
+                             AND connected.user_a_id = LEAST(:viewer_user_id, page_rows.user_id)
+                             AND connected.user_b_id = GREATEST(:viewer_user_id, page_rows.user_id))
+                           THEN 'connected'
+                         WHEN EXISTS (SELECT 1 FROM connection_requests pending_out
+                           WHERE pending_out.status = 'pending'
+                             AND pending_out.requester_user_id = :viewer_user_id
+                             AND pending_out.addressee_user_id = page_rows.user_id)
+                           THEN 'pending_outgoing'
+                         WHEN EXISTS (SELECT 1 FROM connection_requests pending_in
+                           WHERE pending_in.status = 'pending'
+                             AND pending_in.requester_user_id = page_rows.user_id
+                             AND pending_in.addressee_user_id = :viewer_user_id)
+                           THEN 'pending_incoming'
+                         ELSE 'none'
+                       END AS relationship
+                FROM total
+                LEFT JOIN page_rows ON TRUE
+                LEFT JOIN LATERAL (
+                  SELECT key.key_id, key.public_key_jwk, key.algorithm, key.created_at
+                  FROM one_location_recipient_keys key
+                  WHERE key.user_id = page_rows.user_id AND key.status = 'active'
+                  ORDER BY key.created_at DESC LIMIT 1
+                ) recipient_key ON TRUE
+                ORDER BY page_rows.normalized_name, page_rows.user_id
+                """,
+                {
+                    "circle_id": cleaned_circle_id,
+                    "viewer_user_id": user_id,
+                    "query": normalized_query,
+                    "offset": offset,
+                    "limit": normalized_limit,
+                },
+            )
+            rows = list(result.data or [])
+            if not rows or not bool(rows[0].get("authorized")):
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_NOT_FOUND", "Circle not found.", status_code=404
+                )
+            total_count = int(rows[0].get("total_count") or 0)
+            items = [self._member_payload(row) for row in rows if row.get("user_id")]
+            return {
+                "items": items,
+                "page": normalized_page,
+                "hasMore": offset + len(items) < total_count,
+                "totalCount": total_count,
+            }
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("members_page", exc) from exc
 
     def create_circle(
         self,
@@ -1026,10 +1314,11 @@ class OneLocationCircleService:
         agreed to anything about each other.
         """
 
-        rows = _all(
+        row = _first(
             conn.execute(
                 text(
                     """
+                    WITH inserted AS (
                     INSERT INTO one_location_circle_memberships (
                       circle_id, user_id, role, status, joined_at, updated_at,
                       ended_at, metadata
@@ -1071,17 +1360,21 @@ class OneLocationCircleService:
                         FROM one_location_circle_memberships existing
                         WHERE existing.circle_id = CAST(:circle_id AS UUID)
                           AND existing.user_id = peer.member_id
-                      )
+                    )
                     ON CONFLICT (circle_id, user_id) DO NOTHING
-                    RETURNING user_id
+                    RETURNING 1
+                    )
+                    SELECT COUNT(*)::BIGINT AS added_count FROM inserted
                     """
                 ),
                 {"circle_id": circle_id, "owner_user_id": owner_user_id},
             )
         )
-        return len(rows)
+        return int((row or {}).get("added_count") or 0)
 
-    def ensure_trusted_system_circle(self, *, owner_user_id: str) -> dict[str, Any]:
+    def ensure_trusted_system_circle(
+        self, *, owner_user_id: str, summary_only: bool = False
+    ) -> dict[str, Any]:
         """Find-or-create this owner's Trusted Circle and top up its roster.
 
         Trusted is a projection of the accepted-connection graph, not a list a
@@ -1134,6 +1427,8 @@ class OneLocationCircleService:
                     redact_log_field("user_id", owner),
                     added,
                 )
+            if summary_only:
+                return self.get_circle_overview(user_id=owner, circle_id=circle_id)
             return self.get_circle(user_id=owner, circle_id=circle_id)
         except OneLocationCircleError:
             raise
@@ -1252,6 +1547,165 @@ class OneLocationCircleService:
                     "source": source,
                 },
             )
+
+    @staticmethod
+    def ensure_trusted_memberships_for_pairs(
+        conn: Any,
+        *,
+        pairs: Iterable[tuple[str, str]],
+        source: str = "connection",
+    ) -> None:
+        """Set-based Trusted-Circle projection for a graph-gated batch.
+
+        This is the batch counterpart to ``ensure_trusted_membership_for_pair``.
+        It preserves the same idempotent/healing behavior with three bounded
+        statements regardless of pair count and does not create any share.
+        Every statement revalidates an active canonical connection backed by
+        an active non-Circle origin, so cleanup cannot be followed by a stale
+        roster write.
+        """
+
+        canonical_pairs = sorted(
+            {
+                (str(first or "").strip(), str(second or "").strip())
+                for first, second in pairs
+                if str(first or "").strip()
+                and str(second or "").strip()
+                and str(first or "").strip() != str(second or "").strip()
+            }
+        )
+        if not canonical_pairs:
+            return
+
+        first_user_ids = [pair[0] for pair in canonical_pairs]
+        second_user_ids = [pair[1] for pair in canonical_pairs]
+        params = {
+            "first_user_ids": first_user_ids,
+            "second_user_ids": second_user_ids,
+            "name": TRUSTED_SYSTEM_CIRCLE_NAME,
+            "member_limit": TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT,
+            "source": source,
+        }
+        directional_cte = """
+          pair_rows AS (
+            SELECT first_user_id, second_user_id
+            FROM UNNEST(
+              CAST(:first_user_ids AS TEXT[]),
+              CAST(:second_user_ids AS TEXT[])
+            ) AS row(first_user_id, second_user_id)
+          ),
+          eligible_pairs AS (
+            SELECT pair.first_user_id, pair.second_user_id
+            FROM pair_rows pair
+            JOIN connections connection
+              ON connection.user_a_id = LEAST(
+                   pair.first_user_id, pair.second_user_id
+                 )
+             AND connection.user_b_id = GREATEST(
+                   pair.first_user_id, pair.second_user_id
+                 )
+             AND connection.status = 'active'
+            WHERE EXISTS (
+              SELECT 1
+              FROM connection_origins origin
+              WHERE origin.connection_id = connection.id
+                AND origin.status = 'active'
+                AND origin.origin_kind <> 'named_circle'
+            )
+          ),
+          directional AS (
+            SELECT first_user_id AS owner_user_id,
+                   second_user_id AS member_user_id
+            FROM eligible_pairs
+            UNION
+            SELECT second_user_id, first_user_id
+            FROM eligible_pairs
+          )
+        """
+
+        conn.execute(
+            text(
+                f"""
+                WITH {directional_cte}
+                INSERT INTO one_location_circles (
+                  owner_user_id, name, kind, status, member_limit,
+                  is_system, system_kind, created_at, updated_at, metadata
+                )
+                SELECT DISTINCT
+                  directional.owner_user_id, :name, 'other', 'active',
+                  :member_limit, false, 'trusted', NOW(), NOW(), '{{}}'::jsonb
+                FROM directional
+                JOIN actor_profiles profile
+                  ON profile.user_id = directional.owner_user_id
+                ORDER BY directional.owner_user_id
+                ON CONFLICT DO NOTHING
+                """,  # nosec B608 - directional_cte is fixed internal SQL text;
+                # all contact-derived values remain bound parameters.
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                f"""
+                WITH {directional_cte},
+                trusted_circle AS (
+                  SELECT circle.id, circle.owner_user_id
+                  FROM one_location_circles circle
+                  JOIN (SELECT DISTINCT owner_user_id FROM directional) owner
+                    ON owner.owner_user_id = circle.owner_user_id
+                  WHERE circle.status = 'active'
+                    AND circle.system_kind = 'trusted'
+                )
+                INSERT INTO one_location_circle_memberships (
+                  circle_id, user_id, role, status, joined_at, updated_at,
+                  metadata
+                )
+                SELECT circle.id, circle.owner_user_id, 'owner', 'active',
+                       NOW(), NOW(), '{{}}'::jsonb
+                FROM trusted_circle circle
+                ORDER BY circle.owner_user_id
+                ON CONFLICT (circle_id, user_id) DO NOTHING
+                """,  # nosec B608 - directional_cte is fixed internal SQL text;
+                # all contact-derived values remain bound parameters.
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                f"""
+                WITH {directional_cte},
+                trusted_circle AS (
+                  SELECT circle.id, circle.owner_user_id
+                  FROM one_location_circles circle
+                  JOIN (SELECT DISTINCT owner_user_id FROM directional) owner
+                    ON owner.owner_user_id = circle.owner_user_id
+                  WHERE circle.status = 'active'
+                    AND circle.system_kind = 'trusted'
+                )
+                INSERT INTO one_location_circle_memberships (
+                  circle_id, user_id, role, status, joined_at, updated_at,
+                  ended_at, metadata
+                )
+                SELECT circle.id, directional.member_user_id, 'member',
+                       'active', NOW(), NOW(), NULL,
+                       jsonb_build_object('addedVia', :source)
+                FROM directional
+                JOIN trusted_circle circle
+                  ON circle.owner_user_id = directional.owner_user_id
+                JOIN actor_profiles member_profile
+                  ON member_profile.user_id = directional.member_user_id
+                ORDER BY directional.owner_user_id, directional.member_user_id
+                ON CONFLICT (circle_id, user_id) DO UPDATE SET
+                  role = 'member', status = 'active', ended_at = NULL,
+                  updated_at = NOW(),
+                  metadata = COALESCE(
+                    one_location_circle_memberships.metadata, '{{}}'::jsonb
+                  ) || jsonb_build_object('addedVia', :source)
+                """,  # nosec B608 - directional_cte is fixed internal SQL text;
+                # all contact-derived values remain bound parameters.
+            ),
+            params,
+        )
 
     def ensure_sms_system_circle(self, *, owner_user_id: str) -> dict[str, Any]:
         """Find-or-create this owner's SMS Circle and fold their contacts into it.
@@ -1909,14 +2363,20 @@ class OneLocationCircleService:
                         text(
                             """
                             SELECT
-                              id, owner_user_id, member_limit, status,
-                              is_system, system_kind
-                            FROM one_location_circles
-                            WHERE id = CAST(:circle_id AS UUID)
-                            FOR UPDATE
+                              circle.id, circle.name, circle.owner_user_id,
+                              circle.member_limit, circle.status,
+                              circle.is_system, circle.system_kind,
+                              joiner.user_id,
+                              joiner.display_name,
+                              joiner.email
+                            FROM one_location_circles circle
+                            LEFT JOIN actor_identity_cache joiner
+                              ON joiner.user_id = :user_id
+                            WHERE circle.id = CAST(:circle_id AS UUID)
+                            FOR UPDATE OF circle
                             """
                         ),
-                        {"circle_id": circle_id},
+                        {"circle_id": circle_id, "user_id": user_id},
                     )
                 )
                 if not circle_row or str(circle_row.get("status") or "") != "active":
@@ -2109,6 +2569,26 @@ class OneLocationCircleService:
                     ),
                     {"circle_id": circle_id, "user_id": user_id},
                 )
+                if joined:
+                    inviter_user_id = str(invite_row.get("created_by_user_id") or "")
+                    if inviter_user_id and inviter_user_id != user_id:
+                        joiner_label = _identity_label(
+                            user_id=user_id,
+                            display_name=circle_row.get("display_name"),
+                            email=circle_row.get("email"),
+                        )
+                        _record_circle_event(
+                            conn,
+                            owner_user_id=inviter_user_id,
+                            actor_user_id=user_id,
+                            event_type="location_circle_code_joined",
+                            metadata={
+                                "invite_id": str(invite_row.get("id") or ""),
+                                "circle_id": circle_id,
+                                "circle_name": str(circle_row.get("name") or ""),
+                                "counterpart_label": joiner_label,
+                            },
+                        )
             logger.info(
                 "one_location.circle_joined member=%s joined=%s",
                 redact_log_field("user_id", user_id),
@@ -2245,7 +2725,15 @@ class OneLocationCircleService:
                   END AS user_id,
                   connection.created_at AS connected_at,
                   identity.display_name, identity.email, identity.photo_url,
-                  identity.custom_photo_url
+                  identity.custom_photo_url,
+                  EXISTS (
+                    SELECT 1
+                    FROM connection_origins contact_origin
+                    WHERE contact_origin.connection_id = connection.id
+                      AND contact_origin.status = 'active'
+                      AND contact_origin.origin_kind = 'contact_sync'
+                      AND contact_origin.source_ref = :actor_user_id
+                  ) AS connected_from_contacts
                 FROM one_location_circles circle
                 JOIN one_location_circle_memberships actor_membership
                   ON actor_membership.circle_id = circle.id
@@ -2313,6 +2801,150 @@ class OneLocationCircleService:
             raise
         except Exception as exc:
             raise self._safe_db_failure("list_eligible_connections", exc) from exc
+
+    def list_eligible_direct_connections_page(
+        self,
+        *,
+        actor_user_id: str,
+        circle_id: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Bounded form of eligible connections; legacy complete reads stay intact.
+
+        Search mirrors `_eligible_connection_payload` (safe name/email handle),
+        so hidden email domains cannot be probed through an empty/non-empty page.
+        """
+
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        normalized_page = max(1, int(page or 1))
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        normalized_query = str(query or "").strip().lower()
+        offset = (normalized_page - 1) * normalized_limit
+        try:
+            result = self._db.execute_raw(
+                """
+                WITH authorized_circle AS (
+                  SELECT circle.id, circle.owner_user_id
+                  FROM one_location_circles circle
+                  JOIN one_location_circle_memberships actor_membership
+                    ON actor_membership.circle_id = circle.id
+                   AND actor_membership.user_id = :actor_user_id
+                   AND actor_membership.status = 'active'
+                  WHERE circle.id = CAST(:circle_id AS UUID)
+                    AND circle.status = 'active'
+                ), candidates AS (
+                  SELECT DISTINCT
+                    connection.id AS connection_id,
+                    CASE WHEN connection.user_a_id = :actor_user_id
+                         THEN connection.user_b_id ELSE connection.user_a_id END AS user_id,
+                    connection.created_at AS connected_at,
+                    identity.display_name, identity.email, identity.photo_url,
+                    identity.custom_photo_url,
+                    LOWER(CASE
+                      WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
+                       AND BTRIM(identity.display_name) <> CASE
+                         WHEN connection.user_a_id = :actor_user_id
+                         THEN connection.user_b_id ELSE connection.user_a_id END
+                       AND LOWER(BTRIM(identity.display_name)) NOT LIKE 'ria:%'
+                       AND BTRIM(identity.display_name) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                       AND NOT (
+                         POSITION('@' IN BTRIM(identity.display_name)) = 0
+                         AND POSITION(' ' IN BTRIM(identity.display_name)) = 0
+                         AND LENGTH(BTRIM(identity.display_name)) >= 20
+                       ) THEN BTRIM(identity.display_name)
+                      WHEN POSITION('@' IN BTRIM(COALESCE(identity.email, ''))) > 1
+                       AND LOWER(BTRIM(SPLIT_PART(identity.email, '@', 1))) NOT LIKE 'ria:%'
+                       AND BTRIM(SPLIT_PART(identity.email, '@', 1)) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                       AND NOT (
+                         POSITION(' ' IN BTRIM(SPLIT_PART(identity.email, '@', 1))) = 0
+                         AND LENGTH(BTRIM(SPLIT_PART(identity.email, '@', 1))) >= 20
+                       ) THEN BTRIM(SPLIT_PART(identity.email, '@', 1))
+                      ELSE 'Connection'
+                    END) AS normalized_name
+                  FROM authorized_circle circle
+                  JOIN connections connection
+                    ON connection.status = 'active'
+                   AND (:actor_user_id IN (connection.user_a_id, connection.user_b_id))
+                  JOIN connection_origins origin
+                    ON origin.connection_id = connection.id AND origin.status = 'active'
+                  LEFT JOIN actor_identity_cache identity
+                    ON identity.user_id = CASE WHEN connection.user_a_id = :actor_user_id
+                                               THEN connection.user_b_id
+                                               ELSE connection.user_a_id END
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM one_location_circle_memberships membership
+                    WHERE membership.circle_id = circle.id
+                      AND membership.user_id = CASE WHEN connection.user_a_id = :actor_user_id
+                                                    THEN connection.user_b_id
+                                                    ELSE connection.user_a_id END
+                      AND (
+                        membership.status = 'active'
+                        OR (membership.status = 'removed'
+                            AND circle.owner_user_id <> :actor_user_id)
+                      )
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM one_location_circle_member_invites invite
+                    WHERE invite.circle_id = circle.id
+                      AND invite.invitee_user_id = CASE WHEN connection.user_a_id = :actor_user_id
+                                                       THEN connection.user_b_id
+                                                       ELSE connection.user_a_id END
+                      AND invite.status = 'pending' AND invite.expires_at > NOW()
+                  )
+                ), filtered AS (
+                  SELECT * FROM candidates
+                  WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                ), total AS (
+                  SELECT COUNT(*)::BIGINT AS total_count,
+                         EXISTS (SELECT 1 FROM authorized_circle) AS authorized
+                  FROM filtered
+                ), page_rows AS (
+                  SELECT * FROM filtered
+                  ORDER BY normalized_name, user_id, connection_id
+                  OFFSET :offset LIMIT :limit
+                )
+                SELECT page_rows.*, total.total_count, total.authorized,
+                       CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
+                         SELECT 1 FROM connection_origins contact_origin
+                         WHERE contact_origin.connection_id = page_rows.connection_id
+                           AND contact_origin.status = 'active'
+                           AND contact_origin.origin_kind = 'contact_sync'
+                           AND contact_origin.source_ref = :actor_user_id
+                       ) END AS connected_from_contacts
+                FROM total LEFT JOIN page_rows ON TRUE
+                ORDER BY page_rows.normalized_name, page_rows.user_id, page_rows.connection_id
+                """,
+                {
+                    "circle_id": cleaned_circle_id,
+                    "actor_user_id": actor_user_id,
+                    "query": normalized_query,
+                    "offset": offset,
+                    "limit": normalized_limit,
+                },
+            )
+            rows = list(result.data or [])
+            if not rows or not bool(rows[0].get("authorized")):
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
+                    "Only an active Circle member can invite people.",
+                    status_code=403,
+                )
+            total_count = int(rows[0].get("total_count") or 0)
+            items = [
+                self._eligible_connection_payload(row) for row in rows if row.get("connection_id")
+            ]
+            return {
+                "items": items,
+                "page": normalized_page,
+                "hasMore": offset + len(items) < total_count,
+                "totalCount": total_count,
+            }
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("list_eligible_connections_page", exc) from exc
 
     def get_remaining_invite_capacity(
         self,
@@ -2582,7 +3214,9 @@ class OneLocationCircleService:
                                 """
                                 SELECT
                                   actor_membership.role,
-                                  actor_identity.display_name AS inviter_display_name
+                                  actor_identity.user_id AS inviter_user_id,
+                                  actor_identity.display_name AS inviter_display_name,
+                                  actor_identity.email AS inviter_email
                                 FROM one_location_circle_memberships actor_membership
                                 LEFT JOIN actor_identity_cache actor_identity
                                   ON actor_identity.user_id = actor_membership.user_id
@@ -2922,6 +3556,11 @@ class OneLocationCircleService:
                         status_code=409,
                     )
                 circle_name = str(circle_row.get("name") or "")
+                adder_label = _identity_label(
+                    user_id=actor_user_id,
+                    display_name=actor_membership_row.get("inviter_display_name"),
+                    email=actor_membership_row.get("inviter_email"),
+                )
                 # Everyone here is already an active connection of the actor,
                 # so nobody here needs to be asked a second time: an invitation
                 # would put a 72-hour wait in front of a membership two people
@@ -3003,6 +3642,19 @@ class OneLocationCircleService:
                         ),
                         {"invite_ids": pending_invite_ids},
                     )
+                for added_user_id in added_user_ids:
+                    _record_circle_event(
+                        conn,
+                        owner_user_id=added_user_id,
+                        actor_user_id=actor_user_id,
+                        event_type="circle_member_added",
+                        metadata={
+                            "circle_id": cleaned_circle_id,
+                            "circle_name": circle_name,
+                            "added_by_label": adder_label,
+                            "counterpart_label": adder_label,
+                        },
+                    )
                 logger.info(
                     "one_location.circle_members_added actor=%s circle_system=%s count=%d",
                     redact_log_field("user_id", actor_user_id),
@@ -3010,7 +3662,6 @@ class OneLocationCircleService:
                     len(added_user_ids),
                 )
             if added_user_ids:
-                from hushh_mcp.services.feed_service import FeedService
                 from hushh_mcp.services.push_notifications import (
                     _lookup_display_name,
                     send_circle_member_added_push,
@@ -3030,24 +3681,6 @@ class OneLocationCircleService:
                         circle_id=cleaned_circle_id,
                         circle_name=circle_name,
                     )
-                    # Feed is a best-effort, post-commit projection: the
-                    # membership is already durable, so a feed-write failure
-                    # must never fail the add that produced it.
-                    try:
-                        FeedService().record_event(
-                            user_id=member_user_id,
-                            source_domain="location",
-                            event_type="circle_member_added",
-                            actor_label=adder_label or None,
-                            metadata={
-                                "circle_id": cleaned_circle_id,
-                                "circle_name": circle_name,
-                                "added_by_user_id": actor_user_id,
-                                "added_by_label": adder_label,
-                            },
-                        )
-                    except Exception:  # noqa: BLE001 - projection cannot roll back the add
-                        logger.exception("one_location.circle_member_added_feed_projection_failed")
             return {
                 # This endpoint no longer creates invitations. Both keys stay,
                 # always empty, so every caller and client that reads them
@@ -3151,6 +3784,7 @@ class OneLocationCircleService:
                               invite.status, invite.expires_at,
                               inviter.display_name AS inviter_display_name,
                               invitee.display_name AS invitee_display_name,
+                              invitee.email AS invitee_email,
                               invite.created_at, invite.responded_at
                             FROM one_location_circle_member_invites invite
                             LEFT JOIN actor_identity_cache inviter
@@ -3420,15 +4054,34 @@ class OneLocationCircleService:
                     accepted = True
                     invite_row["status"] = "accepted"
                     invite_row["responded_at"] = datetime.now(timezone.utc)
+                    invitee_label = _identity_label(
+                        user_id=user_id,
+                        display_name=invite_row.get("invitee_display_name"),
+                        email=invite_row.get("invitee_email"),
+                    )
+                    _record_circle_event(
+                        conn,
+                        owner_user_id=str(invite_row.get("inviter_user_id") or ""),
+                        actor_user_id=user_id,
+                        event_type="location_circle_member_invite_accepted",
+                        metadata={
+                            "invite_id": cleaned_invite_id,
+                            "circle_id": circle_id,
+                            "circle_name": str(invite_row.get("circle_name") or ""),
+                            "counterpart_label": invitee_label,
+                        },
+                    )
             if accepted:
                 from hushh_mcp.services.push_notifications import (
                     send_circle_member_invite_accepted_push,
                 )
 
+                inviter_user_id = str(invite_row.get("inviter_user_id") or "")
+                invitee_display_name = str(invite_row.get("invitee_display_name") or "")
                 send_circle_member_invite_accepted_push(
-                    inviter_user_id=str(invite_row.get("inviter_user_id") or ""),
+                    inviter_user_id=inviter_user_id,
                     invitee_user_id=user_id,
-                    invitee_display_name=str(invite_row.get("invitee_display_name") or ""),
+                    invitee_display_name=invitee_display_name,
                     circle_id=circle_id,
                     circle_name=str(invite_row.get("circle_name") or ""),
                     invite_id=cleaned_invite_id,

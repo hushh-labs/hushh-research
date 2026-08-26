@@ -52,6 +52,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
@@ -61,6 +62,10 @@ import {
   rememberLocationGrant,
 } from "@/lib/one-location/location-grant-memory";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
+import {
+  ambiguousMatchNames,
+  resolveSpokenNames,
+} from "@/lib/one-location/resolve-spoken-names";
 import {
   addSavedLocation,
   DuplicateSavedLocationError,
@@ -345,6 +350,24 @@ function coarseAccuracyNotice(point: PlainLocationPoint): string {
   return `Your location is accurate to about ${distance}. Pick the place you're actually at — if it's rejected, move to an open area or turn on precise location.`;
 }
 
+/**
+ * Maps a spoken duration to the nearest of the three fixed options the sheet
+ * itself offers -- never a free-form number, matching how `location.share_selected`
+ * only accepts the durations its own screen presents.
+ */
+export function nearestCheckInDurationMinutes(
+  spoken: unknown,
+): 30 | 60 | 120 | null {
+  const raw = String(spoken ?? "").trim();
+  if (!raw) return null;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  const options: Array<30 | 60 | 120> = [30, 60, 120];
+  return options.reduce((closest, option) =>
+    Math.abs(option - numeric) < Math.abs(closest - numeric) ? option : closest,
+  );
+}
+
 function timeLeftLabel(expiresAt: string): string {
   const remainingMs = Date.parse(expiresAt) - Date.now();
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return "Ending now";
@@ -590,6 +613,32 @@ export function NearbyCheckInSheet({
     searchResults,
     typedSearchActive,
   ]);
+  /**
+   * Voice handlers below run inside plain async closures, not renders --
+   * `automaticPlaces` read directly there would be whatever it was when the
+   * handler function was created, not what a `captureAndLoadPlaces()` this
+   * same handler just awaited actually produced. Mirrored into a ref so the
+   * handler can read the value React has not necessarily re-rendered with yet.
+   */
+  const automaticPlacesRef = useRef(automaticPlaces);
+  useEffect(() => {
+    automaticPlacesRef.current = automaticPlaces;
+  }, [automaticPlaces]);
+  /**
+   * Same staleness problem as automaticPlacesRef, for the specific reason
+   * zero candidates came back. Collapsing every cause into one generic
+   * "nothing plausible nearby" message hid a permission-denied or
+   * GPS-accuracy failure behind a sentence that sounds like the person is
+   * simply somewhere with no restaurants around them.
+   */
+  const locationErrorRef = useRef(locationError);
+  useEffect(() => {
+    locationErrorRef.current = locationError;
+  }, [locationError]);
+  const placesErrorRef = useRef(placesError);
+  useEffect(() => {
+    placesErrorRef.current = placesError;
+  }, [placesError]);
 
   const publishState = useCallback(
     (next: OneLocationNearbyPresenceState) => {
@@ -1483,6 +1532,239 @@ export function NearbyCheckInSheet({
       }
     }
   };
+
+  useLocalOnboardingActionHandler("location.nearby_check_in", async (slots) => {
+    if (!ownerId || !vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Unlock One first to check in.",
+      };
+    }
+    const requestedDuration = nearestCheckInDurationMinutes(
+      slots?.duration_minutes,
+    );
+    if (requestedDuration) setDurationMinutes(requestedDuration);
+
+    await captureAndLoadPlaces();
+    const candidates = automaticPlacesRef.current;
+
+    const rawPlace = String(slots?.place ?? "").trim();
+    if (rawPlace && candidates.length > 0) {
+      const { resolved, unresolved } = resolveSpokenNames(
+        candidates,
+        rawPlace,
+        (place) => place.name ?? place.text,
+      );
+      if (resolved.length === 1) {
+        const match = resolved[0]!;
+        setSelectedPlaceId(match.placeId);
+        const matchName = match.name ?? match.text;
+        return {
+          status: "succeeded" as const,
+          summary: `Matched ${matchName}. Call confirm_nearby_check_in with this place${
+            requestedDuration
+              ? ` for ${requestedDuration} minutes`
+              : " and how long to check in for"
+          } to finish.`,
+          data: { subject: { name: matchName, detail: null } },
+        };
+      }
+      const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
+      if (ambiguous && ambiguous.kind === "ambiguous") {
+        const names = ambiguousMatchNames(ambiguous.matches, (place) =>
+          place.name ?? place.text,
+        );
+        return {
+          status: "blocked" as const,
+          summary: names
+            ? `${ambiguous.matches.length} nearby places match that: ${names}. Ask which one.`
+            : "More than one nearby place matches that name. Ask which one.",
+        };
+      }
+      // Named but not among the candidates -- fall through to listing what's
+      // actually nearby rather than guessing.
+    }
+
+    if (candidates.length === 0) {
+      // The same capture that fills automaticPlaces also sets one of these on
+      // failure. Surfacing the real reason (permission denied, GPS too
+      // coarse, a search error) instead of a generic "nothing is nearby"
+      // matters here specifically -- the person just said where they are.
+      const specificReason = locationErrorRef.current ?? placesErrorRef.current;
+      return {
+        status: "blocked" as const,
+        summary: specificReason
+          ? `${specificReason} Check-In is open -- search for the place there instead.`
+          : "No plausible places nearby right now. Check-In is open -- search for the place there instead.",
+      };
+    }
+    // Five short names comfortably fits the 320-char settlement-summary budget
+    // (see adk_live.py's bounded_text) -- this is a hard cap on candidates
+    // offered, not merely a display truncation.
+    const names = candidates
+      .slice(0, 5)
+      .map((place) => place.name ?? place.text)
+      .filter(Boolean)
+      .join(", ");
+    return {
+      status: "succeeded" as const,
+      summary: `Nearby: ${names}. Call confirm_nearby_check_in once they say which one${
+        requestedDuration ? "" : " and for how long"
+      }.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler(
+    "location.confirm_nearby_check_in",
+    async (slots) => {
+      if (!ownerId || !vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary: "Unlock One first to check in.",
+        };
+      }
+      const candidates = automaticPlacesRef.current;
+      if (candidates.length === 0) {
+        return {
+          status: "blocked" as const,
+          summary: "Say check in near me first so I know what's nearby.",
+        };
+      }
+      const rawPlace = String(slots?.place ?? "").trim();
+      if (!rawPlace) {
+        return {
+          status: "blocked" as const,
+          summary: "Which place from the list?",
+        };
+      }
+      const { resolved, unresolved } = resolveSpokenNames(
+        candidates,
+        rawPlace,
+        (place) => place.name ?? place.text,
+      );
+      if (resolved.length !== 1) {
+        const ambiguous = unresolved.find(
+          (entry) => entry.kind === "ambiguous",
+        );
+        if (ambiguous && ambiguous.kind === "ambiguous") {
+          const names = ambiguousMatchNames(ambiguous.matches, (place) =>
+            place.name ?? place.text,
+          );
+          return {
+            status: "blocked" as const,
+            summary: names
+              ? `${ambiguous.matches.length} nearby places match that: ${names}. Ask which one.`
+              : "More than one nearby place matches that name. Ask which one.",
+          };
+        }
+        return {
+          status: "blocked" as const,
+          summary:
+            "That doesn't match any of the nearby places. Check-In is open -- search for it there instead.",
+        };
+      }
+      const place = resolved[0]!;
+      const resolvedDuration = nearestCheckInDurationMinutes(
+        slots?.duration_minutes,
+      );
+      if (!resolvedDuration) {
+        return {
+          status: "blocked" as const,
+          summary: "For how long -- 30 minutes, 1 hour, or 2 hours?",
+        };
+      }
+      if (mutationInFlightRef.current) {
+        return {
+          status: "blocked" as const,
+          summary: "Already checking in -- one moment.",
+        };
+      }
+      // Read Part 1's standing defaults directly rather than the on-screen
+      // consentAccepted/allowConnectionRequests state: those default to
+      // false and reset every mount, and calling checkIn() right after a
+      // setState here would still see THIS render's stale, pre-update
+      // closure -- setState does not retroactively change what an
+      // already-created closure reads.
+      let visibilityDefault: boolean;
+      let allowConnectionRequestsDefault: boolean;
+      try {
+        const preferences =
+          await OneLocationService.getNearbyCheckInPreferences(
+            vaultOwnerToken,
+          );
+        visibilityDefault = preferences.visible;
+        allowConnectionRequestsDefault = preferences.allowConnectionRequests;
+      } catch {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Couldn't read your Nearby Check-In defaults. Try again in a moment, or tap to check in and confirm there.",
+        };
+      }
+      if (!visibilityDefault) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Nearby Check-In visibility is turned off in Voice Settings, so I can't check you in without a tap. Turn it on there, or tap to check in and confirm on screen.",
+        };
+      }
+      setSelectedPlaceId(place.placeId);
+      setDurationMinutes(resolvedDuration);
+      setConsentAccepted(true);
+      setAllowConnectionRequests(allowConnectionRequestsDefault);
+      mutationInFlightRef.current = true;
+      setBusy("check-in");
+      try {
+        const freshPoint = await captureCurrentPosition({ fresh: true });
+        if (!hasCheckInAccuracy(freshPoint)) {
+          setPoint(null);
+          setLocationRecovery(isNative() ? "app-settings" : null);
+          setLocationError(
+            "We couldn't confirm where you are at the moment you checked in. Nothing was shared — try again in a second.",
+          );
+          return {
+            status: "blocked" as const,
+            summary:
+              "Couldn't confirm your location precisely enough. Nothing was shared — try again in a second.",
+          };
+        }
+        setAccuracyNotice(
+          isCoarseAccuracy(freshPoint) ? coarseAccuracyNotice(freshPoint) : null,
+        );
+        setPoint(freshPoint);
+        const next = await OneLocationService.checkInNearby({
+          vaultOwnerToken,
+          placeId: place.placeId,
+          point: freshPoint,
+          durationMinutes: resolvedDuration,
+          consentAccepted: true,
+          allowConnectionRequests: allowConnectionRequestsDefault,
+        });
+        publishState(next);
+        setAutomaticPlaces([]);
+        setSearchResults([]);
+        setSelectedPlaceId("");
+        setSearch("");
+        setAccuracyNotice(null);
+        toast.success("You're checked in nearby.");
+        const placeName = place.name ?? place.text;
+        return {
+          status: "succeeded" as const,
+          summary: `Checked in at ${placeName} for ${resolvedDuration} minutes.`,
+          data: {
+            subject: { name: placeName, detail: `${resolvedDuration} min` },
+          },
+        };
+      } catch (error) {
+        const details = OneLocationService.nearbyCheckInErrorDetails(error);
+        toast.error(details.message);
+        return { status: "blocked" as const, summary: details.message };
+      } finally {
+        mutationInFlightRef.current = false;
+        setBusy(null);
+      }
+    },
+  );
 
   /**
    * Decide whether the checked-out venue is worth offering to Saved Places.

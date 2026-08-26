@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Annotated, Any, List, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
@@ -30,6 +31,7 @@ from hushh_mcp.services.pkm_mutation_contracts import (
     validate_mutation_plan_for_write,
 )
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
+from hushh_mcp.services.trusted_device_service import TrustedDeviceService
 
 logger = logging.getLogger(__name__)
 
@@ -1373,7 +1375,28 @@ async def get_device_sync_events(
         after_cursor=after_cursor,
         limit=limit,
     )
-    return PkmDeviceSyncResponse.model_validate(payload)
+    response = PkmDeviceSyncResponse.model_validate(payload)
+
+    # Best-effort: stamp this device's last sync so settings can show real sync
+    # state. Swallowed on failure so a stamp problem never fails the read.
+    # require_vault_owner_token already re-checked is_trusted_device_active, so
+    # only an active device reaches here and a stamp cannot resurrect a revoked
+    # one.
+    agent_id = str(token_data.get("agent_id") or "")
+    if agent_id.startswith("device:"):
+        device_id = agent_id.removeprefix("device:")
+        if device_id:
+            try:
+                await run_in_threadpool(
+                    TrustedDeviceService().record_sync,
+                    user_id=user_id,
+                    device_id=device_id,
+                    cursor=response.next_cursor,
+                )
+            except Exception:
+                logger.warning("trusted_device.record_sync_failed", exc_info=True)
+
+    return response
 
 
 @router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)

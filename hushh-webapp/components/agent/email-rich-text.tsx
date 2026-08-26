@@ -105,9 +105,11 @@ function isSafeHref(value: string): boolean {
   return /^(https?:\/\/|mailto:)/i.test(value) && !/[\r\n]/.test(value);
 }
 
-/** Normalizes model JSON that accidentally exposes escaped line breaks. */
+/** Normalizes model JSON that accidentally exposes escaped line breaks or un-broken inline bullet lists. */
 export function normalizeRichEmailText(value: string): string {
-  return value.replaceAll("\\r\\n", "\n").replaceAll("\\n", "\n");
+  let normalized = value.replaceAll("\\r\\n", "\n").replaceAll("\\n", "\n");
+  normalized = normalized.replace(/([^\n])\s+[-*]\s+/g, "$1\n- ");
+  return normalized;
 }
 
 function parseBlocks(value: string): EmailBlock[] {
@@ -147,7 +149,7 @@ function parseBlocks(value: string): EmailBlock[] {
       index += 1;
       continue;
     }
-    const bullet = line.match(/^[-*]\s+(.+)$/);
+    const bullet = line.match(/^[-*•]\s+(.+)$/);
     const numbered = line.match(/^\d+[.)]\s+(.+)$/);
     if (bullet || numbered) {
       const ordered = Boolean(numbered);
@@ -155,9 +157,10 @@ function parseBlocks(value: string): EmailBlock[] {
       while (index < lines.length) {
         const candidate = ordered
           ? (lines[index] ?? "").match(/^\d+[.)]\s+(.+)$/)
-          : (lines[index] ?? "").match(/^[-*]\s+(.+)$/);
+          : (lines[index] ?? "").match(/^[-*•]\s+(.+)$/);
         if (!candidate) break;
-        items.push(candidate[1] ?? "");
+        const cleanText = (candidate[1] ?? "").replace(/^[-*•]\s*/, "").trim();
+        items.push(cleanText);
         index += 1;
       }
       blocks.push({ kind: "list", ordered, items });
@@ -254,7 +257,7 @@ export function richEmailHtmlFromMarkdown(value: string): string {
       if (block.kind === "list") {
         const tag = block.ordered ? "ol" : "ul";
         return `<${tag} style="${EMAIL_BLOCK_STYLES.list}">${block.items
-          .map((item) => `<li style="${EMAIL_BLOCK_STYLES.listItem}">${inlineHtml(item)}</li>`)
+          .map((item) => `<li style="${EMAIL_BLOCK_STYLES.listItem}">${inlineHtml(item.replace(/^[-*•]\s*/, ""))}</li>`)
           .join("")}</${tag}>`;
       }
       if (block.kind === "quote") {
@@ -278,7 +281,7 @@ export function EmailRichTextPreview({
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-3 text-sm leading-6 text-foreground", className)}>
+    <div className={cn("space-y-3 text-[15px] leading-7 text-foreground", className)}>
       {parseBlocks(value).map((block, index) => {
         const key = `email-block-${index}`;
         if (block.kind === "heading") {
@@ -301,14 +304,20 @@ export function EmailRichTextPreview({
           const Tag = block.ordered ? "ol" : "ul";
           return (
             <Tag
-              className={cn("space-y-1 pl-5", block.ordered ? "list-decimal" : "list-disc")}
+              className={cn(
+                "my-2 space-y-1.5 pl-6 text-[15px] leading-relaxed text-foreground",
+                block.ordered ? "list-decimal" : "list-disc",
+              )}
               key={key}
             >
-              {block.items.map((item, itemIndex) => (
-                <li key={`${key}-${itemIndex}`}>
-                  {inlineNodes(item, `${key}-${itemIndex}`)}
-                </li>
-              ))}
+              {block.items.map((item, itemIndex) => {
+                const cleanItem = item.replace(/^[-*•]\s*/, "").trim();
+                return (
+                  <li className="pl-1" key={`${key}-${itemIndex}`}>
+                    {inlineNodes(cleanItem, `${key}-${itemIndex}`)}
+                  </li>
+                );
+              })}
             </Tag>
           );
         }
@@ -369,7 +378,9 @@ export function EmailRichTextComposer({
 }: RichEmailComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewedGeneratedContentRef = useRef(false);
-  const [previewing, setPreviewing] = useState(false);
+  const [previewing, setPreviewing] = useState(() => {
+    return Boolean(normalizeRichEmailText(value).trim());
+  });
   const [linkUrl, setLinkUrl] = useState("");
 
   useEffect(() => {
@@ -465,8 +476,30 @@ export function EmailRichTextComposer({
   };
 
   return (
-    <div className="overflow-hidden rounded-[var(--app-radius-lg)] border border-border/80 bg-background shadow-sm">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/30 px-2.5 py-2">
+    <div className="overflow-hidden rounded-xl border border-border/60 bg-background shadow-xs focus-within:border-primary/50 transition-colors">
+      {previewing ? (
+        <div
+          className="min-h-52 bg-background px-4 py-4 sm:px-5"
+          data-testid="one-email-rich-preview"
+        >
+          <EmailRichTextPreview value={value} />
+        </div>
+      ) : (
+        <Textarea
+          aria-label="Message"
+          className="min-h-52 resize-y rounded-none border-0 bg-transparent px-4 py-4 text-[15px] leading-relaxed placeholder:text-muted-foreground/60 shadow-none focus-visible:ring-0 sm:px-5"
+          data-testid="one-email-draft-message"
+          disabled={disabled}
+          id={id}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Write your message…"
+          ref={textareaRef}
+          value={value}
+        />
+      )}
+
+      {/* Gmail-style minimal bottom toolbar row */}
+      <div className="flex flex-wrap items-center gap-2 border-t border-border/50 bg-background/60 px-3 py-1.5">
         <div aria-label="Text formatting" className="flex min-w-0 items-center gap-0.5" role="toolbar">
           {FORMATTING_CONTROLS.map(({ label, action }) => {
             const Icon = formattingIcon(action);
@@ -479,7 +512,7 @@ export function EmailRichTextComposer({
                 size="icon"
                 type="button"
                 variant="ghost"
-                className="h-8 w-8 rounded-lg"
+                className="h-7 w-7 rounded-md text-muted-foreground hover:bg-muted/70 hover:text-foreground"
               >
                 <Icon className="h-3.5 w-3.5" />
               </Button>
@@ -491,7 +524,7 @@ export function EmailRichTextComposer({
             <>
               <Input
                 aria-label="Link URL"
-                className="h-8 w-32 rounded-lg bg-background text-xs sm:w-44"
+                className="h-7 w-28 rounded-md bg-background/80 text-xs sm:w-40"
                 disabled={disabled}
                 onChange={(event) => setLinkUrl(event.target.value)}
                 placeholder="https://…"
@@ -504,7 +537,7 @@ export function EmailRichTextComposer({
                 size="sm"
                 type="button"
                 variant="ghost"
-                className="h-8 gap-1 rounded-lg px-2 text-xs"
+                className="h-7 gap-1 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground"
               >
                 <Link2 className="h-3.5 w-3.5" />
                 Link
@@ -517,36 +550,13 @@ export function EmailRichTextComposer({
             size="sm"
             type="button"
             variant="ghost"
-            className="h-8 gap-1 rounded-lg px-2 text-xs"
+            className="h-7 gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             {previewing ? <PencilLine className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             {previewing ? "Edit" : "Preview"}
           </Button>
         </div>
       </div>
-      {previewing ? (
-        <div
-          className="min-h-52 bg-background px-4 py-5 sm:px-5"
-          data-testid="one-email-rich-preview"
-        >
-          <EmailRichTextPreview value={value} />
-        </div>
-      ) : (
-        <Textarea
-          aria-label="Message"
-          className="min-h-52 resize-y rounded-none border-0 bg-transparent px-4 py-4 text-[15px] leading-7 shadow-none focus-visible:ring-0 sm:px-5"
-          data-testid="one-email-draft-message"
-          disabled={disabled}
-          id={id}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder="Write your message…"
-          ref={textareaRef}
-          value={value}
-        />
-      )}
-      <p className="border-t border-border/60 bg-muted/[0.18] px-4 py-2 text-xs text-muted-foreground sm:px-5">
-        Preview shows the rich email that recipients receive. Use Return for paragraphs and the toolbar for formatting.
-      </p>
     </div>
   );
 }

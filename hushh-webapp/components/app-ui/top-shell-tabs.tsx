@@ -20,6 +20,8 @@ import {
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 
 function topShellTabDomId(
@@ -78,6 +80,7 @@ export function TopShellTabs({
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
   const isLocationTabs = tabSet.id === "location";
+  const shouldResetScrollOnSelection = tabSet.id === "finance";
 
   const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
   const [activeTextWidth, setActiveTextWidth] = useState(0);
@@ -130,17 +133,34 @@ export function TopShellTabs({
       beginRouteTransition(
         tab.href,
         () => {
+          if (shouldResetScrollOnSelection) {
+            scrollAppToTop();
+            resetKaiBottomChromeVisibility();
+          }
           if (navigationMode === "push") {
-            router.push(tab.href, { scroll: false });
+            router.push(
+              tab.href,
+              shouldResetScrollOnSelection ? undefined : { scroll: false },
+            );
             return;
           }
-          router.replace(tab.href, { scroll: false });
+          router.replace(
+            tab.href,
+            shouldResetScrollOnSelection ? undefined : { scroll: false },
+          );
         },
         "tap",
         transitionMode,
       );
     },
-    [navigationMode, router, selectedValue, tabSet, transitionMode],
+    [
+      navigationMode,
+      router,
+      selectedValue,
+      shouldResetScrollOnSelection,
+      tabSet,
+      transitionMode,
+    ],
   );
 
   return (

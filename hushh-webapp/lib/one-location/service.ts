@@ -23,18 +23,23 @@ import type {
   OneLocationCircleInvite,
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
   OneLocationCircleMemberInvite,
+  OneLocationCircleMemberPage,
+  OneLocationCircleOverview,
   OneLocationCircleSummary,
   OneLocationEncryptedEnvelope,
   OneLocationStoredEnvelope,
   OneLocationEncryptedPrivateKey,
   OneLocationNearbyAttendee,
+  OneLocationNearbyCheckInPreference,
   OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
+  OneLocationSosVoicePreference,
   OneLocationGrant,
   OneLocationMapPreferences,
   OneLocationMapState,
@@ -42,6 +47,7 @@ import type {
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
   OneLocationRecipient,
+  OneLocationRecipientPage,
   OneLocationReferral,
   OneLocationShareDurationMode,
   OneLocationState,
@@ -68,6 +74,19 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
     ...authHeaders(vaultOwnerToken),
     "Content-Type": "application/json",
   };
+}
+
+let locationMutationSequence = 0;
+
+function newLocationMutationOperationId(prefix: string): string {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return `${prefix}_${globalThis.crypto.randomUUID().replace(/-/g, "")}`;
+  }
+  locationMutationSequence += 1;
+  return `${prefix}_${Date.now().toString(36)}_${locationMutationSequence.toString(36)}`;
 }
 
 function wait(ms: number): Promise<void> {
@@ -404,6 +423,62 @@ export class OneLocationService {
     return response.preference;
   }
 
+  static async getNearbyCheckInPreferences(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationNearbyCheckInPreference> {
+    const response = await apiJson<{
+      preferences: OneLocationNearbyCheckInPreference;
+    }>("/api/one/location/nearby-check-in-preferences", {
+      headers: jsonAuthHeaders(vaultOwnerToken),
+    });
+    return response.preferences;
+  }
+
+  static async updateNearbyCheckInPreferences(params: {
+    vaultOwnerToken: string;
+    visible: boolean;
+    allowConnectionRequests: boolean;
+  }): Promise<OneLocationNearbyCheckInPreference> {
+    const response = await apiJson<{
+      preferences: OneLocationNearbyCheckInPreference;
+    }>("/api/one/location/nearby-check-in-preferences", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        visible: params.visible,
+        allowConnectionRequests: params.allowConnectionRequests,
+      }),
+    });
+    return response.preferences;
+  }
+
+  static async getSosVoicePreference(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationSosVoicePreference> {
+    const response = await apiJson<{
+      preference: OneLocationSosVoicePreference;
+    }>("/api/one/location/sos-voice-preference", {
+      headers: jsonAuthHeaders(vaultOwnerToken),
+    });
+    return response.preference;
+  }
+
+  static async updateSosVoicePreference(params: {
+    vaultOwnerToken: string;
+    defaultAction: OneLocationSosVoicePreference["defaultAction"];
+  }): Promise<OneLocationSosVoicePreference> {
+    const response = await apiJson<{
+      preference: OneLocationSosVoicePreference;
+    }>("/api/one/location/sos-voice-preference", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        defaultAction: params.defaultAction,
+      }),
+    });
+    return response.preference;
+  }
+
   /**
    * Fetch only the canonical Location-sharing recipients.
    *
@@ -420,6 +495,23 @@ export class OneLocationService {
       { headers: authHeaders(vaultOwnerToken) },
     );
     return response.recipients ?? [];
+  }
+
+  static async listRecipientsPage(params: {
+    vaultOwnerToken: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationRecipientPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    return apiJson<OneLocationRecipientPage>(
+      `/api/one/location/recipients?${search.toString()}`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
   }
 
   static async listCircles(
@@ -441,6 +533,35 @@ export class OneLocationService {
       { headers: authHeaders(params.vaultOwnerToken) },
     );
     return response.circle;
+  }
+
+  static async getCircleOverview(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+  }): Promise<OneLocationCircleOverview> {
+    const response = await apiJson<{ circle: OneLocationCircleOverview }>(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/overview`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
+    return response.circle;
+  }
+
+  static async listCircleMembersPage(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationCircleMemberPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    return apiJson<OneLocationCircleMemberPage>(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/members?${search.toString()}`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
   }
 
   /**
@@ -475,9 +596,12 @@ export class OneLocationService {
    */
   static async ensureTrustedSystemCircle(params: {
     vaultOwnerToken: string;
-  }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
-      "/api/one/location/circles/trusted",
+    summaryOnly?: boolean;
+  }): Promise<OneLocationCircleDetail | OneLocationCircleOverview> {
+    const response = await apiJson<{
+      circle: OneLocationCircleDetail | OneLocationCircleOverview;
+    }>(
+      `/api/one/location/circles/trusted${params.summaryOnly ? "?summaryOnly=true" : ""}`,
       { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
     );
     return response.circle;
@@ -683,6 +807,42 @@ export class OneLocationService {
           ? Number(response.remainingCapacity)
           : (response.eligibleConnections ?? response.connections ?? []).length,
       ),
+    };
+  }
+
+  static async listNamedCircleEligibleConnectionsPage(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationCircleEligibleConnectionsPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    const response = await apiJson<{
+      eligibleConnections?: OneLocationCircleEligibleConnections["eligibleConnections"];
+      connections?: OneLocationCircleEligibleConnections["eligibleConnections"];
+      pendingInvites?: OneLocationCircleMemberInvite[];
+      remainingCapacity?: number;
+      page?: number;
+      hasMore?: boolean;
+      totalCount?: number;
+    }>(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/eligible-connections?${search.toString()}`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
+    const eligibleConnections =
+      response.eligibleConnections ?? response.connections ?? [];
+    return {
+      eligibleConnections,
+      pendingInvites: response.pendingInvites ?? [],
+      remainingCapacity: Math.max(0, Number(response.remainingCapacity ?? 0)),
+      page: Math.max(1, Number(response.page ?? params.page ?? 1)),
+      hasMore: Boolean(response.hasMore),
+      totalCount: Math.max(0, Number(response.totalCount ?? eligibleConnections.length)),
     };
   }
 
@@ -1562,13 +1722,19 @@ export class OneLocationService {
     vaultOwnerToken: string;
     grantId: string;
     durationHours: number;
+    clientOperationId?: string;
   }): Promise<OneLocationGrant> {
-    const response = await apiJson<{ grant: OneLocationGrant }>(
+    const clientOperationId =
+      params.clientOperationId || newLocationMutationOperationId("loc_shorten");
+    const response = await apiJsonWithRetry<{ grant: OneLocationGrant }>(
       `/api/one/location/grants/${encodeURIComponent(params.grantId)}/shorten`,
       {
         method: "PATCH",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ durationHours: params.durationHours }),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          clientOperationId,
+        }),
       },
     );
     return response.grant;
@@ -1605,8 +1771,11 @@ export class OneLocationService {
     grantId: string;
     durationHours: number | null;
     durationMode: OneLocationShareDurationMode;
+    clientOperationId?: string;
   }): Promise<OneLocationGrant> {
-    const response = await apiJson<{ grant: OneLocationGrant }>(
+    const clientOperationId =
+      params.clientOperationId || newLocationMutationOperationId("loc_duration");
+    const response = await apiJsonWithRetry<{ grant: OneLocationGrant }>(
       `/api/one/location/grants/${encodeURIComponent(params.grantId)}/duration`,
       {
         method: "PATCH",
@@ -1614,6 +1783,7 @@ export class OneLocationService {
         body: JSON.stringify({
           durationHours: params.durationHours,
           durationMode: params.durationMode,
+          clientOperationId,
         }),
       },
     );

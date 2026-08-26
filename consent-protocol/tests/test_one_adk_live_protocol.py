@@ -1,5 +1,7 @@
 """Unit coverage for One ADK Live browser-frame trust boundaries."""
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -7,10 +9,12 @@ import pytest
 from api.routes.one.adk_live import (
     _GOAL_CONTINUATION_NOTE,
     _close_quietly,
+    _directive_dedup_fingerprint,
     _goal_continuation_is_already_ready,
     _InitialGreetingGate,
     _navigation_continuation_screen,
     _receive_runtime_bootstrap,
+    _safe_json_dumps,
 )
 from api.routes.one.live_context import (
     compose_route_context_note as _compose_route_context_note,
@@ -21,6 +25,63 @@ from api.routes.one.live_context import (
 from api.routes.one.live_context import (
     sanitize_live_context as _sanitize_live_context,
 )
+
+
+def test_safe_json_dumps_survives_a_value_the_plain_encoder_rejects():
+    """Every outbound websocket frame in this module goes through this
+    instead of a bare json.dumps -- a raw datetime (or any other type the
+    encoder does not know) anywhere in a directive payload otherwise throws
+    mid-send and kills the whole live session with nothing surfaced to the
+    user. This is the backstop for the whole class of bug, not a fix for
+    one instance of it."""
+    payload = {
+        "clientDirective": {
+            "kind": "action_result",
+            "payload": {
+                "actionId": "location.share_selected",
+                "status": "completed",
+                # A raw datetime should never reach here (upstream services
+                # own stringifying their own timestamps), but this proves
+                # the send survives even if one does.
+                "leakedTimestamp": datetime(2026, 8, 26, tzinfo=timezone.utc),
+            },
+        }
+    }
+    dumped = _safe_json_dumps(payload)
+    parsed = json.loads(dumped)
+    assert parsed["clientDirective"]["payload"]["leakedTimestamp"] == "2026-08-26 00:00:00+00:00"
+
+
+def test_safe_json_dumps_matches_plain_json_dumps_for_ordinary_payloads():
+    # The fallback must never change what an already-serializable payload
+    # produces -- default=str is a last resort, not a reformatter.
+    payload = {"serverContent": {"modelTurn": {"parts": [{"text": "hi"}]}}}
+    assert _safe_json_dumps(payload) == json.dumps(payload, default=str)
+
+
+def test_directive_dedup_fingerprint_distinguishes_different_slot_values():
+    # The predecessor fingerprint hashed only sorted(slots.keys()) -- "analyse
+    # Nvidia" then "analyse Tesla" shared one key shape ({"symbol"}), so the
+    # second collided with the first's still-unsettled directive and was
+    # silently deduped away instead of being issued.
+    nvidia = _directive_dedup_fingerprint("analysis.start", {"symbol": "NVDA"})
+    tesla = _directive_dedup_fingerprint("analysis.start", {"symbol": "TSLA"})
+    assert nvidia != tesla
+
+
+def test_directive_dedup_fingerprint_is_stable_for_the_same_request():
+    first = _directive_dedup_fingerprint("location.share_selected", {"person": "Sarah"})
+    second = _directive_dedup_fingerprint("location.share_selected", {"person": "Sarah"})
+    assert first == second
+
+
+def test_directive_dedup_fingerprint_never_carries_the_raw_value():
+    # A SHA-256 digest, not the value itself -- issued_action_fingerprints
+    # holds this for the life of the GC window (up to 300s), and a slot can
+    # carry something like an OTP.
+    fingerprint = _directive_dedup_fingerprint("auth.verify_code", {"code": "483920"})
+    assert "483920" not in fingerprint
+    assert len(fingerprint) == 64  # a hex sha256 digest
 
 
 def test_initial_greeting_gate_allows_one_idle_cue_only():
