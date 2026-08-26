@@ -2390,34 +2390,40 @@ export default function RiaPicksPage() {
           className="flex flex-col gap-6"
           {...(isDebateView ? { "data-no-route-swipe": "" } : {})}
         >
-          <div data-testid="ria-picks-primary">
-            <SettingsSegmentedTabs
-              value={source}
-              onValueChange={(value) => {
-                const nextSource = value as PicksSource;
-                setSource(nextSource);
-                setUploadOpen(false);
-                updatePicksRouteState({ source: nextSource });
-              }}
-              options={sourceOptions}
-              mobileColumns={2}
-            />
-          </div>
+          <div className="space-y-3">
+            <div data-testid="ria-picks-collection-selector">
+              <SettingsSegmentedTabs
+                value={source}
+                onValueChange={(value) => {
+                  const nextSource = value as PicksSource;
+                  setSource(nextSource);
+                  setUploadOpen(false);
+                  updatePicksRouteState({ source: nextSource });
+                }}
+                options={sourceOptions}
+                mobileColumns={2}
+                className="rounded-[var(--app-card-radius-compact)] border-[color:var(--app-separator-strong)] bg-[color:var(--app-card-surface)] p-1.5 shadow-[var(--app-card-shadow-standard)] [&>button]:min-h-12 [&>button]:rounded-[calc(var(--app-card-radius-compact)-4px)] [&>button]:text-[15px] [&>button]:font-semibold [&>button[data-state=active]]:!border-primary [&>button[data-state=active]]:!bg-primary [&>button[data-state=active]]:!text-primary-foreground [&>button[data-state=active]]:shadow-[var(--shadow-sm)]"
+              />
+            </div>
 
-          <SettingsSegmentedTabs
-            value={isDebateView ? "debate" : category}
-            onValueChange={(value) => {
-              if (value === "debate") {
-                updatePicksRouteState({ view: "debate" });
-                return;
-              }
-              const nextCategory = value as PicksCategory;
-              setCategory(nextCategory);
-              updatePicksRouteState({ category: nextCategory, view: null });
-            }}
-            options={categoryOptions}
-            mobileColumns={2}
-          />
+            <div data-testid="ria-picks-category-selector">
+              <SettingsSegmentedTabs
+                value={isDebateView ? "debate" : category}
+                onValueChange={(value) => {
+                  if (value === "debate") {
+                    updatePicksRouteState({ view: "debate" });
+                    return;
+                  }
+                  const nextCategory = value as PicksCategory;
+                  setCategory(nextCategory);
+                  updatePicksRouteState({ category: nextCategory, view: null });
+                }}
+                options={categoryOptions}
+                mobileColumns={2}
+                className="rounded-none !border-0 !bg-transparent !p-0 !shadow-none backdrop-blur-0 [&>button]:min-h-8 [&>button]:rounded-none [&>button]:!border-0 [&>button]:!border-b-2 [&>button]:!border-transparent [&>button]:!bg-transparent [&>button]:px-2 [&>button]:py-1.5 [&>button]:text-xs [&>button]:!font-normal [&>button]:!shadow-none [&>button[data-state=active]]:!border-b-primary [&>button[data-state=active]]:!bg-transparent [&>button[data-state=active]]:!text-foreground [&>button[data-state=active]]:!shadow-none"
+              />
+            </div>
+          </div>
 
           {isDebateView ? (
             iamUnavailable ? (

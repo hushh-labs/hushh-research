@@ -144,12 +144,14 @@ vi.mock("@/components/profile/settings-ui", () => ({
     value,
     onValueChange,
     options,
+    className,
   }: {
     value: string;
     onValueChange: (value: string) => void;
     options: Array<{ value: string; label: string }>;
+    className?: string;
   }) => (
-    <div>
+    <div className={className}>
       {options.map((option) => (
         <button
           key={option.value}
@@ -432,6 +434,28 @@ describe("RiaPicksPage", () => {
         active_share_count: 1,
       },
     });
+  });
+
+  it("keeps the Picks collection selector visually stronger than category tabs", async () => {
+    render(<RiaPicksPage />);
+
+    await screen.findByText("NVDA");
+
+    const collectionSelector = screen.getByTestId("ria-picks-collection-selector")
+      .firstElementChild;
+    const categorySelector = screen.getByTestId("ria-picks-category-selector")
+      .firstElementChild;
+
+    expect(collectionSelector?.className).toContain("bg-[color:var(--app-card-surface)]");
+    expect(collectionSelector?.className).toContain("shadow-[var(--app-card-shadow-standard)]");
+    expect(collectionSelector?.className).toContain("[&>button]:min-h-12");
+    expect(collectionSelector?.className).toContain("[&>button[data-state=active]]:!bg-primary");
+    expect(categorySelector?.className).toContain("!border-0");
+    expect(categorySelector?.className).toContain("!shadow-none");
+    expect(categorySelector?.className).toContain("[&>button]:min-h-8");
+    expect(categorySelector?.className).toContain("[&>button]:!bg-transparent");
+    expect(categorySelector?.className).toContain("[&>button[data-state=active]]:!border-b-primary");
+    expect(categorySelector?.className).toContain("[&>button[data-state=active]]:!bg-transparent");
   });
 
   it("keeps upload and template actions out of the suggested list and exposes them in My list", async () => {
