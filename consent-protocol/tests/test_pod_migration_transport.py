@@ -235,3 +235,72 @@ def test_the_import_timeout_exceeds_the_export_timeout():
     head trustworthy. A shorter budget there would time out on exactly the
     largest, most valuable histories."""
     assert transport._IMPORT_TIMEOUT_SECONDS > transport._EXPORT_TIMEOUT_SECONDS
+
+
+# --------------------------------------------------------------------------- #
+# The operator seam: an injected minter drives the tokens, so a shell can call it
+# --------------------------------------------------------------------------- #
+
+
+def test_an_injected_token_minter_is_used_instead_of_adc():
+    """The hub calls this in Cloud Run with a metadata server; an operator driving
+    the rehearsal from a shell has none, so it injects a minter backed by its
+    service-account key. Both audiences must come from the injected minter, not
+    from ADC."""
+    session = _Recorder()
+    asked: list[str] = []
+
+    def _minter(audience: str) -> str:
+        asked.append(audience)
+        return f"op::{audience}"
+
+    export_from(
+        pod_url="https://one-pod-abc.run.app",
+        hushh_id="ha1_abc",
+        recipient_public_key="key",
+        recipient_key_id="kid",
+        session=session,
+        token_minter=_minter,
+    )
+
+    headers = session.calls[0]["headers"]
+    assert headers["Authorization"] == "Bearer op::https://one-pod-abc.run.app"
+    assert headers["X-Hussh-Hub-Proof"] == "Bearer op::hussh-pod-migration:ha1_abc"
+    # ADC was never consulted -- both tokens came from the injected minter.
+    assert asked == ["https://one-pod-abc.run.app", "hussh-pod-migration:ha1_abc"]
+
+
+def test_import_into_also_honours_the_injected_minter():
+    session = _Recorder(body={"headSha": "abc", "recordCount": 1})
+
+    def _minter(audience: str) -> str:
+        return f"op::{audience}"
+
+    import_into(
+        pod_url="https://one-pod-dst.run.app",
+        hushh_id="ha1_abc",
+        bundle={"ciphertext": "..."},
+        session=session,
+        token_minter=_minter,
+    )
+    headers = session.calls[0]["headers"]
+    assert headers["Authorization"].startswith("Bearer op::https://one-pod-dst.run.app")
+
+
+def test_a_minter_that_returns_none_refuses_rather_than_sending_half_a_request():
+    """Same fail-closed rule as ADC: a missing token is a refusal, not a
+    degraded call, so an operator sees a clear error rather than a pod 403."""
+    from hushh_mcp.services.pod_migration_transport import PodMigrationTransportError
+
+    session = _Recorder()
+    with pytest.raises(PodMigrationTransportError) as excinfo:
+        export_from(
+            pod_url="https://one-pod-abc.run.app",
+            hushh_id="ha1_abc",
+            recipient_public_key="key",
+            recipient_key_id="kid",
+            session=session,
+            token_minter=lambda _audience: None,
+        )
+    assert excinfo.value.code == "HUB_IDENTITY_UNAVAILABLE"
+    assert session.calls == []

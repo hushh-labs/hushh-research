@@ -73,9 +73,10 @@ def _mint_id_token(audience: str) -> Optional[str]:
         return None
 
 
-def _headers(pod_url: str, hushh_id: str) -> dict[str, str]:
-    invoke = _mint_id_token(pod_url)
-    proof = _mint_id_token(hub_proof_audience(hushh_id))
+def _headers(pod_url: str, hushh_id: str, *, minter: Any = None) -> dict[str, str]:
+    mint = minter or _mint_id_token
+    invoke = mint(pod_url)
+    proof = mint(hub_proof_audience(hushh_id))
     if not invoke or not proof:
         # Refuse rather than send a half-authenticated request. A call missing
         # the proof would be rejected by the pod as a 403, which reads like a
@@ -100,6 +101,7 @@ def _post(
     *,
     timeout: float,
     session: Any = None,
+    minter: Any = None,
 ) -> dict[str, Any]:
     client: Any = session
     if client is None:
@@ -110,7 +112,7 @@ def _post(
     url = f"{pod_url.rstrip('/')}{path}"
     try:
         response = client.post(
-            url, json=payload, headers=_headers(pod_url, hushh_id), timeout=timeout
+            url, json=payload, headers=_headers(pod_url, hushh_id, minter=minter), timeout=timeout
         )
     except PodMigrationTransportError:
         raise
@@ -140,12 +142,19 @@ def export_from(
     recipient_public_key: str,
     recipient_key_id: str,
     session: Any = None,
+    token_minter: Any = None,
 ) -> dict[str, Any]:
     """Ask the SOURCE pod to seal its log for the destination.
 
     Returns the envelope plus the source's receipt (head sha, record count). The
     envelope is ciphertext; the receipt is coordinates. The hub holds both and
     can read only the second.
+
+    ``token_minter`` overrides how the two audience-bound ID tokens are obtained.
+    Default is ADC (``_mint_id_token``), which is right when the hub calls this in
+    a Cloud Run context that has a metadata server. An operator driving the
+    rehearsal from a shell has no metadata server, so it passes a minter backed by
+    its service-account key -- see ``make_operator_token_minter``.
     """
     return _post(
         pod_url,
@@ -157,6 +166,7 @@ def export_from(
         },
         timeout=_EXPORT_TIMEOUT_SECONDS,
         session=session,
+        minter=token_minter,
     )
 
 
@@ -166,12 +176,15 @@ def import_into(
     hushh_id: str,
     bundle: dict[str, Any],
     session: Any = None,
+    token_minter: Any = None,
 ) -> dict[str, Any]:
     """Hand the DESTINATION pod the sealed bundle and let it rebuild its chain.
 
     A longer timeout than the export because the destination replays every
     record through the ordinary append path, one compare-and-swap at a time --
     which is the same slowness that makes the resulting head trustworthy.
+
+    ``token_minter`` overrides the ID-token source exactly as ``export_from``.
     """
     return _post(
         pod_url,
@@ -180,4 +193,35 @@ def import_into(
         {"bundle": bundle},
         timeout=_IMPORT_TIMEOUT_SECONDS,
         session=session,
+        minter=token_minter,
     )
+
+
+def make_operator_token_minter(service_account_info: dict[str, Any]) -> Any:
+    """A token minter backed by a service-account key, for driving from a shell.
+
+    ADC's ``fetch_id_token`` needs a metadata server. An operator running the
+    migration rehearsal has none, so it mints the two audience-bound ID tokens
+    directly from its service-account key with ``IDTokenCredentials``, which is
+    the same identity the hub would use -- so the pod's invoker binding and
+    hub-caller allowlist see the caller they already expect, not a new one.
+
+    Kept as a factory taking parsed key info (not an env read) so it is unit
+    testable with fake info and so the operator harness owns where the key comes
+    from (``load_operator_credentials`` decodes ``GCP_DEPLOY_SA_KEY_B64``).
+    """
+    from google.auth.transport.requests import Request  # noqa: PLC0415
+    from google.oauth2 import service_account  # noqa: PLC0415
+
+    def _mint(audience: str) -> Optional[str]:
+        try:
+            creds = service_account.IDTokenCredentials.from_service_account_info(
+                service_account_info, target_audience=audience
+            )
+            creds.refresh(Request())
+            return str(creds.token) if creds.token else None
+        except Exception as exc:  # noqa: BLE001 - a mint failure is a refused call
+            logger.info("pod_migration_transport.operator_token_failed %s", type(exc).__name__)
+            return None
+
+    return _mint
