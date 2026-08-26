@@ -192,6 +192,12 @@ interface SwipeViewsProps {
    * layout. Compact task panes can opt into the active pane's measured height.
    */
   heightMode?: "max" | "active";
+  /**
+   * Hold the outgoing pane's height while it slides away so tall content is
+   * not clipped mid-transition. Short route-backed workspaces can opt out when
+   * stale height is worse than clipping.
+   */
+  holdHeightDuringTransition?: boolean;
   className?: string;
 }
 
@@ -205,6 +211,7 @@ export function SwipeViews({
   panelInset = "none",
   viewportMinHeight = SWIPE_VIEWPORT_MIN_HEIGHT,
   heightMode = "max",
+  holdHeightDuringTransition = true,
   className,
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
@@ -320,11 +327,14 @@ export function SwipeViews({
     // precisely in order to release the floor.
     if (measuredValueRef.current !== activeValue) {
       measuredValueRef.current = activeValue;
-      if (renderedHeightRef.current !== null) {
+      if (holdHeightDuringTransition && renderedHeightRef.current !== null) {
         heightFloorRef.current = Math.max(
           heightFloorRef.current ?? 0,
           renderedHeightRef.current,
         );
+        setHeightSettling(false);
+      } else {
+        heightFloorRef.current = null;
         setHeightSettling(false);
       }
     }
@@ -360,7 +370,7 @@ export function SwipeViews({
       if (frame) window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [activeValue, heightMode, heightSettleTick]);
+  }, [activeValue, heightMode, heightSettleTick, holdHeightDuringTransition]);
 
 
   // Embla measures the container and slides synchronously at init, but only
@@ -571,9 +581,17 @@ export function SwipeViews({
       scrollToSelection(emblaApi, targetIdx);
     } else if (!isDraggingRef.current && !hasMovedSincePointerDownRef.current) {
       setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
+      releaseHeightFloor();
     }
     lastReportedValueRef.current = activeValue;
-  }, [emblaApi, activeValue, options, scrollToSelection, tabSetId]);
+  }, [
+    emblaApi,
+    activeValue,
+    options,
+    releaseHeightFloor,
+    scrollToSelection,
+    tabSetId,
+  ]);
 
   // Publish selection at Embla's `select` point. Waiting for `settle` made
   // query-backed tabs look stale on iOS and delayed the visible panel state.
@@ -794,6 +812,13 @@ export function SwipeViews({
         {options.map((option, index) => {
           const isActive = index === activeIndex;
           const safeValue = option.value.replace(/[^a-zA-Z0-9_-]/g, "-");
+          const inactiveHeightClamp =
+            heightMode === "active" &&
+            !holdHeightDuringTransition &&
+            !isActive &&
+            activePanelHeight !== null
+              ? { maxHeight: activePanelHeight, overflow: "hidden" }
+              : null;
           return (
             <div
               key={option.value}
@@ -821,7 +846,10 @@ export function SwipeViews({
                 panelInset === "page" &&
                   "px-[var(--page-inline-gutter-standard)]",
               )}
-              style={{ minHeight: "inherit" }}
+              style={{
+                minHeight: "inherit",
+                ...inactiveHeightClamp,
+              }}
             >
               {/* Every panel stays mounted, so a backgrounded one must not
                   publish itself as the screen the person is on. */}
