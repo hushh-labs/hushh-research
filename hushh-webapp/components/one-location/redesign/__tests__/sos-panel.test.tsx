@@ -128,11 +128,9 @@ describe("SosPanel", () => {
           }),
         ),
       );
-      // The button itself still confirms, so the state survives the toast.
       expect(screen.getByRole("button", { name: /copy 112/i })).toHaveTextContent(
-        "Copied",
+        "Call 112 · India",
       );
-      expect(screen.getByText("112 · India")).toBeInTheDocument();
       expect(
         screen.queryByText(/Windows browsers cannot open emergency dialers/i),
       ).toBeNull();
@@ -169,19 +167,18 @@ describe("SosPanel", () => {
       expect(
         screen.getByRole("heading", { level: 1, name: "Save My Soul" }),
       ).toBeInTheDocument();
+      expect(screen.getByText("1 contact · Live location")).toBeInTheDocument();
       expect(
-        screen.getByText(
+        screen.queryByText(
           "Alerts your emergency contacts with your live location.",
         ),
-      ).toBeInTheDocument();
-      expect(screen.getByText("Emergency contacts")).toBeInTheDocument();
-      expect(screen.getByText("1 contact selected")).toBeInTheDocument();
-      expect(screen.getByText("Alerts 1 contact")).toBeInTheDocument();
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("Emergency contacts")).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: /call 112/i })).toHaveAttribute(
         "href",
         "tel:112",
       );
-      expect(screen.getByText("112 · India")).toBeInTheDocument();
+      expect(screen.getByText("Call 112 · India")).toBeInTheDocument();
       expect(screen.queryByText(/voice note/i)).not.toBeInTheDocument();
       // SOS renders INSIDE the signed-in shell so the top bar keeps the
       // "One › Location › SOS" breadcrumb. It must never re-open itself as a
@@ -284,7 +281,7 @@ describe("SosPanel", () => {
 
     // The ring must be back to its resting label, not a stuck countdown.
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
-      "Hold to alert contacts",
+      "Hold 2 seconds",
     );
 
     fireEvent.pointerDown(hold, { button: 0, pointerId: 2 });
@@ -399,15 +396,13 @@ describe("SosPanel", () => {
   it("fails closed and prompts to add a contact when none are ready", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} recipients={[]} onTrigger={onTrigger} />);
-    const hold = screen.getByRole("button", {
+    expect(screen.queryByRole("button", {
       name: /press and hold for two seconds/i,
-    });
-    expect(hold).toBeDisabled();
-    expect(screen.getAllByText("No emergency contacts")).toHaveLength(2);
+    })).toBeNull();
+    expect(screen.getByText("No emergency contacts")).toBeInTheDocument();
     expect(
-      screen.getByText("Add at least one contact to send an alert."),
+      screen.getByRole("button", { name: "Add emergency contacts" }),
     ).toBeInTheDocument();
-    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
     act(() => vi.advanceTimersByTime(3_000));
     expect(onTrigger).not.toHaveBeenCalled();
     expect(toastError).not.toHaveBeenCalled();
@@ -460,7 +455,7 @@ describe("SosPanel", () => {
     render(<SosPanel {...baseProps} active stopBusy onStopSos={onStopSos} />);
     const cancel = screen.getByTestId("sos-cancel-alert");
     expect(cancel).toBeDisabled();
-    expect(cancel).toHaveTextContent("Stopping…");
+    expect(cancel).toHaveTextContent("Stopping...");
     fireEvent.click(cancel);
     expect(onStopSos).not.toHaveBeenCalled();
   });
@@ -474,7 +469,7 @@ describe("SosPanel", () => {
     expect(screen.getByText("SMS")).toBeInTheDocument();
     expect(screen.queryByTestId("sos-sent-face")).toBeNull();
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
-      "Hold to alert contacts",
+      "Hold 2 seconds",
     );
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
   });
@@ -492,16 +487,15 @@ describe("SosPanel", () => {
     try {
       render(<SosPanel {...baseProps} active onStopSos={vi.fn()} />);
 
-      const row = screen.getByTestId("sos-emergency-actions");
       const dialer = screen.getByRole("link", {
         name: "Call 112 emergency services (India)",
       });
+      const row = screen.getByTestId("sos-emergency-actions");
       const stop = screen.getByTestId("sos-cancel-alert");
 
-      expect(row).toContainElement(dialer);
+      expect(row).toBe(dialer);
       expect(row).not.toContainElement(stop);
-      expect(row).toHaveTextContent("Call local emergency services");
-      expect(row).toHaveTextContent("112 · India");
+      expect(row).toHaveTextContent("Call 112 · India");
     } finally {
       navigatorUserAgent.mockRestore();
       navigatorPlatform.mockRestore();
@@ -511,7 +505,7 @@ describe("SosPanel", () => {
   it("keeps stop hidden until an alert is active", () => {
     render(<SosPanel {...baseProps} active={false} />);
     const row = screen.getByTestId("sos-emergency-actions");
-    expect(row).toHaveTextContent("Call local emergency services");
+    expect(row).toHaveTextContent("Call 112 · India");
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
   });
 
@@ -584,11 +578,11 @@ describe("SosPanel — no editing while the alert is live", () => {
 
     // The ways in: the two presets and the message field. Stopping the alert is
     // the only escape, so none of these may respond while an alert is out.
-    expect(screen.getByRole("button", { name: "Come get me" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "I'm not safe" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Come get me" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "I'm not safe" })).toBeNull();
     expect(
-      screen.getByRole("textbox", { name: "Add a message" }),
-    ).toHaveAttribute("readonly");
+      screen.queryByRole("textbox", { name: "Add a message" }),
+    ).toBeNull();
     expect(screen.getByTestId("sos-cancel-alert")).toBeTruthy();
   });
 

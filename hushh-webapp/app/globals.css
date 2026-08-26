@@ -1070,15 +1070,15 @@ textarea {
   --app-primary-surface: #1c1c1e;
   --app-secondary-surface: #2c2c2e;
   --app-elevated-surface: #2c2c2e;
-  --app-label: #ffffff;
-  --app-secondary-label: #98989d;
-  --app-section-label: #98989d;
-  --app-tertiary-label: #636366;
-  --app-quaternary-label: #48484a;
+  --app-label: #f5f5f7;
+  --app-secondary-label: rgba(235, 235, 245, 0.6);
+  --app-section-label: rgba(235, 235, 245, 0.6);
+  --app-tertiary-label: rgba(235, 235, 245, 0.3);
+  --app-quaternary-label: rgba(235, 235, 245, 0.18);
   --app-separator: rgba(84, 84, 88, 0.65);
   --app-opaque-separator: #38383a;
-  --app-neutral-fill: rgba(120, 120, 128, 0.24);
-  --app-neutral-fill-strong: rgba(120, 120, 128, 0.36);
+  --app-neutral-fill: #2c2c2e;
+  --app-neutral-fill-strong: #3a3a3c;
   --app-icon-tile-background: #636366;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff453a;
@@ -2374,6 +2374,20 @@ html.native-ios [data-testid="one-location-onboarding"] {
   );
 }
 
+/* Location onboarding is a focused full-screen flow. Suppress persistent app
+   chrome while it is mounted so the primary CTA is never visually covered. */
+html:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
+html:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
+html:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
+html:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass],
+body:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
+body:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
+body:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
+body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass] {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 /* Theme-aware gradient text - follows the app accent family */
 .hushh-gradient-text {
   background-image: linear-gradient(
@@ -3553,29 +3567,29 @@ html.native-ios [data-testid="one-location-onboarding"] {
   --app-accent-hero-mid: #007aff;
   --app-accent-hero-to: #4a9eff;
 
-  --background: oklch(0.146 0.004 285.9);
-  --foreground: oklch(0.971 0.003 286.4);
-  --card: oklch(0.199 0.014 285.1);
-  --card-foreground: oklch(0.971 0.003 286.4);
-  --popover: oklch(0.199 0.014 285.1);
-  --popover-foreground: oklch(0.971 0.003 286.4);
-  --primary: oklch(0.971 0.003 286.4);
-  --primary-foreground: oklch(0.232 0.004 286.1);
-  --secondary: oklch(0.25 0.003 264);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.25 0.003 264);
-  --muted-foreground: oklch(0.879 0.012 286.1);
+  --background: #000000;
+  --foreground: #f5f5f7;
+  --card: #1c1c1e;
+  --card-foreground: #f5f5f7;
+  --popover: #1c1c1e;
+  --popover-foreground: #f5f5f7;
+  --primary: #f5f5f7;
+  --primary-foreground: #000000;
+  --secondary: #2c2c2e;
+  --secondary-foreground: #f5f5f7;
+  --muted: #2c2c2e;
+  --muted-foreground: rgba(235, 235, 245, 0.6);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);
-  --destructive: oklch(0.636 0.172 26.8);
-  --destructive-foreground: oklch(0.15 0 0);
-  --critical-solid: oklch(0.636 0.172 26.8);
-  --critical-foreground: oklch(0.14 0 0);
+  --destructive: #ff453a;
+  --destructive-foreground: #ffffff;
+  --critical-solid: #ff453a;
+  --critical-foreground: #ffffff;
   --critical-soft-bg: oklch(0.31 0.06 24);
   --critical-soft-border: oklch(0.6 0.15 24);
   --critical-soft-text: oklch(0.79 0.13 24);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  --border: rgba(84, 84, 88, 0.65);
+  --input: #2c2c2e;
   --ring: var(--app-accent-ring);
   /* iOS shifts systemGreen brighter in dark mode and darkens the off-track;
      the thumb stays white in both appearances. */
@@ -3657,19 +3671,19 @@ html.native-ios [data-testid="one-location-onboarding"] {
   --app-card-radius-compact: 24px;
   --app-card-radius-standard: 24px;
   --app-card-radius-feature: 24px;
-  --app-card-surface-data: #2c2c2e;
-  --app-card-surface-compact: #2c2c2e;
-  --app-card-surface-default: #2c2c2e;
-  --app-card-surface-default-solid: #2c2c2e;
-  --app-card-surface-surface: #2c2c2e;
-  --app-card-surface-hero: #3a3a3c;
+  --app-card-surface-data: var(--app-primary-surface);
+  --app-card-surface-compact: var(--app-primary-surface);
+  --app-card-surface-default: var(--app-primary-surface);
+  --app-card-surface-default-solid: var(--app-primary-surface);
+  --app-card-surface-surface: var(--app-primary-surface);
+  --app-card-surface-hero: var(--app-neutral-fill-strong);
   --app-card-surface-sticky-header: #2f2f31;
   --app-card-surface-sticky-header-solid: #2f2f31;
-  --app-card-border-standard: transparent;
+  --app-card-border-standard: var(--app-separator);
   --app-card-border-strong: rgba(255, 255, 255, 0.18);
   --app-card-shadow-standard: none;
-  --app-card-shadow-feature: 0 12px 34px -30px rgba(0, 0, 0, 0.9);
-  --app-segmented-active-surface: #2c2c2e;
+  --app-card-shadow-feature: none;
+  --app-segmented-active-surface: var(--app-neutral-fill-strong);
   --app-segmented-active-foreground: #ffffff;
   --app-segmented-active-border: #ffffff;
   --app-shell-surface-bg: var(--app-glass-surface);
@@ -3690,8 +3704,8 @@ html.native-ios [data-testid="one-location-onboarding"] {
 
   html.dark,
   .dark {
-    --app-card-shadow-standard: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
-    --shadow-md: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
+    --app-card-shadow-standard: none;
+    --shadow-md: none;
   }
 }
 

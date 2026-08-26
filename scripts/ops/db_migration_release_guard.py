@@ -169,7 +169,10 @@ def _load_release_lane(
 
     base_names = [str(name).strip() for name in base if str(name).strip()]
     overlay_names = [str(name).strip() for name in uat_overlay if str(name).strip()]
-    canonical_names = base_names + overlay_names
+    canonical_names = sorted(
+        base_names + overlay_names,
+        key=lambda name: int(name.split("_", 1)[0]),
+    )
     duplicates = sorted(
         name for name, count in Counter(canonical_names).items() if count != 1
     )
@@ -203,7 +206,7 @@ def _load_release_lane(
 
     selected_names = base_names
     if release_environment == "uat":
-        selected_names = base_names + overlay_names
+        selected_names = canonical_names
     selected_versions: list[int] = []
     for name in selected_names:
         match = MIGRATION_PATTERN.match(name)

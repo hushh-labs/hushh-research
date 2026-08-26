@@ -59,6 +59,37 @@ class FakeNamedCircleService:
         self._record("get", **kwargs)
         return self.circle
 
+    def get_circle_overview(self, **kwargs):
+        self._record("overview", **kwargs)
+        return {key: value for key, value in self.circle.items() if key != "members"}
+
+    def list_circle_members_page(self, **kwargs):
+        self._record("members_page", **kwargs)
+        return {
+            "items": [
+                {
+                    "userId": "owner-user",
+                    "displayName": "Owner",
+                    "photoUrl": None,
+                    "role": "owner",
+                    "joinedAt": None,
+                    "phoneVerified": True,
+                    "secureLocationReady": False,
+                    "keyId": None,
+                    "publicKeyJwk": None,
+                    "keyAlgorithm": "ECDH-P256-AES256-GCM",  # gitleaks:allow
+                    "keyRegisteredAt": None,
+                    "canReceiveLocation": False,
+                    "relationship": "self",
+                    "canConnect": False,
+                    "connectedFromContacts": False,
+                }
+            ],
+            "page": kwargs["page"],
+            "hasMore": True,
+            "totalCount": 5000,
+        }
+
     def create_circle(self, **kwargs):
         self._record("create", **kwargs)
         return self.circle
@@ -122,6 +153,19 @@ class FakeNamedCircleService:
                 "connectedAt": "2026-07-20T00:00:00+00:00",
             }
         ]
+
+    def list_eligible_direct_connections_page(self, **kwargs):
+        self._record("eligible_page", **kwargs)
+        return {
+            "items": self.list_eligible_direct_connections(**kwargs),
+            "page": kwargs["page"],
+            "hasMore": True,
+            "totalCount": 5000,
+        }
+
+    def ensure_trusted_system_circle(self, **kwargs):
+        self._record("trusted", **kwargs)
+        return {key: value for key, value in self.circle.items() if key != "members"}
 
     def list_member_invites(self, **kwargs):
         self._record("list_member_invites", **kwargs)
@@ -207,6 +251,42 @@ def test_named_circle_create_list_detail_and_code_routes(monkeypatch) -> None:
             "kind": "family",
         },
     ) in service.calls
+
+
+def test_circle_overview_members_eligible_and_trusted_summary_are_bounded(monkeypatch) -> None:
+    client, service, _current_user = _client(monkeypatch)
+
+    overview = client.get(f"/api/one/location/circles/{CIRCLE_ID}/overview")
+    members = client.get(
+        f"/api/one/location/circles/{CIRCLE_ID}/members?page=2&limit=100&query=own"
+    )
+    eligible = client.get(
+        f"/api/one/location/circles/{CIRCLE_ID}/eligible-connections?page=2&limit=100&query=mem"
+    )
+    trusted = client.post("/api/one/location/circles/trusted?summaryOnly=true")
+
+    assert overview.status_code == 200
+    assert "members" not in overview.json()["circle"]
+    assert members.status_code == 200
+    assert members.json()["totalCount"] == 5000
+    assert members.json()["page"] == 2
+    assert eligible.status_code == 200
+    assert eligible.json()["totalCount"] == 5000
+    assert eligible.json()["page"] == 2
+    assert eligible.headers["cache-control"] == "private, no-store"
+    assert trusted.status_code == 200
+    assert "members" not in trusted.json()["circle"]
+    assert (
+        "members_page",
+        {
+            "user_id": "owner-user",
+            "circle_id": CIRCLE_ID,
+            "query": "own",
+            "page": 2,
+            "limit": 100,
+        },
+    ) in service.calls
+    assert ("trusted", {"owner_user_id": "owner-user", "summary_only": True}) in service.calls
 
 
 def test_named_circle_code_join_is_immediate_but_returns_no_location_authority(

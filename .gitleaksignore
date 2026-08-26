@@ -10,3 +10,5 @@
 467291e478c4d917d4b10714817bb198eea73683:consent-protocol/api/routes/one/personal_agent.py:generic-api-key:37
 467291e478c4d917d4b10714817bb198eea73683:consent-protocol/tests/test_webauthn_aal.py:generic-api-key:16
 467291e478c4d917d4b10714817bb198eea73683:consent-protocol/tests/test_personal_agent_registry_repo.py:generic-api-key:94
+# Synthetic idempotency-key fixture for Gmail delivery tests; never a credential.
+72d1e7c060c7c8aaffafc768f232572afc9b16f5:consent-protocol/tests/services/test_gmail_delivery_service.py:generic-api-key:133

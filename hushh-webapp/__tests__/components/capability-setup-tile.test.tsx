@@ -3,6 +3,7 @@ import { Mail } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
 
 import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
+import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -28,13 +29,14 @@ describe("CapabilitySetupTile", () => {
     );
     render(
       <CapabilitySetupTile
+        capabilityId="gmail"
         title="Gmail"
         description="Bring in receipts."
         actionLabel="Connect Gmail"
         resumeActionLabel="Finish Gmail"
         href="/one/setup/gmail"
         voiceControlId="one_setup_tile_gmail"
-        icon={Mail}
+        icon={lucideCapabilityIcon(Mail)}
         tone="gmail"
         status={{
           id: "gmail",
@@ -54,6 +56,7 @@ describe("CapabilitySetupTile", () => {
       "one_setup_tile_gmail",
     );
     expect(row.querySelector(".morphy-ripple-host")).not.toBeNull();
+    expect(row.querySelector('[data-testid="one-agent-icon-gmail"]')).not.toBeNull();
     fireEvent.click(row);
 
     expect(navigationRequest).toEqual({
@@ -72,13 +75,14 @@ describe("CapabilitySetupTile", () => {
   it("keeps a capability-specific action visible while vault state resolves", () => {
     render(
       <CapabilitySetupTile
+        capabilityId="gmail"
         title="Connect Gmail"
         description="Bring in receipts."
         actionLabel="Connect Gmail"
         resumeActionLabel="Finish Gmail"
         href="/one/setup/gmail"
         voiceControlId="one_setup_tile_gmail"
-        icon={Mail}
+        icon={lucideCapabilityIcon(Mail)}
         tone="gmail"
         status={{
           id: "gmail",

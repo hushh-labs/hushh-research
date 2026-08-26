@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   FormEvent,
   useCallback,
   useEffect,
@@ -38,6 +39,12 @@ import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { EmailDraftCard } from "@/components/agent/email-draft-card";
+import {
+  EmailDeliveryHistoryCard,
+  type EmailDeliveryHistoryItem,
+} from "@/components/agent/email-delivery-history-card";
+import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import {
@@ -128,12 +135,18 @@ import {
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
-import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
+import {
+  runLocationDirective,
+  type DelegateResult,
+} from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { cn } from "@/lib/utils";
-import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consent-actions";
+import {
+  useConsentActions,
+  type PendingConsent,
+} from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
@@ -155,9 +168,7 @@ import {
   useOneConversationSession,
   type AgentChatHandoff,
 } from "@/lib/agent/one-conversation-session";
-import {
-  dedupeAdjacentAgentMessages,
-} from "@/lib/agent/agent-chat-turn-safety";
+import { dedupeAdjacentAgentMessages } from "@/lib/agent/agent-chat-turn-safety";
 import {
   editQueuedAgentPrompt,
   removeQueuedAgentPrompt,
@@ -168,6 +179,10 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import type {
+  EmailDeliveryError,
+  EmailDraft,
+} from "@/lib/services/email-delivery-service";
 
 type AgentMessage = {
   id: string;
@@ -187,6 +202,10 @@ type AgentMessage = {
   sources?: AgentSource[];
 };
 
+type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
+  anchorMessageId: string | null;
+};
+
 type AgentDebugEvent = {
   id: string;
   turnId: string;
@@ -203,12 +222,14 @@ type QueuedWorkspaceOperation = {
 
 function upsertVisibleStreamEvent(
   events: AgentVisibleStreamEvent[] | undefined,
-  event: AgentVisibleStreamEvent
+  event: AgentVisibleStreamEvent,
 ): AgentVisibleStreamEvent[] {
   const current = events ?? [];
   const existingIndex = current.findIndex((item) => item.id === event.id);
   if (existingIndex >= 0) {
-    return current.map((item, index) => (index === existingIndex ? event : item));
+    return current.map((item, index) =>
+      index === existingIndex ? event : item,
+    );
   }
   return [...current, event].slice(-10);
 }
@@ -274,12 +295,9 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   updatedAt: null,
 };
 
-function toPkmFactCountBucket(count: number):
-  | "none"
-  | "1_9"
-  | "10_49"
-  | "50_249"
-  | "250_plus" {
+function toPkmFactCountBucket(
+  count: number,
+): "none" | "1_9" | "10_49" | "50_249" | "250_plus" {
   if (count <= 0) return "none";
   if (count < 10) return "1_9";
   if (count < 50) return "10_49";
@@ -296,10 +314,25 @@ function getConsentRequiredPayload(
   if (payload.kind !== "consent_required") return null;
   return {
     kind: "consent_required",
-    agentId: typeof payload.agentId === "string" ? payload.agentId : event.delegateAgentId,
-    requiredScope: typeof payload.requiredScope === "string" ? payload.requiredScope : "",
+    agentId:
+      typeof payload.agentId === "string"
+        ? payload.agentId
+        : event.delegateAgentId,
+    requiredScope:
+      typeof payload.requiredScope === "string" ? payload.requiredScope : "",
     reason: typeof payload.reason === "string" ? payload.reason : undefined,
   };
+}
+
+function getGmailEmailDraftPayload(
+  event: SpecialistDirectiveEvent | null,
+): { instruction: string } | null {
+  if (!event || event.directive.kind !== "prompt") return null;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "gmail_email_draft") return null;
+  const instruction =
+    typeof payload.instruction === "string" ? payload.instruction.trim() : "";
+  return instruction ? { instruction } : null;
 }
 
 function getConsentActionsPayload(
@@ -310,7 +343,11 @@ function getConsentActionsPayload(
   if (payload.kind !== "consent_actions") return null;
   const rawItems = Array.isArray(payload.items) ? payload.items : [];
   const items = rawItems
-    .map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>) : null))
+    .map((item) =>
+      item && typeof item === "object"
+        ? (item as Record<string, unknown>)
+        : null,
+    )
     .filter((item): item is Record<string, unknown> => Boolean(item))
     .map((item) => ({
       id: typeof item.id === "string" ? item.id : "",
@@ -351,18 +388,26 @@ function getPendingConsentRequestPayload(
     item: {
       id,
       requesterLabel:
-        typeof rawItem.requesterLabel === "string" && rawItem.requesterLabel.trim()
+        typeof rawItem.requesterLabel === "string" &&
+        rawItem.requesterLabel.trim()
           ? rawItem.requesterLabel
           : "An agent",
       requesterImageUrl:
-        typeof rawItem.requesterImageUrl === "string" ? rawItem.requesterImageUrl : null,
+        typeof rawItem.requesterImageUrl === "string"
+          ? rawItem.requesterImageUrl
+          : null,
       requesterWebsiteUrl:
-        typeof rawItem.requesterWebsiteUrl === "string" ? rawItem.requesterWebsiteUrl : null,
+        typeof rawItem.requesterWebsiteUrl === "string"
+          ? rawItem.requesterWebsiteUrl
+          : null,
       scope: typeof rawItem.scope === "string" ? rawItem.scope : "",
       scopeDescription:
-        typeof rawItem.scopeDescription === "string" ? rawItem.scopeDescription : null,
+        typeof rawItem.scopeDescription === "string"
+          ? rawItem.scopeDescription
+          : null,
       requestedAt:
-        typeof rawItem.requestedAt === "number" || typeof rawItem.requestedAt === "string"
+        typeof rawItem.requestedAt === "number" ||
+        typeof rawItem.requestedAt === "string"
           ? rawItem.requestedAt
           : null,
       approvalTimeoutAt:
@@ -371,7 +416,8 @@ function getPendingConsentRequestPayload(
           ? rawItem.approvalTimeoutAt
           : null,
       expiryHours:
-        typeof rawItem.expiryHours === "number" || typeof rawItem.expiryHours === "string"
+        typeof rawItem.expiryHours === "number" ||
+        typeof rawItem.expiryHours === "string"
           ? rawItem.expiryHours
           : null,
       reason: typeof rawItem.reason === "string" ? rawItem.reason : null,
@@ -390,10 +436,7 @@ function pendingConsentLookupItemToCardItem(
   const id = String(item.request_id || "").trim();
   if (!id) return null;
   const requesterLabel =
-    item.requester_label ||
-    item.agent_id ||
-    item.developer ||
-    "An agent";
+    item.requester_label || item.agent_id || item.developer || "An agent";
   return {
     id,
     requesterLabel,
@@ -433,7 +476,8 @@ function pendingConsentCardItemToPendingConsent(
     scopeDescription: item.scopeDescription || undefined,
     requestedAt: Number.isFinite(requestedAt) ? requestedAt : Date.now(),
     approvalTimeoutAt:
-      typeof approvalTimeoutAt === "number" && Number.isFinite(approvalTimeoutAt)
+      typeof approvalTimeoutAt === "number" &&
+      Number.isFinite(approvalTimeoutAt)
         ? approvalTimeoutAt
         : undefined,
     expiryHours:
@@ -445,8 +489,12 @@ function pendingConsentCardItemToPendingConsent(
   };
 }
 
-function agentMessagePendingConsentRequestId(message: AgentMessage): string | null {
-  const payload = getPendingConsentRequestPayload(message.specialistDirective ?? null);
+function agentMessagePendingConsentRequestId(
+  message: AgentMessage,
+): string | null {
+  const payload = getPendingConsentRequestPayload(
+    message.specialistDirective ?? null,
+  );
   return payload?.item.id ?? null;
 }
 
@@ -458,9 +506,10 @@ function markPendingConsentRequestDirectiveStatus(
   if (!event || event.directive.kind !== "prompt") return event;
   const payload = event.directive.payload as Record<string, unknown>;
   if (payload.kind !== "pending_consent_request") return event;
-  const item = payload.item && typeof payload.item === "object"
-    ? (payload.item as Record<string, unknown>)
-    : null;
+  const item =
+    payload.item && typeof payload.item === "object"
+      ? (payload.item as Record<string, unknown>)
+      : null;
   if (!item || item.id !== itemId) return event;
 
   return {
@@ -480,7 +529,9 @@ function markPendingConsentRequestDirectiveStatus(
 
 function normalizeConsentActions(item: Record<string, unknown>): string[] {
   const rawActions = Array.isArray(item.actions)
-    ? item.actions.filter((action): action is string => typeof action === "string")
+    ? item.actions.filter(
+        (action): action is string => typeof action === "string",
+      )
     : [];
   const metadata =
     item.metadata && typeof item.metadata === "object"
@@ -489,7 +540,9 @@ function normalizeConsentActions(item: Record<string, unknown>): string[] {
   const id = typeof item.id === "string" ? item.id : "";
   const scope = typeof item.scope === "string" ? item.scope : "";
   const requestSource =
-    typeof metadata.request_source === "string" ? metadata.request_source.trim() : "";
+    typeof metadata.request_source === "string"
+      ? metadata.request_source.trim()
+      : "";
   const isLocationGrant =
     id.startsWith("one_location_grant:") ||
     requestSource === "one_location_share_grant" ||
@@ -509,7 +562,8 @@ function markConsentDirectiveItemRevoked(
 ): SpecialistDirectiveEvent | null | undefined {
   if (!event || event.directive.kind !== "prompt") return event;
   const payload = event.directive.payload as Record<string, unknown>;
-  if (payload.kind !== "consent_actions" || !Array.isArray(payload.items)) return event;
+  if (payload.kind !== "consent_actions" || !Array.isArray(payload.items))
+    return event;
 
   let changed = false;
   const nextItems = payload.items.map((rawItem) => {
@@ -566,15 +620,20 @@ function createGreetingMessage(): AgentMessage {
 
 function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
   if (!container) return [];
-  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+  ).filter(
     (element) =>
       !element.hasAttribute("disabled") &&
       element.getAttribute("aria-hidden") !== "true" &&
-      element.offsetParent !== null
+      element.offsetParent !== null,
   );
 }
 
-function trapFocusWithin(event: ReactKeyboardEvent, container: HTMLElement | null): void {
+function trapFocusWithin(
+  event: ReactKeyboardEvent,
+  container: HTMLElement | null,
+): void {
   if (event.key !== "Tab") return;
   const focusable = getFocusableElements(container);
   if (focusable.length === 0) {
@@ -595,7 +654,10 @@ function trapFocusWithin(event: ReactKeyboardEvent, container: HTMLElement | nul
   }
 }
 
-function formatAgentDisplayName(displayName?: string | null, email?: string | null): string {
+function formatAgentDisplayName(
+  displayName?: string | null,
+  email?: string | null,
+): string {
   const rawName = displayName?.trim() || email?.split("@")[0]?.trim() || "";
   const firstName = rawName
     .replace(/[._-]+/g, " ")
@@ -701,7 +763,11 @@ function AgentMarkdown({ text }: { text: string }) {
                 </code>
               );
             }
-            return <code className={cn("font-mono text-xs", className)}>{children}</code>;
+            return (
+              <code className={cn("font-mono text-xs", className)}>
+                {children}
+              </code>
+            );
           },
           pre: ({ children }) => (
             <pre className="my-3 overflow-x-auto rounded-md border border-border/70 bg-muted/60 p-3 leading-5">
@@ -715,7 +781,9 @@ function AgentMarkdown({ text }: { text: string }) {
           ),
           table: ({ children }) => (
             <div className="my-3 overflow-x-auto rounded-md border border-border/70">
-              <table className="min-w-full border-collapse text-left text-xs">{children}</table>
+              <table className="min-w-full border-collapse text-left text-xs">
+                {children}
+              </table>
             </div>
           ),
           th: ({ children }) => (
@@ -777,13 +845,15 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
         return;
       }
 
-      const elapsedMs = lastPaintAt ? Math.max(12, now - lastPaintAt) : AGENT_STREAM_RENDER_FRAME_MS;
+      const elapsedMs = lastPaintAt
+        ? Math.max(12, now - lastPaintAt)
+        : AGENT_STREAM_RENDER_FRAME_MS;
       lastPaintAt = now;
       const backlog = target.length - current.length;
       const charsPerSecond = backlog > 900 ? 2600 : backlog > 260 ? 1500 : 620;
       const step = Math.max(
         1,
-        Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000))
+        Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000)),
       );
       const nextText = target.slice(0, current.length + step);
       displayedTextRef.current = nextText;
@@ -796,7 +866,10 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
 
     const target = targetTextRef.current;
     const current = displayedTextRef.current;
-    if (target && (!target.startsWith(current) || current.length < target.length)) {
+    if (
+      target &&
+      (!target.startsWith(current) || current.length < target.length)
+    ) {
       frame = window.requestAnimationFrame(tick);
     }
 
@@ -815,7 +888,10 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
 
 function AgentThinkingDots() {
   return (
-    <span className="inline-flex items-center gap-1 py-1 text-muted-foreground" aria-label="Agent is thinking">
+    <span
+      className="inline-flex items-center gap-1 py-1 text-muted-foreground"
+      aria-label="Agent is thinking"
+    >
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-160ms] motion-reduce:animate-none" />
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-80ms] motion-reduce:animate-none" />
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current motion-reduce:animate-none" />
@@ -842,8 +918,12 @@ function AgentBubble({
   turnPanelOpportunities?: ReactNode;
   onConsentRevoke?: (item: SpecialistConsentActionItem) => Promise<void> | void;
   onConsentDetails?: (item: SpecialistConsentActionItem) => void;
-  onPendingConsentApprove?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
-  onPendingConsentDeny?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
+  onPendingConsentApprove?: (
+    item: SpecialistPendingConsentRequestItem,
+  ) => Promise<void> | void;
+  onPendingConsentDeny?: (
+    item: SpecialistPendingConsentRequestItem,
+  ) => Promise<void> | void;
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -862,10 +942,11 @@ function AgentBubble({
     Boolean(message.sources?.length) ||
     Boolean(message.text.trim());
   const shouldRenderStreamPanel =
-    !isUser &&
-    hasStreamContent &&
-    !message.renderAsPlainAssistantMessage;
-  const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
+    !isUser && hasStreamContent && !message.renderAsPlainAssistantMessage;
+  const animated = useAnimatedAssistantText(
+    message.text,
+    !isUser && isStreaming,
+  );
   const assistantText = isUser ? message.text : animated.displayedText;
   const consentActionsPayload = !isUser
     ? getConsentActionsPayload(message.specialistDirective ?? null)
@@ -878,12 +959,15 @@ function AgentBubble({
     : null;
   const canRenderPendingConsentRequest = Boolean(
     pendingConsentRequestPayload &&
-      onPendingConsentApprove &&
-      onPendingConsentDeny &&
-      onPendingConsentDetails,
+    onPendingConsentApprove &&
+    onPendingConsentDeny &&
+    onPendingConsentDetails,
   );
   const showResponseActions =
-    !isUser && !message.ephemeral && !isStreaming && assistantText.trim().length > 0;
+    !isUser &&
+    !message.ephemeral &&
+    !isStreaming &&
+    assistantText.trim().length > 0;
   // Give the assistant turn the same rounded-card shape as the user bubble
   // (just in a neutral tone, not primary) so both sides of the conversation
   // read as one consistent rhythm. The stream panel and the consent-actions-
@@ -909,7 +993,7 @@ function AgentBubble({
     <div
       className={cn(
         "motion-step-enter flex w-full",
-        isUser ? "justify-end" : "justify-start"
+        isUser ? "justify-end" : "justify-start",
       )}
     >
       <div
@@ -918,7 +1002,7 @@ function AgentBubble({
           shouldRenderStreamPanel && !isUser
             ? "w-full max-w-none"
             : "max-w-[90%] sm:max-w-[min(82%,48rem)]",
-          isUser && "order-first sm:max-w-[min(76%,42rem)]"
+          isUser && "order-first sm:max-w-[min(76%,42rem)]",
         )}
       >
         <div
@@ -931,11 +1015,13 @@ function AgentBubble({
                 ? "rounded-2xl bg-muted/50 px-4 py-3 text-foreground"
                 : "px-0 py-1 text-foreground",
             isError &&
-              "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive"
+              "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive",
           )}
         >
           {isUser ? (
-            <span className="whitespace-pre-wrap break-words">{message.text}</span>
+            <span className="whitespace-pre-wrap break-words">
+              {message.text}
+            </span>
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
@@ -945,20 +1031,21 @@ function AgentBubble({
               isStreaming={isStreaming}
               isError={isError}
               opportunities={turnPanelOpportunities}
-              response={assistantText ? <AgentMarkdown text={assistantText} /> : null}
+              response={
+                assistantText ? <AgentMarkdown text={assistantText} /> : null
+              }
             />
           ) : assistantText ? (
             <AgentMarkdown text={assistantText} />
-          ) : canRenderConsentActions || canRenderPendingConsentRequest ? (
-            null
-          ) : (
+          ) : canRenderConsentActions ||
+            canRenderPendingConsentRequest ? null : (
             <AgentThinkingDots />
           )}
         </div>
         <div
           className={cn(
             "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
-            isUser && "justify-end text-right"
+            isUser && "justify-end text-right",
           )}
         >
           <span>{message.timestamp}</span>
@@ -971,7 +1058,11 @@ function AgentBubble({
                 aria-label={copied ? "Response copied" : "Copy response"}
                 title={copied ? "Copied" : "Copy response"}
               >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
               </button>
               <button
                 type="button"
@@ -984,7 +1075,7 @@ function AgentBubble({
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   liked
                     ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
                 )}
                 aria-label="Like response"
                 aria-pressed={liked}
@@ -1003,7 +1094,7 @@ function AgentBubble({
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   disliked
                     ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
                 )}
                 aria-label="Dislike response"
                 aria-pressed={disliked}
@@ -1073,7 +1164,9 @@ function AgentPkmActivityLine({ item }: { item: AgentPkmActivity }) {
     <div
       className={cn(
         "flex min-w-0 items-center gap-2 pl-11 pr-2 text-xs",
-        item.status === "error" ? "text-destructive/80" : "text-muted-foreground"
+        item.status === "error"
+          ? "text-destructive/80"
+          : "text-muted-foreground",
       )}
       aria-live="polite"
     >
@@ -1116,8 +1209,8 @@ export function storedMessageToAgentMessage(
     isSelection && message.metadata?.display
       ? message.metadata.display
       : isLegacySelectionSeed
-      ? "Your selection"
-      : message.content;
+        ? "Your selection"
+        : message.content;
   return {
     id: message.id,
     role: message.role,
@@ -1130,16 +1223,20 @@ export function storedMessageToAgentMessage(
           }).format(createdAt)
         : formatNow(),
     status: message.status === "error" ? "error" : "done",
-    ...(isSelection || isLegacySelectionSeed ? { kind: "selection" as const } : {}),
+    ...(isSelection || isLegacySelectionSeed
+      ? { kind: "selection" as const }
+      : {}),
   };
 }
 
-function shouldMinimizeForNavigationResult(result: AgentActionRuntimeResult): boolean {
+function shouldMinimizeForNavigationResult(
+  result: AgentActionRuntimeResult,
+): boolean {
   return Boolean(
     result.routeAfter &&
-      result.status !== "failed" &&
-      result.status !== "invalid" &&
-      result.status !== "noop"
+    result.status !== "failed" &&
+    result.status !== "invalid" &&
+    result.status !== "noop",
   );
 }
 
@@ -1183,7 +1280,9 @@ export function AgentChatWorkspace({
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerLong, setComposerLong] = useState(false);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
-  const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<string | null>(null);
+  const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
+    string | null
+  >(null);
   const [editingQueuedPromptText, setEditingQueuedPromptText] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
 
@@ -1251,7 +1350,9 @@ export function AgentChatWorkspace({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
-  const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
+  const [historyActionPendingId, setHistoryActionPendingId] = useState<
+    string | null
+  >(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   // Just-in-time vault unlock: the agent prompts to unlock in place (the same
@@ -1259,13 +1360,26 @@ export function AgentChatWorkspace({
   // instead of bouncing the user to /one/profile. Opened only when a vault-gated
   // operation is requested while the vault is locked.
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const [emailDraftOpen, setEmailDraftOpen] = useState(false);
+  const [emailDraftInstruction, setEmailDraftInstruction] = useState("");
+  const [emailDraftAutoDraft, setEmailDraftAutoDraft] = useState(false);
+  const [emailDraftInitialValue, setEmailDraftInitialValue] =
+    useState<EmailDraft | null>(null);
+  const [emailDraftAnchorMessageId, setEmailDraftAnchorMessageId] = useState<
+    string | null
+  >(null);
+  // This is intentionally session-only. The normal user prompt is stored by
+  // the encrypted chat service, but raw email fields must not become durable
+  // chat/workflow records.
+  const [emailDeliveryHistory, setEmailDeliveryHistory] = useState<
+    EmailDeliveryTimelineItem[]
+  >([]);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
-  const [pkmAutoSavePolicy, setPkmAutoSavePolicy] = useState<AgentPkmAutoSavePolicy>(
-    DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY
-  );
+  const [pkmAutoSavePolicy, setPkmAutoSavePolicy] =
+    useState<AgentPkmAutoSavePolicy>(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1280,12 +1394,14 @@ export function AgentChatWorkspace({
   } | null>(null);
   const [appActionBusy, setAppActionBusy] = useState(false);
   const [specialistBusy, setSpecialistBusy] = useState(false);
-  const [specialistBusyItemId, setSpecialistBusyItemId] = useState<string | null>(null);
+  const [specialistBusyItemId, setSpecialistBusyItemId] = useState<
+    string | null
+  >(null);
   const voiceState = useAgentVoiceState((state) => state.status);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
   const [welcomePromptSetIndex, setWelcomePromptSetIndex] = useState(0);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
-    AppBackgroundTaskService.getState()
+    AppBackgroundTaskService.getState(),
   );
   const activeActionRun = useActiveActionRun();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -1298,17 +1414,24 @@ export function AgentChatWorkspace({
   const skipInitialHistoryLoadRef = useRef(false);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const conversationIdRef = useRef<string | null>(null);
-  const operationQueueRef = useRef(new SerialAgentOperationQueue<QueuedWorkspaceOperation>());
+  const operationQueueRef = useRef(
+    new SerialAgentOperationQueue<QueuedWorkspaceOperation>(),
+  );
   const calendarActionIdsRef = useRef<Set<string>>(new Set());
   const savingPkmReviewIdsRef = useRef<Set<string>>(new Set());
-  const handoffPromptSubmitRef = useRef<((prompt: string) => Promise<void>) | null>(null);
+  const handoffPromptSubmitRef = useRef<
+    ((prompt: string) => Promise<void>) | null
+  >(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
-  const updateConversationId = useCallback((nextConversationId: string | null) => {
-    conversationIdRef.current = nextConversationId;
-    setConversationId(nextConversationId);
-  }, []);
+  const updateConversationId = useCallback(
+    (nextConversationId: string | null) => {
+      conversationIdRef.current = nextConversationId;
+      setConversationId(nextConversationId);
+    },
+    [],
+  );
   const oneLocationConsentActions = useOneLocationConsentActions({
     userId: user?.uid,
     onActionComplete: () => {
@@ -1355,6 +1478,10 @@ export function AgentChatWorkspace({
       return;
     }
     clearAgentPkmContext(user?.uid);
+    setEmailDraftOpen(false);
+    setEmailDraftInitialValue(null);
+    setEmailDraftAnchorMessageId(null);
+    setEmailDeliveryHistory([]);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
 
   useEffect(() => {
@@ -1372,7 +1499,8 @@ export function AgentChatWorkspace({
         if (!cancelled) setPkmAutoSavePolicy(policy);
       })
       .catch(() => {
-        if (!cancelled) setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+        if (!cancelled)
+          setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
       });
     return () => {
       cancelled = true;
@@ -1401,10 +1529,12 @@ export function AgentChatWorkspace({
   }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
 
   const routeQuery = searchParams?.toString() || "";
-  const pathnameWithQuery = routeQuery ? `${pathname || ""}?${routeQuery}` : pathname || "";
+  const pathnameWithQuery = routeQuery
+    ? `${pathname || ""}?${routeQuery}`
+    : pathname || "";
   const routeInfo = useMemo(
     () => deriveVoiceRouteScreen(pathname || "", routeQuery),
-    [pathname, routeQuery]
+    [pathname, routeQuery],
   );
   const activeAnalysisTask = useMemo(() => {
     if (!user?.uid) return null;
@@ -1414,7 +1544,7 @@ export function AgentChatWorkspace({
           task.userId === user.uid &&
           task.kind === "stock_analysis_stream" &&
           task.status === "running" &&
-          !task.dismissedAt
+          !task.dismissedAt,
       ) || null
     );
   }, [backgroundTaskState.tasks, user?.uid]);
@@ -1426,7 +1556,7 @@ export function AgentChatWorkspace({
           task.userId === user.uid &&
           task.kind === "portfolio_import_stream" &&
           task.status === "running" &&
-          !task.dismissedAt
+          !task.dismissedAt,
       ) || null
     );
   }, [backgroundTaskState.tasks, user?.uid]);
@@ -1435,7 +1565,11 @@ export function AgentChatWorkspace({
     return typeof ticker === "string" && ticker.trim() ? ticker.trim() : null;
   }, [activeAnalysisTask]);
   const hasChatAccess = Boolean(
-    !authLoading && user?.uid && isVaultUnlocked && vaultOwnerToken && tokenIsFresh
+    !authLoading &&
+    user?.uid &&
+    isVaultUnlocked &&
+    vaultOwnerToken &&
+    tokenIsFresh,
   );
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
@@ -1498,8 +1632,12 @@ export function AgentChatWorkspace({
         analysis_active:
           base.runtime.analysis_active || Boolean(activeAnalysisTask),
         analysis_ticker:
-          base.runtime.analysis_ticker || activeAnalysisTicker || analysisParams?.ticker || null,
-        analysis_run_id: activeAnalysisTask?.taskId || base.runtime.analysis_run_id,
+          base.runtime.analysis_ticker ||
+          activeAnalysisTicker ||
+          analysisParams?.ticker ||
+          null,
+        analysis_run_id:
+          activeAnalysisTask?.taskId || base.runtime.analysis_run_id,
         import_active: base.runtime.import_active || Boolean(runningImportTask),
         import_run_id: runningImportTask?.taskId || base.runtime.import_run_id,
       },
@@ -1543,9 +1681,10 @@ export function AgentChatWorkspace({
     !isLoadingHistory &&
     !isVoiceConnecting &&
     !voiceActive &&
+    !emailDraftOpen &&
     input.trim().length > 0;
   const canToggleVoice =
-    agentVoiceEnabled && !isVoiceConnecting;
+    agentVoiceEnabled && !isVoiceConnecting && !emailDraftOpen;
   const historyInteractionDisabled =
     isLoadingHistory ||
     isChatLoading ||
@@ -1604,8 +1743,11 @@ export function AgentChatWorkspace({
   );
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pkmReviews, pendingSpecialistDirective]);
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
+  }, [emailDraftOpen, messages, pkmReviews, pendingSpecialistDirective]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -1624,14 +1766,18 @@ export function AgentChatWorkspace({
 
   useEffect(() => {
     if (!composerExpanded) return;
-    const frame = window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+    const frame = window.requestAnimationFrame(() =>
+      composerTextareaRef.current?.focus(),
+    );
     return () => window.cancelAnimationFrame(frame);
   }, [composerExpanded]);
 
   useEffect(() => {
     if (!isHistoryDrawerOpen) return;
     historyDrawerReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setIsHistoryDrawerOpen(false);
@@ -1672,8 +1818,12 @@ export function AgentChatWorkspace({
     const cache = CacheService.getInstance();
     const computeHasPortfolioData = () => {
       const cachedPortfolio =
-        cache.get<Record<string, unknown>>(CACHE_KEYS.PORTFOLIO_DATA(user.uid)) ??
-        cache.get<Record<string, unknown>>(CACHE_KEYS.DOMAIN_DATA(user.uid, "financial"));
+        cache.get<Record<string, unknown>>(
+          CACHE_KEYS.PORTFOLIO_DATA(user.uid),
+        ) ??
+        cache.get<Record<string, unknown>>(
+          CACHE_KEYS.DOMAIN_DATA(user.uid, "financial"),
+        );
       const nestedPortfolio =
         cachedPortfolio?.portfolio &&
         typeof cachedPortfolio.portfolio === "object" &&
@@ -1681,8 +1831,10 @@ export function AgentChatWorkspace({
           ? (cachedPortfolio.portfolio as Record<string, unknown>)
           : null;
       const holdings =
-        (Array.isArray(cachedPortfolio?.holdings) && cachedPortfolio.holdings) ||
-        (Array.isArray(nestedPortfolio?.holdings) && nestedPortfolio.holdings) ||
+        (Array.isArray(cachedPortfolio?.holdings) &&
+          cachedPortfolio.holdings) ||
+        (Array.isArray(nestedPortfolio?.holdings) &&
+          nestedPortfolio.holdings) ||
         [];
       setHasPortfolioData(holdings.length > 0);
     };
@@ -1756,6 +1908,10 @@ export function AgentChatWorkspace({
     setPendingAppAction(null);
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
+    setEmailDraftOpen(false);
+    setEmailDraftInitialValue(null);
+    setEmailDraftAnchorMessageId(null);
+    setEmailDeliveryHistory([]);
     setSpecialistBusy(false);
     operationQueueRef.current.replace([]);
     calendarActionIdsRef.current.clear();
@@ -1767,10 +1923,12 @@ export function AgentChatWorkspace({
 
   const updateMessage = (
     messageId: string,
-    update: (message: AgentMessage) => AgentMessage
+    update: (message: AgentMessage) => AgentMessage,
   ) => {
     setMessages((current) =>
-      current.map((message) => (message.id === messageId ? update(message) : message))
+      current.map((message) =>
+        message.id === messageId ? update(message) : message,
+      ),
     );
   };
 
@@ -1778,19 +1936,117 @@ export function AgentChatWorkspace({
     setMessages((current) => [...current, message]);
   };
 
+  const closeEmailDraft = () => {
+    setEmailDraftOpen(false);
+    setEmailDraftInstruction("");
+    setEmailDraftAutoDraft(false);
+    setEmailDraftInitialValue(null);
+    setEmailDraftAnchorMessageId(null);
+  };
+
+  const handleEmailSendStarted = (draft: EmailDraft): string => {
+    const id = `email-delivery-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setEmailDeliveryHistory((current) => [
+      ...current,
+      {
+        id,
+        instruction: emailDraftInstruction,
+        draft,
+        status: "sending",
+        anchorMessageId:
+          emailDraftAnchorMessageId ??
+          [...messages].reverse().find((message) => message.role === "user")
+            ?.id ??
+          null,
+      },
+    ]);
+    closeEmailDraft();
+    return id;
+  };
+
+  const handleEmailSent = (attemptId?: string | null) => {
+    if (!attemptId) return;
+    setEmailDeliveryHistory((current) =>
+      current.map((item) =>
+        item.id === attemptId
+          ? { ...item, status: "sent", errorMessage: null }
+          : item,
+      ),
+    );
+  };
+
+  const handleEmailSendFailed = (
+    error: EmailDeliveryError,
+    attemptId?: string | null,
+  ) => {
+    if (!attemptId) return;
+    setEmailDeliveryHistory((current) =>
+      current.map((item) =>
+        item.id === attemptId
+          ? {
+              ...item,
+              status:
+                error.code === "EMAIL_ACTION_OUTCOME_UNKNOWN"
+                  ? "outcome_unknown"
+                  : "failed",
+              errorMessage: error.message,
+            }
+          : item,
+      ),
+    );
+  };
+
+  const retryEmailDelivery = (item: EmailDeliveryHistoryItem) => {
+    const anchorMessageId =
+      emailDeliveryHistory.find((candidate) => candidate.id === item.id)
+        ?.anchorMessageId ?? null;
+    setEmailDraftInstruction(item.instruction);
+    setEmailDraftInitialValue(item.draft);
+    setEmailDraftAutoDraft(false);
+    setEmailDraftAnchorMessageId(anchorMessageId);
+    setEmailDraftOpen(true);
+  };
+
+  const openGmailEmailDraftFromDirective = useCallback(
+    (
+      event: SpecialistDirectiveEvent,
+      assistantMessageId: string,
+    ): boolean => {
+      const payload = getGmailEmailDraftPayload(event);
+      if (!payload) return false;
+      if (!hasChatAccess) {
+        if (user) setVaultDialogOpen(true);
+        else router.push(ROUTES.LOGIN);
+        return true;
+      }
+      setEmailDraftInstruction(payload.instruction);
+      setEmailDraftInitialValue(null);
+      setEmailDraftAutoDraft(true);
+      // Keep delivery activity after the assistant response that opened this
+      // reviewed draft. Later user turns can continue without reordering it.
+      setEmailDraftAnchorMessageId(assistantMessageId);
+      setEmailDraftOpen(true);
+      return true;
+    },
+    [hasChatAccess, router, user],
+  );
+
   const upsertMessageStreamEvent = (
     messageId: string,
-    event: AgentVisibleStreamEvent
+    event: AgentVisibleStreamEvent,
   ) => {
     setMessages((current) =>
       current.map((message) =>
         message.id === messageId
           ? {
               ...message,
-              streamEvents: upsertVisibleStreamEvent(message.streamEvents, event),
+              streamEvents: upsertVisibleStreamEvent(
+                message.streamEvents,
+                event,
+              ),
             }
-          : message
-      )
+          : message,
+      ),
     );
   };
 
@@ -1800,8 +2056,23 @@ export function AgentChatWorkspace({
     const timestamp = formatNow();
     const nextMessages: AgentMessage[] = [];
     const transcript = handoff.transcript?.trim();
+    const emailDraftInstruction = handoff.emailDraftInstruction?.trim();
     const assistantText = handoff.assistantText?.trim();
     const resultSummary = handoff.resultSummary?.trim();
+    if (handoff.reason === "user_requested" && emailDraftInstruction) {
+      if (!hasChatAccess) {
+        consumedHandoffIdRef.current = null;
+        if (user) setVaultDialogOpen(true);
+        else router.push(ROUTES.LOGIN);
+        return;
+      }
+      const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
+      handleCreateNewChat();
+      skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
+      setQueuedHandoffPrompt(emailDraftInstruction);
+      consumeHandoff(handoff.id);
+      return;
+    }
     if (handoff.reason === "user_requested" && transcript) {
       const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
       handleCreateNewChat();
@@ -1836,7 +2107,14 @@ export function AgentChatWorkspace({
     }
     setMessages((current) => [...current, ...nextMessages]);
     consumeHandoff(handoff.id);
-  }, [consumeHandoff, handoff, handleCreateNewChat]);
+  }, [
+    consumeHandoff,
+    handoff,
+    handleCreateNewChat,
+    hasChatAccess,
+    router,
+    user,
+  ]);
 
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked) return;
@@ -1845,7 +2123,10 @@ export function AgentChatWorkspace({
 
     const appendPendingConsentRequest = async (requestId: string) => {
       const normalizedRequestId = requestId.trim();
-      if (!normalizedRequestId || inlineConsentRequestIdsRef.current.has(normalizedRequestId)) {
+      if (
+        !normalizedRequestId ||
+        inlineConsentRequestIdsRef.current.has(normalizedRequestId)
+      ) {
         return;
       }
       inlineConsentRequestIdsRef.current.add(normalizedRequestId);
@@ -1889,7 +2170,8 @@ export function AgentChatWorkspace({
         setMessages((current) => {
           if (
             current.some(
-              (message) => agentMessagePendingConsentRequestId(message) === item.id,
+              (message) =>
+                agentMessagePendingConsentRequestId(message) === item.id,
             )
           ) {
             return current;
@@ -1908,12 +2190,17 @@ export function AgentChatWorkspace({
         });
       } catch (error) {
         inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
-        console.warn("[AgentChatWorkspace] Failed to hydrate pending consent request:", error);
+        console.warn(
+          "[AgentChatWorkspace] Failed to hydrate pending consent request:",
+          error,
+        );
       }
     };
 
     const handleConsentMessage = (event: Event) => {
-      const customEvent = event as CustomEvent<{ data?: Record<string, unknown> }>;
+      const customEvent = event as CustomEvent<{
+        data?: Record<string, unknown>;
+      }>;
       const data = customEvent.detail?.data;
       if (!data) return;
       const type = String(data.type || "").trim();
@@ -1924,7 +2211,9 @@ export function AgentChatWorkspace({
         return;
       }
       if (type === "consent_resolved") {
-        const action = String(data.action || "").trim().toUpperCase();
+        const action = String(data.action || "")
+          .trim()
+          .toUpperCase();
         const status =
           action === "CONSENT_GRANTED"
             ? "approved"
@@ -1953,10 +2242,14 @@ export function AgentChatWorkspace({
   }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
 
   const appendDebugEvent = useCallback(
-    (_turnId: string, _event: AgentDebugEvent["event"], _payload: AgentDebugEvent["payload"]) => {
+    (
+      _turnId: string,
+      _event: AgentDebugEvent["event"],
+      _payload: AgentDebugEvent["payload"],
+    ) => {
       // Debug events are intentionally kept internal while the Agent debug UI is disabled.
     },
-    []
+    [],
   );
 
   const addErrorMessage = (text: string) => {
@@ -2023,9 +2316,12 @@ export function AgentChatWorkspace({
     // History is never on the workspace's critical open/render path. Unlock
     // warming usually makes this an immediate memory hit; cold sessions wait
     // for an idle beat so the composer and direct Ask One handoff stay usable.
-    const timeoutId = window.setTimeout(() => {
-      void loadRecentConversation();
-    }, cached ? 0 : 250);
+    const timeoutId = window.setTimeout(
+      () => {
+        void loadRecentConversation();
+      },
+      cached ? 0 : 250,
+    );
     return () => {
       cancelled = true;
       window.clearTimeout(timeoutId);
@@ -2046,30 +2342,40 @@ export function AgentChatWorkspace({
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
+      setEmailDraftOpen(false);
+      setEmailDraftInstruction("");
+      setEmailDraftAutoDraft(false);
+      setEmailDraftInitialValue(null);
+      setEmailDraftAnchorMessageId(null);
+      setEmailDeliveryHistory([]);
       setPkmActivity([]);
       setPkmReviews([]);
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
     },
-    [updateConversationId, user?.uid]
+    [updateConversationId, user?.uid],
   );
 
-  const loadConversationList = useCallback(async (force = false) => {
-    if (!user?.uid) return [];
-    const token = getVaultOwnerToken();
-    if (!token) return [];
-    const next = await warmAgentChatHistoryCache({
-      userId: user.uid,
-      vaultOwnerToken: token,
-      force,
-    });
-    setConversations(next.conversations);
-    return next.conversations;
-  }, [getVaultOwnerToken, user?.uid]);
+  const loadConversationList = useCallback(
+    async (force = false) => {
+      if (!user?.uid) return [];
+      const token = getVaultOwnerToken();
+      if (!token) return [];
+      const next = await warmAgentChatHistoryCache({
+        userId: user.uid,
+        vaultOwnerToken: token,
+        force,
+      });
+      setConversations(next.conversations);
+      return next.conversations;
+    },
+    [getVaultOwnerToken, user?.uid],
+  );
 
   const handleSelectConversation = useCallback(
     async (nextConversationId: string) => {
-      if (nextConversationId === conversationId || historyInteractionDisabled) return;
+      if (nextConversationId === conversationId || historyInteractionDisabled)
+        return;
       const token = getVaultOwnerToken();
       if (!token) {
         toast.error("Vault access expired. Unlock again to continue.");
@@ -2091,7 +2397,7 @@ export function AgentChatWorkspace({
       getVaultOwnerToken,
       historyInteractionDisabled,
       restoreConversationMessages,
-    ]
+    ],
   );
 
   const handleSidebarCreateNewChat = useCallback(() => {
@@ -2104,7 +2410,7 @@ export function AgentChatWorkspace({
       setIsHistoryDrawerOpen(false);
       void handleSelectConversation(nextConversationId);
     },
-    [handleSelectConversation]
+    [handleSelectConversation],
   );
 
   const handleRenameConversation = useCallback(
@@ -2123,8 +2429,8 @@ export function AgentChatWorkspace({
         });
         setConversations((current) =>
           current.map((conversation) =>
-            conversation.id === targetConversationId ? renamed : conversation
-          )
+            conversation.id === targetConversationId ? renamed : conversation,
+          ),
         );
         void loadConversationList(true).catch(() => undefined);
         toast.success("Agent chat renamed.");
@@ -2134,7 +2440,7 @@ export function AgentChatWorkspace({
         setHistoryActionPendingId(null);
       }
     },
-    [getVaultOwnerToken, loadConversationList]
+    [getVaultOwnerToken, loadConversationList],
   );
 
   const handleDeleteConversation = useCallback(
@@ -2184,7 +2490,7 @@ export function AgentChatWorkspace({
       historyInteractionDisabled,
       restoreConversationMessages,
       user?.uid,
-    ]
+    ],
   );
 
   const handleDismissPkmReview = useCallback(
@@ -2196,9 +2502,11 @@ export function AgentChatWorkspace({
           candidate_count: review.cards.length,
         });
       }
-      setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
+      setPkmReviews((current) =>
+        current.filter((item) => item.id !== reviewId),
+      );
     },
-    [appendDebugEvent, pkmReviews]
+    [appendDebugEvent, pkmReviews],
   );
 
   const handleSavePkmReview = useCallback(
@@ -2213,7 +2521,9 @@ export function AgentChatWorkspace({
 
       savingPkmReviewIdsRef.current.add(reviewId);
       setPkmReviews((current) =>
-        current.map((item) => (item.id === reviewId ? { ...item, saving: true } : item))
+        current.map((item) =>
+          item.id === reviewId ? { ...item, saving: true } : item,
+        ),
       );
       setActivePkmToolCount((count) => count + 1);
       appendDebugEvent(review.turnId, "pkm_review_save_start", {
@@ -2235,7 +2545,8 @@ export function AgentChatWorkspace({
               surface: "chat",
               source: "agent_chat_review_button",
               sharingImpactAcknowledged: review.cards.some(
-                (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
+                (card) =>
+                  (card.sharing_impact?.active_recipient_count || 0) > 0,
               ),
             },
           });
@@ -2246,7 +2557,7 @@ export function AgentChatWorkspace({
             saved_count_bucket: toPkmFactCountBucket(result.saved),
             failed_count_bucket: toPkmFactCountBucket(result.failed),
             has_active_recipients: review.cards.some(
-              (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
+              (card) => (card.sharing_impact?.active_recipient_count || 0) > 0,
             ),
           });
           if (result.saved > 0) {
@@ -2261,7 +2572,9 @@ export function AgentChatWorkspace({
                 status: "done",
               },
             ]);
-            setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
+            setPkmReviews((current) =>
+              current.filter((item) => item.id !== reviewId),
+            );
             void loadAgentPkmContext({
               userId: user.uid,
               vaultOwnerToken: token,
@@ -2273,7 +2586,9 @@ export function AgentChatWorkspace({
           }
 
           setPkmReviews((current) =>
-            current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
+            current.map((item) =>
+              item.id === reviewId ? { ...item, saving: false } : item,
+            ),
           );
           toast.error(formatAgentPkmSaveSummary(result));
         } catch (error) {
@@ -2281,18 +2596,22 @@ export function AgentChatWorkspace({
             error instanceof Error && error.message
               ? error.message
               : "Failed to save this memory.";
-          appendDebugEvent(review.turnId, "pkm_review_save_failed", { message });
+          appendDebugEvent(review.turnId, "pkm_review_save_failed", {
+            message,
+          });
           trackEvent("agent_pkm_save_confirmation_completed", {
             route_id: "agent",
             result: "error",
             saved_count_bucket: "none",
             failed_count_bucket: toPkmFactCountBucket(review.cards.length),
             has_active_recipients: review.cards.some(
-              (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
+              (card) => (card.sharing_impact?.active_recipient_count || 0) > 0,
             ),
           });
           setPkmReviews((current) =>
-            current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
+            current.map((item) =>
+              item.id === reviewId ? { ...item, saving: false } : item,
+            ),
           );
           toast.error(message);
         } finally {
@@ -2305,7 +2624,7 @@ export function AgentChatWorkspace({
         void saveInBackground();
       }, 0);
     },
-    [appendDebugEvent, getVaultOwnerToken, pkmReviews, user?.uid, vaultKey]
+    [appendDebugEvent, getVaultOwnerToken, pkmReviews, user?.uid, vaultKey],
   );
 
   const saveEligiblePkmCardsInBackground = useCallback(
@@ -2379,12 +2698,18 @@ export function AgentChatWorkspace({
             }
             if (result.failed > 0) {
               const failedIds = new Set(
-                result.results.filter((item) => !item.success).map((item) => item.cardId)
+                result.results
+                  .filter((item) => !item.success)
+                  .map((item) => item.cardId),
               );
-              const failedCards = params.cards.filter((card) => failedIds.has(card.card_id));
+              const failedCards = params.cards.filter((card) =>
+                failedIds.has(card.card_id),
+              );
               if (failedCards.length > 0) {
                 setPkmReviews((current) => {
-                  const existing = current.find((review) => review.turnId === params.turnId);
+                  const existing = current.find(
+                    (review) => review.turnId === params.turnId,
+                  );
                   if (!existing) {
                     return [
                       ...current,
@@ -2399,30 +2724,36 @@ export function AgentChatWorkspace({
                   }
                   const cards = [...existing.cards, ...failedCards].filter(
                     (card, index, all) =>
-                      all.findIndex((candidate) => candidate.card_id === card.card_id) === index
+                      all.findIndex(
+                        (candidate) => candidate.card_id === card.card_id,
+                      ) === index,
                   );
                   return current.map((review) =>
-                    review.id === existing.id ? { ...review, cards } : review
+                    review.id === existing.id ? { ...review, cards } : review,
                   );
                 });
               }
             }
           } catch (error) {
             const message =
-              error instanceof Error ? error.message : "Automatic memory saving failed.";
-            appendDebugEvent(params.turnId, "pkm_auto_save_failed", { message });
+              error instanceof Error
+                ? error.message
+                : "Automatic memory saving failed.";
+            appendDebugEvent(params.turnId, "pkm_auto_save_failed", {
+              message,
+            });
           } finally {
             setActivePkmToolCount((count) => Math.max(0, count - 1));
           }
         })();
       }, 0);
     },
-    [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey]
+    [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey],
   );
 
   const runAgentTurn = async (
     textInput: string,
-    options: AgentRunTurnOptions = { source: "typed" }
+    options: AgentRunTurnOptions = { source: "typed" },
   ) => {
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
@@ -2492,7 +2823,7 @@ export function AgentChatWorkspace({
 
     const upsertToolStatusMessage = (
       messageText: string,
-      status: AgentMessage["status"] = "streaming"
+      status: AgentMessage["status"] = "streaming",
     ) => {
       const cleanText = messageText.trim() || "Working on that.";
       const visibleStatus: AgentVisibleStreamStatus =
@@ -2510,13 +2841,15 @@ export function AgentChatWorkspace({
 
     const upsertPkmStatusMessage = (
       messageText: string,
-      status: AgentPkmActivity["status"] = "streaming"
+      status: AgentPkmActivity["status"] = "streaming",
     ) => {
       if (latestVisibleTurnIdRef.current !== debugTurnId) return;
       const cleanText = messageText.trim();
       if (!cleanText) {
         if (pkmStatusItemId) {
-          setPkmActivity((current) => current.filter((item) => item.id !== pkmStatusItemId));
+          setPkmActivity((current) =>
+            current.filter((item) => item.id !== pkmStatusItemId),
+          );
           pkmStatusItemId = null;
         }
         return;
@@ -2530,8 +2863,8 @@ export function AgentChatWorkspace({
                   text: cleanText,
                   status,
                 }
-              : item
-          )
+              : item,
+          ),
         );
         return;
       }
@@ -2547,8 +2880,14 @@ export function AgentChatWorkspace({
       ]);
     };
 
-    const toolResultStatus = (result: AgentActionRuntimeResult): AgentMessage["status"] => {
-      if (result.status === "blocked" || result.status === "failed" || result.status === "invalid") {
+    const toolResultStatus = (
+      result: AgentActionRuntimeResult,
+    ): AgentMessage["status"] => {
+      if (
+        result.status === "blocked" ||
+        result.status === "failed" ||
+        result.status === "invalid"
+      ) {
         return "error";
       }
       return "done";
@@ -2557,15 +2896,21 @@ export function AgentChatWorkspace({
     const executePkmAddTool = async (toolEvent: AgentChatToolEvent) => {
       if (!vaultKey || !token) {
         appendDebugEvent(debugTurnId, "pkm_tool_skipped", {
-          reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
+          reason: !vaultKey
+            ? "vault_key_unavailable"
+            : "vault_owner_token_unavailable",
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Unlock your vault before saving to Memory.", "error");
+        upsertPkmStatusMessage(
+          "Unlock your vault before saving to Memory.",
+          "error",
+        );
         return;
       }
 
       const sourceText =
-        typeof toolEvent.slots.source_text === "string" && toolEvent.slots.source_text.trim()
+        typeof toolEvent.slots.source_text === "string" &&
+        toolEvent.slots.source_text.trim()
           ? toolEvent.slots.source_text.trim()
           : text;
 
@@ -2597,7 +2942,10 @@ export function AgentChatWorkspace({
           cards: preview.cards,
         });
 
-        if (confirmationCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
+        if (
+          confirmationCards.length > 0 &&
+          latestVisibleTurnIdRef.current === debugTurnId
+        ) {
           setPkmReviews((current) => [
             ...current.filter((review) => review.turnId !== debugTurnId),
             {
@@ -2614,12 +2962,15 @@ export function AgentChatWorkspace({
           });
           upsertPkmStatusMessage(
             "One found a memory that needs your review before saving.",
-            "done"
+            "done",
           );
         }
 
         if (confirmationCards.length === 0) {
-          upsertPkmStatusMessage("I didn't find a memory to save from that.", "done");
+          upsertPkmStatusMessage(
+            "I didn't find a memory to save from that.",
+            "done",
+          );
         }
       } catch (error) {
         const message =
@@ -2665,7 +3016,9 @@ export function AgentChatWorkspace({
         directiveId: toolEvent.callId ?? null,
       });
       try {
-        appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
+        appInteractionCoordinator.updateActionRun(actionRun.id, {
+          phase: "executing",
+        });
         const execute =
           action?.activation_policy === "trusted_activation_required"
             ? executeTrustedActivationGatewayAction
@@ -2730,7 +3083,8 @@ export function AgentChatWorkspace({
     };
 
     const stageToolForConfirmation = (toolEvent: AgentChatToolEvent) => {
-      const callKey = toolEvent.callId || `${toolEvent.actionId || "unknown"}-${turnId}`;
+      const callKey =
+        toolEvent.callId || `${toolEvent.actionId || "unknown"}-${turnId}`;
       if (executedToolCalls.has(callKey)) return;
       if (toolEvent.execution !== "frontend" || !toolEvent.actionId) return;
       const directiveId = toolEvent.directiveId;
@@ -2783,14 +3137,18 @@ export function AgentChatWorkspace({
         },
         execute: async (receipt) => {
           if (!receipt) {
-            throw new Error("This action needs a fresh confirmation before it can run.");
+            throw new Error(
+              "This action needs a fresh confirmation before it can run.",
+            );
           }
           if (executedToolCalls.has(callKey)) {
             throw new Error("This action was already consumed.");
           }
           executedToolCalls.add(callKey);
           const result = await executeFrontendTool(toolEvent);
-          const succeeded = ["succeeded", "started", "noop"].includes(result.status);
+          const succeeded = ["succeeded", "started", "noop"].includes(
+            result.status,
+          );
           await settleAgentChatAction({
             directiveId,
             userId,
@@ -2798,7 +3156,9 @@ export function AgentChatWorkspace({
             actionId: toolEvent.actionId!,
             contextRevision,
             status: succeeded ? "succeeded" : "failed",
-            reasonCode: succeeded ? "completed" : result.reason || result.status,
+            reasonCode: succeeded
+              ? "completed"
+              : result.reason || result.status,
             vaultOwnerToken: token!,
           });
           return result;
@@ -2808,12 +3168,14 @@ export function AgentChatWorkspace({
 
     const runPkmMemoryCapture = async (
       pkmContext: AgentPkmContext,
-      signal: AbortSignal
+      signal: AbortSignal,
     ) => {
       if (signal.aborted) return;
       if (!vaultKey || !token) {
         appendDebugEvent(debugTurnId, "pkm_memory_skipped", {
-          reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
+          reason: !vaultKey
+            ? "vault_key_unavailable"
+            : "vault_owner_token_unavailable",
         });
         return;
       }
@@ -2824,7 +3186,10 @@ export function AgentChatWorkspace({
         execution: "frontend",
         current_domains: pkmContext.domains,
       });
-      upsertPkmStatusMessage("Checking whether this belongs in Memory...", "streaming");
+      upsertPkmStatusMessage(
+        "Checking whether this belongs in Memory...",
+        "streaming",
+      );
 
       try {
         const preview = await previewAgentPkmMemory({
@@ -2841,7 +3206,8 @@ export function AgentChatWorkspace({
           ...(pkmAutoSavePolicy.enabled ? [] : autoSaveCards),
         ].filter(
           (card, index, all) =>
-            all.findIndex((candidate) => candidate.card_id === card.card_id) === index
+            all.findIndex((candidate) => candidate.card_id === card.card_id) ===
+            index,
         );
         const ignoredCards = getIgnoredPkmCards(cards);
 
@@ -2857,7 +3223,10 @@ export function AgentChatWorkspace({
           cards,
         });
 
-        if (confirmationCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
+        if (
+          confirmationCards.length > 0 &&
+          latestVisibleTurnIdRef.current === debugTurnId
+        ) {
           if (signal.aborted) return;
           setPkmReviews((current) => [
             ...current.filter((review) => review.turnId !== debugTurnId),
@@ -2875,7 +3244,7 @@ export function AgentChatWorkspace({
           });
           upsertPkmStatusMessage(
             "One found a memory that needs your review before saving.",
-            "done"
+            "done",
           );
         }
 
@@ -2899,7 +3268,10 @@ export function AgentChatWorkspace({
         appendDebugEvent(debugTurnId, "pkm_memory_failed", {
           message,
         });
-        upsertPkmStatusMessage("One could not update Memory for this message.", "error");
+        upsertPkmStatusMessage(
+          "One could not update Memory for this message.",
+          "error",
+        );
       } finally {
         setActivePkmToolCount((count) => Math.max(0, count - 1));
       }
@@ -2929,7 +3301,11 @@ export function AgentChatWorkspace({
         });
         if (replaced) return nextMessages;
       }
-      return [...current, ...(appendUserMessage ? [userMessage] : []), assistantMessage];
+      return [
+        ...current,
+        ...(appendUserMessage ? [userMessage] : []),
+        assistantMessage,
+      ];
     });
     latestVisibleTurnIdRef.current = debugTurnId;
     setPkmActivity([]);
@@ -2960,7 +3336,9 @@ export function AgentChatWorkspace({
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
       if (!vaultKey) {
-        throw new Error("Your vault must remain unlocked while One prepares your private memory.");
+        throw new Error(
+          "Your vault must remain unlocked while One prepares your private memory.",
+        );
       }
 
       const cachedContext = peekAgentPkmContext({
@@ -2987,7 +3365,9 @@ export function AgentChatWorkspace({
         message: text,
       });
       if (!context.text) {
-        throw new Error("One could not prepare your private memory for this turn. Please try again.");
+        throw new Error(
+          "One could not prepare your private memory for this turn. Please try again.",
+        );
       }
       return context;
     };
@@ -3006,13 +3386,20 @@ export function AgentChatWorkspace({
           trackEvent("agent_pkm_context_resolved", {
             route_id: "agent",
             result: "success",
-            context_mode: agentPkmContext.mode === "broad" ? "broad" : "relevant",
-            total_fact_count_bucket: toPkmFactCountBucket(coverage?.totalFactCount || 0),
-            selected_fact_count_bucket: toPkmFactCountBucket(coverage?.selectedFactCount || 0),
+            context_mode:
+              agentPkmContext.mode === "broad" ? "broad" : "relevant",
+            total_fact_count_bucket: toPkmFactCountBucket(
+              coverage?.totalFactCount || 0,
+            ),
+            selected_fact_count_bucket: toPkmFactCountBucket(
+              coverage?.selectedFactCount || 0,
+            ),
             context_clipped: coverage?.clipped === true,
             inventory_only: coverage?.inventoryOnly === true,
             safety_omitted: (coverage?.safetyOmittedNodeCount || 0) > 0,
-            duration_ms_bucket: toDurationBucket(performance.now() - pkmContextStartedAt),
+            duration_ms_bucket: toDurationBucket(
+              performance.now() - pkmContextStartedAt,
+            ),
           });
           appendDebugEvent(debugTurnId, "pkm_context_loaded", {
             domain_count: agentPkmContext.domains.length,
@@ -3084,19 +3471,27 @@ export function AgentChatWorkspace({
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             appendDebugEvent(debugTurnId, "tool_start", toolEvent);
-            upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("start", toolEvent));
+            upsertTurnStreamEvent(
+              agentToolEventToVisibleStreamEvent("start", toolEvent),
+            );
           },
           onToolWaiting: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
-            const visibleEvent = agentToolEventToVisibleStreamEvent("waiting", toolEvent);
+            const visibleEvent = agentToolEventToVisibleStreamEvent(
+              "waiting",
+              toolEvent,
+            );
             upsertTurnStreamEvent(visibleEvent);
             stageToolForConfirmation(toolEvent);
           },
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
-            const visibleEvent = agentToolEventToVisibleStreamEvent("result", toolEvent);
+            const visibleEvent = agentToolEventToVisibleStreamEvent(
+              "result",
+              toolEvent,
+            );
             upsertTurnStreamEvent(visibleEvent);
           },
           onToken: (delta) => {
@@ -3127,6 +3522,14 @@ export function AgentChatWorkspace({
             flushAssistantDelta();
             setIsChatLoading(false);
             setIsStreaming(false);
+            if (openGmailEmailDraftFromDirective(event, assistantMessageId)) {
+              updateMessage(assistantMessageId, (message) => ({
+                ...message,
+                text: message.text.trim() ? message.text : event.message || "",
+                status: "done",
+              }));
+              return;
+            }
             if (getConsentActionsPayload(event)) {
               updateMessage(assistantMessageId, (message) => ({
                 ...message,
@@ -3142,7 +3545,7 @@ export function AgentChatWorkspace({
                 if (message.id !== assistantMessageId) return [message];
                 if (!message.text.trim()) return [];
                 return [{ ...message, status: "done", streamEvents: [] }];
-              })
+              }),
             );
             setPendingSpecialistDirective(event);
           },
@@ -3196,18 +3599,19 @@ export function AgentChatWorkspace({
         if (message.status === "error") return message;
         return {
           ...message,
-          text: message.text || "I couldn't generate a response. Please try again.",
+          text:
+            message.text || "I couldn't generate a response. Please try again.",
           status: "done",
           streamEvents: [],
         };
       });
-      if (
-        !specialistDirectiveReceived &&
-        !pkmAddToolHandled
-      ) {
+      if (!specialistDirectiveReceived && !pkmAddToolHandled) {
         const pkmAbortController = new AbortController();
         pkmAbortControllersRef.current.add(pkmAbortController);
-        void runPkmMemoryCapture(turnPkmContext, pkmAbortController.signal).finally(() => {
+        void runPkmMemoryCapture(
+          turnPkmContext,
+          pkmAbortController.signal,
+        ).finally(() => {
           pkmAbortControllersRef.current.delete(pkmAbortController);
         });
       }
@@ -3366,6 +3770,14 @@ export function AgentChatWorkspace({
             flushAssistantDelta();
             setIsChatLoading(false);
             setIsStreaming(false);
+            if (openGmailEmailDraftFromDirective(event, assistantMessageId)) {
+              updateMessage(assistantMessageId, (message) => ({
+                ...message,
+                text: message.text.trim() ? message.text : event.message || "",
+                status: "done",
+              }));
+              return;
+            }
             if (getConsentActionsPayload(event)) {
               updateMessage(assistantMessageId, (message) => ({
                 ...message,
@@ -3380,7 +3792,7 @@ export function AgentChatWorkspace({
                 if (message.id !== assistantMessageId) return [message];
                 if (!message.text.trim()) return [];
                 return [{ ...message, status: "done" }];
-              })
+              }),
             );
             setPendingSpecialistDirective(event);
           },
@@ -3561,7 +3973,9 @@ export function AgentChatWorkspace({
             source: "search",
             directiveId: toolEvent.callId ?? null,
           });
-          appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
+          appInteractionCoordinator.updateActionRun(actionRun.id, {
+            phase: "executing",
+          });
           const result = await executeAgentGatewayAction({
             actionId: toolEvent.actionId!,
             slots: toolEvent.slots,
@@ -3580,13 +3994,16 @@ export function AgentChatWorkspace({
               message: `Opening ${action?.label ?? "your request"}`,
             });
           }
-          appInteractionCoordinator.finishActionRunFromSettlement(actionRun.id, {
-            status: result.status,
-            summary: result.resultSummary,
-            reason: result.reason,
-            routeAfter: result.routeAfter,
-            screenAfter: result.screenAfter,
-          });
+          appInteractionCoordinator.finishActionRunFromSettlement(
+            actionRun.id,
+            {
+              status: result.status,
+              summary: result.resultSummary,
+              reason: result.reason,
+              routeAfter: result.routeAfter,
+              screenAfter: result.screenAfter,
+            },
+          );
           if (shouldMinimizeForNavigationResult(result)) {
             onNavigationActionComplete?.(result);
           }
@@ -3728,20 +4145,26 @@ export function AgentChatWorkspace({
   const editQueuedPrompt = (id: string, textInput: string) => {
     const text = textInput.trim();
     if (!text) return;
-    operationQueueRef.current.replace(operationQueueRef.current.snapshot().map((operation) =>
-      operation.prompt?.id === id
-        ? { ...operation, prompt: { ...operation.prompt, text } }
-        : operation,
-    ));
+    operationQueueRef.current.replace(
+      operationQueueRef.current
+        .snapshot()
+        .map((operation) =>
+          operation.prompt?.id === id
+            ? { ...operation, prompt: { ...operation.prompt, text } }
+            : operation,
+        ),
+    );
     setQueuedPrompts((current) => editQueuedAgentPrompt(current, id, text));
     setEditingQueuedPromptId(null);
     setEditingQueuedPromptText("");
   };
 
   const removeQueuedPrompt = (id: string) => {
-    operationQueueRef.current.replace(operationQueueRef.current.snapshot().filter(
-      (operation) => operation.prompt?.id !== id,
-    ));
+    operationQueueRef.current.replace(
+      operationQueueRef.current
+        .snapshot()
+        .filter((operation) => operation.prompt?.id !== id),
+    );
     setQueuedPrompts((current) => removeQueuedAgentPrompt(current, id));
     if (editingQueuedPromptId === id) {
       setEditingQueuedPromptId(null);
@@ -3755,7 +4178,9 @@ export function AgentChatWorkspace({
     userId: string,
   ) => {
     const payload = directive.directive.payload as Record<string, unknown>;
-    const actionKey = String(payload.proposalId ?? payload.id ?? directive.message);
+    const actionKey = String(
+      payload.proposalId ?? payload.id ?? directive.message,
+    );
     if (calendarActionIdsRef.current.has(actionKey)) return;
     calendarActionIdsRef.current.add(actionKey);
     const label = String(payload.confirmLabel ?? "Confirm");
@@ -3784,7 +4209,11 @@ export function AgentChatWorkspace({
       id: `calendar-${actionKey}`,
       run: async () => {
         try {
-          const result = await runCalendarDirective(directive.directive, token, userId);
+          const result = await runCalendarDirective(
+            directive.directive,
+            token,
+            userId,
+          );
           updateMessage(resultMessageId, (message) => ({
             ...message,
             text: result.detail || "Calendar updated.",
@@ -3851,7 +4280,7 @@ export function AgentChatWorkspace({
   // signed in but the vault is locked, offering an in-place unlock to upgrade
   // to the full agent. Anonymous visitors get a quiet sign-in nudge instead.
   const needsVaultUnlock = Boolean(
-    user?.uid && (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh)
+    user?.uid && (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh),
   );
   const accessMessage = authLoading
     ? null
@@ -3879,9 +4308,11 @@ export function AgentChatWorkspace({
         : null;
   const displayName = useMemo(
     () => formatAgentDisplayName(user?.displayName, user?.email),
-    [user?.displayName, user?.email]
+    [user?.displayName, user?.email],
   );
-  const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
+  const hasStartedConversation = messages.some(
+    (message) => message.id !== "agent-greeting",
+  );
   const visibleMessages = dedupeAdjacentAgentMessages(
     messages.filter((message) => {
       if (message.id === "agent-greeting") return false;
@@ -3893,7 +4324,7 @@ export function AgentChatWorkspace({
         return false;
       }
       return true;
-    })
+    }),
   );
   const trailingSpecialistLoadingMessages = pendingSpecialistDirective
     ? messages.filter(
@@ -3903,6 +4334,14 @@ export function AgentChatWorkspace({
           !message.text.trim(),
       )
     : [];
+  const emailDeliveryTimeline = useMemo(
+    () =>
+      bucketEmailDeliveryTimelineItems(
+        emailDeliveryHistory,
+        visibleMessages.map((message) => message.id),
+      ),
+    [emailDeliveryHistory, visibleMessages],
+  );
   const latestRetryableAssistantId =
     [...visibleMessages]
       .reverse()
@@ -3911,14 +4350,18 @@ export function AgentChatWorkspace({
           message.role === "assistant" &&
           !message.ephemeral &&
           message.status !== "streaming" &&
-          message.text.trim().length > 0
+          message.text.trim().length > 0,
       )?.id ?? null;
   const handleRetryAssistantResponse = (messageId: string) => {
-    const assistantIndex = messages.findIndex((message) => message.id === messageId);
+    const assistantIndex = messages.findIndex(
+      (message) => message.id === messageId,
+    );
     if (assistantIndex < 0) return;
     const previousUserMessage = [...messages.slice(0, assistantIndex)]
       .reverse()
-      .find((message) => message.role === "user" && message.text.trim().length > 0);
+      .find(
+        (message) => message.role === "user" && message.text.trim().length > 0,
+      );
     const retryText = previousUserMessage?.text.trim();
     if (!retryText) {
       toast.error("No previous message found to retry.");
@@ -3949,7 +4392,9 @@ export function AgentChatWorkspace({
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
   }, []);
   const swipeStartYRef = useRef<number | null>(null);
-  const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleHeaderPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
     if (!onMinimize || event.pointerType === "mouse") return;
     swipeStartYRef.current = event.clientY;
   };
@@ -3963,7 +4408,9 @@ export function AgentChatWorkspace({
   };
   const openHistoryDrawer = useCallback(() => {
     historyDrawerReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     setIsHistoryDrawerOpen(true);
     void loadConversationList().catch(() => undefined);
   }, [loadConversationList]);
@@ -3975,27 +4422,34 @@ export function AgentChatWorkspace({
     if (typeof window !== "undefined") {
       const referrer = document.referrer ? new URL(document.referrer) : null;
       const isSameOriginReferrer =
-        referrer?.origin === window.location.origin && referrer.pathname !== ROUTES.AGENT;
+        referrer?.origin === window.location.origin &&
+        referrer.pathname !== ROUTES.AGENT;
       if (isSameOriginReferrer && window.history.length > 1) {
         router.back();
         return;
       }
     }
-    router.push(ROUTES.PROFILE);
+    // No same-origin referrer to retrace to (e.g. a direct link into this
+    // legacy full-page route): land on One home, not Profile, so minimizing
+    // always returns to the section this screen lives under.
+    router.push(ROUTES.ONE_HOME);
   }, [onMinimize, router]);
-  const handleHistoryDrawerKeyDown = useCallback((event: ReactKeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      setIsHistoryDrawerOpen(false);
-      return;
-    }
-    trapFocusWithin(event, historyDrawerRef.current);
-  }, []);
+  const handleHistoryDrawerKeyDown = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setIsHistoryDrawerOpen(false);
+        return;
+      }
+      trapFocusWithin(event, historyDrawerRef.current);
+    },
+    [],
+  );
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
     collapsed = false,
-    mode: "desktop" | "mobile" = "desktop"
+    mode: "desktop" | "mobile" = "desktop",
   ) => (
     <AgentHistorySidebar
       conversations={conversations}
@@ -4014,6 +4468,14 @@ export function AgentChatWorkspace({
       onDeleteConversation={handleDeleteConversation}
     />
   );
+  const getEmailDeliveryAuth = async () => {
+    if (!user || !isVaultUnlocked || !tokenIsFresh) return null;
+    const currentVaultOwnerToken = getVaultOwnerToken();
+    if (!currentVaultOwnerToken) return null;
+    const firebaseIdToken = await user.getIdToken();
+    if (!firebaseIdToken) return null;
+    return { firebaseIdToken, vaultOwnerToken: currentVaultOwnerToken };
+  };
   const composerActionRail = (
     <>
       {agentVoiceEnabled ? (
@@ -4053,7 +4515,7 @@ export function AgentChatWorkspace({
         isPopover
           ? "h-full overflow-hidden bg-background"
           : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-fixed-ui,0px)-var(--app-safe-area-bottom-effective,0px))] min-h-[420px] overflow-hidden bg-background",
-        className
+        className,
       )}
       data-agent-chat-workspace={variant}
     >
@@ -4084,7 +4546,7 @@ export function AgentChatWorkspace({
           "relative flex min-h-0 flex-1",
           // The popover and page both use one continuous workspace surface.
           // The outer popover owns its floating frame; no inner card is allowed.
-          "overflow-hidden"
+          "overflow-hidden",
         )}
       >
         <div className="hidden h-full lg:flex">
@@ -4093,7 +4555,9 @@ export function AgentChatWorkspace({
         <div
           className={cn(
             "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55 lg:hidden",
-            isHistoryDrawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
+            isHistoryDrawerOpen
+              ? "opacity-100"
+              : "pointer-events-none opacity-0",
           )}
           aria-hidden="true"
           onClick={() => setIsHistoryDrawerOpen(false)}
@@ -4102,7 +4566,7 @@ export function AgentChatWorkspace({
           ref={historyDrawerRef}
           className={cn(
             "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
-            isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full"
+            isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full",
           )}
           role="dialog"
           aria-modal="true"
@@ -4115,13 +4579,13 @@ export function AgentChatWorkspace({
             "h-full w-full",
             () => setIsHistoryDrawerOpen(false),
             false,
-            "mobile"
+            "mobile",
           )}
         </div>
 
         <section
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
           )}
           inert={isHistoryDrawerOpen}
         >
@@ -4131,7 +4595,7 @@ export function AgentChatWorkspace({
               isPopover
                 ? "min-h-[calc(3.5rem+var(--agent-chat-header-safe-top))] sm:h-16 sm:min-h-16 sm:pt-0"
                 : "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)]",
-              !isPopover && "lg:px-6"
+              !isPopover && "lg:px-6",
             )}
             onPointerDown={handleHeaderPointerDown}
             onPointerUp={handleHeaderPointerEnd}
@@ -4209,14 +4673,16 @@ export function AgentChatWorkspace({
                   <Minus className="h-4 w-4" />
                 </ShellActionSurface>
               ) : null}
-              {windowControls ? <div className="ml-1">{windowControls}</div> : null}
+              {windowControls ? (
+                <div className="ml-1">{windowControls}</div>
+              ) : null}
             </div>
           </div>
 
           <div
             className={cn(
               "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-              isPopover ? "pb-4" : "pb-6 lg:px-8"
+              isPopover ? "pb-4" : "pb-6 lg:px-8",
             )}
           >
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
@@ -4230,7 +4696,10 @@ export function AgentChatWorkspace({
                       className="w-full shrink-0 gap-2 rounded-lg sm:w-auto"
                       onClick={accessAction.onClick}
                     >
-                      <accessAction.icon className="h-4 w-4" aria-hidden="true" />
+                      <accessAction.icon
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      />
                       {accessAction.label}
                     </Button>
                   ) : null}
@@ -4246,90 +4715,104 @@ export function AgentChatWorkspace({
                 />
               ) : null}
 
-              {visibleMessages.map((message) =>
-                message.kind === "selection" ? (
-                  <SelectionChip key={message.id} label={message.text} />
-                ) : (
-                  <AgentBubble
-                    key={message.id}
-                    message={message}
-                    retryDisabled={isChatLoading || isStreaming}
-                    onRetry={
-                      message.id === latestRetryableAssistantId
-                        ? () => handleRetryAssistantResponse(message.id)
-                        : undefined
-                    }
-                    busyConsentItemId={specialistBusyItemId}
-                    onConsentRevoke={async (item) => {
-                      setSpecialistBusyItemId(item.id);
-                      try {
-                        await oneLocationConsentActions.handleRevoke({
-                          id: item.id,
-                          scope: item.scope ?? null,
-                          metadata: item.metadata ?? null,
-                        });
-                        updateMessage(message.id, (current) => ({
-                          ...current,
-                          specialistDirective: markConsentDirectiveItemRevoked(
-                            current.specialistDirective,
-                            item.id,
-                          ),
-                        }));
-                      } finally {
-                        setSpecialistBusyItemId(null);
+              {visibleMessages.map((message) => (
+                <Fragment key={message.id}>
+                  {message.kind === "selection" ? (
+                    <SelectionChip label={message.text} />
+                  ) : (
+                    <AgentBubble
+                      message={message}
+                      retryDisabled={isChatLoading || isStreaming}
+                      onRetry={
+                        message.id === latestRetryableAssistantId
+                          ? () => handleRetryAssistantResponse(message.id)
+                          : undefined
                       }
-                    }}
-                    onConsentDetails={(item) => {
-                      // Tag the agent's current route as origin so the consent
-                      // screen's back button retraces here, not to Profile
-                      // (the breadcrumb reads ?from; bare nav falls to Profile).
-                      router.push(
-                        `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
-                      );
-                    }}
-                    onPendingConsentApprove={async (item) => {
-                      setSpecialistBusyItemId(item.id);
-                      try {
-                        await consentActions.handleApprove(
-                          pendingConsentCardItemToPendingConsent(item),
+                      busyConsentItemId={specialistBusyItemId}
+                      onConsentRevoke={async (item) => {
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          await oneLocationConsentActions.handleRevoke({
+                            id: item.id,
+                            scope: item.scope ?? null,
+                            metadata: item.metadata ?? null,
+                          });
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective:
+                              markConsentDirectiveItemRevoked(
+                                current.specialistDirective,
+                                item.id,
+                              ),
+                          }));
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
+                      }}
+                      onConsentDetails={(item) => {
+                        // Tag the agent's current route as origin so the consent
+                        // screen's back button retraces here, not to Profile
+                        // (the breadcrumb reads ?from; bare nav falls to Profile).
+                        router.push(
+                          `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                         );
-                        updateMessage(message.id, (current) => ({
-                          ...current,
-                          specialistDirective: markPendingConsentRequestDirectiveStatus(
-                            current.specialistDirective,
-                            item.id,
-                            "approved",
-                          ),
-                        }));
-                      } finally {
-                        setSpecialistBusyItemId(null);
-                      }
-                    }}
-                    onPendingConsentDeny={async (item) => {
-                      setSpecialistBusyItemId(item.id);
-                      try {
-                        await consentActions.handleDeny(item.id);
-                        updateMessage(message.id, (current) => ({
-                          ...current,
-                          specialistDirective: markPendingConsentRequestDirectiveStatus(
-                            current.specialistDirective,
-                            item.id,
-                            "denied",
-                          ),
-                        }));
-                      } finally {
-                        setSpecialistBusyItemId(null);
-                      }
-                    }}
-                    onPendingConsentDetails={(item) => {
-                      // Origin-tagged so back retraces to the agent's route.
-                      router.push(
-                        `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
-                      );
-                    }}
-                  />
-                ),
-              )}
+                      }}
+                      onPendingConsentApprove={async (item) => {
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          await consentActions.handleApprove(
+                            pendingConsentCardItemToPendingConsent(item),
+                          );
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective:
+                              markPendingConsentRequestDirectiveStatus(
+                                current.specialistDirective,
+                                item.id,
+                                "approved",
+                              ),
+                          }));
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
+                      }}
+                      onPendingConsentDeny={async (item) => {
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          await consentActions.handleDeny(item.id);
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective:
+                              markPendingConsentRequestDirectiveStatus(
+                                current.specialistDirective,
+                                item.id,
+                                "denied",
+                              ),
+                          }));
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
+                      }}
+                      onPendingConsentDetails={(item) => {
+                        // Origin-tagged so back retraces to the agent's route.
+                        router.push(
+                          `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
+                        );
+                      }}
+                    />
+                  )}
+                  {(
+                    emailDeliveryTimeline.itemsAfterMessage.get(message.id) ??
+                    []
+                  ).map((item) => (
+                    <EmailDeliveryHistoryCard
+                      key={item.id}
+                      item={item}
+                      onRetry={retryEmailDelivery}
+                    />
+                  ))}
+                </Fragment>
+              ))}
 
               {pkmActivity.map((item) => (
                 <AgentPkmActivityLine key={item.id} item={item} />
@@ -4365,7 +4848,9 @@ export function AgentChatWorkspace({
                       if (pending.authorize && !pending.receipt) {
                         const receipt = await pending.authorize();
                         setPendingAppAction((current) =>
-                          current === pending ? { ...current, receipt } : current,
+                          current === pending
+                            ? { ...current, receipt }
+                            : current,
                         );
                         toast.success(
                           `Authorized. Tap "${pending.event.label || "Run"}" to continue.`,
@@ -4376,7 +4861,9 @@ export function AgentChatWorkspace({
                       setPendingAppAction(null);
                     } catch {
                       setPendingAppAction(null);
-                      addErrorMessage("The app could not complete the confirmed action.");
+                      addErrorMessage(
+                        "The app could not complete the confirmed action.",
+                      );
                     } finally {
                       setAppActionBusy(false);
                     }
@@ -4394,13 +4881,17 @@ export function AgentChatWorkspace({
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (
                   <SpecialistConsentRequiredCard
                     agentId={
-                      getConsentRequiredPayload(pendingSpecialistDirective)?.agentId ??
-                      pendingSpecialistDirective.delegateAgentId
+                      getConsentRequiredPayload(pendingSpecialistDirective)
+                        ?.agentId ?? pendingSpecialistDirective.delegateAgentId
                     }
                     requiredScope={
-                      getConsentRequiredPayload(pendingSpecialistDirective)?.requiredScope ?? ""
+                      getConsentRequiredPayload(pendingSpecialistDirective)
+                        ?.requiredScope ?? ""
                     }
-                    reason={getConsentRequiredPayload(pendingSpecialistDirective)?.reason}
+                    reason={
+                      getConsentRequiredPayload(pendingSpecialistDirective)
+                        ?.reason
+                    }
                     busy={specialistBusy}
                     onOpenConsent={() => {
                       setPendingSpecialistDirective(null);
@@ -4413,30 +4904,40 @@ export function AgentChatWorkspace({
                     }}
                   />
                 ) : pendingSpecialistDirective.directive.kind === "prompt" &&
-                  pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" &&
-                  pendingSpecialistDirective.directive.payload.kind === "free_text" ? (
+                  pendingSpecialistDirective.delegateAgentId ===
+                    "agent_connected_systems" &&
+                  pendingSpecialistDirective.directive.payload.kind ===
+                    "free_text" ? (
                   <SpecialistFreeTextPromptCard
                     question={String(
                       pendingSpecialistDirective.directive.payload.question ??
                         "What value should I use?",
                     )}
                     placeholder={String(
-                      pendingSpecialistDirective.directive.payload.placeholder ?? "",
+                      pendingSpecialistDirective.directive.payload
+                        .placeholder ?? "",
                     )}
                     confirmLabel={
-                      typeof pendingSpecialistDirective.directive.payload.confirmLabel === "string"
-                        ? pendingSpecialistDirective.directive.payload.confirmLabel
+                      typeof pendingSpecialistDirective.directive.payload
+                        .confirmLabel === "string"
+                        ? pendingSpecialistDirective.directive.payload
+                            .confirmLabel
                         : null
                     }
                     cancelLabel={
-                      typeof pendingSpecialistDirective.directive.payload.cancelLabel === "string"
-                        ? pendingSpecialistDirective.directive.payload.cancelLabel
+                      typeof pendingSpecialistDirective.directive.payload
+                        .cancelLabel === "string"
+                        ? pendingSpecialistDirective.directive.payload
+                            .cancelLabel
                         : null
                     }
                     busy={specialistBusy}
                     onSubmit={async (value) => {
                       const evt = pendingSpecialistDirective;
-                      const prompt = evt.directive.payload as Record<string, unknown>;
+                      const prompt = evt.directive.payload as Record<
+                        string,
+                        unknown
+                      >;
                       setSpecialistBusy(true);
                       try {
                         setPendingSpecialistDirective(null);
@@ -4469,7 +4970,10 @@ export function AgentChatWorkspace({
                     }}
                     onCancel={async () => {
                       const evt = pendingSpecialistDirective;
-                      const prompt = evt.directive.payload as Record<string, unknown>;
+                      const prompt = evt.directive.payload as Record<
+                        string,
+                        unknown
+                      >;
                       setPendingSpecialistDirective(null);
                       appendMessage({
                         id: `msg-${Date.now()}-crm-cancel`,
@@ -4497,12 +5001,18 @@ export function AgentChatWorkspace({
                   // the selection result is sent back as a follow-up turn.
                   // Crypto is not involved — no coordinates pass through here.
                   <SpecialistPromptCard
-                    prompt={pendingSpecialistDirective.directive.payload as unknown as ClientPrompt}
+                    prompt={
+                      pendingSpecialistDirective.directive
+                        .payload as unknown as ClientPrompt
+                    }
                     busy={specialistBusy}
                     onAnswer={async (refs) => {
                       const evt = pendingSpecialistDirective;
-                      const prompt = evt.directive.payload as unknown as ClientPrompt;
-                      const display = describeSelection(prompt, { selected: refs });
+                      const prompt = evt.directive
+                        .payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, {
+                        selected: refs,
+                      });
                       setSpecialistBusy(true);
                       try {
                         setPendingSpecialistDirective(null);
@@ -4515,7 +5025,8 @@ export function AgentChatWorkspace({
                           kind: "selection",
                         });
                         enqueueDelegateResult({
-                          delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
+                          delegate_agent_id:
+                            evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                           kind: "selection",
                           id: prompt.id,
                           promptKind: prompt.kind,
@@ -4529,8 +5040,11 @@ export function AgentChatWorkspace({
                     }}
                     onConfirm={async (yes) => {
                       const evt = pendingSpecialistDirective;
-                      const prompt = evt.directive.payload as unknown as ClientPrompt;
-                      const display = describeSelection(prompt, { confirmed: yes });
+                      const prompt = evt.directive
+                        .payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, {
+                        confirmed: yes,
+                      });
                       setSpecialistBusy(true);
                       try {
                         setPendingSpecialistDirective(null);
@@ -4543,7 +5057,8 @@ export function AgentChatWorkspace({
                           kind: "selection",
                         });
                         enqueueDelegateResult({
-                          delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
+                          delegate_agent_id:
+                            evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                           kind: "selection",
                           id: prompt.id,
                           promptKind: prompt.kind,
@@ -4557,8 +5072,11 @@ export function AgentChatWorkspace({
                     }}
                     onCancel={async () => {
                       const evt = pendingSpecialistDirective;
-                      const prompt = evt.directive.payload as unknown as ClientPrompt;
-                      const display = describeSelection(prompt, { status: "cancelled" });
+                      const prompt = evt.directive
+                        .payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, {
+                        status: "cancelled",
+                      });
                       setPendingSpecialistDirective(null);
                       appendMessage({
                         id: `msg-${Date.now()}-sel`,
@@ -4569,7 +5087,8 @@ export function AgentChatWorkspace({
                         kind: "selection",
                       });
                       enqueueDelegateResult({
-                        delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
+                        delegate_agent_id:
+                          evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                         kind: "selection",
                         id: prompt.id,
                         promptKind: prompt.kind,
@@ -4578,36 +5097,53 @@ export function AgentChatWorkspace({
                       });
                     }}
                   />
-                ) : pendingSpecialistDirective.delegateAgentId === "agent_calendar" ? (
+                ) : pendingSpecialistDirective.delegateAgentId ===
+                  "agent_calendar" ? (
                   <SpecialistDirectiveCard
                     summary={String(
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .summary ?? pendingSpecialistDirective.message,
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).summary ?? pendingSpecialistDirective.message,
                     )}
                     confirmLabel={String(
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .confirmLabel ?? "Continue",
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).confirmLabel ?? "Continue",
                     )}
                     busy={specialistBusy}
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
-                      const payload = directive.directive.payload as Record<string, unknown>;
+                      const payload = directive.directive.payload as Record<
+                        string,
+                        unknown
+                      >;
                       const type = String(payload.type ?? "");
                       if (type === "calendar.connect") {
                         if (!user?.uid) {
-                          addErrorMessage("Sign in again before connecting Google Calendar.");
+                          addErrorMessage(
+                            "Sign in again before connecting Google Calendar.",
+                          );
                           return;
                         }
                         setSpecialistBusy(true);
                         try {
                           const accessLevel =
-                            payload.accessLevel === "manage" ? "manage" : "read";
+                            payload.accessLevel === "manage"
+                              ? "manage"
+                              : "read";
                           clearCalendarSetupOAuthReturn();
-                          const start = await GoogleCalendarService.startConnect({
-                            idToken: await user.getIdToken(),
-                            userId: user.uid,
-                            accessLevel,
-                          });
+                          const start =
+                            await GoogleCalendarService.startConnect({
+                              idToken: await user.getIdToken(),
+                              userId: user.uid,
+                              accessLevel,
+                            });
                           setPendingSpecialistDirective(null);
                           window.location.assign(start.authorize_url);
                         } catch (error) {
@@ -4623,30 +5159,45 @@ export function AgentChatWorkspace({
                       }
                       if (type !== "calendar.execute_proposal") {
                         setPendingSpecialistDirective(null);
-                        addErrorMessage("That Calendar action is no longer available.");
+                        addErrorMessage(
+                          "That Calendar action is no longer available.",
+                        );
                         return;
                       }
                       const token = getVaultOwnerToken();
                       if (!token || !user?.uid) {
-                        addErrorMessage("Vault access expired. Unlock again to continue.");
+                        addErrorMessage(
+                          "Vault access expired. Unlock again to continue.",
+                        );
                         return;
                       }
                       enqueueCalendarDirective(directive, token, user.uid);
                     }}
                     onCancel={() => {
                       setPendingSpecialistDirective(null);
-                      toast.info("Calendar change cancelled. Nothing was changed.");
+                      toast.info(
+                        "Calendar change cancelled. Nothing was changed.",
+                      );
                     }}
                   />
-                ) : pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" ? (
+                ) : pendingSpecialistDirective.delegateAgentId ===
+                  "agent_connected_systems" ? (
                   <SpecialistDirectiveCard
                     summary={String(
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .summary ?? pendingSpecialistDirective.message,
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).summary ?? pendingSpecialistDirective.message,
                     )}
                     confirmLabel={String(
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .confirmLabel ?? "Update",
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).confirmLabel ?? "Update",
                     )}
                     busy={specialistBusy}
                     onConfirm={async () => {
@@ -4655,12 +5206,18 @@ export function AgentChatWorkspace({
                       try {
                         const token = getVaultOwnerToken();
                         if (!token) {
-                          addErrorMessage("Vault access expired. Unlock again to continue.");
+                          addErrorMessage(
+                            "Vault access expired. Unlock again to continue.",
+                          );
                           return;
                         }
                         const confirmLabel = String(
-                          (directive.directive.payload as Record<string, unknown>)
-                            .confirmLabel ?? "Update",
+                          (
+                            directive.directive.payload as Record<
+                              string,
+                              unknown
+                            >
+                          ).confirmLabel ?? "Update",
                         );
                         appendMessage({
                           id: `msg-${Date.now()}-crm-act`,
@@ -4699,10 +5256,20 @@ export function AgentChatWorkspace({
                         delegate_agent_id: "agent_connected_systems",
                         kind: "action",
                         id: String(
-                          (directive.directive.payload as Record<string, unknown>).id ?? "",
+                          (
+                            directive.directive.payload as Record<
+                              string,
+                              unknown
+                            >
+                          ).id ?? "",
                         ),
                         type: String(
-                          (directive.directive.payload as Record<string, unknown>).type ?? "",
+                          (
+                            directive.directive.payload as Record<
+                              string,
+                              unknown
+                            >
+                          ).type ?? "",
                         ),
                         status: "cancelled",
                       });
@@ -4712,15 +5279,25 @@ export function AgentChatWorkspace({
                   // ── Action / crypto mode (existing path, unchanged) ───────
                   <SpecialistDirectiveCard
                     summary={String(
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .summary ?? pendingSpecialistDirective.message,
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).summary ?? pendingSpecialistDirective.message,
                     )}
                     confirmLabel={
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .type === "sos_panic"
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).type === "sos_panic"
                         ? "Send SMS"
-                        : (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                              .type === "request_device_location_permission"
+                        : (
+                              pendingSpecialistDirective.directive
+                                .payload as Record<string, unknown>
+                            ).type === "request_device_location_permission"
                           ? "Allow location"
                           : "Share"
                     }
@@ -4729,12 +5306,14 @@ export function AgentChatWorkspace({
                       const directive = pendingSpecialistDirective;
                       setSpecialistBusy(true);
                       const directivePayloadType = String(
-                        (directive.directive.payload as Record<string, unknown>).type ?? "",
+                        (directive.directive.payload as Record<string, unknown>)
+                          .type ?? "",
                       );
                       const confirmText =
                         directivePayloadType === "sos_panic"
                           ? "Send SMS"
-                          : directivePayloadType === "request_device_location_permission"
+                          : directivePayloadType ===
+                              "request_device_location_permission"
                             ? "Allow location"
                             : "Share";
                       try {
@@ -4742,7 +5321,9 @@ export function AgentChatWorkspace({
                         // other authed call uses (never hardcoded/invented).
                         const token = getVaultOwnerToken();
                         if (!token) {
-                          addErrorMessage("Vault access expired. Unlock again to continue.");
+                          addErrorMessage(
+                            "Vault access expired. Unlock again to continue.",
+                          );
                           return;
                         }
                         appendMessage({
@@ -4762,7 +5343,10 @@ export function AgentChatWorkspace({
                         // view_envelope fetches a coordinate-free result here; the
                         // decrypted point is rendered on the dedicated location
                         // surface, so hand the user off there to see it.
-                        if (directivePayloadType === "view_envelope" && result.status === "completed") {
+                        if (
+                          directivePayloadType === "view_envelope" &&
+                          result.status === "completed"
+                        ) {
                           router.push(
                             `${ROUTES.ONE_LOCATION}?from=${pathname || ROUTES.ONE_HOME}`,
                           );
@@ -4785,14 +5369,25 @@ export function AgentChatWorkspace({
                         kind: "selection",
                       });
                       enqueueDelegateResult({
-                        delegate_agent_id: directive.delegateAgentId as DelegateResult["delegate_agent_id"],
+                        delegate_agent_id:
+                          directive.delegateAgentId as DelegateResult["delegate_agent_id"],
                         kind: "action",
                         id: String(
-                          (directive.directive.payload as Record<string, unknown>).id ?? "",
+                          (
+                            directive.directive.payload as Record<
+                              string,
+                              unknown
+                            >
+                          ).id ?? "",
                         ),
                         // Include type so the backend renders the tailored cancel message.
                         type: String(
-                          (directive.directive.payload as Record<string, unknown>).type ?? "",
+                          (
+                            directive.directive.payload as Record<
+                              string,
+                              unknown
+                            >
+                          ).type ?? "",
                         ),
                         status: "cancelled",
                       });
@@ -4808,6 +5403,28 @@ export function AgentChatWorkspace({
                   retryDisabled={isChatLoading || isStreaming}
                 />
               ))}
+              {emailDraftOpen ? (
+                <div className="border-t border-border/70 pt-3">
+                  <EmailDraftCard
+                    initialInstruction={emailDraftInstruction}
+                    initialDraft={emailDraftInitialValue}
+                    autoDraft={emailDraftAutoDraft}
+                    getAuth={getEmailDeliveryAuth}
+                    onRequireVault={() => setVaultDialogOpen(true)}
+                    onDismiss={closeEmailDraft}
+                    onSendStarted={handleEmailSendStarted}
+                    onSent={handleEmailSent}
+                    onSendFailed={handleEmailSendFailed}
+                  />
+                </div>
+              ) : null}
+              {emailDeliveryTimeline.trailingItems.map((item) => (
+                <EmailDeliveryHistoryCard
+                  key={item.id}
+                  item={item}
+                  onRetry={retryEmailDelivery}
+                />
+              ))}
               <div ref={messagesEndRef} />
             </div>
           </div>
@@ -4821,7 +5438,7 @@ export function AgentChatWorkspace({
               "shrink-0 border-t border-border/70 bg-background/92 px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
               isPopover
                 ? "pb-[var(--agent-chat-composer-bottom)] sm:pb-3"
-                : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]"
+                : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
             )}
           >
             <div className="mx-auto w-full max-w-4xl">
@@ -4832,7 +5449,11 @@ export function AgentChatWorkspace({
                   aria-live="polite"
                 >
                   <div className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
-                    <span>{queuedPrompts.length} {queuedPrompts.length === 1 ? "message" : "messages"} queued</span>
+                    <span>
+                      {queuedPrompts.length}{" "}
+                      {queuedPrompts.length === 1 ? "message" : "messages"}{" "}
+                      queued
+                    </span>
                     <span>One will send these in order.</span>
                   </div>
                   <div className="mt-1.5 space-y-1.5">
@@ -4841,18 +5462,25 @@ export function AgentChatWorkspace({
                         key={prompt.id}
                         className="flex min-w-0 items-center gap-2 rounded-xl bg-background/75 px-2 py-1.5 text-sm"
                       >
-                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{index + 1}</span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {index + 1}
+                        </span>
                         {editingQueuedPromptId === prompt.id ? (
                           <input
                             autoFocus
                             aria-label="Edit queued message"
                             className="min-w-0 flex-1 bg-transparent outline-none"
                             value={editingQueuedPromptText}
-                            onChange={(event) => setEditingQueuedPromptText(event.target.value)}
+                            onChange={(event) =>
+                              setEditingQueuedPromptText(event.target.value)
+                            }
                             onKeyDown={(event) => {
                               if (event.key === "Enter") {
                                 event.preventDefault();
-                                editQueuedPrompt(prompt.id, editingQueuedPromptText);
+                                editQueuedPrompt(
+                                  prompt.id,
+                                  editingQueuedPromptText,
+                                );
                               }
                               if (event.key === "Escape") {
                                 setEditingQueuedPromptId(null);
@@ -4861,7 +5489,9 @@ export function AgentChatWorkspace({
                             }}
                           />
                         ) : (
-                          <span className="min-w-0 flex-1 truncate">{prompt.text}</span>
+                          <span className="min-w-0 flex-1 truncate">
+                            {prompt.text}
+                          </span>
                         )}
                         {editingQueuedPromptId === prompt.id ? (
                           <Button
@@ -4869,7 +5499,12 @@ export function AgentChatWorkspace({
                             size="sm"
                             variant="ghost"
                             className="h-7 px-2 text-xs"
-                            onClick={() => editQueuedPrompt(prompt.id, editingQueuedPromptText)}
+                            onClick={() =>
+                              editQueuedPrompt(
+                                prompt.id,
+                                editingQueuedPromptText,
+                              )
+                            }
                           >
                             Save
                           </Button>
@@ -4929,7 +5564,11 @@ export function AgentChatWorkspace({
                         onChange={(event) => setInput(event.target.value)}
                         onFocus={() => wakePodNow("composer_focus")}
                         onKeyDown={(event) => {
-                          if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                          if (
+                            event.key !== "Enter" ||
+                            event.shiftKey ||
+                            event.nativeEvent.isComposing
+                          ) {
                             return;
                           }
                           event.preventDefault();
@@ -4937,9 +5576,13 @@ export function AgentChatWorkspace({
                             event.currentTarget.form?.requestSubmit();
                           }
                         }}
-                        disabled={isLoadingHistory || isVoiceConnecting}
+                        disabled={
+                          isLoadingHistory ||
+                          isVoiceConnecting ||
+                          emailDraftOpen
+                        }
                         placeholder="Write a longer message..."
-                        className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-14 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-16 sm:pt-5 sm:text-sm"
+                        className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm"
                       />
                       <Button
                         type="button"
@@ -4971,7 +5614,11 @@ export function AgentChatWorkspace({
                           onChange={(event) => setInput(event.target.value)}
                           onFocus={() => wakePodNow("composer_focus")}
                           onKeyDown={(event) => {
-                            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                            if (
+                              event.key !== "Enter" ||
+                              event.shiftKey ||
+                              event.nativeEvent.isComposing
+                            ) {
                               return;
                             }
                             event.preventDefault();
@@ -4979,7 +5626,11 @@ export function AgentChatWorkspace({
                               event.currentTarget.form?.requestSubmit();
                             }
                           }}
-                          disabled={isLoadingHistory || isVoiceConnecting}
+                          disabled={
+                            isLoadingHistory ||
+                            isVoiceConnecting ||
+                            emailDraftOpen
+                          }
                           placeholder="Message One..."
                           rows={1}
                           className="min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"

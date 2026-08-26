@@ -23,7 +23,7 @@ describe("VoicePreferencesPanel", () => {
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
     expect(
       screen.getByText(
-        `Voice engine version ${VOICE_ENGINE_VERSION} — powered by Gemini Live`,
+        `Voice engine ${VOICE_ENGINE_VERSION} — powered by Gemini Live`,
       ),
     ).toBeInTheDocument();
   });

@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
-GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),

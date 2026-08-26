@@ -8,6 +8,7 @@ from typing import Any, Dict, Literal
 from sqlalchemy import text
 
 from db.db_client import get_db, get_db_connection
+from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,9 @@ class AccountService:
         self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "contact_sync_lookup_budgets": text(
+                "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
+            ),
             "actor_identity_cache": text(
                 "DELETE FROM actor_identity_cache WHERE user_id = :user_id"
             ),
@@ -1111,6 +1115,7 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                lock_connection_graph_users(conn, user_ids=[user_id])
                 self._clear_user_data_tables(conn, user_id, results)
 
                 # Re-seed the profile spine to a clean One default so the dashboard
@@ -1122,6 +1127,11 @@ class AccountService:
                         SET personas = ARRAY['investor']::text[],
                             last_active_persona = 'investor',
                             investor_marketplace_opt_in = FALSE,
+                            contact_discoverable = FALSE,
+                            contact_sync_consent_enabled_at = NULL,
+                            contact_sync_consent_rule_version =
+                                contact_sync_consent_rule_version + 1,
+                            contact_sync_consent_contract_version = NULL,
                             updated_at = NOW()
                         WHERE user_id = :user_id
                         """
@@ -1286,6 +1296,7 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                lock_connection_graph_users(conn, user_ids=[user_id])
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
@@ -1476,6 +1487,11 @@ class AccountService:
                     results=results,
                 )
                 for table_name in (
+                    # This budget is deliberately preserved by persona reset so
+                    # reset cannot become a rate-limit bypass. A full account
+                    # deletion removes the identity, so its FK-free budget row
+                    # must be purged here as well.
+                    "contact_sync_lookup_budgets",
                     "one_location_auto_approve_preferences",
                     "one_location_events",
                     "one_location_nearby_presences",

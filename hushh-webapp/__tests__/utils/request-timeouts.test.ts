@@ -1,6 +1,21 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import {
+  isRequestTimeoutError,
+  resolveSlowRequestTimeoutMs,
+} from "@/lib/utils/request-timeouts";
+
+describe("isRequestTimeoutError", () => {
+  it.each(["AbortError", "TimeoutError"])("accepts %s", (name) => {
+    const error = new Error("timed out");
+    error.name = name;
+    expect(isRequestTimeoutError(error)).toBe(true);
+  });
+
+  it("rejects non-timeout errors", () => {
+    expect(isRequestTimeoutError(new Error("network unavailable"))).toBe(false);
+  });
+});
 
 const ORIGINAL_APP_ENV = process.env.NEXT_PUBLIC_APP_ENV;
 const ORIGINAL_RUNTIME_PROFILE = process.env.APP_RUNTIME_PROFILE;

@@ -818,6 +818,17 @@
       "primary_access_path": "Alpaca/Plaid funding, ACH, transfer, webhook, reconciliation, and trade-intent services"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "gmail_owner_send_actions",
+        "google_email_send_actions"
+      ],
+      "id": "gmail_owner_approved_delivery",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services"
+    },
+    {
       "data_class": "provider_cache",
       "exact_tables": [
         "google_provider_connections",
@@ -1235,19 +1246,20 @@
       "id": "trusted_device_registry",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used tracking, and revocation through TrustedDeviceService."
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService."
     },
     {
       "data_class": "workflow_state",
       "exact_tables": [
         "connection_requests",
         "connections",
-        "connection_origins"
+        "connection_origins",
+        "contact_sync_lookup_budgets"
       ],
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 126 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 125. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active."
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, viewer-relative contact_sync provenance, and one or more named Circles. Contact sync requires the target's explicit versioned combined find-and-auto-connect consent, revalidates the submitted digest against the current verified phone, and writes every eligible non-suppressed match as canonical graph projections transactionally. contact_sync_lookup_budgets is the Postgres-authoritative cross-instance abuse-budget seam; SlowAPI is only the outer request-count guard. Named Circle join/accept writes only named_circle origins. The canonical pair remains active while any origin is active."
     },
     {
       "data_class": "personal_encrypted",
@@ -2472,6 +2484,29 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
+      "native_surface_id": "native-route-email-agent",
+      "page_file": "app/one/email/page.tsx",
+      "pathname": "/one/email",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.email"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
       "native_surface_id": "native-route-feed",
       "page_file": "app/one/feed/page.tsx",
       "pathname": "/one/feed",
@@ -3058,6 +3093,16 @@
             "cancelNamedCircleMemberInvite",
             "addSmsContact",
             "removeSmsContact"
+          ]
+        },
+        {
+          "backend_endpoint_family": "/api/one/connections/contact-sync",
+          "native_transport": "CapacitorHttp direct backend via ConnectionsService after local contact normalization and hashing",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/connections-service.ts",
+          "service_methods": [
+            "syncContacts"
           ]
         }
       ],
@@ -3921,7 +3966,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
       "pathname": "/one/profile/preferences/voice/examples",
       "route_mode": "standard",
@@ -3968,7 +4013,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/referrals/page.tsx",
       "pathname": "/one/profile/referrals",
       "route_mode": "standard",
@@ -5179,15 +5224,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "190df0a3bc461ce84d2eab5215ef231285096143d42aec1b68319e8aaf804a50",
+    "action_gateway": "91aed3ed1868d4120c6ba74ce5aecd155e7cc15953c9f574dba8de729280987e",
     "agent_registry": "986f51c99eb5adee75ae5ed00b630a64f9e3b7c8d419b1d0b29802bf31e133d6",
-    "cache_manifest": "05e9fe0a4ffd6b0c81bb613673959efe3514e3c7c55a5136b7242e7192c42206",
-    "data_plane": "e53957006a12640057fa12a557cdbfc58df0e44149e0eb28425b4b4acc5ec558",
+    "cache_manifest": "352628c2175c33ef4c4781b18d64cc0cc2bd40f6fb6d6e48163af6e0a5245acb",
+    "data_plane": "4d591e262b3447047b83b1b367b418777a5225b147a11acf77ff5edcfbf09971",
     "in_process_dispatch": "a921011a2127245cae09bc9375cec4d22d0e3b00d31a4f1146daedbc1d379c8a",
-    "one_specialist_tools": "e6e3e5388d1f1660d0f72c295fceb091116bbf66944f00b85454fa7d2c76d768",
-    "route_index": "13ab6c1c425a67815171b2dc67adca2927ee91ecf229a3b019030206ddd38bb3",
-    "route_layout": "b15c63b5302ebe9931329a7c906efc8d6b30b2714b3ad429572f6575aff8dd6c",
-    "surface_map": "7b8ea0511be239a4e3dc84c5cd1b723ffec1fce28f54a6382c406296d6ee13e7",
+    "one_specialist_tools": "91046655f19b6c84fa76f27faa3309b7f28887aec26cae65e2b3fa6843f389e4",
+    "route_index": "b0811b166be626f82a033e9a3a6698b1c779ffc47eded5bfc5ac7f11b5928788",
+    "route_layout": "001652122672225f27e20bb346294a3768f3abc733be2727e941df3164be05b5",
+    "surface_map": "f4373a2e2fa1d4a05679c05490e51b2755d8a861c1f3478cbb6cebe75ed4d18d",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5199,8 +5244,8 @@
     "decision_required": 2,
     "in_process_specialists": 6,
     "one_specialist_tools": 5,
-    "physical_routes": 134,
+    "physical_routes": 135,
     "semantic_routes": 14,
-    "table_families": 57
+    "table_families": 58
   }
 }

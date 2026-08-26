@@ -234,12 +234,29 @@ const routeOverrides = {
         native_transport:
           "CapacitorHttp direct backend via the shared One Location service",
       },
+      {
+        service_file: "lib/services/connections-service.ts",
+        service_methods: ["syncContacts"],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family: "/api/one/connections/contact-sync",
+        native_transport:
+          "CapacitorHttp direct backend via ConnectionsService after local contact normalization and hashing",
+      },
     ],
     native_plugin_dependencies: [
       {
         package: "@capacitor/share",
         integration:
           "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs",
+      },
+      {
+        package: "HushhContacts",
+        integration:
+          "Read-only local address-book source; raw contact records stay in WebView memory while normalized phone hashes are sent through ConnectionsService",
+        ios: "CNContactStore read on a background queue with limited-access and truncation metadata",
+        android:
+          "READ_CONTACTS content-provider scan on Dispatchers.IO with distinct-contact totals and truncation metadata",
       },
     ],
     thread_and_consent_contract: {

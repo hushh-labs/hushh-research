@@ -182,6 +182,21 @@ module = [
 ]
 follow_imports = "skip"
 
+# hushh_mcp/one_adk/action_tools.py calls these two services' methods
+# directly (backend-direct voice actions bypassing the @hushh_tool layer,
+# e.g. create_grant, request_access, list_verified_recipients,
+# search_directory, create_request), so a signature change there is a real,
+# silent break for action_tools.py -- not just debt local to the service.
+# More specific overrides win over the hushh_mcp.services.* wildcard above,
+# so this un-skips exactly these two modules as import dependencies without
+# adding them to `files` as scan targets or touching the wildcard itself.
+[[tool.mypy.overrides]]
+module = [
+    "hushh_mcp.services.one_location_agent_service",
+    "hushh_mcp.services.connections_service",
+]
+follow_imports = "normal"
+
 [tool.bandit]
 exclude_dirs = ["tests", "__pycache__"]
 skips = ["B101"]  # Skip assert warnings

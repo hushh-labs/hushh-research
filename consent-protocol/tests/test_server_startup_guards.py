@@ -108,6 +108,27 @@ def test_schema_guard_still_fails_when_required_tables_are_missing(
         asyncio.run(server.startup_required_schema_guard())
 
 
+def test_market_warmup_does_not_block_http_startup(monkeypatch: pytest.MonkeyPatch):
+    """External market calls must not delay the app becoming reachable."""
+
+    scheduled: list[object] = []
+    tracked: list[object] = []
+
+    def _capture_task(coro, *, name: str):
+        assert name == "market-insights-startup-warm"
+        scheduled.append(coro)
+        return object()
+
+    monkeypatch.setattr(server.asyncio, "create_task", _capture_task)
+    monkeypatch.setattr(server, "_track_startup_background_task", tracked.append)
+
+    asyncio.run(server.startup_market_insights_refresh())
+
+    assert len(scheduled) == 1
+    assert len(tracked) == 1
+    scheduled[0].close()
+
+
 def test_named_circle_tables_are_required_runtime_dependencies():
     assert {
         "one_location_circles",

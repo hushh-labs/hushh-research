@@ -67,4 +67,5 @@ describe("GmailReceiptsService.getStatus caching", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
+
 });

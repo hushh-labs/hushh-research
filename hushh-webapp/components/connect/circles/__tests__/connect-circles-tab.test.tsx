@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   routerReplace: vi.fn(),
   createNamedCircle: vi.fn(),
   getCircle: vi.fn(),
+  listCircleMembersPage: vi.fn(),
   toastError: vi.fn(),
   searchParams: new URLSearchParams("tab=circles"),
   vaultOwnerToken: "vault-token" as string | null,
@@ -35,12 +36,22 @@ vi.mock("@/lib/one-location/service", () => ({
     resolveNamedCircleCode: vi.fn(),
     joinNamedCircle: vi.fn(),
     getCircle: mocks.getCircle,
+    getCircleOverview: mocks.getCircle,
+    listCircleMembersPage: mocks.listCircleMembersPage,
     updateNamedCircle: vi.fn(),
     createNamedCircleInviteCode: vi.fn(),
     listNamedCircleEligibleConnections: vi.fn(async () => ({
       eligibleConnections: [],
       pendingInvites: [],
       remainingCapacity: 0,
+    })),
+    listNamedCircleEligibleConnectionsPage: vi.fn(async () => ({
+      eligibleConnections: [],
+      pendingInvites: [],
+      remainingCapacity: 0,
+      page: 1,
+      hasMore: false,
+      totalCount: 0,
     })),
     createNamedCircleMemberInvites: vi.fn(),
     cancelNamedCircleMemberInvite: vi.fn(),
@@ -134,6 +145,12 @@ beforeEach(() => {
         secureLocationReady: true,
       },
     ],
+  });
+  mocks.listCircleMembersPage.mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: false,
+    totalCount: 0,
   });
 });
 
@@ -321,6 +338,7 @@ describe("ConnectCirclesTab", () => {
     await waitFor(() => expect(order).toEqual(["reconcile", "list"]));
     expect(mocks.ensureTrusted).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
+      summaryOnly: true,
     });
   });
 
@@ -508,6 +526,28 @@ describe("a roster row on Connect behaves like a directory row", () => {
           relationship: "none",
         },
       ],
+    });
+    mocks.listCircleMembersPage.mockResolvedValue({
+      items: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "stranger-user",
+          displayName: "Sharu Khan",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "none",
+        },
+      ],
+      page: 1,
+      hasMore: false,
+      totalCount: 2,
     });
   });
 

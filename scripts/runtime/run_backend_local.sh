@@ -93,6 +93,18 @@ if [ ! -x "$BACKEND_VENV_PYTHON" ] && [ ! -f "$BACKEND_VENV_PYTHON" ]; then
   fi
 fi
 
+# A virtualenv can survive a branch sync while its pinned dependencies do not.
+# Fail before importing the app, with the exact repair command, instead of
+# turning a missing package into a long Uvicorn traceback and health timeout.
+if ! (
+  cd "$REPO_ROOT/consent-protocol"
+  uv sync --frozen --group dev --check >/dev/null
+); then
+  echo "Backend virtualenv is out of sync with consent-protocol/uv.lock." >&2
+  echo "Run: cd consent-protocol && uv sync --frozen --group dev" >&2
+  exit 1
+fi
+
 read_env_value() {
   local file="$1"
   local key="$2"
@@ -327,6 +339,18 @@ if [ "$PREFLIGHT_ONLY" = "true" ]; then
   echo "Backend preflight passed for runtime mode ${PROFILE}."
   exit 0
 fi
+
+# Local development shares the UAT Cloud SQL instance with other contributors.
+# Keep one local backend well below the instance connection budget: asyncpg can
+# otherwise open 20 connections and SQLAlchemy another 15 by default. Four
+# async connections still leave ample headroom on the shared UAT instance, but
+# allow One's concurrent vault/bootstrap requests to complete without waiting
+# behind a three-connection ceiling.
+export DB_POOL_MIN_SIZE="${DB_POOL_MIN_SIZE:-0}"
+export DB_POOL_MAX_SIZE="${DB_POOL_MAX_SIZE:-4}"
+export DB_SQLALCHEMY_POOL_SIZE="${DB_SQLALCHEMY_POOL_SIZE:-2}"
+export DB_SQLALCHEMY_MAX_OVERFLOW="${DB_SQLALCHEMY_MAX_OVERFLOW:-0}"
+echo "Local Cloud SQL connection budget: async=${DB_POOL_MIN_SIZE}-${DB_POOL_MAX_SIZE}, sql=${DB_SQLALCHEMY_POOL_SIZE}+${DB_SQLALCHEMY_MAX_OVERFLOW}."
 
 echo "Starting backend on :8000 for runtime mode ${PROFILE}..."
 cd "$REPO_ROOT/consent-protocol"

@@ -143,11 +143,16 @@
     "163_one_location_system_circle_kinds.sql",
     "165_one_referral_program.sql",
     "167_one_referral_realtime_notify.sql",
-    "169_one_location_auto_approve_preferences.sql"
+    "169_one_location_auto_approve_preferences.sql",
+    "171_google_gmail_send_actions.sql",
+    "172_gmail_combined_send_permission.sql",
+    "173_gmail_owner_approved_delivery.sql",
+    "175_contact_sync_connection_provenance.sql",
+    "176_trusted_device_sync_state.sql"
   ],
   "environment_overlays": {
     "uat": [
-      "170_hushh_tech_uat_client_foundation.sql"
+      "174_hushh_tech_uat_client_foundation.sql"
     ]
   },
   "groups": {
@@ -243,7 +248,9 @@
       "163_one_location_system_circle_kinds.sql",
       "165_one_referral_program.sql",
       "167_one_referral_realtime_notify.sql",
-      "169_one_location_auto_approve_preferences.sql"
+      "169_one_location_auto_approve_preferences.sql",
+      "175_contact_sync_connection_provenance.sql",
+      "176_trusted_device_sync_state.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

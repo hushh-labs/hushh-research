@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-08-02",
-  "total_routes": 115,
-  "native_required_routes": 100,
+  "total_routes": 118,
+  "native_required_routes": 103,
   "excluded_routes": 15,
   "routes": [
     {
@@ -51,6 +51,7 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
+        "loading",
         "loaded",
         "empty-valid",
         "unavailable-valid"
@@ -374,6 +375,21 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
+      ]
+    },
+    {
+      "route": "/one/email",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Femail",
+      "expectedMarker": "native-route-email-agent",
+      "expectedRoute": "/one/email",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
@@ -896,6 +912,18 @@
       ]
     },
     {
+      "route": "/one/profile/preferences/voice/examples",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fexamples",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/preferences/voice/examples",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
       "route": "/one/profile/receipts",
       "classification": "native-required-functional",
       "legacyAlias": true,
@@ -908,6 +936,18 @@
         "loaded",
         "empty-valid",
         "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/profile/referrals",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Freferrals",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/referrals",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
       ]
     },
     {

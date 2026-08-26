@@ -59,6 +59,14 @@ const ICON_SIZE_CLASS = {
     image: "h-full w-full object-contain",
     pixels: 40,
   },
+  setup: {
+    surface: "h-9 w-9",
+    lucideSurface: "h-9 w-9 rounded-[10px]",
+    imageSurface: "rounded-[10px]",
+    lucide: "h-[19px] w-[19px]",
+    image: "h-full w-full object-contain",
+    pixels: 40,
+  },
   roster: {
     surface: "h-10 w-10",
     lucideSurface: "h-10 w-10 rounded-[12px]",
@@ -91,6 +99,7 @@ const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
   launcher: "rounded-[17px] sm:rounded-[20px]",
   topbar: "rounded-[10px]",
   menu: "rounded-[11px]",
+  setup: "rounded-[10px]",
   roster: "rounded-[12px]",
   "roster-dashboard": "rounded-[14px]",
   "roster-lg": "rounded-[18px]",

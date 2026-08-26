@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { cn } from "@/lib/utils";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 
@@ -134,6 +135,7 @@ export function ContactRowAction({
 export function ContactRow({
   label,
   subtitle,
+  fromContacts,
   selected,
   busy,
   ready,
@@ -142,6 +144,7 @@ export function ContactRow({
 }: {
   label: string;
   subtitle?: string | null;
+  fromContacts?: boolean;
   selected: boolean;
   busy: boolean;
   ready: boolean;
@@ -155,8 +158,13 @@ export function ContactRow({
     >
       <ContactAvatar label={label} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
-          {label}
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+            {label}
+          </span>
+          {fromContacts ? (
+            <ContactSourceBadge className="mt-px shrink-0" />
+          ) : null}
         </span>
         {subtitle ? (
           <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">

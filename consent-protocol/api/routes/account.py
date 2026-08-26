@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException
@@ -355,6 +356,84 @@ async def list_trusted_devices(firebase_uid: str = Depends(require_firebase_auth
     # removed. The authenticated user can only list their own device records.
     devices = await run_in_threadpool(TrustedDeviceService().list_devices, user_id=firebase_uid)
     return {"devices": devices}
+
+
+@router.get("/trusted-devices/{device_id}/status")
+async def trusted_device_status(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Own-device liveness read for the native Hermes runtime.
+
+    Firebase-authed: the device keeps a user-level Firebase session after
+    revoke, so a device-token gate would be unreachable exactly when the answer
+    is 'revoked'. Fail-closed: a DB error is a 503, never a defaulted 'active'.
+    Grants nothing; every vault call still gates on the device-bound owner token
+    re-checked against is_trusted_device_active.
+    """
+    try:
+        status = await run_in_threadpool(
+            TrustedDeviceService().device_status,
+            user_id=firebase_uid,
+            device_id=device_id,
+        )
+    except Exception:
+        logger.exception("trusted_device.status_lookup_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_STATUS_UNAVAILABLE",
+                "message": "Trusted-device status is temporarily unavailable.",
+            },
+        ) from None
+    if status is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "TRUSTED_DEVICE_UNKNOWN",
+                "message": "No such trusted device for this account.",
+            },
+        )
+    return {**status, "server_time_ms": int(time.time() * 1000)}
+
+
+@router.post("/trusted-devices/{device_id}/seal-ack")
+async def trusted_device_seal_ack(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Advisory seal confirmation from the native runtime after a remote revoke.
+
+    Firebase-authed only, with NO device signature: the device P-256 key is
+    zeroized during seal, so a post-seal signature is unsatisfiable and a static
+    one would be replayable. The ack is device-reported telemetry, never proof
+    of sealing and never authorization. The server stamps its own sealed_at, can
+    only stamp an already-revoked row, and enforcement never consults sealed_at.
+    """
+    try:
+        result = await run_in_threadpool(
+            TrustedDeviceService().seal_device,
+            user_id=firebase_uid,
+            device_id=device_id,
+        )
+    except Exception:
+        logger.exception("trusted_device.seal_ack_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_STATUS_UNAVAILABLE",
+                "message": "Trusted-device status is temporarily unavailable.",
+            },
+        ) from None
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "TRUSTED_DEVICE_UNKNOWN",
+                "message": "No such trusted device for this account.",
+            },
+        )
+    return result
 
 
 @router.post("/trusted-devices/{device_id}/challenge")

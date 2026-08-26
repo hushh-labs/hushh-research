@@ -32,6 +32,7 @@ function circle(): OneLocationCircleDetail {
       {
         userId: "ready",
         displayName: "Ready",
+        connectedFromContacts: true,
         role: "member",
         phoneVerified: true,
         secureLocationReady: true,
@@ -124,6 +125,7 @@ describe("resolveCircleRecipientSelection", () => {
     ]);
     expect(result.ready.every((target) => target.sourceCircleId === "circle-1"))
       .toBe(true);
+    expect(result.ready[0]?.recipient.connectedFromContacts).toBe(true);
     expect(result.excluded.map((item) => item.reason)).toEqual([
       "self",
       "location_setup_needed",

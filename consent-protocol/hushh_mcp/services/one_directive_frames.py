@@ -63,6 +63,34 @@ def one_directive_frames(
             )
         ]
 
+    # Ported from main during the 2026-08-26 sync. This branch had extracted this
+    # function out of `agent_chat.py` into this module; main edited the inline copy
+    # it still has, adding the block below. Taking this branch's side wholesale --
+    # correct for the extraction -- would have deleted a real capability, which is
+    # the failure the sync SOP's "port genuinely new main content" step exists for.
+    #
+    # Personal Gmail drafting is a One-owned, client-only prompt directive.
+    # It opens an editable card and never runs a provider action. Keep this
+    # allowlist narrow so arbitrary prompt directives cannot become UI effects.
+    if (
+        directive.kind == "prompt"
+        and str(directive.payload.get("kind") or "") == "gmail_email_draft"
+    ):
+        return [
+            (
+                "specialist_directive",
+                {
+                    "delegate_agent_id": "one",
+                    "directive": {
+                        "kind": directive.kind,
+                        "payload": directive.payload,
+                    },
+                    "message": conversation_text,
+                    "state_changed": False,
+                },
+            )
+        ]
+
     if directive.kind != "action":
         return []
     action_id = str(directive.payload.get("actionId") or "").strip()

@@ -51,6 +51,7 @@ export const ROUTE_ID_VALUES = [
   "profile_support_routing",
   "profile_support_compose",
   "gmail",
+  "email_agent",
   "pkm",
   "connected_systems",
   "profile_pkm",
@@ -218,6 +219,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_support_compose";
   if (pathname === ROUTES.GMAIL || pathname === ROUTES.LEGACY_GMAIL)
     return "gmail";
+  if (pathname === ROUTES.EMAIL_AGENT) return "email_agent";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
   if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";
   if (

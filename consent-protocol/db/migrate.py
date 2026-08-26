@@ -65,6 +65,35 @@ UAT_GCP_PROJECT_ID = "hushh-pda-uat"
 UAT_CLOUDSQL_INSTANCE = "hushh-pda-uat:us-central1:hushh-uat-pg"
 
 
+def _migration_version(filename: str) -> int:
+    prefix, separator, remainder = str(filename).partition("_")
+    if (
+        separator != "_"
+        or len(prefix) != 3
+        or not prefix.isdigit()
+        or not remainder.endswith(".sql")
+    ):
+        raise RuntimeError(f"Invalid release migration filename: {filename!r}")
+    return int(prefix)
+
+
+def _merge_release_migration_files(
+    *lanes: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Merge release lanes numerically without allowing ID collisions."""
+    filenames = tuple(filename for lane in lanes for filename in lane)
+    versions = [_migration_version(filename) for filename in filenames]
+    if len(versions) != len(set(versions)):
+        raise RuntimeError("Release migration versions must be unique across all lanes")
+    return tuple(sorted(filenames, key=_migration_version))
+
+
+def _assert_monotonic_release_lane(filenames: tuple[str, ...], *, label: str) -> None:
+    versions = [_migration_version(filename) for filename in filenames]
+    if versions != sorted(versions) or len(versions) != len(set(versions)):
+        raise RuntimeError(f"Release migration lane {label} must be strictly increasing")
+
+
 def _load_release_manifest(
     path: Path,
 ) -> tuple[
@@ -117,6 +146,10 @@ def _load_release_manifest(
         raise RuntimeError(
             "release_migration_manifest.json base and environment overlays must not overlap"
         )
+    _assert_monotonic_release_lane(ordered_tuple, label="production")
+    for environment, entries in overlay_tuples.items():
+        _assert_monotonic_release_lane(entries, label=environment)
+    _merge_release_migration_files(ordered_tuple, *overlay_tuples.values())
     return ordered_tuple, overlay_tuples, iam_tuple, pkm_tuple
 
 
@@ -139,11 +172,14 @@ def canonical_release_environment(release_environment: str) -> str:
 
 
 def release_migration_files(release_environment: str) -> tuple[str, ...]:
-    """Return the base lane, with the isolated UAT overlay only when requested."""
+    """Return the governed lane in numeric migration order."""
     environment = canonical_release_environment(release_environment)
     if environment == "production":
         return BASE_RELEASE_MIGRATION_FILES
-    return BASE_RELEASE_MIGRATION_FILES + RELEASE_ENVIRONMENT_OVERLAYS[environment]
+    return _merge_release_migration_files(
+        BASE_RELEASE_MIGRATION_FILES,
+        RELEASE_ENVIRONMENT_OVERLAYS[environment],
+    )
 
 
 def assert_uat_release_target(release_environment: str) -> str:

@@ -46,6 +46,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one")).toBe("one_dashboard");
     expect(resolveRouteId("/welcome")).toBe("one_dashboard");
     expect(resolveRouteId("/one/gmail")).toBe("gmail");
+    expect(resolveRouteId("/one/email")).toBe("email_agent");
     expect(resolveRouteId("/one/pkm")).toBe("pkm");
     expect(resolveRouteId("/one/connected-systems")).toBe("connected_systems");
     expect(

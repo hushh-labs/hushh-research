@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 169,
+  "expected_migration_version": 176,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -53,6 +53,9 @@
       "last_active_persona",
       "investor_marketplace_opt_in",
       "contact_discoverable",
+      "contact_sync_consent_enabled_at",
+      "contact_sync_consent_rule_version",
+      "contact_sync_consent_contract_version",
       "created_at",
       "updated_at"
     ],
@@ -276,6 +279,22 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "gmail_owner_send_actions": [
+      "action_id",
+      "user_id",
+      "envelope_hmac",
+      "idempotency_hmac",
+      "recipient_count",
+      "state",
+      "expires_at",
+      "sending_at",
+      "sent_at",
+      "gmail_message_id",
+      "gmail_thread_id",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
     ],
     "one_action_directive_ledger": [
       "directive_id",
@@ -1246,6 +1265,13 @@
       "revoked_at",
       "metadata"
     ],
+    "contact_sync_lookup_budgets": [
+      "user_id",
+      "bucket_kind",
+      "bucket_start",
+      "lookup_count",
+      "updated_at"
+    ],
     "kai_plaid_items": [
       "item_id",
       "user_id",
@@ -1338,7 +1364,10 @@
       "status",
       "created_at",
       "last_used_at",
-      "revoked_at"
+      "revoked_at",
+      "last_synced_at",
+      "last_sync_cursor",
+      "sealed_at"
     ],
     "trusted_device_challenges": [
       "challenge_id",
@@ -1412,6 +1441,23 @@
       "expires_at",
       "executed_at",
       "created_at"
+    ],
+    "google_email_send_actions": [
+      "action_id",
+      "user_id",
+      "provider",
+      "payload_hmac",
+      "idempotency_hmac",
+      "recipient_count",
+      "status",
+      "expires_at",
+      "sending_at",
+      "completed_at",
+      "provider_message_id",
+      "provider_thread_id",
+      "error_code",
+      "created_at",
+      "updated_at"
     ],
     "one_wallet_cards": [
       "user_id",

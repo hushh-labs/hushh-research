@@ -66,9 +66,14 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert result["account_deleted"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["connection_origins"] is True
+    assert result["details"]["contact_sync_lookup_budgets"] is True
+
+    first_sql = str(conn.execute.call_args_list[0].args[0])
+    assert "pg_advisory_xact_lock" in first_sql
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     expected_fragments = [
+        "DELETE FROM contact_sync_lookup_budgets",
         "DELETE FROM kai_funding_trade_events",
         "DELETE FROM kai_funding_trade_intents",
         "DELETE FROM kai_funding_transfer_events",
@@ -237,6 +242,9 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["details"]["one_location_auto_approve_preferences"] is True
     assert result["details"]["connection_origins"] is True
 
+    first_sql = str(conn.execute.call_args_list[0].args[0])
+    assert "pg_advisory_xact_lock" in first_sql
+
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
 
     # Personal data is cleared.
@@ -285,6 +293,10 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert "UPDATE runtime_persona_state" in executed_sql
     assert "UPDATE vault_keys" in executed_sql
     assert "setup_completed = NULL" in executed_sql
+    assert "contact_discoverable = FALSE" in executed_sql
+    assert "contact_sync_consent_enabled_at = NULL" in executed_sql
+    assert "contact_sync_consent_rule_version + 1" in executed_sql
+    assert "contact_sync_consent_contract_version = NULL" in executed_sql
 
 
 def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):

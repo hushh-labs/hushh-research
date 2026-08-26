@@ -261,3 +261,5 @@ tests/test_pool_acquire_is_bounded.py
 # manifest is the only pytest invocation in any lane -- so a guard absent from
 # it is decoration.
 tests/test_contact_discovery_hardening.py
+tests/test_trusted_device_routes.py
+tests/quality/test_revocation_persistence.py

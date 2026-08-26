@@ -267,7 +267,7 @@ Then override the values that must differ in dev:
 | `DB_USER` / `DB_PASSWORD` | the new dev Cloud SQL credentials |
 | `APP_FRONTEND_ORIGIN` | `https://dev.one.hushh.ai` |
 | `BACKEND_URL` | dev backend Cloud Run URL (set after the first deploy) |
-| `GMAIL_OAUTH_REDIRECT_URI` | `https://dev.one.hushh.ai/profile/gmail/oauth/return` when Gmail receipts run in dev; it must exactly match `APP_FRONTEND_ORIGIN + /profile/gmail/oauth/return`. |
+| `GMAIL_OAUTH_REDIRECT_URI` | `https://dev.one.hushh.ai/one/profile/gmail/oauth/return` when Gmail receipts or owner-approved send run in dev; it must exactly match `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return`. |
 
 Notes:
 

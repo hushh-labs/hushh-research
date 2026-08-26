@@ -258,6 +258,8 @@ import {
 } from "@/lib/one-location/nearby-check-in-availability";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { ROUTES } from "@/lib/navigation/routes";
+import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
 // One rule, one place: Connect owns the Circle screens now and needs the
 // same judgement about what an API failure may say to a person.
@@ -318,10 +320,13 @@ import type {
   OneLocationCircleInvite,
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
   OneLocationCircleMemberInvite,
+  OneLocationCircleMemberPage,
+  OneLocationCircleOverview,
   OneLocationCircleSummary,
   OneLocationEncryptedEnvelope,
   OneLocationGrant,
@@ -329,11 +334,13 @@ import type {
   OneLocationPublicInviteSubmission,
   OneLocationRecommendationReason,
   OneLocationRecipient,
+  OneLocationRecipientPage,
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
@@ -352,6 +359,7 @@ import {
 } from "@/lib/one-location/drive-session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
+import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
 import {
   clearPendingCircleJoin,
   readPendingCircleJoin,
@@ -2469,6 +2477,30 @@ export function OneLocationAgentPageContent({
 }: OneLocationAgentPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Leaving the onboarding takeover from its first screen used to call
+  // router.back(). WKWebView has no native history stack for Next routes
+  // (see lib/navigation/top-shell-back.ts), so on native that could no-op
+  // and strand the person on the takeover. Route through the same resolver
+  // the top-bar back arrow uses instead, with a One-home fallback so there
+  // is always a way out.
+  const handleOnboardingBack = useCallback(() => {
+    const navigated = navigateTopShellBack({
+      pathname: ROUTES.ONE_LOCATION,
+      searchParams,
+      navigate: (action) => {
+        requestInternalAppNavigation({
+          href: action.href,
+          replace: action.mode === "replace",
+          scroll: false,
+          source: "tap",
+          transitionMode: action.transitionMode,
+        });
+      },
+    });
+    if (!navigated) {
+      router.push(ROUTES.ONE_HOME);
+    }
+  }, [router, searchParams]);
   const auth = useRequireAuth();
   const {
     deliveryMode: notificationDeliveryMode,
@@ -2550,6 +2582,9 @@ export function OneLocationAgentPageContent({
   const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
   /** Which grant's duration is being saved. Separate from revoke on purpose. */
   const [savingGrantId, setSavingGrantId] = useState<string | null>(null);
+  const [requestingMoreTimeKey, setRequestingMoreTimeKey] = useState<
+    string | null
+  >(null);
   const [editGrantDurationHours, setEditGrantDurationHours] = useState(
     GRANT_EDIT_DURATION_FALLBACK,
   );
@@ -2729,7 +2764,22 @@ export function OneLocationAgentPageContent({
 
   const [shareReviewOpen, setShareReviewOpen] = useState(false);
   const [recipientSearch, setRecipientSearch] = useState("");
+  const [recipientPageRows, setRecipientPageRows] = useState<
+    OneLocationRecipient[] | null
+  >(null);
+  const [pagedRecipientsByUserId, setPagedRecipientsByUserId] = useState<
+    Map<string, OneLocationRecipient>
+  >(() => new Map());
+  const [recipientPage, setRecipientPage] = useState(1);
+  const [recipientPageHasMore, setRecipientPageHasMore] = useState(false);
+  const [recipientPageTotalCount, setRecipientPageTotalCount] = useState(0);
+  const [recipientPageLoading, setRecipientPageLoading] = useState(false);
+  const recipientPageRequestRef = useRef(0);
   const [shareRecipientSearch, setShareRecipientSearch] = useState("");
+  const [shareRecipientPageRows, setShareRecipientPageRows] = useState<
+    OneLocationRecipient[] | null
+  >(null);
+  const shareRecipientPageRequestRef = useRef(0);
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
@@ -2743,6 +2793,9 @@ export function OneLocationAgentPageContent({
   >([]);
   const [contactSignal, setContactSignal] =
     useState<OneLocationContactSignalState>(INITIAL_CONTACT_SIGNAL_STATE);
+  const [contactSyncResult, setContactSyncResult] =
+    useState<OneLocationContactSignalResult | null>(null);
+  const [contactSyncResultsOpen, setContactSyncResultsOpen] = useState(false);
   const [activityRange, setActivityRange] =
     useState<OneLocationActivityRange>("30d");
   const [activitySnapshot, setActivitySnapshot] =
@@ -3082,6 +3135,100 @@ export function OneLocationAgentPageContent({
     () => state?.recipients ?? [],
     [state?.recipients],
   );
+
+  const loadRecipientPage = useCallback(
+    async ({
+      page = 1,
+      append = false,
+      query = recipientSearch,
+    }: {
+      page?: number;
+      append?: boolean;
+      query?: string;
+    } = {}): Promise<void> => {
+      if (!vaultOwnerToken) return;
+      const requestId = ++recipientPageRequestRef.current;
+      setRecipientPageLoading(true);
+      try {
+        const result: OneLocationRecipientPage =
+          await OneLocationService.listRecipientsPage({
+            vaultOwnerToken,
+            page,
+            limit: 50,
+            query: query.trim() || undefined,
+          });
+        if (requestId !== recipientPageRequestRef.current) return;
+        setRecipientPageRows((current) => {
+          if (!append || !current) return result.items;
+          const byUserId = new Map(current.map((row) => [row.userId, row]));
+          for (const row of result.items) byUserId.set(row.userId, row);
+          return [...byUserId.values()];
+        });
+        setPagedRecipientsByUserId((current) => {
+          const next = new Map(current);
+          for (const row of result.items) next.set(row.userId, row);
+          return next;
+        });
+        setRecipientPage(result.page);
+        setRecipientPageHasMore(result.hasMore);
+        setRecipientPageTotalCount(result.totalCount);
+      } catch {
+        // Keep the last safe page (or the bounded local fallback). This display
+        // read must never interrupt complete authority-bearing share state.
+      } finally {
+        if (requestId === recipientPageRequestRef.current) {
+          setRecipientPageLoading(false);
+        }
+      }
+    },
+    [recipientSearch, vaultOwnerToken],
+  );
+
+  useEffect(() => {
+    if (!vaultOwnerToken) {
+      setRecipientPageRows(null);
+      setPagedRecipientsByUserId(new Map());
+      return;
+    }
+    const timer = window.setTimeout(
+      () => void loadRecipientPage({ page: 1, query: recipientSearch }),
+      250,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      recipientPageRequestRef.current += 1;
+    };
+  }, [loadRecipientPage, recipientSearch, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (!vaultOwnerToken) {
+      setShareRecipientPageRows(null);
+      return;
+    }
+    const requestId = ++shareRecipientPageRequestRef.current;
+    const timer = window.setTimeout(() => {
+      void OneLocationService.listRecipientsPage({
+        vaultOwnerToken,
+        page: 1,
+        limit: 50,
+        query: shareRecipientSearch.trim() || undefined,
+      })
+        .then((result) => {
+          if (requestId !== shareRecipientPageRequestRef.current) return;
+          setShareRecipientPageRows(result.items);
+          setPagedRecipientsByUserId((current) => {
+            const next = new Map(current);
+            for (const row of result.items) next.set(row.userId, row);
+            return next;
+          });
+        })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      shareRecipientPageRequestRef.current += 1;
+    };
+  }, [shareRecipientSearch, vaultOwnerToken]);
   const autoApprovePreference = useMemo(
     () =>
       state?.autoApprovePreference ?? {
@@ -3101,14 +3248,22 @@ export function OneLocationAgentPageContent({
     () => enrichRecipientsWithContactSignal(recipients, contactMatchedUserIds),
     [contactMatchedUserIds, recipients],
   );
-  const rankedRecipients = useMemo(
-    () =>
-      rankRecipientsForRecommendation(
+  const rankedRecipients = useMemo(() => {
+    const ranked = rankRecipientsForRecommendation(
         contactSignalRecipients,
         contactMatchedUserIds,
+    );
+    // Every paged row came through the same vault-authorized recipient route.
+    // Retain it by user id so selecting page 2, then changing search, does not
+    // turn a valid choice into an id the share/voice authority cannot resolve.
+    return mergeRecipientsByUserId(
+      ranked,
+      enrichRecipientsWithContactSignal(
+        [...pagedRecipientsByUserId.values()],
+        contactMatchedUserIds,
       ),
-    [contactMatchedUserIds, contactSignalRecipients],
   );
+  }, [contactMatchedUserIds, contactSignalRecipients, pagedRecipientsByUserId]);
   const shareRecipientPool = useMemo(
     () =>
       mergeRecipientsByUserId(
@@ -3136,19 +3291,46 @@ export function OneLocationAgentPageContent({
   // is how a search returns a person nobody asked for. `recommendationSearchText`
   // stays for the voice path below, where the input is a whole spoken phrase
   // rather than one letter and the extra context helps rather than swamps.
+  // Display/search uses the bounded server page. Complete `rankedRecipients`
+  // remains the authority for selected share/SOS operations below; a partial
+  // UI page is never passed as proof of the whole graph.
   const visibleRecipients = useMemo(
     () =>
-      filterPeopleByQuery(rankedRecipients, recipientSearch, recipientLabel),
-    [rankedRecipients, recipientSearch],
+      recipientPageRows
+        ? enrichRecipientsWithContactSignal(
+            recipientPageRows,
+            contactMatchedUserIds,
+          )
+        : filterPeopleByQuery(
+            rankedRecipients,
+            recipientSearch,
+            recipientLabel,
+          ).slice(0, 50),
+    [
+      contactMatchedUserIds,
+      rankedRecipients,
+      recipientPageRows,
+      recipientSearch,
+    ],
   );
   const visibleShareRecipients = useMemo(
     () =>
-      filterPeopleByQuery(
+      shareRecipientPageRows
+        ? enrichRecipientsWithContactSignal(
+            shareRecipientPageRows,
+            contactMatchedUserIds,
+          )
+        : filterPeopleByQuery(
         rankedRecipients,
         shareRecipientSearch,
         recipientLabel,
-      ),
-    [rankedRecipients, shareRecipientSearch],
+          ).slice(0, 50),
+    [
+      contactMatchedUserIds,
+      rankedRecipients,
+      shareRecipientPageRows,
+      shareRecipientSearch,
+    ],
   );
   const hasMoreVisibleRecipients =
     visibleRecipients.length > ONE_NETWORK_PREVIEW_LIMIT;
@@ -3182,11 +3364,8 @@ export function OneLocationAgentPageContent({
   );
   const selectedRequestOwners = useMemo(
     () =>
-      recipientSelectionFromIds(
-        contactSignalRecipients,
-        selectedRequestOwnerIds,
-      ),
-    [contactSignalRecipients, selectedRequestOwnerIds],
+      recipientSelectionFromIds(shareRecipientPool, selectedRequestOwnerIds),
+    [selectedRequestOwnerIds, shareRecipientPool],
   );
   // Whether this person appears as a pin on the maps of people they already
   // share with.
@@ -6429,6 +6608,49 @@ export function OneLocationAgentPageContent({
     [activeReceivedGrants, refresh, vaultOwnerToken],
   );
 
+  const handleRequestMoreTime = useCallback(
+    async (params: {
+      ownerUserId: string;
+      grantId: string;
+      ownerLabel: string;
+      additionalHours: 0.5 | 2;
+    }) => {
+      if (!vaultOwnerToken) return;
+      const { ownerUserId, grantId, ownerLabel, additionalHours } = params;
+      const requestKey = `${grantId}:${additionalHours}`;
+      setRequestingMoreTimeKey(requestKey);
+      try {
+        await OneLocationService.requestAccess({
+          vaultOwnerToken,
+          ownerUserId,
+          requestedDurationHours: additionalHours,
+          requestedDurationMode: "timed",
+          extendsGrantId: grantId,
+          message:
+            additionalHours === 0.5
+              ? "Requesting 30 minutes more of your live location."
+              : "Requesting 2 hours more of your live location.",
+        });
+        toast.success(
+          additionalHours === 0.5
+            ? `Asked ${ownerLabel} for 30 min more.`
+            : `Asked ${ownerLabel} for 2 hours more.`,
+        );
+        setEditingGrantId(null);
+        await refresh({ background: true }).catch(() => null);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : `Couldn't ask ${ownerLabel} for more time. Try again.`,
+        );
+      } finally {
+        setRequestingMoreTimeKey(null);
+      }
+    },
+    [refresh, vaultOwnerToken],
+  );
+
   /**
    * Open the live share card's time editor, seeded on what the share has left.
    *
@@ -6567,8 +6789,7 @@ export function OneLocationAgentPageContent({
   const [googleContactsFallback, setGoogleContactsFallback] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    const googleConfigured =
-      googleContactsAvailability() === "connectable";
+    const googleConfigured = googleContactsAvailability() === "connectable";
     const preloadGoogleFallback = () => {
       if (!googleConfigured) return;
       void preloadGoogleContactsAuth().catch(() => {
@@ -6579,12 +6800,9 @@ export function OneLocationAgentPageContent({
     void HushhContacts.getPermissionState()
       .then((state) => {
         if (cancelled) return;
-        const useGoogle =
-          state?.state === "unavailable" && googleConfigured;
+        const useGoogle = state?.state === "unavailable" && googleConfigured;
         setGoogleContactsFallback(useGoogle);
-        setContactsStepAvailable(
-          state?.state !== "unavailable" || useGoogle,
-        );
+        setContactsStepAvailable(state?.state !== "unavailable" || useGoogle);
         if (useGoogle) preloadGoogleFallback();
       })
       .catch(() => {
@@ -6642,10 +6860,28 @@ export function OneLocationAgentPageContent({
         });
         const matches = result.matches
           .map((match) => ({
-            userId: match.user_id,
-            displayName: match.display_name,
+            userId: match.userId,
+            displayName: match.displayName || "Hushh user",
+            connectionStatus:
+              match.outcome === "auto_connected" ||
+              match.outcome === "already_connected"
+                ? ("connected" as const)
+                : match.outcome === "request_required"
+                  ? ("request_required" as const)
+                  : ("suppressed" as const),
           }))
           .filter((match) => match.userId && match.userId !== auth.userId);
+        if (
+          auth.userId &&
+          (result.autoConnectedCount + result.alreadyConnectedCount > 0 ||
+            result.mutationOutcomeUnknown)
+        ) {
+          CacheSyncService.onConnectionGraphMutated(auth.userId);
+          await Promise.all([
+            refresh({ background: true }).catch(() => undefined),
+            loadRecipientPage({ page: 1, query: recipientSearch }),
+          ]);
+        }
         trackEvent("one_location_contact_signal_synced", {
           route_id: "one_location",
           result: "success",
@@ -6658,9 +6894,17 @@ export function OneLocationAgentPageContent({
           truncated: result.truncated,
         });
         if (matches.length > 0) return { status: "matched", matches };
+        if (result.mutationOutcomeUnknown) {
+          return {
+            status: "failed",
+            message:
+              "Some contact results need confirmation. Your connections were refreshed; try contact sync again.",
+            canOpenSettings: false,
+          };
+        }
         // A partial read is not proof that nobody matched -- the web picker and
         // iOS limited access only ever return a hand-picked subset.
-        return { status: "none", partial: result.limited };
+        return { status: "none", partial: result.partial };
       } catch (error) {
         const failure =
           error instanceof OneLocationContactSyncError
@@ -6689,7 +6933,14 @@ export function OneLocationAgentPageContent({
           canOpenSettings,
         };
       }
-    }, [auth.user, auth.userId, googleContactsFallback]);
+    }, [
+      auth.user,
+      auth.userId,
+      googleContactsFallback,
+      loadRecipientPage,
+      recipientSearch,
+      refresh,
+    ]);
 
   const handleAddOnboardingContact = useCallback(
     async (addresseeUserId: string) => {
@@ -6702,6 +6953,22 @@ export function OneLocationAgentPageContent({
       });
     },
     [auth.user],
+  );
+
+  const handleRequestContactMatch = useCallback(
+    async (addresseeUserId: string) => {
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) throw new Error("Sign in to send a connection request.");
+      await ConnectionsService.sendRequest({
+        idToken,
+        addresseeUserId,
+        message: "I'd like to connect with you on Hushh.",
+      });
+      if (auth.userId) {
+        CacheSyncService.onConnectionCapabilityMutated(auth.userId);
+      }
+    },
+    [auth.user, auth.userId],
   );
 
   /**
@@ -6830,6 +7097,8 @@ export function OneLocationAgentPageContent({
       });
       const nextStatus: OneLocationContactSignalStatus =
         result.matchedUserIds.length > 0 ? "matched" : "empty";
+      setContactSyncResult(result);
+      setContactSyncResultsOpen(true);
       setContactSignal({
         status: nextStatus,
         matchedUserIds: result.matchedUserIds,
@@ -6853,6 +7122,17 @@ export function OneLocationAgentPageContent({
         partial_access: result.limited,
         truncated: result.truncated,
       });
+      if (
+        auth.userId &&
+        (result.autoConnectedCount + result.alreadyConnectedCount > 0 ||
+          result.mutationOutcomeUnknown)
+      ) {
+        CacheSyncService.onConnectionGraphMutated(auth.userId);
+        await Promise.all([
+          refresh({ background: true }).catch(() => undefined),
+          loadRecipientPage({ page: 1, query: recipientSearch }),
+        ]);
+      }
       // A partial read must never be reported as a whole one. The web Contact
       // Picker and iOS limited access both return only a hand-picked subset,
       // so "3 people added" would claim the whole address book was searched.
@@ -6875,6 +7155,13 @@ export function OneLocationAgentPageContent({
                   onClick: () => void openContactPermissionSettings(),
                 },
               }
+            : outcome.remedy === "sync_again"
+              ? {
+                  action: {
+                    label: "Sync again",
+                    onClick: () => void handleSyncContactSignalRef.current?.(),
+                  },
+                }
             : outcome.remedy === "invite"
               ? {
                   action: {
@@ -6942,9 +7229,13 @@ export function OneLocationAgentPageContent({
     }
   }, [
     auth.user,
+    auth.userId,
     contactSignal,
     googleContactsFallback,
     handleInviteContactCandidates,
+    loadRecipientPage,
+    recipientSearch,
+    refresh,
   ]);
 
   useEffect(() => {
@@ -7413,6 +7704,40 @@ export function OneLocationAgentPageContent({
     [vaultOwnerToken],
   );
 
+  const handleLoadNamedCircleOverview = useCallback(
+    async (circleId: string): Promise<OneLocationCircleOverview> => {
+      if (!vaultOwnerToken)
+        throw new Error("Unlock One before opening a Circle.");
+      try {
+        return await OneLocationService.getCircleOverview({
+          vaultOwnerToken,
+          circleId,
+        });
+      } catch (error) {
+        throw new Error(
+          oneLocationErrorMessage(error, "Could not load this Circle."),
+        );
+      }
+    },
+    [vaultOwnerToken],
+  );
+
+  const handleLoadNamedCircleMembersPage = useCallback(
+    async (
+      circleId: string,
+      options: { page: number; limit: number; query?: string },
+    ): Promise<OneLocationCircleMemberPage> => {
+      if (!vaultOwnerToken)
+        throw new Error("Unlock One before opening a Circle.");
+      return OneLocationService.listCircleMembersPage({
+        vaultOwnerToken,
+        circleId,
+        ...options,
+      });
+    },
+    [vaultOwnerToken],
+  );
+
   const handleConnectCircleMember = useCallback(
     async (circleId: string, _memberUserId: string) => {
       // Hands off rather than sending.
@@ -7669,7 +7994,7 @@ export function OneLocationAgentPageContent({
   }, []);
 
   const handleShareNamedCircleCode = useCallback(
-    async (circle: OneLocationCircleDetail, code: string) => {
+    async (circle: OneLocationCircleOverview, code: string) => {
       try {
         // Not window.location.origin: inside the installed iOS/Android build
         // that is a Capacitor scheme, and the link it produced was dead.
@@ -7960,6 +8285,32 @@ export function OneLocationAgentPageContent({
         return await OneLocationService.listNamedCircleEligibleConnections({
           vaultOwnerToken,
           circleId,
+        });
+      } catch (error) {
+        throw new Error(
+          oneLocationErrorMessage(
+            error,
+            "Could not load your eligible connections.",
+          ),
+        );
+      }
+    },
+    [vaultOwnerToken],
+  );
+
+  const handleLoadNamedCircleEligibleConnectionsPage = useCallback(
+    async (
+      circleId: string,
+      options: { page: number; limit: number; query?: string },
+    ): Promise<OneLocationCircleEligibleConnectionsPage> => {
+      if (!vaultOwnerToken) {
+        throw new Error("Unlock One before inviting people.");
+      }
+      try {
+        return await OneLocationService.listNamedCircleEligibleConnectionsPage({
+          vaultOwnerToken,
+          circleId,
+          ...options,
         });
       } catch (error) {
         throw new Error(
@@ -8278,18 +8629,14 @@ export function OneLocationAgentPageContent({
           requester.userId !== response.grant.recipientUserId ||
           requester.keyId !== response.grant.recipientKeyId
         ) {
-          throw new Error(
-            "Approval key changed. Refresh and try again.",
-          );
+          throw new Error("Approval key changed. Refresh and try again.");
         }
         if (
           automatic &&
           (!automaticPrivatePublishingAllowedRef.current ||
             readOneLocationControlState(auth.userId).paused)
         ) {
-          toast.success(
-            "Approved. Location stays paused.",
-          );
+          toast.success("Approved. Location stays paused.");
           return true;
         }
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
@@ -8473,12 +8820,14 @@ export function OneLocationAgentPageContent({
       const recipientId = initialRecipientId?.trim() || "";
       resetShareComposer(recipientId || undefined);
       if (!recipientId) return;
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = rankedRecipients.find(
+        (item) => item.userId === recipientId,
+      );
       if (recipient) {
         trackRecommendationSelection(recipient, "share", "section_list", 1);
       }
     },
-    [recipients, resetShareComposer, trackRecommendationSelection],
+    [rankedRecipients, resetShareComposer, trackRecommendationSelection],
   );
 
   const addShareRecipient = useCallback(
@@ -8486,7 +8835,9 @@ export function OneLocationAgentPageContent({
       recipientId: string,
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = rankedRecipients.find(
+        (item) => item.userId === recipientId,
+      );
       const nextSelectedIds = setSelectedRecipientIds((current) =>
         addSelectedId(current, recipientId),
       );
@@ -8501,14 +8852,16 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, setSelectedRecipientIds, trackRecommendationSelection],
+    [rankedRecipients, setSelectedRecipientIds, trackRecommendationSelection],
   );
   const toggleShareRecipient = useCallback(
     (
       recipientId: string,
       selectionSurface: OneLocationSelectionSurface = "quick_circle",
     ) => {
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = rankedRecipients.find(
+        (item) => item.userId === recipientId,
+      );
       const nextSelectedIds = setSelectedRecipientIds((current) =>
         toggleSelectedId(current, recipientId),
       );
@@ -8523,7 +8876,7 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, setSelectedRecipientIds, trackRecommendationSelection],
+    [rankedRecipients, setSelectedRecipientIds, trackRecommendationSelection],
   );
   const removeShareRecipient = useCallback(
     (recipientId: string) => {
@@ -8542,7 +8895,9 @@ export function OneLocationAgentPageContent({
       recipientId: string,
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = rankedRecipients.find(
+        (item) => item.userId === recipientId,
+      );
       setSelectedRequestOwnerId(recipientId);
       // Functional update: a multi-person voice turn can resolve several
       // names in one handler invocation and call this once per person
@@ -8562,14 +8917,16 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, selectedRequestOwnerIds, trackRecommendationSelection],
+    [rankedRecipients, selectedRequestOwnerIds, trackRecommendationSelection],
   );
   const toggleRequestOwner = useCallback(
     (
       recipientId: string,
       selectionSurface: OneLocationSelectionSurface = "quick_circle",
     ) => {
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = rankedRecipients.find(
+        (item) => item.userId === recipientId,
+      );
       const nextSelectedIds = toggleSelectedId(
         selectedRequestOwnerIds,
         recipientId,
@@ -8585,7 +8942,7 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, selectedRequestOwnerIds, trackRecommendationSelection],
+    [rankedRecipients, selectedRequestOwnerIds, trackRecommendationSelection],
   );
   const removeRequestOwner = useCallback(
     (recipientId: string) => {
@@ -9856,8 +10213,33 @@ export function OneLocationAgentPageContent({
       );
       if (stillMissing.length > 0 && vaultOwnerToken) {
         try {
-          const freshRecipients =
-            await OneLocationService.listRecipients(vaultOwnerToken);
+          const pages = await Promise.all(
+            stillMissing.map((entry) =>
+              OneLocationService.listRecipientsPage({
+                vaultOwnerToken,
+                page: 1,
+                limit: 50,
+                query: entry.spokenText,
+              }),
+            ),
+          );
+          if (pages.some((page) => page.hasMore)) {
+            return {
+              status: "blocked" as const,
+              summary:
+                "Too many connections match that name to choose safely. Open Location and select the person.",
+            };
+          }
+          const freshRecipients = mergeRecipientsByUserId(
+            ...pages.map((page) => page.items),
+          );
+          setPagedRecipientsByUserId((current) => {
+            const next = new Map(current);
+            for (const recipient of freshRecipients) {
+              next.set(recipient.userId, recipient);
+            }
+            return next;
+          });
           const freshPool = rankRecipientsForRecommendation(
             enrichRecipientsWithContactSignal(
               freshRecipients,
@@ -10036,7 +10418,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+          "For how long? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
       };
     }
     setShareDurationHours(duration);
@@ -10311,7 +10693,7 @@ export function OneLocationAgentPageContent({
       ).trim();
       if (resolvedRecipientId) {
         addRequestOwner(resolvedRecipientId);
-        const chosen = contactSignalRecipients.find(
+        const chosen = rankedRecipients.find(
           (candidate) => candidate.userId === resolvedRecipientId,
         );
         const chosenName = chosen ? recipientLabel(chosen).trim() : "";
@@ -10337,7 +10719,7 @@ export function OneLocationAgentPageContent({
         };
       }
       let { resolved, unresolved } = resolveSpokenNames(
-        contactSignalRecipients,
+        rankedRecipients,
         raw,
         recipientLabel,
         recommendationSearchText,
@@ -10358,8 +10740,33 @@ export function OneLocationAgentPageContent({
       );
       if (stillMissing.length > 0 && vaultOwnerToken) {
         try {
-          const freshRecipients =
-            await OneLocationService.listRecipients(vaultOwnerToken);
+          const pages = await Promise.all(
+            stillMissing.map((entry) =>
+              OneLocationService.listRecipientsPage({
+                vaultOwnerToken,
+                page: 1,
+                limit: 50,
+                query: entry.spokenText,
+              }),
+            ),
+          );
+          if (pages.some((page) => page.hasMore)) {
+            return {
+              status: "blocked" as const,
+              summary:
+                "Too many connections match that name to choose safely. Open Location and select the person.",
+            };
+          }
+          const freshRecipients = mergeRecipientsByUserId(
+            ...pages.map((page) => page.items),
+          );
+          setPagedRecipientsByUserId((current) => {
+            const next = new Map(current);
+            for (const recipient of freshRecipients) {
+              next.set(recipient.userId, recipient);
+            }
+            return next;
+          });
           const freshPool = rankRecipientsForRecommendation(
             enrichRecipientsWithContactSignal(
               freshRecipients,
@@ -11805,11 +12212,13 @@ export function OneLocationAgentPageContent({
       const enabled = Boolean(input.enabled && input.scope);
       autoApprovePreferenceMutationRef.current = true;
       try {
-        const preference = await OneLocationService.updateAutoApprovePreference({
+        const preference = await OneLocationService.updateAutoApprovePreference(
+          {
           vaultOwnerToken,
           enabled,
           scope: enabled ? (input.scope ?? null) : null,
-        });
+          },
+        );
         // The PATCH result is the authority. Keep it visible even when the
         // broader workspace refresh fails after the rule has already changed;
         // otherwise the screen can say "off" while the server is still
@@ -12678,7 +13087,7 @@ export function OneLocationAgentPageContent({
           // unlocked workspace persists it immediately.
           onLocationReady={promptSaveLocationDuringOnboarding}
           onRequestNotifications={handleLocationOnboardingNotifications}
-          onBack={() => router.back()}
+          onBack={handleOnboardingBack}
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}
@@ -12815,6 +13224,12 @@ export function OneLocationAgentPageContent({
       !focusedCircleMemberInviteId ||
       resolvedCircleMemberInviteFocusId === focusedCircleMemberInviteId,
     visibleRecipients,
+    recipientPageHasMore,
+    recipientPageTotalCount:
+      recipientPageRows === null ? recipients.length : recipientPageTotalCount,
+    recipientPageLoading,
+    onLoadMoreRecipients: () =>
+      loadRecipientPage({ page: recipientPage + 1, append: true }),
     visibleShareRecipients,
     activeOwnerGrants,
     liveShare: liveShareStatus,
@@ -12864,6 +13279,17 @@ export function OneLocationAgentPageContent({
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
     onSyncContacts: () => void handleSyncContactSignal(),
+    contactSyncSummary: contactSyncResult
+      ? {
+          matchedCount: contactSyncResult.matchedUserIds.length,
+          connectedCount:
+            contactSyncResult.autoConnectedCount +
+            contactSyncResult.alreadyConnectedCount,
+          unknownCount: contactSyncResult.unknownContactCount,
+          partial: contactSyncResult.partial,
+        }
+      : null,
+    onViewContactSyncResults: () => setContactSyncResultsOpen(true),
     onOpenShareReview: () => void handleOpenShareReview(),
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
@@ -12876,6 +13302,7 @@ export function OneLocationAgentPageContent({
     onAskReshare: (grant) => void handleAskReshare(grant),
     editingGrantId,
     savingGrantId,
+    requestingMoreTimeKey,
     onEditGrantStart: (grantId) => {
       // Open on what the share actually has left, not on a constant. The
       // editor used to say "1 hour" above a row reading "30 more min", so
@@ -12901,6 +13328,7 @@ export function OneLocationAgentPageContent({
     setEditGrantDurationHours,
     onEditGrantSave: (params) =>
       void handleEditGrantDuration(params, Number(editGrantDurationHours)),
+    onRequestMoreTime: handleRequestMoreTime,
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: handleCopyPublicInvite,
     onSharePublicInvite: () => void handleSharePublicInvite(),
@@ -12910,6 +13338,8 @@ export function OneLocationAgentPageContent({
     onShareCircleInvite: () => void handleShareCircleInvite(),
     onRevokeCircleInvite: (invite) => void handleRevokeCircleInvite(invite),
     onLoadNamedCircle: handleLoadNamedCircle,
+    onLoadNamedCircleOverview: handleLoadNamedCircleOverview,
+    onLoadNamedCircleMembersPage: handleLoadNamedCircleMembersPage,
     onCreateNamedCircle: handleCreateNamedCircle,
     onRenameNamedCircle: handleRenameNamedCircle,
     onResolveNamedCircleCode: handleResolveNamedCircleCode,
@@ -12923,6 +13353,8 @@ export function OneLocationAgentPageContent({
 
     onLoadNamedCircleEligibleConnections:
       handleLoadNamedCircleEligibleConnections,
+    onLoadNamedCircleEligibleConnectionsPage:
+      handleLoadNamedCircleEligibleConnectionsPage,
     onInviteNamedCircleConnections: handleInviteNamedCircleConnections,
     onAcceptNamedCircleMemberInvite: handleAcceptNamedCircleMemberInvite,
     onDeclineNamedCircleMemberInvite: handleDeclineNamedCircleMemberInvite,
@@ -13012,7 +13444,7 @@ export function OneLocationAgentPageContent({
       <AppPageShell
         width="agent"
         fitContent
-        className="relative isolate"
+        className="relative isolate [--app-page-content-bottom-gap:0px]"
         nativeTest={nativeTestConfig}
       >
         <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
@@ -13064,6 +13496,15 @@ export function OneLocationAgentPageContent({
             <LocationRedesignHub vm={locationHubVm} />
           )}
         </AppPageContentRegion>
+        <ContactSyncResultsSheet
+          open={contactSyncResultsOpen}
+          onOpenChange={setContactSyncResultsOpen}
+          result={contactSyncResult}
+          syncing={busy === "contactSync"}
+          onSyncAgain={handleSyncContactSignal}
+          onInvite={handleInviteContactCandidates}
+          onRequestConnection={handleRequestContactMatch}
+        />
       </AppPageShell>
     );
   }

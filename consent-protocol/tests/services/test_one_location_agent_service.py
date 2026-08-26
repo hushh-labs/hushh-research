@@ -784,6 +784,101 @@ def test_list_verified_recipients_sources_from_connections(
     assert out and out[0]["userId"] == "friend"
 
 
+def test_list_active_owner_grants_is_scoped_to_this_owner_and_active_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Voice's backend-direct stop_share tool calls this instead of list_state
+    # specifically to avoid list_state's ten parallel sections -- assert the
+    # query stays narrow (one owner, one status) and the row still comes back
+    # shaped through _grant_payload, not raw.
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "grant-1",
+                "owner_user_id": "owner",
+                "recipient_user_id": "friend",
+                "recipient_display_name": "Friend",
+                "status": "active",
+                "metadata": "{}",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_active_owner_grants(owner_user_id="owner")
+    assert "g.owner_user_id = :owner_user_id" in captured["sql"]
+    assert "g.status = 'active'" in captured["sql"]
+    assert captured["params"] == {"owner_user_id": "owner"}
+    assert len(out) == 1
+    assert out[0]["id"] == "grant-1"
+    assert out[0]["recipientDisplayName"] == "Friend"
+
+
+def test_list_active_recipient_grants_is_scoped_to_this_recipient_and_active_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The received-side twin of list_active_owner_grants, for "who is sharing
+    # their location with me" -- scoped by recipient, joined to the owner's
+    # identity rather than the recipient's.
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "grant-1",
+                "owner_user_id": "friend",
+                "recipient_user_id": "me",
+                "owner_display_name": "Friend",
+                "status": "active",
+                "metadata": "{}",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_active_recipient_grants(recipient_user_id="me")
+    assert "g.recipient_user_id = :recipient_user_id" in captured["sql"]
+    assert "g.status = 'active'" in captured["sql"]
+    assert captured["params"] == {"recipient_user_id": "me"}
+    assert len(out) == 1
+    assert out[0]["id"] == "grant-1"
+    assert out[0]["ownerDisplayName"] == "Friend"
+
+
+def test_list_pending_owner_requests_is_scoped_to_this_owner_and_pending_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "request-1",
+                "owner_user_id": "owner",
+                "requester_user_id": "asker",
+                "requester_display_name": "Asker",
+                "status": "pending",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_pending_owner_requests(owner_user_id="owner")
+    assert "req.owner_user_id = :owner_user_id" in captured["sql"]
+    assert "req.status = 'pending'" in captured["sql"]
+    assert captured["params"] == {"owner_user_id": "owner"}
+    assert out[0]["requesterDisplayName"] == "Asker"
+    assert out[0]["id"] == "request-1"
+
+
 class EnvelopeReadProbe(OneLocationAgentService):
     #: When False the grant is live but no envelope row exists yet — the state a
     #: recipient sits in between being granted access and the owner's first fix.
@@ -1775,6 +1870,26 @@ class FourUserMemoryService(OneLocationAgentService):
                     grant["status"] = "revoked"
                     revoked.append({"id": grant["id"]})
             return revoked
+        if "SELECT origin.origin_kind" in sql and "FOR UPDATE OF connection, origin" in sql:
+            owner = str(params.get("owner_user_id") or "")
+            requester = str(params.get("requester_user_id") or "")
+            connection = next(
+                (
+                    row
+                    for row in self.connections.values()
+                    if row.get("status") == "active"
+                    and {owner, requester} == {row.get("user_a_id"), row.get("user_b_id")}
+                ),
+                None,
+            )
+            if not connection:
+                return []
+            return [
+                {"origin_kind": origin.get("origin_kind")}
+                for origin in self.connection_origins.values()
+                if origin.get("connection_id") == connection.get("id")
+                and origin.get("status") == "active"
+            ]
         raise AssertionError(f"unexpected execute_many SQL: {sql}")
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
@@ -5050,6 +5165,47 @@ def test_auto_approval_mints_a_grant_for_a_current_contact() -> None:
     assert approved["grant"]["durationHours"] == 1
     assert approved["recipient"]["userId"] == "user_b"
     assert approved["recipient"]["keyId"] == approved["grant"]["recipientKeyId"]
+    approval_event = next(
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_access_approved"
+    )
+    assert approval_event["metadata"]["approval_mode"] == "automatic"
+    assert approval_event["metadata"]["auto_approve_scope_kind"] == "all_contacts"
+    assert approval_event["metadata"]["auto_approve_rule_version"] == 1
+    assert approval_event["metadata"]["auto_approve_enabled_at"] == enabled_at.isoformat()
+
+
+def test_contact_sync_only_connection_uses_all_contacts_auto_approval() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    for origin in service.connection_origins.values():
+        origin["origin_kind"] = "contact_sync"
+        origin["origin_key"] = "contact_sync:user_a"
+    enabled_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    service._seed_auto_approve_preference(enabled_at=enabled_at, rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=1,
+    )
+
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=None,
+        approval_mode="automatic",
+        auto_approve_rule_version=1,
+    )
+
+    assert approved["request"]["status"] == "approved"
+    assert approved["grant"]["recipientUserId"] == "user_b"
+    assert approved["grant"]["durationHours"] == 1
     approval_event = next(
         event
         for event in service.events.values()

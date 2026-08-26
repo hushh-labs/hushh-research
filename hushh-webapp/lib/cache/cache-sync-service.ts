@@ -629,6 +629,18 @@ export class CacheSyncService {
   }
 
   /**
+   * A contact sync can mutate the connection graph and every viewer-relative
+   * provenance projection in the same request. Invalidate both the generic
+   * connection/consent tiers and One Location's combined state resource.
+   */
+  static onConnectionGraphMutated(userId: string): void {
+    if (!userId) return;
+    this.onConnectionCapabilityMutated(userId);
+    OneLocationStateResource.invalidate(userId);
+    clearLocationWorkspaceMemory(userId);
+  }
+
+  /**
    * Clear the persistent RIA tiers (IndexedDB device cache + native Preferences
    * hint) alongside the in-memory invalidations. Required now that the RIA
    * onboarding status is cached with SESSION (30m) TTL — otherwise a persona

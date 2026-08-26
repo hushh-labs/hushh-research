@@ -51,6 +51,90 @@ export interface ConnectionSummaryEntry {
    * row from the RIAs tab rather than claiming someone is verified.
    */
   isRia?: boolean;
+  /** Viewer-relative provenance; absent on pre-upgrade cached rows. */
+  connectedFromContacts?: boolean;
+}
+
+export type ConnectionAudience = "all" | "ria";
+
+export interface ConnectionPage {
+  items: ConnectionSummaryEntry[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
+  audience: ConnectionAudience;
+}
+
+export type ContactSyncMatchOutcome =
+  | "auto_connected"
+  | "already_connected"
+  | "request_required"
+  | "suppressed";
+
+export interface ContactSyncLookup {
+  /** Opaque, invocation-local correlation id. Never derived from phone data. */
+  lookupId: string;
+  hash: string;
+  last4: string;
+}
+
+export interface ContactSyncMatch {
+  lookupId: string;
+  userId: string;
+  displayName: string | null;
+  photoUrl: string | null;
+  outcome: ContactSyncMatchOutcome;
+}
+
+export interface ContactSyncBatchResult {
+  matches: ContactSyncMatch[];
+  /**
+   * Opaque lookups whose final match/mutation outcome could not be proven.
+   * These must never be treated as unmatched invitation candidates.
+   */
+  indeterminateLookupIds: string[];
+  autoConnectedCount?: number;
+  alreadyConnectedCount?: number;
+  requestRequiredCount?: number;
+  suppressedCount?: number;
+}
+
+export class ConnectionsServiceRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ConnectionsServiceRequestError";
+    this.status = status;
+  }
+}
+
+function sanitizeContactSyncMatches(value: unknown): ContactSyncMatch[] {
+  if (!Array.isArray(value)) return [];
+  const outcomes = new Set<ContactSyncMatchOutcome>([
+    "auto_connected",
+    "already_connected",
+    "request_required",
+    "suppressed",
+  ]);
+  return value.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const source = row as Record<string, unknown>;
+    const lookupId = String(source.lookupId || "").trim();
+    const userId = String(source.userId || "").trim();
+    const outcome = String(source.outcome || "") as ContactSyncMatchOutcome;
+    if (!lookupId || !userId || !outcomes.has(outcome)) return [];
+    return [
+      {
+        lookupId,
+        userId,
+        displayName:
+          typeof source.displayName === "string" ? source.displayName : null,
+        photoUrl: typeof source.photoUrl === "string" ? source.photoUrl : null,
+        outcome,
+      },
+    ];
+  });
 }
 
 export interface ConnectionRequest {
@@ -132,18 +216,112 @@ function authHeaders(idToken: string): HeadersInit {
 
 async function jsonOrThrow<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as T & {
-    error?: string;
+    error?: unknown;
+    detail?: unknown;
   };
   if (!response.ok) {
-    throw new Error(
-      (payload as { error?: string })?.error ||
-        `Request failed (${response.status})`,
+    const errorMessage =
+      typeof payload.error === "string" && payload.error.trim()
+        ? payload.error.trim()
+        : null;
+    const detailMessage =
+      typeof payload.detail === "string" && payload.detail.trim()
+        ? payload.detail.trim()
+        : payload.detail &&
+            typeof payload.detail === "object" &&
+            typeof (payload.detail as { message?: unknown }).message === "string" &&
+            (payload.detail as { message: string }).message.trim()
+          ? (payload.detail as { message: string }).message.trim()
+          : null;
+    throw new ConnectionsServiceRequestError(
+      response.status,
+      errorMessage || detailMessage || `Request failed (${response.status})`,
     );
   }
   return payload as T;
 }
 
 export class ConnectionsService {
+  static async syncContacts(opts: {
+    idToken: string;
+    lookups: ContactSyncLookup[];
+    signal?: AbortSignal;
+  }): Promise<ContactSyncBatchResult> {
+    if (opts.lookups.length > 1000) {
+      throw new Error("Contact sync accepts at most 1000 lookups per batch.");
+    }
+
+    const response = await ApiService.apiFetch(
+      "/api/one/connections/contact-sync",
+      {
+        method: "POST",
+        headers: authHeaders(opts.idToken),
+        signal: opts.signal,
+        body: JSON.stringify({
+          lookups: opts.lookups.map((lookup) => ({
+            lookup_id: lookup.lookupId,
+            hash: lookup.hash,
+            last4: lookup.last4,
+          })),
+        }),
+      },
+    );
+    const payload = await jsonOrThrow<{
+      matches?: ContactSyncMatch[];
+      items?: ContactSyncMatch[];
+      autoConnectedCount?: number;
+      alreadyConnectedCount?: number;
+      requestRequiredCount?: number;
+      suppressedCount?: number;
+      checkedLookupCount?: number;
+      indeterminateLookupIds?: unknown;
+    }>(response);
+    const rawMatches = payload.matches ?? payload.items;
+    const matches = sanitizeContactSyncMatches(rawMatches);
+    const rawIndeterminateLookupIds = payload.indeterminateLookupIds;
+    const indeterminateLookupIds = Array.isArray(rawIndeterminateLookupIds)
+      ? rawIndeterminateLookupIds.flatMap((value) => {
+          if (typeof value !== "string") return [];
+          const lookupId = value.trim();
+          return lookupId ? [lookupId] : [];
+        })
+      : [];
+    const expectedLookupIds = new Set(
+      opts.lookups.map((lookup) => lookup.lookupId),
+    );
+    const matchedLookupIds = new Set(matches.map((match) => match.lookupId));
+    const uniqueIndeterminateLookupIds = new Set(indeterminateLookupIds);
+    if (
+      !Array.isArray(rawMatches) ||
+      !Array.isArray(rawIndeterminateLookupIds) ||
+      payload.checkedLookupCount !== opts.lookups.length ||
+      matches.length !== rawMatches.length ||
+      indeterminateLookupIds.length !== rawIndeterminateLookupIds.length ||
+      uniqueIndeterminateLookupIds.size !== indeterminateLookupIds.length ||
+      matches.some((match) => !expectedLookupIds.has(match.lookupId)) ||
+      indeterminateLookupIds.some(
+        (lookupId) =>
+          !expectedLookupIds.has(lookupId) || matchedLookupIds.has(lookupId),
+      )
+    ) {
+      // A malformed 2xx cannot prove that this mutating batch completed. A
+      // plain Error is intentionally retryable by the bounded orchestrator;
+      // if the replay also fails, the batch becomes outcome-unknown rather
+      // than falsely classifying every contact as unmatched/inviteable.
+      throw new Error("Contact sync returned an incomplete response.");
+    }
+    return {
+      // Exact allow-list projection. Even a rolling-back server cannot leak a
+      // hash/last-four field into route state through an unexpected extra key.
+      matches,
+      indeterminateLookupIds,
+      autoConnectedCount: payload.autoConnectedCount,
+      alreadyConnectedCount: payload.alreadyConnectedCount,
+      requestRequiredCount: payload.requestRequiredCount,
+      suppressedCount: payload.suppressedCount,
+    };
+  }
+
   static async searchDirectory(opts: {
     idToken: string;
     query?: string;
@@ -181,6 +359,33 @@ export class ConnectionsService {
       response,
     );
     return payload.items ?? [];
+  }
+
+  static async listConnectionsPage(opts: {
+    idToken: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+    audience?: ConnectionAudience;
+  }): Promise<ConnectionPage> {
+    const params = new URLSearchParams({
+      page: String(opts.page ?? 1),
+      limit: String(opts.limit ?? 50),
+      audience: opts.audience ?? "all",
+    });
+    if (opts.query?.trim()) params.set("query", opts.query.trim());
+    const response = await ApiService.apiFetch(
+      `/api/one/connections?${params.toString()}`,
+      { method: "GET", headers: authHeaders(opts.idToken) },
+    );
+    const payload = await jsonOrThrow<Partial<ConnectionPage>>(response);
+    return {
+      items: Array.isArray(payload.items) ? payload.items : [],
+      page: Math.max(1, Number(payload.page) || opts.page || 1),
+      hasMore: Boolean(payload.hasMore),
+      totalCount: Math.max(0, Number(payload.totalCount) || 0),
+      audience: payload.audience === "ria" ? "ria" : "all",
+    };
   }
 
   static async listRequests(opts: {

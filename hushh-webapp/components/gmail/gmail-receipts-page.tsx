@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { ColumnDef } from "@tanstack/react-table";
+import { useRouter } from "next/navigation";
 import { Loader2, Lock, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,10 +16,13 @@ import { DataTable } from "@/components/app-ui/data-table";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import GmailChatPanel from "@/components/gmail/gmail-chat-panel";
 import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -89,6 +93,7 @@ import {
   type VoiceSurfacePublisherRole,
 } from "@/lib/voice/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { buildEmailAgentIntroPrompt } from "@/lib/agent/email-agent-intro";
 
 function formatDate(value?: string | null): string {
   if (!value) return "—";
@@ -115,6 +120,49 @@ function formatAmount(
   } catch {
     return `${normalized} ${amount.toFixed(2)}`;
   }
+}
+
+const RECEIPT_PLACEHOLDER_ROWS = 8;
+
+function ReceiptListSkeleton() {
+  return (
+    <SurfaceInset
+      aria-busy="true"
+      aria-label="Loading receipts"
+      aria-live="polite"
+      className="space-y-4 px-4 py-4 sm:px-5 sm:py-5"
+    >
+      <p className="sr-only">
+        Loading your receipts. Gmail remains available while the list is
+        prepared.
+      </p>
+      <div className="flex items-center justify-between gap-4">
+        <Skeleton className="h-9 w-full max-w-sm" />
+        <Skeleton className="h-9 w-24 shrink-0" />
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border/70">
+        <div className="min-w-[720px] divide-y divide-border/70">
+          <div className="grid grid-cols-[1.3fr_1.6fr_1fr_0.9fr] gap-4 px-4 py-3">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-3 w-12" />
+          </div>
+          {Array.from({ length: RECEIPT_PLACEHOLDER_ROWS }, (_, index) => (
+            <div
+              className="grid grid-cols-[1.3fr_1.6fr_1fr_0.9fr] items-center gap-4 px-4 py-3.5"
+              key={index}
+            >
+              <Skeleton className="h-4 w-4/5" />
+              <Skeleton className="h-4 w-11/12" />
+              <Skeleton className="h-4 w-3/5" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </SurfaceInset>
+  );
 }
 
 function computeSyncProgressPercent(run: GmailSyncRun | null): number | null {
@@ -328,14 +376,18 @@ export default function GmailReceiptsPage({
   skippingSetup = false,
   voicePublisherRole = "route",
 }: GmailReceiptsPageProps) {
+  const router = useRouter();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const agentPopover = useOptionalAgentPopover();
+  const createHandoff = useOneConversationSession((state) => state.createHandoff);
 
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
+  const [receiptListReady, setReceiptListReady] = useState(false);
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
   const [receiptMemoryArtifact, setReceiptMemoryArtifact] =
     useState<ReceiptMemoryArtifact | null>(null);
@@ -430,6 +482,9 @@ export default function GmailReceiptsPage({
           },
         });
       } finally {
+        if (nextPage === 1) {
+          setReceiptListReady(true);
+        }
         if (showBlockingLoader) {
           setLoadingReceipts(false);
         }
@@ -438,10 +493,15 @@ export default function GmailReceiptsPage({
     [isVaultUnlocked, user, vaultOwnerToken],
   );
 
+  const idTokenProvider = useCallback(
+    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+    [user],
+  );
+
   const gmail = useGmailConnectorStatus({
     userId: user?.uid || null,
     enabled: Boolean(user?.uid) && !loading,
-    idTokenProvider: user?.getIdToken ? () => user.getIdToken() : null,
+    idTokenProvider: user?.getIdToken ? idTokenProvider : null,
     routeHref:
       journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_GMAIL : ROUTES.GMAIL,
     refreshKey: user?.uid || "",
@@ -469,6 +529,7 @@ export default function GmailReceiptsPage({
       setPage(1);
       setHasMore(false);
       setTotal(0);
+      setReceiptListReady(false);
       return;
     }
 
@@ -478,27 +539,42 @@ export default function GmailReceiptsPage({
       setPage(cached.page);
       setHasMore(cached.has_more);
       setTotal(cached.total);
+      setReceiptListReady(true);
       if (isCachedGmailReceiptsFresh(user.uid)) {
         return;
       }
       void loadReceipts(1, {
         preserveCachedItems: true,
-        silent: true,
+        // A stale empty cache cannot tell the person whether there are truly
+        // no receipts. Keep the background treatment for visible cached rows,
+        // but reserve the receipt list with placeholders until an empty cache
+        // is confirmed by the network.
+        silent: cached.items.length > 0,
       });
       return;
     }
 
+    setReceiptListReady(false);
     void loadReceipts(1);
   }, [canLoad, hasSealedReceiptAccess, loadReceipts, loading, user?.uid]);
 
   const syncing = gmail.refreshingStatus || gmail.syncingRun;
   const isConnected = gmail.presentation.isConnected;
+  const emailAgentIntroRecipient =
+    gmail.status?.google_email?.trim() || user?.email?.trim() || null;
   const hasKnownGmailAccount = Boolean(
     gmail.status?.google_email ||
     gmail.status?.connected ||
     gmail.status?.connected_at,
   );
   const loadingStatus = gmail.loadingStatus;
+  const oauthCompletionPending = gmail.oauthCompletionPending;
+  const showReceiptPlaceholders =
+    isConnected &&
+    hasSealedReceiptAccess &&
+    !loadingStatus &&
+    receipts.length === 0 &&
+    (!receiptListReady || loadingReceipts);
   const connectorState = gmail.presentation.state;
   const latestSyncText = gmail.presentation.latestSyncText;
   const latestSyncBadge = gmail.presentation.latestSyncBadge;
@@ -705,15 +781,31 @@ export default function GmailReceiptsPage({
           fallback:
             "We couldn't start Gmail connection right now. Please try again in a moment.",
         });
-        console.error(
+        console.warn(
           "[ProfileReceiptsPage] Failed to start Gmail OAuth:",
-          error,
+          error instanceof Error ? error.message : error,
         );
         toast.error(message);
         return false;
       }
     })();
   }, [gmailActionBusy, user]);
+
+  const handleTryEmailAgent = useCallback(() => {
+    if (!emailAgentIntroRecipient) return;
+    const createdAtMs = Date.now();
+    createHandoff({
+      id: `gmail-email-intro-${createdAtMs}`,
+      reason: "user_requested",
+      transcript: buildEmailAgentIntroPrompt(emailAgentIntroRecipient),
+      createdAtMs,
+    });
+    if (agentPopover) {
+      agentPopover.openAgent();
+      return;
+    }
+    router.push(ROUTES.AGENT);
+  }, [agentPopover, createHandoff, emailAgentIntroRecipient, router]);
 
   useLocalOnboardingActionHandler("setup.connect_gmail", () => {
     if (journeyVariant !== "onboarding") {
@@ -1409,29 +1501,57 @@ export default function GmailReceiptsPage({
           <SurfaceInset
             className={`space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName}`}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                  Status
-                </p>
-                <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                  {statusSummary.title}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {statusSummary.detail}
-                </p>
-                {statusSummary.helper ? (
-                  <p className="text-xs text-muted-foreground">
-                    {statusSummary.helper}
+            {loadingStatus ? (
+              <div
+                aria-busy="true"
+                aria-label="Checking your Gmail status"
+                className="space-y-3"
+              >
+                <div className="space-y-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    Gmail
                   </p>
+                  <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                    {oauthCompletionPending
+                      ? "Finishing Gmail connection"
+                      : "Checking your Gmail status"}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {oauthCompletionPending
+                      ? "Your Gmail page is ready. Inbox details and receipts will appear here in the background."
+                      : "Your inbox and receipts will appear here as they are ready."}
+                  </p>
+                </div>
+                <div aria-hidden="true" className="space-y-2 pt-1">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-4 w-full max-w-md" />
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    Status
+                  </p>
+                  <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                    {statusSummary.title}
+                  </h2>
+                  <p className="break-words text-sm text-muted-foreground">
+                    {statusSummary.detail}
+                  </p>
+                  {statusSummary.helper ? (
+                    <p className="break-words text-xs text-muted-foreground">
+                      {statusSummary.helper}
+                    </p>
+                  ) : null}
+                </div>
+                {shouldShowReceiptCount ? (
+                  <Badge variant="secondary" className="shrink-0">
+                    {total} receipt{total === 1 ? "" : "s"}
+                  </Badge>
                 ) : null}
               </div>
-              {shouldShowReceiptCount ? (
-                <Badge variant="secondary">
-                  {total} receipt{total === 1 ? "" : "s"}
-                </Badge>
-              ) : null}
-            </div>
+            )}
 
             {isSyncingState && latestRunMetrics && !isPassiveBackfillState ? (
               <div className="space-y-2">
@@ -1518,6 +1638,26 @@ export default function GmailReceiptsPage({
                   : "You can connect Gmail from setup whenever you are ready."
               }
             />
+          ) : null}
+
+          {isConnected ? (
+            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">Email Agent</p>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Draft your first email with One. You can edit it before it is reviewed and sent.
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={handleTryEmailAgent}
+                disabled={!emailAgentIntroRecipient}
+                className="w-full sm:w-auto"
+              >
+                <Mail className="mr-2 h-4 w-4" />
+                Try Email Agent with One
+              </Button>
+            </SurfaceInset>
           ) : null}
 
           {isConnected ? (
@@ -1698,19 +1838,12 @@ export default function GmailReceiptsPage({
             </SurfaceInset>
           ) : null}
 
-          {isConnected &&
-          hasSealedReceiptAccess &&
-          loadingReceipts &&
-          !loadingStatus ? (
-            <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading your receipts…
-            </SurfaceInset>
-          ) : null}
+          {showReceiptPlaceholders ? <ReceiptListSkeleton /> : null}
 
           {isConnected &&
           hasSealedReceiptAccess &&
           !loadingReceipts &&
+          !showReceiptPlaceholders &&
           receipts.length === 0 &&
           !loadingStatus ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">

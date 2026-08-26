@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Briefcase,
-  ChevronDown,
+  ChevronRight,
   Home,
   Loader2,
   MapPin,
@@ -21,7 +21,6 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import {
   addSavedLocation,
   duplicateSavedLocationMessage,
-
   DuplicateSavedLocationError,
   findDuplicateSavedLocation,
   loadSavedLocations,
@@ -39,7 +38,6 @@ import {
 } from "@/lib/one-location/saved-location-address";
 
 import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
-import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
@@ -49,24 +47,14 @@ import { useVault } from "@/lib/vault/vault-context";
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   const Icon =
     category === "home" ? Home : category === "work" ? Briefcase : MapPin;
-  // Home keeps the location accent this product uses for every place
-  // affordance. Work and Other share the neutral icon tile: a saved place has
-  // no state to report, and "other" was previously painted the success green,
-  // which claimed a status that a bookmark can neither reach nor fail. The
-  // three categories stay distinguishable by their glyphs, as before.
-  const tone =
-    category === "home"
-      ? cn(SEMANTIC_ROLE_CLASSES.action.tile, SEMANTIC_ROLE_CLASSES.action.glyph)
-      : "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]";
   return (
     <span
-      className={cn(
-        "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
-        tone,
-      )}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-foreground)] text-white"
+      data-testid={`saved-location-icon-${category}`}
+      data-icon-tone="neutral-graphite"
       aria-hidden="true"
     >
-      <Icon className="h-[17px] w-[17px]" strokeWidth={1.9} />
+      <Icon className="h-4 w-4" strokeWidth={1.8} />
     </span>
   );
 }
@@ -303,9 +291,7 @@ export function SavedLocationsSection() {
       ) {
         return;
       }
-      toast.error(
-        "Check location permission and try again.",
-      );
+      toast.error("Check location permission and try again.");
     } finally {
       if (
         captureRequestIdRef.current === captureRequestId &&
@@ -390,7 +376,9 @@ export function SavedLocationsSection() {
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         setEditingLocation(null);
-        toast.success(editing ? "Location updated." : "Location saved securely.");
+        toast.success(
+          editing ? "Location updated." : "Location saved securely.",
+        );
       } catch (error) {
         if (!isCurrentVaultSession(session)) return;
         toast.error(
@@ -442,7 +430,6 @@ export function SavedLocationsSection() {
     },
     [hasVaultAccess],
   );
-
 
   const handleRemove = useCallback(
     async (id: string) => {
@@ -573,15 +560,15 @@ export function SavedLocationsSection() {
         className="w-full min-w-0"
         data-testid="settings-saved-locations"
       >
-        <div className="mb-3 flex items-baseline justify-between gap-3 px-[2px]">
-          <p className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+        <div className="mb-2 flex items-baseline justify-between gap-3 px-[6px]">
+          <p className="text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
             Places
           </p>
           <button
             type="button"
             onClick={() => void handleAdd()}
             disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[16px] font-normal leading-[21px] tracking-[-0.3px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45 sm:text-[15px] sm:leading-[19px] sm:tracking-[-0.24px]"
+            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[15px] font-normal leading-5 text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
           >
             {capturing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -590,17 +577,17 @@ export function SavedLocationsSection() {
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]">
+        <div className="overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] shadow-none">
           {!hasVaultAccess ? (
-            <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
-                <ShieldCheck className="h-[17px] w-[17px]" aria-hidden="true" />
+            <div className="flex min-h-[72px] items-center gap-3 px-4 py-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-foreground)] text-white">
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
               </span>
               <div className="min-w-0">
                 <p className="text-[17px] font-normal leading-[22px] text-foreground">
                   Unlock your vault to view saved places
                 </p>
-                <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
+                <p className="mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
                   Exact locations stay encrypted and are available only while
                   your vault is unlocked.
                 </p>
@@ -648,11 +635,6 @@ export function SavedLocationsSection() {
                     index > 0 && "border-t border-[color:var(--app-separator)]",
                   )}
                 >
-                  {/* A saved address is longer than one line at this width, so
-                      the row used to end in an ellipsis with no way to read the
-                      rest. The arrow opens it -- and takes the edit and delete
-                      buttons with it, which were crowding every row for the two
-                      moments a year anyone needs them. */}
                   <button
                     type="button"
                     onClick={() =>
@@ -661,34 +643,26 @@ export function SavedLocationsSection() {
                       )
                     }
                     aria-expanded={expanded}
-                    className="press-scale flex min-h-[60px] w-full items-center gap-3.5 p-3.5 text-left"
+                    className="press-scale flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left"
                   >
                     <CategoryIcon category={location.category} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
                         {location.label}
                       </p>
-                      <p
-                        className={cn(
-                          "mt-0.5 text-[15px] leading-5 text-muted-foreground",
-                          expanded ? "whitespace-pre-line" : "truncate",
-                        )}
-                      >
+                      <p className="mt-0.5 truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
                         {location.address || "Address unavailable"}
                       </p>
                     </div>
-                    <ChevronDown
-                      className={cn(
-                        "h-[18px] w-[18px] shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-200",
-                        expanded && "rotate-180",
-                      )}
-                      strokeWidth={2}
+                    <ChevronRight
+                      className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-200"
+                      strokeWidth={1.9}
                       aria-hidden
                     />
                   </button>
 
                   {expanded ? (
-                    <div className="flex items-center gap-2 px-3.5 pb-3.5 pl-[64px]">
+                    <div className="flex items-center gap-2 px-4 pb-3 pl-[60px]">
                       {!location.address ? (
                         <button
                           type="button"
@@ -718,7 +692,11 @@ export function SavedLocationsSection() {
                         }
                         className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
                       >
-                        <Pencil className="h-[15px] w-[15px]" strokeWidth={2} aria-hidden />
+                        <Pencil
+                          className="h-[15px] w-[15px]"
+                          strokeWidth={2}
+                          aria-hidden
+                        />
                         Edit
                       </button>
                       <button
@@ -728,9 +706,16 @@ export function SavedLocationsSection() {
                         className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 disabled:opacity-45"
                       >
                         {removingId === location.id ? (
-                          <Loader2 className="h-[15px] w-[15px] animate-spin" aria-hidden />
+                          <Loader2
+                            className="h-[15px] w-[15px] animate-spin"
+                            aria-hidden
+                          />
                         ) : (
-                          <Trash2 className="h-[15px] w-[15px]" strokeWidth={2} aria-hidden />
+                          <Trash2
+                            className="h-[15px] w-[15px]"
+                            strokeWidth={2}
+                            aria-hidden
+                          />
                         )}
                         Remove
                       </button>
@@ -741,14 +726,6 @@ export function SavedLocationsSection() {
             })
           )}
         </div>
-        {hasVaultAccess ? (
-          <p className="mt-[22px] flex items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground sm:mt-6">
-            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {locationControl.paused
-              ? "Resume Location to save another place."
-              : "Encrypted in your vault."}
-          </p>
-        ) : null}
       </section>
 
       <SaveLocationModal
@@ -810,7 +787,6 @@ export function SavedLocationsSection() {
           setEditingLocation(null);
         }}
       />
-
     </>
   );
 }

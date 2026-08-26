@@ -17,14 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import {
-  Check,
-  Loader2,
-  Search,
-  Send,
-  Share2,
-  UserPlus,
-} from "lucide-react";
+import { Check, Loader2, Search, Send, Share2, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -41,6 +34,7 @@ import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redes
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleMemberInvite,
 } from "@/lib/one-location/types";
 import {
@@ -49,6 +43,11 @@ import {
 } from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import {
+  CIRCLE_INVITE_BATCH_LIMIT,
+  circleInviteSelectionLimit,
+} from "@/lib/one-location/circle-invite-contract";
 
 function circleInitials(value: string): string {
   return value
@@ -61,7 +60,9 @@ function circleInitials(value: string): string {
 }
 
 function growErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : fallback;
 }
 
 /**
@@ -75,6 +76,7 @@ export function CircleInvitePeopleSheet({
   circleName,
   busy,
   onLoadEligibleConnections,
+  onLoadEligibleConnectionsPage,
   onInviteConnections,
   onCancelMemberInvite,
   onInvited,
@@ -87,6 +89,10 @@ export function CircleInvitePeopleSheet({
   onLoadEligibleConnections: (
     circleId: string,
   ) => Promise<OneLocationCircleEligibleConnections>;
+  onLoadEligibleConnectionsPage?: (
+    circleId: string,
+    options: { page: number; limit: number; query?: string },
+  ) => Promise<OneLocationCircleEligibleConnectionsPage>;
   onInviteConnections: (
     circleId: string,
     inviteeUserIds: string[],
@@ -101,10 +107,14 @@ export function CircleInvitePeopleSheet({
     OneLocationCircleMemberInvite[]
   >([]);
   const [remainingCapacity, setRemainingCapacity] = useState(0);
+  const selectionLimit = circleInviteSelectionLimit(remainingCapacity);
   const [search, setSearch] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [selectedConnections, setSelectedConnections] = useState<
+    Map<string, OneLocationCircleEligibleConnection>
+  >(() => new Map());
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -121,57 +131,107 @@ export function CircleInvitePeopleSheet({
       // These two sheets were rendering whatever order the server returned, so
       // the same two connections could swap places between two openings and a
       // long list had nowhere to start looking.
-      filterPeopleByQuery(
-        sortPeopleByName(eligibleConnections, (connection) => connection.displayName),
+      onLoadEligibleConnectionsPage
+        ? eligibleConnections
+        : filterPeopleByQuery(
+            sortPeopleByName(
+              eligibleConnections,
+              (connection) => connection.displayName,
+            ),
         search,
         (connection) => connection.displayName,
       ),
-    [eligibleConnections, search],
+    [eligibleConnections, onLoadEligibleConnectionsPage, search],
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(
+    async ({
+      requestedPage = 1,
+      append = false,
+      query = search,
+    }: { requestedPage?: number; append?: boolean; query?: string } = {}) => {
     const requestId = ++requestRef.current;
-    setLoading(true);
+      if (append) setLoadingMore(true);
+      else setLoading(true);
     setLoadError(null);
     try {
-      const result = await onLoadEligibleConnections(circleId);
+        const result = onLoadEligibleConnectionsPage
+          ? await onLoadEligibleConnectionsPage(circleId, {
+              page: requestedPage,
+              limit: 50,
+              query: query.trim() || undefined,
+            })
+          : await onLoadEligibleConnections(circleId);
       if (requestId !== requestRef.current) return;
-      setEligibleConnections(result.eligibleConnections);
+        setEligibleConnections((current) => {
+          if (!append) return result.eligibleConnections;
+          const byUserId = new Map(current.map((row) => [row.userId, row]));
+          for (const row of result.eligibleConnections)
+            byUserId.set(row.userId, row);
+          return [...byUserId.values()];
+        });
       setPendingInvites(result.pendingInvites);
       setRemainingCapacity(result.remainingCapacity);
-      setSelectedIds((current) => {
-        const available = new Set(
-          result.eligibleConnections.map((connection) => connection.userId),
+        const pagedResult = onLoadEligibleConnectionsPage
+          ? (result as OneLocationCircleEligibleConnectionsPage)
+          : null;
+        setPage(pagedResult?.page ?? 1);
+        setHasMore(pagedResult?.hasMore ?? false);
+        setSelectedConnections(
+          (current) =>
+            new Map(
+              [...current].slice(
+                0,
+                circleInviteSelectionLimit(result.remainingCapacity),
+              ),
+            ),
         );
-        return new Set(
-          [...current]
-            .filter((id) => available.has(id))
-            .slice(0, result.remainingCapacity),
-        );
-      });
     } catch (error) {
       if (requestId !== requestRef.current) return;
       setLoadError(
         growErrorMessage(error, "Could not load your connections."),
       );
     } finally {
-      if (requestId === requestRef.current) setLoading(false);
+        if (requestId === requestRef.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
     }
-  }, [circleId, onLoadEligibleConnections]);
+    },
+    [
+      circleId,
+      onLoadEligibleConnections,
+      onLoadEligibleConnectionsPage,
+      search,
+    ],
+  );
 
   useEffect(() => {
     if (!open) return;
     setSearch("");
-    setSelectedIds(new Set());
+    setSelectedConnections(new Map());
     void load();
     return () => {
       requestRef.current += 1;
     };
-  }, [open, load]);
+    // Initial open only. Paged search changes are handled by the debounced
+    // effect below without resetting the person's selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [circleId, open]);
+
+  useEffect(() => {
+    if (!open || !onLoadEligibleConnectionsPage) return;
+    const timer = window.setTimeout(() => void load({ query: search }), 250);
+    return () => window.clearTimeout(timer);
+  }, [load, onLoadEligibleConnectionsPage, open, search]);
 
   const sendInvites = async () => {
-    if (submitInFlightRef.current || !selectedIds.size) return;
-    const inviteeUserIds = [...selectedIds];
+    if (submitInFlightRef.current || !selectedConnections.size) return;
+    const inviteeUserIds = [...selectedConnections.keys()].slice(
+      0,
+      selectionLimit,
+    );
+    if (!inviteeUserIds.length) return;
     submitInFlightRef.current = true;
     setSubmitting(true);
     try {
@@ -181,13 +241,15 @@ export function CircleInvitePeopleSheet({
           ? "Circle invitation sent."
           : `${inviteeUserIds.length} Circle invitations sent.`,
       );
-      setSelectedIds(new Set());
+      setSelectedConnections(new Map());
       onInvited?.();
       await load();
     } catch (error) {
-      toast.error(
-        growErrorMessage(error, "Could not send the invitation."),
-      );
+      toast.error(growErrorMessage(error, "Could not send the invitation."));
+      // Do not reconcile selected ids against one partial page. A failed
+      // mutation can mean eligibility/capacity changed, so clear the stale
+      // authority and reload a fresh bounded page.
+      setSelectedConnections(new Map());
       await load();
     } finally {
       submitInFlightRef.current = false;
@@ -204,9 +266,7 @@ export function CircleInvitePeopleSheet({
       toast.success("Circle invitation cancelled.");
       await load();
     } catch (error) {
-      toast.error(
-        growErrorMessage(error, "Could not cancel the invitation."),
-      );
+      toast.error(growErrorMessage(error, "Could not cancel the invitation."));
     } finally {
       cancelInFlightRef.current = false;
       setCancellingInviteId(null);
@@ -221,7 +281,7 @@ export function CircleInvitePeopleSheet({
         if (!next) {
           requestRef.current += 1;
           setSearch("");
-          setSelectedIds(new Set());
+          setSelectedConnections(new Map());
         }
       }}
     >
@@ -280,15 +340,20 @@ export function CircleInvitePeopleSheet({
                   <SettingsGroup
                     title="Your connections"
                     description={
-                      remainingCapacity === 1
+                      remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
+                        ? `Invite up to ${CIRCLE_INVITE_BATCH_LIMIT} people at a time. ${remainingCapacity} Circle slots remain.`
+                        : remainingCapacity === 1
                         ? "You can invite 1 more person right now."
                         : `You can invite ${remainingCapacity} more people right now.`
                     }
                     testId="one-location-circle-grow-eligible-connections"
                   >
                     {filtered.map((connection) => {
-                      const selected = selectedIds.has(connection.userId);
-                      const atCapacity = selectedIds.size >= remainingCapacity;
+                      const selected = selectedConnections.has(
+                        connection.userId,
+                      );
+                      const atCapacity =
+                        selectedConnections.size >= selectionLimit;
                       return (
                         <SettingsRow
                           key={connection.userId}
@@ -302,9 +367,19 @@ export function CircleInvitePeopleSheet({
                               </AvatarFallback>
                             </Avatar>
                           }
-                          title={connection.displayName}
+                          title={
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="min-w-0 truncate">
+                                {connection.displayName}
+                              </span>
+                              {connection.connectedFromContacts ? (
+                                <ContactSourceBadge />
+                              ) : null}
+                            </span>
+                          }
                           description="Connected on One"
                           ariaPressed={selected}
+                          ariaLabel={`${selected ? "Deselect" : "Select"} ${connection.displayName} for Circle invitation${connection.connectedFromContacts ? ", connected from your contacts" : ""}`}
                           disabled={!selected && atCapacity}
                           trailing={
                             <span
@@ -319,12 +394,12 @@ export function CircleInvitePeopleSheet({
                             </span>
                           }
                           onClick={() =>
-                            setSelectedIds((current) => {
-                              const next = new Set(current);
+                            setSelectedConnections((current) => {
+                              const next = new Map(current);
                               if (next.has(connection.userId)) {
                                 next.delete(connection.userId);
-                              } else if (next.size < remainingCapacity) {
-                                next.add(connection.userId);
+                              } else if (next.size < selectionLimit) {
+                                next.set(connection.userId, connection);
                               }
                               return next;
                             })
@@ -352,6 +427,21 @@ export function CircleInvitePeopleSheet({
                     }
                   />
                 )}
+
+                {hasMore && !loading ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={loadingMore}
+                    isLoading={loadingMore}
+                    onClick={() =>
+                      void load({ requestedPage: page + 1, append: true })
+                    }
+                    className="h-11 w-full rounded-full"
+                  >
+                    Load more connections
+                  </Button>
+                ) : null}
 
       {pendingInvites.length ? (
         <SettingsGroup
@@ -392,7 +482,7 @@ export function CircleInvitePeopleSheet({
           <Button
             type="button"
             disabled={
-              !selectedIds.size ||
+              !selectedConnections.size ||
               loading ||
               submitting ||
               Boolean(busy) ||
@@ -405,9 +495,9 @@ export function CircleInvitePeopleSheet({
               BLOCKED_CTA,
             )}
           >
-            {selectedIds.size
-              ? `Invite ${selectedIds.size} ${
-                  selectedIds.size === 1 ? "person" : "people"
+            {selectedConnections.size
+              ? `Invite ${selectedConnections.size} ${
+                  selectedConnections.size === 1 ? "person" : "people"
                 }`
               : "Select people"}
           </Button>
@@ -429,6 +519,7 @@ export function CircleGrowActions({
   canInvite = true,
   onShareCode,
   onLoadEligibleConnections,
+  onLoadEligibleConnectionsPage,
   onInviteConnections,
   onCancelMemberInvite,
   onInvited,
@@ -443,6 +534,10 @@ export function CircleGrowActions({
   onLoadEligibleConnections: (
     circleId: string,
   ) => Promise<OneLocationCircleEligibleConnections>;
+  onLoadEligibleConnectionsPage?: (
+    circleId: string,
+    options: { page: number; limit: number; query?: string },
+  ) => Promise<OneLocationCircleEligibleConnectionsPage>;
   onInviteConnections: (
     circleId: string,
     inviteeUserIds: string[],
@@ -463,9 +558,7 @@ export function CircleGrowActions({
     try {
       await onShareCode(circleId);
     } catch (error) {
-      toast.error(
-        growErrorMessage(error, "Could not share the Circle code."),
-      );
+      toast.error(growErrorMessage(error, "Could not share the Circle code."));
     } finally {
       shareInFlightRef.current = false;
       setSharing(false);
@@ -512,6 +605,7 @@ export function CircleGrowActions({
           circleName={circleName}
           busy={busy}
           onLoadEligibleConnections={onLoadEligibleConnections}
+          onLoadEligibleConnectionsPage={onLoadEligibleConnectionsPage}
           onInviteConnections={onInviteConnections}
           onCancelMemberInvite={onCancelMemberInvite}
           onInvited={onInvited}

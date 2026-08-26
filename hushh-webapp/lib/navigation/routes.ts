@@ -119,6 +119,7 @@ export const ROUTES = {
   ONE_SETUP_CLOUD: "/one/setup/cloud",
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
+  EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
   PKM: "/one/pkm",
   ONE_MARKETPLACE: "/one/marketplace",

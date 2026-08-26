@@ -87,7 +87,7 @@ BACKEND_PROD_PHONE_TEST_REQUIRED = (
     "HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET",
 )
 
-GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
 
 FRONTEND_REQUIRED = (
     "BACKEND_URL",

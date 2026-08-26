@@ -682,6 +682,7 @@
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
+          "loading",
           "loaded",
           "empty-valid",
           "unavailable-valid"
@@ -2666,6 +2667,75 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/email",
+      "page_file": "app/one/email/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/email/email-agent-page-client.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.email",
+          "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/email",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Femail",
+        "expectedMarker": "native-route-email-agent",
+        "expectedRoute": "/one/email",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loading",
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/feed",
       "page_file": "app/one/feed/page.tsx",
       "physical_page_exists": true,
@@ -4078,12 +4148,28 @@
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
           "backend_endpoint_family": "/api/one/location/{circles,circle-codes,circle-member-invites,sms-contacts}/*",
           "native_transport": "CapacitorHttp direct backend via the shared One Location service"
+        },
+        {
+          "service_file": "lib/services/connections-service.ts",
+          "service_methods": [
+            "syncContacts"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/connections/contact-sync",
+          "native_transport": "CapacitorHttp direct backend via ConnectionsService after local contact normalization and hashing"
         }
       ],
       "native_plugin_dependencies": [
         {
           "package": "@capacitor/share",
           "integration": "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs"
+        },
+        {
+          "package": "HushhContacts",
+          "integration": "Read-only local address-book source; raw contact records stay in WebView memory while normalized phone hashes are sent through ConnectionsService",
+          "ios": "CNContactStore read on a background queue with limited-access and truncation metadata",
+          "android": "READ_CONTACTS content-provider scan on Dispatchers.IO with distinct-contact totals and truncation metadata"
         }
       ],
       "thread_and_consent_contract": {
@@ -5996,7 +6082,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/preferences/voice/examples",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fexamples",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/voice/examples",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -6116,7 +6213,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/referrals",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Freferrals",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/referrals",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -6963,18 +7071,7 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": {
-        "route": "/one/setup/cloud",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
-        "expectedMarker": "native-route-one-setup-cloud",
-        "expectedRoute": "/one/setup/cloud",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -9017,5 +9114,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "68c862d4c24977a9256f9c9ed932902fca7b81318f7fd26c4adc24657e896ec3"
+  "content_sha256": "69db541a97981f051cf76a2b64ef9c5d6a02ed7a586b4ab0c64a81388f1e88ee"
 }

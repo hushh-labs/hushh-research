@@ -19,7 +19,6 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
-import { validateFirebaseToken } from "@/lib/auth/validate";
 import { devAuthBypassAllowed, logSecurityEvent } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
@@ -93,24 +92,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (authHeader) {
-    const validation = await validateFirebaseToken(authHeader);
-
-    if (!validation.valid) {
-      logSecurityEvent("VAULT_KEY_REJECTED", {
-        reason: validation.error,
-        userId,
-      });
-      return withRequestIdJson(
-        requestId,
-        {
-          error: `Authentication failed: ${validation.error}`,
-          code: "AUTH_INVALID",
-        },
-        { status: 401 }
-      );
-    }
-  }
+  // The Python vault route is the authority for Firebase token verification
+  // and the token/user match. Re-verifying the bearer in this proxy requires
+  // an independently configured Firebase Admin SDK, which makes a valid
+  // browser session look like a failed passphrase unlock in local runtimes.
+  // Preserve the bearer unchanged so the backend performs the single check.
 
   const cacheKey = `${userId}:${authHeader || "no-auth"}`;
 

@@ -272,7 +272,10 @@ export function ConnectCirclesTab({
     const alreadyReconciled = reconciledForTokenRef.current === vaultOwnerToken;
     const reconcile = alreadyReconciled
       ? Promise.resolve()
-      : OneLocationService.ensureTrustedSystemCircle({ vaultOwnerToken }).then(
+      : OneLocationService.ensureTrustedSystemCircle({
+          vaultOwnerToken,
+          summaryOnly: true,
+        }).then(
           () => {
             reconciledForTokenRef.current = vaultOwnerToken;
           },
@@ -481,6 +484,8 @@ export function ConnectCirclesTab({
         busy={busy}
         onBack={closeFlow}
         onLoad={actions.loadCircle}
+        onLoadOverview={actions.loadCircleOverview}
+        onLoadMembersPage={actions.loadCircleMembersPage}
         onRename={async (circleId, name) => {
           const renamed = await withBusy(() =>
             actions.renameCircle(circleId, name),
@@ -527,6 +532,7 @@ export function ConnectCirclesTab({
             : undefined
         }
         onLoadEligibleConnections={actions.loadEligibleConnections}
+        onLoadEligibleConnectionsPage={actions.loadEligibleConnectionsPage}
         onInviteConnections={async (circleId, userIds) => {
           await withBusy(() => actions.inviteConnections(circleId, userIds));
           // The roster on screen is stale the moment somebody is added. It

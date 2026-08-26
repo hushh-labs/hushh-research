@@ -86,6 +86,74 @@ describe("OneLocationService", () => {
     });
   });
 
+  it("reads recipient pages without changing the legacy complete-list contract", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      items: [{ userId: "user_51", displayName: "Same", connectedFromContacts: true }],
+      page: 2,
+      hasMore: true,
+      totalCount: 5000,
+    });
+
+    const page = await OneLocationService.listRecipientsPage({
+      vaultOwnerToken: "vault-token",
+      page: 2,
+      limit: 50,
+      query: "same",
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/location/recipients?page=2&limit=50&query=same",
+      { headers: { Authorization: "Bearer vault-token" } },
+    );
+    expect(page).toMatchObject({ page: 2, hasMore: true, totalCount: 5000 });
+    expect(page.items[0]).toMatchObject({ connectedFromContacts: true });
+  });
+
+  it("uses overview, member pages, eligible pages, and summary-only Trusted reads", async () => {
+    mockApiJson
+      .mockResolvedValueOnce({ circle: { id: "circle-1", name: "Family" } })
+      .mockResolvedValueOnce({ items: [], page: 2, hasMore: true, totalCount: 5000 })
+      .mockResolvedValueOnce({
+        eligibleConnections: [],
+        pendingInvites: [],
+        remainingCapacity: 12,
+        page: 2,
+        hasMore: true,
+        totalCount: 5000,
+      })
+      .mockResolvedValueOnce({ circle: { id: "trusted", name: "Trusted" } });
+
+    await OneLocationService.getCircleOverview({
+      vaultOwnerToken: "vault-token",
+      circleId: "circle-1",
+    });
+    await OneLocationService.listCircleMembersPage({
+      vaultOwnerToken: "vault-token",
+      circleId: "circle-1",
+      page: 2,
+      limit: 50,
+      query: "same",
+    });
+    await OneLocationService.listNamedCircleEligibleConnectionsPage({
+      vaultOwnerToken: "vault-token",
+      circleId: "circle-1",
+      page: 2,
+      limit: 50,
+      query: "same",
+    });
+    await OneLocationService.ensureTrustedSystemCircle({
+      vaultOwnerToken: "vault-token",
+      summaryOnly: true,
+    });
+
+    expect(mockApiJson.mock.calls.map(([path]) => path)).toEqual([
+      "/api/one/location/circles/circle-1/overview",
+      "/api/one/location/circles/circle-1/members?page=2&limit=50&query=same",
+      "/api/one/location/circles/circle-1/eligible-connections?page=2&limit=50&query=same",
+      "/api/one/location/circles/trusted?summaryOnly=true",
+    ]);
+  });
+
   it("stores encrypted envelopes without plaintext coordinates", async () => {
     mockApiJson.mockResolvedValueOnce({ envelope: { id: "env_1" } });
 

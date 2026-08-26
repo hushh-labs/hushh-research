@@ -89,8 +89,11 @@ import type {
   OneLocationCircleInvite,
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
+  OneLocationCircleMemberPage,
+  OneLocationCircleOverview,
   OneLocationCircleKind,
   OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
@@ -115,6 +118,7 @@ import {
   TrustNoteCard,
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
   initialsFrom,
   RequestCard,
@@ -150,7 +154,6 @@ import { SavedLocationsSection } from "@/components/one-location/saved-locations
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
-import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
 import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
@@ -301,6 +304,10 @@ export type LocationHubViewModel = {
   incomingCircleMemberInvitesError: string | null;
   incomingCircleMemberInviteFocusResolved: boolean;
   visibleRecipients: OneLocationRecipient[];
+  recipientPageHasMore: boolean;
+  recipientPageTotalCount: number;
+  recipientPageLoading: boolean;
+  onLoadMoreRecipients: () => void | Promise<void>;
   visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
   /**
@@ -374,6 +381,13 @@ export type LocationHubViewModel = {
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
+  contactSyncSummary?: {
+    matchedCount: number;
+    connectedCount: number;
+    unknownCount: number;
+    partial: boolean;
+  } | null;
+  onViewContactSyncResults?: () => void;
   /** Legacy composer only: pre-flights device permission, then opens review. */
   onOpenShareReview: () => void;
   /**
@@ -404,6 +418,7 @@ export type LocationHubViewModel = {
    * and left Save stuck spinning on the next Edit of the same person.
    */
   savingGrantId: string | null;
+  requestingMoreTimeKey: string | null;
   onEditGrantStart: (grantId: string) => void;
   onEditGrantCancel: () => void;
   editGrantDurationHours: string;
@@ -413,6 +428,12 @@ export type LocationHubViewModel = {
     grantId: string;
     ownerLabel: string;
   }) => void;
+  onRequestMoreTime: (params: {
+    ownerUserId: string;
+    grantId: string;
+    ownerLabel: string;
+    additionalHours: 0.5 | 2;
+  }) => Promise<void>;
   /*
    * The same edit, for the share you are giving rather than the one you are
    * receiving. It is separate state because it is a different consent: the
@@ -440,6 +461,13 @@ export type LocationHubViewModel = {
   /* Durable named Circles. Legacy one-person Circle invites above remain
      isolated for backward compatibility. */
   onLoadNamedCircle: (circleId: string) => Promise<OneLocationCircleDetail>;
+  onLoadNamedCircleOverview: (
+    circleId: string,
+  ) => Promise<OneLocationCircleOverview>;
+  onLoadNamedCircleMembersPage: (
+    circleId: string,
+    options: { page: number; limit: number; query?: string },
+  ) => Promise<OneLocationCircleMemberPage>;
   onCreateNamedCircle: (
     name: string,
     kind: OneLocationCircleKind,
@@ -460,7 +488,7 @@ export type LocationHubViewModel = {
   ) => Promise<OneLocationCircleInviteCode>;
   onCopyNamedCircleCode: (code: string) => Promise<void>;
   onShareNamedCircleCode: (
-    circle: OneLocationCircleDetail,
+    circle: OneLocationCircleOverview,
     code: string,
   ) => Promise<void>;
   /** Share a Circle's invite code from a surface that only knows its id. */
@@ -483,6 +511,10 @@ export type LocationHubViewModel = {
   onLoadNamedCircleEligibleConnections: (
     circleId: string,
   ) => Promise<OneLocationCircleEligibleConnections>;
+  onLoadNamedCircleEligibleConnectionsPage: (
+    circleId: string,
+    options: { page: number; limit: number; query?: string },
+  ) => Promise<OneLocationCircleEligibleConnectionsPage>;
   onInviteNamedCircleConnections: (
     circleId: string,
     inviteeUserIds: string[],
@@ -830,6 +862,15 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
 // touch-friendly scrollbar keeps it unobtrusive on mobile.
 const PEOPLE_LIST_SCROLL_CLASS =
   "space-y-5 overflow-visible md:max-h-[420px] md:space-y-3 md:overflow-y-auto md:overscroll-contain md:pr-1 md:[scrollbar-width:thin] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-black/15 dark:md:[&::-webkit-scrollbar-thumb]:bg-white/20";
+const FLOW_STEP_ONE_CLASSNAME =
+  "mx-auto w-full max-w-[640px] space-y-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]";
+const STICKY_FLOW_ACTION_CLASSNAME =
+  "sticky bottom-0 z-20 -mx-1 bg-[linear-gradient(to_bottom,transparent,rgba(242,242,247,0.92)_24%,rgba(242,242,247,0.98))] px-1 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 dark:bg-[linear-gradient(to_bottom,transparent,color-mix(in_srgb,var(--background)_92%,transparent)_24%,var(--background))]";
+
+function selectedCountCopy(count: number, emptyCopy: string) {
+  if (count <= 0) return emptyCopy;
+  return `${count} selected`;
+}
 
 export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const router = useRouter();
@@ -1029,6 +1070,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
    */
   const smsSystemCircleId = useMemo(
     () => vm.circles.find((circle) => circle.isSystem)?.id ?? null,
+    [vm.circles],
+  );
+  // Trusted can grow to thousands of auto-synced connections. It is a useful
+  // provenance view, not a safe "select everyone" source for emergency SMS.
+  // Ordinary and SMS Circles remain available for deliberate roster choices.
+  const smsCircleChoices = useMemo(
+    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
     [vm.circles],
   );
   useEffect(() => {
@@ -1279,7 +1327,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "sms-contacts" ? (
           <SmsContactsFlow
             recipients={vm.smsContactCandidates}
-            circles={vm.circles}
+            circles={smsCircleChoices}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
             onAdd={vm.onAddSmsContact}
@@ -1321,6 +1369,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             busy={vm.busy === "namedCircle"}
             onBack={() => closeFlow("people")}
             onLoad={vm.onLoadNamedCircle}
+            onLoadOverview={vm.onLoadNamedCircleOverview}
+            onLoadMembersPage={vm.onLoadNamedCircleMembersPage}
             onRename={vm.onRenameNamedCircle}
             onGenerateCode={vm.onGenerateNamedCircleCode}
             onCopyCode={vm.onCopyNamedCircleCode}
@@ -1341,6 +1391,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             }}
             onRemoveMember={vm.onRemoveNamedCircleMember}
             onLoadEligibleConnections={vm.onLoadNamedCircleEligibleConnections}
+            onLoadEligibleConnectionsPage={
+              vm.onLoadNamedCircleEligibleConnectionsPage
+            }
             onInviteConnections={vm.onInviteNamedCircleConnections}
             onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
             onLeave={vm.onLeaveNamedCircle}
@@ -1438,12 +1491,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                   : openFlow("check-in")
               }
               onSos={() => openFlow("sos")}
-              onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
               onOpenNeedsReview={() => openFlow("needs-review")}
               onRequestLocation={() => openFlow("ask")}
-              onOpenSettings={() => openFlow("settings")}
             />
           </LocationHubPanel>
 
@@ -1495,48 +1546,35 @@ function NowHub({
   onStartShare,
   onCheckIn,
   onSos,
-  onOpenMap,
   onOpenActiveShares,
   onOpenSharedWithMe,
   onOpenNeedsReview,
   onRequestLocation,
-  onOpenSettings,
 }: {
   vm: LocationHubViewModel;
   onStartShare: () => void;
   onCheckIn: () => void;
   onSos: () => void;
-  onOpenMap: () => void;
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
   onOpenNeedsReview: () => void;
   onRequestLocation: () => void;
-  onOpenSettings: () => void;
 }) {
   const activityRows = [
     {
-      leading: <LocationMenuListIcon name="active" />,
-      title: "Active shares",
-      value: vm.activeOwnerGrants.length,
-      ariaLabel: "Active shares",
-      onClick: onOpenActiveShares,
-      voiceControlId: "one-location-action-active-shares",
-      voiceActionId: "location.open_active_shares",
-    },
-    {
       leading: <LocationMenuListIcon name="pin" />,
-      title: "Shared With Me",
+      title: "Sharing with you",
       value: vm.receivedGrants.length,
-      ariaLabel: "Shared with me",
+      ariaLabel: "Sharing with you",
       onClick: onOpenSharedWithMe,
       voiceControlId: "one-location-action-shared-with-me",
       voiceActionId: "location.open_shared_with_me",
     },
     {
       leading: <LocationMenuListIcon name="review" />,
-      title: "Needs Review",
+      title: "Needs review",
       value: vm.pendingOwnerRequests.length,
-      ariaLabel: "Needs my review",
+      ariaLabel: "Needs review",
       onClick: onOpenNeedsReview,
       voiceControlId: "one-location-action-needs-review",
       voiceActionId: "location.open_needs_review",
@@ -1626,8 +1664,7 @@ function NowHub({
       />
 
       {activityRows.length ? (
-        <div className="space-y-2 pt-4">
-          <LocationNowGroupLabel>Activity</LocationNowGroupLabel>
+        <div className="pt-1">
           <LocationMenuListGroup testId="one-location-now-activity">
             {activityRows.map((row) => (
               <LocationMenuListRow
@@ -1644,42 +1681,6 @@ function NowHub({
           </LocationMenuListGroup>
         </div>
       ) : null}
-
-      <div className="space-y-2 pt-4">
-        <LocationNowGroupLabel>More</LocationNowGroupLabel>
-        <LocationMenuListGroup testId="one-location-now-more">
-          <LocationMenuListRow
-            leading={<LocationMenuListIcon name="map" />}
-            title="Map"
-            ariaLabel="Your Map"
-            onClick={onOpenMap}
-            testId="one-location-map-row"
-            voiceControlId="one-location-open-map"
-            voiceActionId="location.open_map"
-          />
-          <LocationMenuListRow
-            leading={<LocationMenuListIcon name="settings" />}
-            title="Settings"
-            ariaLabel="Settings"
-            onClick={onOpenSettings}
-            testId="one-location-settings-entry"
-            voiceControlId="one-location-action-settings"
-            voiceActionId="location.open_settings"
-          />
-        </LocationMenuListGroup>
-      </div>
-    </div>
-  );
-}
-
-function LocationNowGroupLabel({ children }: { children: ReactNode }) {
-  return (
-    <div
-      role="heading"
-      aria-level={2}
-      className="mb-2 pl-1 font-[family-name:var(--font-app-body)] text-[13px] font-normal leading-[18px] tracking-[-0.01em] text-[#8e8e93]"
-    >
-      {children}
     </div>
   );
 }
@@ -1695,7 +1696,7 @@ function LocationMenuListGroup({
     <div
       data-ui-role="grouped-card"
       data-testid={testId}
-      className="overflow-hidden rounded-[16px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.045),0_6px_16px_rgba(0,0,0,0.035)] ring-1 ring-inset ring-black/[0.035] dark:bg-[#1c1c1e] dark:ring-white/10"
+      className="overflow-hidden rounded-[16px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.045),0_6px_16px_rgba(0,0,0,0.035)] ring-1 ring-inset ring-black/[0.035] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
     >
       {children}
     </div>
@@ -1730,7 +1731,7 @@ function LocationMenuListRow({
       data-voice-label={ariaLabel}
       aria-label={ariaLabel}
       onClick={onClick}
-      className="flex min-h-14 w-full cursor-pointer items-center justify-between border-b border-[#e5e5ea]/80 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:hover:bg-white/5"
+      className="flex min-h-14 w-full cursor-pointer items-center justify-between border-b border-[#e5e5ea]/80 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:border-[color:var(--app-separator)] dark:hover:bg-[color:var(--app-secondary-surface)]"
     >
       <span className="flex min-w-0 items-center gap-3">
         {leading}
@@ -1740,13 +1741,13 @@ function LocationMenuListRow({
       </span>
       <span className="flex shrink-0 items-center gap-2">
         {typeof trailingValue === "number" ? (
-          <span className="min-w-4 text-right text-[16px] font-normal leading-[21px] tracking-[-0.01em] text-[#8e8e93]">
+          <span className="min-w-4 text-right text-[16px] font-normal leading-[21px] tracking-[-0.01em] text-[#8e8e93] dark:text-[color:var(--app-secondary-label)]">
             {trailingValue}
           </span>
         ) : null}
         <ChevronRight
           aria-hidden="true"
-          className="h-5 w-5 shrink-0 text-[#c7c7cc] transition-transform group-active:translate-x-0.5"
+          className="h-5 w-5 shrink-0 text-[#c7c7cc] transition-transform group-active:translate-x-0.5 dark:text-[color:var(--app-tertiary-label)]"
         />
       </span>
     </button>
@@ -1758,7 +1759,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
     <section aria-label="Share location" data-testid="one-location-now-primary">
       <div
         data-testid="one-location-share-row"
-        className="grid w-full gap-4 rounded-[20px] bg-white px-5 py-5 text-left shadow-[0_1px_2px_rgba(0,0,0,0.02),0_5px_16px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/[0.025] dark:bg-[#1c1c1e] dark:ring-white/10 sm:grid-cols-[auto_minmax(0,1fr)_216px] sm:items-center sm:gap-6 sm:px-6 sm:py-6"
+        className="grid w-full gap-4 rounded-[20px] bg-white px-5 py-5 text-left shadow-[0_1px_2px_rgba(0,0,0,0.02),0_5px_16px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/[0.025] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)] sm:grid-cols-[auto_minmax(0,1fr)_216px] sm:items-center sm:gap-6 sm:px-6 sm:py-6"
       >
         <div className="flex min-w-0 items-center gap-4">
           <LocationSharePulseIcon />
@@ -1766,7 +1767,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
             <span className="block text-[20px] font-semibold leading-[25px] tracking-[-0.015em] text-[#1a1b1f] dark:text-[#f5f5f7]">
               You&apos;re not sharing
             </span>
-            <span className="block text-[15px] font-normal leading-5 tracking-[-0.01em] text-[#8e8e93]">
+            <span className="block text-[15px] font-normal leading-5 tracking-[-0.01em] text-[#8e8e93] dark:text-[color:var(--app-secondary-label)]">
               Choose a Circle or contact.
             </span>
           </span>
@@ -1804,11 +1805,11 @@ function LocationSharePulseIcon() {
     <span
       aria-hidden="true"
       data-location-share-pulse-icon=""
-      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#eff6ff] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] sm:h-16 sm:w-16"
+      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#eff6ff] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:bg-[color:var(--app-accent-tint)] dark:shadow-none sm:h-16 sm:w-16"
     >
-      <span className="absolute inset-[13%] rounded-full bg-[#dcecff]" />
-      <span className="absolute inset-[28%] rounded-full bg-[#b9d7ff]" />
-      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_#ffffff,0_8px_16px_rgba(0,122,255,0.22)] dark:shadow-[0_0_0_4px_#1c1c1e,0_8px_16px_rgba(0,122,255,0.28)]" />
+      <span className="absolute inset-[13%] rounded-full bg-[#dcecff] dark:bg-[rgba(10,132,255,0.18)]" />
+      <span className="absolute inset-[28%] rounded-full bg-[#b9d7ff] dark:bg-[rgba(10,132,255,0.28)]" />
+      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_#ffffff,0_8px_16px_rgba(0,122,255,0.22)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
     </span>
   );
 }
@@ -1832,10 +1833,9 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
   return (
     <section
       aria-label="Actions"
-      className="pt-4"
+      className="pt-1"
       data-testid="one-location-now-actions"
     >
-      <LocationNowGroupLabel>Actions</LocationNowGroupLabel>
       <div
         data-one-location-action-grid=""
         className="grid w-full grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4"
@@ -1852,7 +1852,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             aria-label={item.ariaLabel}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-[112px] min-w-0 flex-col items-center justify-center gap-4 rounded-[16px] bg-white px-5 py-[18px] text-center shadow-[0_1px_2px_rgba(0,0,0,0.018),0_2px_7px_rgba(0,0,0,0.018)] ring-1 ring-inset ring-black/[0.025] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[#1c1c1e] dark:hover:bg-white/5 dark:ring-white/10",
+              "group flex min-h-[100px] min-w-0 flex-col items-center justify-center gap-3 rounded-[16px] bg-white px-5 py-4 text-center shadow-[0_1px_2px_rgba(0,0,0,0.018),0_2px_7px_rgba(0,0,0,0.018)] ring-1 ring-inset ring-black/[0.025] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:hover:bg-[color:var(--app-secondary-surface)] dark:ring-[color:var(--app-separator)]",
             )}
           >
             <span
@@ -1882,7 +1882,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           data-voice-label={emergencyItem.ariaLabel}
           aria-label={emergencyItem.ariaLabel}
           onClick={emergencyItem.onClick}
-          className="group mt-4 flex min-h-[80px] w-full items-center justify-between gap-4 rounded-[16px] bg-[#fff7f7] px-5 py-4 text-left ring-1 ring-inset ring-[#ff3b30]/16 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[#fff3f3] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff3b30]/40 dark:bg-[#2a1f1f] dark:ring-[#ff3b30]/20 dark:hover:bg-[#302121]"
+          className="group mt-3 flex min-h-[68px] w-full items-center justify-between gap-4 rounded-[16px] bg-[#fff7f7] px-5 py-3 text-left ring-1 ring-inset ring-[#ff3b30]/16 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[#fff3f3] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff3b30]/40 dark:bg-[color:var(--app-destructive)]/10 dark:shadow-none dark:ring-[color:var(--app-destructive)]/30 dark:hover:bg-[color:var(--app-destructive)]/12"
         >
           <span className="flex min-w-0 items-center gap-4">
             <span
@@ -2025,7 +2025,7 @@ function LocationMenuListIcon({ name }: { name: LocationMenuGlyphName }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f2f2f7] text-[#6e6e73] dark:bg-white/10 dark:text-[#aeaeb2]"
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f2f2f7] text-[#6e6e73] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-secondary-label)]"
       data-location-menu-list-icon=""
     >
       <span className="inline-flex h-[18px] w-[18px] items-center justify-center">
@@ -2321,15 +2321,15 @@ function LocationDetailFlow({
                     isSmsTriggered={Boolean(group.smsGrant)}
                     name={ownerName}
                     statusLine={
-                      multiLane
-                        ? `${group.grants.length} live shares`
-                        : (
-                          <ActiveShareMetadata
-                            grant={grant}
-                            formatEndsAt={vm.formatDateTime}
-                            untilStoppedLabel="Until stopped"
-                          />
-                        )
+                      multiLane ? (
+                        `${group.grants.length} live shares`
+                      ) : (
+                        <ActiveShareMetadata
+                          grant={grant}
+                          formatEndsAt={vm.formatDateTime}
+                          untilStoppedLabel="Until stopped"
+                        />
+                      )
                     }
                     shareLanes={
                       multiLane ? (
@@ -2630,45 +2630,59 @@ function LocationSettingsFlow({
   }, [draftScope, vm]);
 
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-7 pb-[max(16px,env(safe-area-inset-bottom))]">
+    <div className="mx-auto w-full max-w-[640px] space-y-6 pb-[max(20px,env(safe-area-inset-bottom))]">
       {/* No header description. Each row below already says what it does, and
           the line that used to sit here ("Control live sharing") describes
           something this screen's first control no longer does. */}
-      <TaskFlowHeader eyebrow="Location" title="Settings" />
+      <TaskFlowHeader title="Settings" />
 
-      <SettingsGroup title="Automatic approval" separatorInset>
-        <SettingsRow
-          title="Auto-approve requests"
-          description={activeScopeLabel}
-          trailing={
-            <LocationToggle
-              checked={vm.autoApproveRequestsEnabled}
-              onChange={handleAutoApproveToggle}
-              label="Auto-approve requests"
-            />
-          }
-          trailingInteractive
-          onClick={openScopeSheet}
-          chevron
-          className="[--settings-row-py:14px]"
-          testId="one-location-auto-approve-row"
-        />
-      </SettingsGroup>
+      <LocationSettingSection title="Automatic approval">
+        <SettingsGroup
+          embedded
+          separatorInset
+          shellClassName="[--settings-group-radius:16px] shadow-none"
+          className="[--settings-row-description-gap:2px] [--type-row-description-size:13px] [--type-row-description-line:18px]"
+        >
+          <SettingsRow
+            title="Auto-approve requests"
+            description={activeScopeLabel}
+            trailing={
+              <LocationToggle
+                checked={vm.autoApproveRequestsEnabled}
+                onChange={handleAutoApproveToggle}
+                label="Auto-approve requests"
+              />
+            }
+            trailingInteractive
+            onClick={openScopeSheet}
+            chevron
+            className="[--settings-row-px:16px] [--settings-row-py:14px]"
+            testId="one-location-auto-approve-row"
+          />
+        </SettingsGroup>
+      </LocationSettingSection>
 
-      <SettingsGroup title="Safety" separatorInset>
-        <SettingsRow
-          title="Emergency contacts"
-          trailing={
-            <span className="text-[15px] leading-5 text-muted-foreground">
-              {smsContactCount}
-            </span>
-          }
-          onClick={onManageSmsContacts}
-          chevron
-          density="compact"
-          testId="one-location-sms-contacts-entry"
-        />
-      </SettingsGroup>
+      <LocationSettingSection title="Safety">
+        <SettingsGroup
+          embedded
+          separatorInset
+          shellClassName="[--settings-group-radius:16px] shadow-none"
+        >
+          <SettingsRow
+            title="Emergency contacts"
+            trailing={
+              <span className="text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+                {smsContactCount}
+              </span>
+            }
+            onClick={onManageSmsContacts}
+            chevron
+            density="compact"
+            className="[--settings-row-px:16px]"
+            testId="one-location-sms-contacts-entry"
+          />
+        </SettingsGroup>
+      </LocationSettingSection>
 
       <div>
         <SavedLocationsSection />
@@ -2760,6 +2774,23 @@ function LocationSettingsFlow({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function LocationSettingSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="w-full">
+      <p className="mb-2 px-[6px] text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+        {title}
+      </p>
+      {children}
+    </section>
   );
 }
 
@@ -2862,10 +2893,7 @@ function ActiveShareMetadata({
       ) : formatEndsAt ? (
         <span className="truncate">{`Access until ${formatEndsAt(grant.expiresAt)}`}</span>
       ) : (
-        <ShareCountdownText
-          expiresAt={grant.expiresAt}
-          className="truncate"
-        />
+        <ShareCountdownText expiresAt={grant.expiresAt} className="truncate" />
       )}
     </span>
   );
@@ -2896,6 +2924,7 @@ function StopGrantTextButton({
 /** One person in the People list: avatar (+ live dot) · name · status · action. */
 function PersonRow({
   name,
+  fromContacts,
   subtitle,
   active,
   first,
@@ -2903,6 +2932,7 @@ function PersonRow({
   expansion,
 }: {
   name: string;
+  fromContacts?: boolean;
   subtitle: string;
   /** True when there's a live connection (you're sharing or they're sharing). */
   active: boolean;
@@ -2922,11 +2952,12 @@ function PersonRow({
     // between the name and the shares underneath it would read as two people.
     <div
       className={cn(
-        "transition-colors hover:bg-[color:var(--app-neutral-fill)] motion-reduce:transition-none",
-        !first && "border-t border-[color:var(--app-separator)]",
+        "relative transition-colors hover:bg-[color:var(--app-neutral-fill)] motion-reduce:transition-none",
+        !first &&
+          "before:absolute before:left-16 before:right-4 before:top-0 before:h-px before:bg-[color:var(--app-separator)] before:content-['']",
       )}
     >
-      <div className="flex min-h-[62px] items-center gap-3 px-4 py-2 sm:min-h-16 sm:gap-3.5 sm:px-5">
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-2.5 sm:min-h-16">
         <div className="relative shrink-0">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]">
             {personInitials(name)}
@@ -2935,11 +2966,16 @@ function PersonRow({
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
           ) : null}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.3px] text-foreground">
-            {name}
-          </p>
-          <p className="truncate text-[14px] leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <div className="flex min-w-0 items-start gap-1.5">
+            <p className="min-w-0 flex-1 break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
+              {name}
+            </p>
+            {fromContacts ? (
+              <ContactSourceBadge className="mt-px shrink-0" />
+            ) : null}
+          </div>
+          <p className="break-words text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </p>
         </div>
@@ -2963,17 +2999,26 @@ function countdownAsLeft(label: string | null | undefined): string | null {
   return label;
 }
 
+function isGenericConnectionCopy(value: string): boolean {
+  return (
+    value === "Ready for private location sharing" ||
+    /existing trust or sharing history/i.test(value)
+  );
+}
+
 function peopleShareStatus(
   group: OneLocationGrantLaneGroup | null,
   receiving: boolean,
   countdownLabel: (value?: string | null) => string,
   fallback: string,
 ): string {
-  if (group && receiving) return "Sharing both ways";
+  if (group && receiving) {
+    return `${group.grants.length + 1} active shares`;
+  }
   if (!group) {
     return receiving
       ? "Sharing with you"
-      : fallback === "Ready for private location sharing"
+      : isGenericConnectionCopy(fallback)
         ? "Connected"
         : fallback;
   }
@@ -2989,6 +3034,13 @@ function peopleShareStatus(
   return left ? `${prefix} · ${left}` : prefix;
 }
 
+function requestMoreTimeLabel(hours: number | null | undefined): string {
+  if (hours === 0.5) return "30 min more";
+  if (hours === 2) return "2 hours more";
+  const duration = formatLocationDurationLabel(hours);
+  return duration ? `${duration} more` : "More time";
+}
+
 function requestDurationLabel(request: OneLocationAccessRequest): string {
   if (request.requestedDurationMode === "until_stopped") {
     return "Until stopped";
@@ -2999,9 +3051,15 @@ function requestDurationLabel(request: OneLocationAccessRequest): string {
 function sentRequestStatusLine(
   request: OneLocationAccessRequest,
   nowMs: number,
+  activeGrant?: OneLocationGrant | null,
+  countdownLabel?: (value?: string | null) => string,
 ): string {
   if (/active|approved|shared|granted/i.test(request.status)) {
-    return "Sharing with you";
+    const left =
+      activeGrant?.durationMode === "until_stopped"
+        ? "Until you stop"
+        : countdownAsLeft(countdownLabel?.(activeGrant?.expiresAt));
+    return left ? `Sharing with you · ${left}` : "Sharing with you";
   }
   const requestedAt = request.requestedAt
     ? Date.parse(request.requestedAt)
@@ -3016,7 +3074,7 @@ function sentRequestStatusLine(
   return requestStatusWord(request.status);
 }
 
-function PeopleHub({
+export function PeopleHub({
   vm,
   onAddConnections,
   onInvite,
@@ -3055,6 +3113,30 @@ function PeopleHub({
     }
     return byUserId;
   }, [vm.activeOwnerGrants]);
+  const activeReceivedGrantById = useMemo(() => {
+    const byId = new globalThis.Map<string, OneLocationGrant>();
+    for (const grant of vm.receivedGrants) {
+      if (grant.status === "active") byId.set(grant.id, grant);
+    }
+    return byId;
+  }, [vm.receivedGrants]);
+  const pendingExtensionByGrantId = useMemo(() => {
+    const byGrantId = new globalThis.Map<string, OneLocationAccessRequest>();
+    for (const request of vm.requestedByMe) {
+      if (request.status !== "pending" || !request.extendsGrantId) continue;
+      if (!byGrantId.has(request.extendsGrantId)) {
+        byGrantId.set(request.extendsGrantId, request);
+      }
+    }
+    return byGrantId;
+  }, [vm.requestedByMe]);
+  const requestsSentRows = useMemo(
+    () =>
+      vm.requestedByMe.filter(
+        (request) => !(request.status === "pending" && request.extendsGrantId),
+      ),
+    [vm.requestedByMe],
+  );
   const { expandedLaneUserIds, toggleLaneExpansion } = useExpandedShareLanes();
   const addPeopleEmptyAction = (
     <Button
@@ -3082,9 +3164,10 @@ function PeopleHub({
       <DropdownMenuContent
         align="end"
         forceMount
-        className="min-w-52 rounded-2xl"
+        className="min-w-52 rounded-2xl border border-[color:var(--app-border,rgba(255,255,255,0.1))] bg-[color:var(--app-primary-surface)] p-1.5 shadow-xl dark:border-[color:var(--app-separator)] dark:shadow-[var(--app-glass-shadow)]"
       >
         <DropdownMenuItem
+          data-voice-control-id="one-location-find-contacts"
           aria-busy={vm.busy === "contactSync" || undefined}
           disabled={vm.busy === "contactSync"}
           onSelect={(event) => {
@@ -3094,19 +3177,30 @@ function PeopleHub({
             }
             vm.onSyncContacts();
           }}
-          data-voice-control-id="one-location-find-contacts"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
-          {vm.busy === "contactSync" ? "Finding contacts…" : "Find contacts"}
+          {vm.busy === "contactSync"
+            ? "Finding contacts…"
+            : vm.contactSyncSummary
+              ? "Sync contacts again"
+              : "Find contacts"}
         </DropdownMenuItem>
+        {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
+          <DropdownMenuItem onSelect={() => vm.onViewContactSyncResults?.()}>
+            View contact sync results
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem
           onSelect={() => onInvite()}
           data-voice-control-id="one-location-action-invite"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
           Invite to One
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => onAddConnections()}
           data-voice-control-id="one-location-add-connections"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
           Manage connections
         </DropdownMenuItem>
@@ -3146,8 +3240,22 @@ function PeopleHub({
               id="one-location-connections-heading"
               className="col-start-1 row-start-1 text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]"
             >
-              Connections
+              Connections · {vm.recipientPageTotalCount}
             </h2>
+
+            {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
+              <button
+                type="button"
+                className="col-start-2 row-start-1 min-h-11 justify-self-end rounded-full px-2 text-[13px] font-medium text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]"
+                onClick={vm.onViewContactSyncResults}
+              >
+                {vm.contactSyncSummary.unknownCount
+                  ? `${vm.contactSyncSummary.unknownCount} need confirmation · View results`
+                  : vm.contactSyncSummary.connectedCount
+                    ? `${vm.contactSyncSummary.connectedCount} connected · View results`
+                    : `${vm.contactSyncSummary.matchedCount} matched · View results`}
+              </button>
+            ) : null}
 
             <div className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
               {addConnectionsMenu}
@@ -3156,7 +3264,7 @@ function PeopleHub({
             <div
               className={cn(
                 "col-span-3 row-start-2 mt-3 sm:col-span-4 sm:mt-3.5",
-                "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px]",
+                "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px] dark:[&_input]:bg-[color:var(--app-secondary-surface)]",
                 "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
                 "sm:[&_input]:h-12 sm:[&_input]:rounded-[var(--app-radius-md)] sm:[&_input]:pl-12 sm:[&_input]:pr-5 sm:[&_input]:text-base sm:[&_svg]:left-5",
               )}
@@ -3197,6 +3305,7 @@ function PeopleHub({
                       <PersonRow
                         key={r.userId}
                         name={name}
+                        fromContacts={r.connectedFromContacts}
                         expansion={
                           shareGroup && !singleGrant ? (
                             <div id={lanesId} hidden={!lanesExpanded}>
@@ -3225,14 +3334,12 @@ function PeopleHub({
                         // and one not, were then indistinguishable except by a
                         // tint, which is the whole reason "is this the same
                         // person or a different one" is hard to answer here.
-                        subtitle={
-                          peopleShareStatus(
-                            shareGroup,
-                            receiving,
-                            vm.expiresCountdownLabel,
-                            vm.recipientSubtitle(r),
-                          )
-                        }
+                        subtitle={peopleShareStatus(
+                          shareGroup,
+                          receiving,
+                          vm.expiresCountdownLabel,
+                          vm.recipientSubtitle(r),
+                        )}
                         active={sharing || receiving}
                         first={i === 0}
                         action={
@@ -3271,7 +3378,7 @@ function PeopleHub({
                   })}
                 </div>
               ) : (
-                <div className="[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]">
+                <div className="[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)] dark:[&>[data-ui-role=grouped-card]]:shadow-none">
                   <EmptyState
                     title={
                       hasSearch ? "No matching people" : "No connections yet"
@@ -3310,29 +3417,58 @@ function PeopleHub({
                   />
                 </div>
               )}
+              {vm.recipientPageHasMore ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={vm.recipientPageLoading}
+                  isLoading={vm.recipientPageLoading}
+                  onClick={() => void vm.onLoadMoreRecipients()}
+                  className="mt-3 h-11 w-full rounded-full"
+                  data-testid="one-location-people-load-more"
+                >
+                  Load more connections
+                </Button>
+              ) : null}
             </div>
           </section>
 
-          {vm.requestedByMe.length ? (
+          {requestsSentRows.length ? (
             <SettingsGroup
               title="Requests sent"
               separatorInset
               shellClassName="[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)]"
             >
-              {vm.requestedByMe.map((request) => {
+              {requestsSentRows.map((request) => {
                 const isLive = /active|approved|shared|granted/i.test(
                   request.status,
                 );
                 const grantId = request.approvedGrantId;
+                const activeGrant = grantId
+                  ? activeReceivedGrantById.get(grantId)
+                  : null;
+                const pendingExtension = grantId
+                  ? pendingExtensionByGrantId.get(grantId)
+                  : null;
                 const canEdit = isLive && Boolean(grantId);
                 const isEditing =
                   Boolean(grantId) && vm.editingGrantId === grantId;
                 const ownerLabel = vm.requestOwnerLabel(request);
+                const thirtyKey = grantId ? `${grantId}:0.5` : "";
+                const twoHourKey = grantId ? `${grantId}:2` : "";
+                const requestingMore =
+                  vm.requestingMoreTimeKey === thirtyKey ||
+                  vm.requestingMoreTimeKey === twoHourKey;
                 return (
                   <div key={request.id}>
                     <SettingsRow
                       title={ownerLabel}
-                      description={sentRequestStatusLine(request, vm.nowMs)}
+                      description={sentRequestStatusLine(
+                        request,
+                        vm.nowMs,
+                        activeGrant,
+                        vm.expiresCountdownLabel,
+                      )}
                       trailing={
                         canEdit && grantId ? (
                           <Button
@@ -3376,46 +3512,99 @@ function PeopleHub({
                         )
                       }
                       density="compact"
+                      className={cn(
+                        "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
+                        "[&>button]:min-h-[60px] sm:[&>button]:min-h-16 [&>div]:min-h-[60px] sm:[&>div]:min-h-16",
+                        "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
+                        "[&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
+                      )}
                     />
                     {isEditing && grantId ? (
-                      <div className="space-y-3 px-4 pb-4 pt-1 sm:px-5">
-                        <DurationSelector
-                          value={vm.editGrantDurationHours}
-                          onChange={vm.setEditGrantDurationHours}
-                          label="New duration"
-                          presentation="select"
-                        />
-                        {/* Framed as "new duration", not "shorten"/"extend":
-                            the person picks a duration like any other
-                            duration picker in this app. Whether it applies
-                            immediately or turns into a fresh request the
-                            owner has to approve is decided server-side by
-                            whether it's shorter or longer than what's left --
-                            and either outcome is confirmed by the toast that
-                            follows. */}
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="h-9 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-                            onClick={() =>
-                              vm.onEditGrantSave({
-                                ownerUserId: request.ownerUserId,
-                                grantId,
-                                ownerLabel,
-                              })
-                            }
-                            isLoading={vm.savingGrantId === grantId}
-                          >
-                            Save
-                          </Button>
+                      <div className="space-y-3 px-4 pb-4 pt-1">
+                        <p className="text-[15px] font-semibold leading-5 text-foreground">
+                          Ask for more time
+                        </p>
+                        {pendingExtension ? (
+                          <div className="rounded-2xl bg-[color:var(--app-neutral-fill)] px-4 py-3">
+                            <p className="text-[15px] font-semibold leading-5 text-foreground">
+                              {requestMoreTimeLabel(
+                                pendingExtension.requestedDurationHours,
+                              )}{" "}
+                              requested
+                            </p>
+                            <div className="mt-1 flex items-center justify-between gap-3">
+                              <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                                Waiting for approval
+                              </p>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-9 px-2 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
+                                onClick={() =>
+                                  vm.onWithdrawRequest(pendingExtension.id)
+                                }
+                                disabled={
+                                  vm.withdrawingRequestId ===
+                                  pendingExtension.id
+                                }
+                              >
+                                Take back
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="grid gap-2 min-[340px]:grid-cols-2">
+                              {[
+                                {
+                                  hours: 0.5 as const,
+                                  label: "30 min more",
+                                  key: thirtyKey,
+                                },
+                                {
+                                  hours: 2 as const,
+                                  label: "2 hours more",
+                                  key: twoHourKey,
+                                },
+                              ].map((option) => (
+                                <Button
+                                  key={option.key}
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-11 min-h-11 rounded-2xl border-[color:var(--app-accent)]/30 bg-[color:var(--app-primary-surface)] px-3 text-[15px] font-semibold leading-5 text-[color:var(--app-accent)] shadow-none hover:bg-[color:var(--app-accent-surface)] hover:text-[color:var(--app-accent)]"
+                                  onClick={() =>
+                                    vm.onRequestMoreTime({
+                                      ownerUserId: request.ownerUserId,
+                                      grantId,
+                                      ownerLabel,
+                                      additionalHours: option.hours,
+                                    })
+                                  }
+                                  disabled={requestingMore}
+                                  isLoading={
+                                    vm.requestingMoreTimeKey === option.key
+                                  }
+                                >
+                                  {vm.requestingMoreTimeKey === option.key
+                                    ? "Requesting…"
+                                    : option.label}
+                                </Button>
+                              ))}
+                            </div>
+                            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                              They’ll need to approve.
+                            </p>
+                          </>
+                        )}
+                        <div className="border-t border-[color:var(--app-separator)] pt-1">
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-9 rounded-full px-4 text-sm font-semibold text-[#FF3B30] hover:bg-[#FF3B30]/10 hover:text-[#D70015]"
+                            className="h-11 min-h-11 rounded-full px-0 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
                             onClick={() => vm.onStopGrant(grantId)}
                             disabled={vm.revokingGrantId === grantId}
                           >
-                            Stop
+                            Stop viewing
                           </Button>
                         </div>
                       </div>
@@ -3861,7 +4050,14 @@ function ShareFlow({
             : undefined
         }
         leading={<Avatar initials={initialsFrom(label)} />}
-        title={label}
+        title={
+          <span className="flex min-w-0 items-start gap-1.5">
+            <span className="min-w-0 flex-1 truncate">{label}</span>
+            {r.connectedFromContacts ? (
+              <ContactSourceBadge className="mt-px shrink-0" />
+            ) : null}
+          </span>
+        }
         // Only says something when there is something to say. A row that is
         // ready needs no sentence explaining that it is ready — but a row whose
         // share is already running has a number worth reading, and it is the
@@ -4058,11 +4254,14 @@ function ShareFlow({
 
   // step === "person"
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+9rem)]">
+    <div className={FLOW_STEP_ONE_CLASSNAME}>
       <TaskFlowHeader
         eyebrow="Step 1 of 2"
         title="Who can see you?"
-        description="Choose a Circle or contact."
+        description={selectedCountCopy(
+          selectedReady.length,
+          "Choose a Circle or contact.",
+        )}
       />
       {/* Trusted is not a group you share with.
        *
@@ -4084,7 +4283,9 @@ function ShareFlow({
           separatorInset
           className="[&>div:first-child]:mt-0"
         >
-          {shareableCircles.map((circle) => {
+          {[...shareableCircles]
+            .sort((a, b) => (a.name === "SMS Circle" ? 1 : b.name === "SMS Circle" ? -1 : 0))
+            .map((circle) => {
             const selected =
               vm.selectedShareCircleSelection?.circle.id === circle.id &&
               shareCircleFullySelected;
@@ -4163,7 +4364,6 @@ function ShareFlow({
           ) : null}
           {notSharing.length ? (
             <SettingsGroup
-              title="People"
               testId="one-location-share-people"
               separatorInset
               className="[&>div:first-child]:mt-0"
@@ -4190,14 +4390,7 @@ function ShareFlow({
           the confirm step stays reachable when sharing is blocked so the reason
           is visible on a disabled "Start sharing" rather than a button that
           silently does nothing here. */}
-      <div className="mt-6 rounded-[22px] border border-white/65 bg-white/80 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.09)] backdrop-blur-xl supports-[not(backdrop-filter:blur(1px))]:bg-white dark:border-white/10 dark:bg-black/55">
-        <div className="mb-2 flex min-h-5 items-center justify-between px-1 text-[13px] leading-[18px] text-muted-foreground">
-          {selectedReady.length ? (
-            <span>{selectedReady.length} selected</span>
-          ) : (
-            <span>Choose who can see you.</span>
-          )}
-        </div>
+      <div className={STICKY_FLOW_ACTION_CLASSNAME}>
         <Button
           onClick={() => setStep("details")}
           disabled={!selectedReady.length}
@@ -4355,6 +4548,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 
 function RequestRecipientListRow({
   name,
+  fromContacts,
   subtitle,
   tone,
   statusLabel,
@@ -4370,6 +4564,7 @@ function RequestRecipientListRow({
   expandedContent,
 }: {
   name: string;
+  fromContacts?: boolean;
   subtitle?: string;
   tone: "ready" | "pending" | "neutral";
   statusLabel?: string;
@@ -4401,8 +4596,13 @@ function RequestRecipientListRow({
       <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
         <ContactAvatar label={name} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
-            {name}
+          <span className="flex min-w-0 items-start gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+              {name}
+            </span>
+            {fromContacts ? (
+              <ContactSourceBadge className="mt-px shrink-0" />
+            ) : null}
           </span>
           {subtitle ? (
             <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -4802,11 +5002,14 @@ function AskFlow({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+9rem)]">
+    <div className={FLOW_STEP_ONE_CLASSNAME}>
       <TaskFlowHeader
         eyebrow="Step 1 of 2"
         title="Request location"
-        description="Choose who to ask."
+        description={selectedCountCopy(
+          selectedRequestRecipients.length,
+          "Choose one or more people.",
+        )}
       />
 
       {justSent ? (
@@ -4822,8 +5025,11 @@ function AskFlow({
       ) : null}
 
       <section className="space-y-3">
-        <AppSectionLabel as="h2">People</AppSectionLabel>
-        <PersonSearchInput value={searchDraft} onChange={setSearchDraft} />
+        <PersonSearchInput
+          value={searchDraft}
+          onChange={setSearchDraft}
+          placeholder="Search people"
+        />
         {filtered.length ? (
           <VirtualContactList
             items={rosterRecipientRows}
@@ -4853,6 +5059,7 @@ function AskFlow({
                 <RequestRecipientListRow
                   key={r.userId}
                   name={recipientLabel}
+                  fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
                       ? undefined
@@ -4946,23 +5153,12 @@ function AskFlow({
           data-testid="one-location-ask-manage-connections"
           className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
         >
-          Don&apos;t see someone? Manage connections
+          Manage connections
           <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
         </Link>
       </section>
 
-      <div className="rounded-[22px] border border-white/65 bg-white/80 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.09)] backdrop-blur-xl supports-[not(backdrop-filter:blur(1px))]:bg-white dark:border-white/10 dark:bg-black/55">
-        <div className="mb-2 flex min-h-5 items-center justify-between px-1 text-[13px] leading-[18px] text-muted-foreground">
-          {selectedRequestRecipients.length ? (
-            <span>
-              {selectedRequestRecipients.length === 1
-                ? "1 selected"
-                : `${selectedRequestRecipients.length} selected`}
-            </span>
-          ) : (
-            <span>Choose who to ask.</span>
-          )}
-        </div>
+      <div className={STICKY_FLOW_ACTION_CLASSNAME}>
         <Button
           onClick={() => setStep("details")}
           disabled={!selectedRequestRecipients.length}
@@ -5048,8 +5244,11 @@ function SelectedRecipientsRail({
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
                 <ContactAvatar label={label} className="h-8 w-8 text-[13px]" />
-                <span className="min-w-0 flex-1 text-[17px] font-normal leading-[22px] text-foreground">
-                  {label}
+                <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  {recipient.connectedFromContacts ? (
+                    <ContactSourceBadge className="mt-px shrink-0" />
+                  ) : null}
                 </span>
               </div>
             );

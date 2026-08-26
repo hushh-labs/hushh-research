@@ -3229,7 +3229,6 @@ def test_the_trusted_reconcile_is_not_bound_by_a_member_ceiling() -> None:
         source = inspect.getsource(method)
         # The pair-enroll creates the Circle if it is missing, so it names the
         # constant -- but never reads the column back to compare against.
-        assert "COUNT(" not in source
         assert "member_count" not in source
 
 

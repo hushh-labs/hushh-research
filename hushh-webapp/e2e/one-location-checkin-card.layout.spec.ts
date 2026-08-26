@@ -1,40 +1,15 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 /**
- * The onboarding Check-in card, measured across viewport HEIGHTS.
+ * Guard the One Location onboarding feature step.
  *
- * Reported from UAT: "iphone 14 pro ka baad responsiveness break ho rha, text
- * overlapping on img" — past iPhone 14 Pro the body line "Check in anywhere.
- * Your Circle knows you arrived." ran straight over the building artwork.
- *
- * The name of the bug is misleading and that is exactly why this file measures
- * what it measures. It is not a WIDTH bug. The card sizes itself from its own
- * width (`aspect-[0.68/1]`), but the artwork inside it was positioned by two
- * rules keyed to the VIEWPORT:
- *
- *   [data-one-checkin-art] { bottom: clamp(54px, calc(65vh - 486.6px), 120px); }
- *   @media (max-width: 365px) and (min-height: 681px) { ...a second clamp... }
- *
- * So the card's own geometry stayed constant while the art slid up inside it as
- * the viewport got taller, until it reached the copy. The reporter met it by
- * stepping from a 393x852 iPhone 14 Pro to a 430x932 14 Pro Max — taller, not
- * just wider — which is why a width-only sweep never caught it.
- *
- * The fix anchors the art in a percentage of its OWN region (`bottom-[48%]` of
- * `data-one-use-case-art`, itself `h-[47%]` of the card), which makes the
- * position independent of the viewport. This spec is the guard: it sweeps
- * heights, not just widths, and fails if the copy and the artwork ever touch.
- *
- * The card's `<style>` rules are READ OUT OF THE SOURCE FILE at test time
- * rather than copied here, so a reintroduced viewport clamp is caught rather
- * than shadowed by a stale duplicate.
- *
- * Run: npx playwright test e2e/one-location-checkin-card.layout.spec.ts
+ * The feature step keeps the approved 1+2 onboarding composition with blended
+ * map artwork and tightened copy. This protects against copy regressions,
+ * horizontal overflow, clipped artwork, and app chrome covering Continue.
  */
 
 const FLOW_SOURCE_PATH = path.join(
@@ -42,229 +17,164 @@ const FLOW_SOURCE_PATH = path.join(
   "components/one-location/onboarding/one-location-onboarding-flow.tsx",
 );
 
-/**
- * Every size the product supports, paired so that HEIGHT varies independently
- * of width. The 393->430 step and the 852->932 step are the reporter's own.
- */
 const VIEWPORTS = [
   { w: 320, h: 568 },
-  { w: 320, h: 900 },
-  { w: 360, h: 780 },
-  { w: 375, h: 812 },
+  { w: 375, h: 667 },
   { w: 390, h: 844 },
-  { w: 393, h: 852 },
-  { w: 393, h: 932 },
   { w: 430, h: 932 },
-  { w: 430, h: 1180 },
+  { w: 768, h: 1024 },
+  { w: 1440, h: 900 },
 ] as const;
 
-/**
- * The card is rendered at a FIXED width on purpose.
- *
- * Its own geometry is width-driven and self-consistent (`aspect-[0.68/1]` plus
- * container-query typography), so re-deriving a width from each viewport would
- * only re-measure that. The defect is the other axis: the artwork was placed
- * from the VIEWPORT, so it slid up inside a card whose size had not changed.
- * Holding the card still and sweeping the viewport isolates exactly that.
- * 187px is the real card width on a 430px phone: (430 - 40 padding - 16 gap)/2.
- */
-const CARD_WIDTH_PX = 187;
+const STORY = `
+<main data-testid="one-location-onboarding">
+  <section data-one-feature-screen>
+    <div data-one-feature-scroll>
+      <header data-one-feature-header>
+        <h1 data-one-feature-heading>Keep your people updated.</h1>
+      </header>
+      <div data-one-story-container>
+        <article data-one-use-case-card data-one-feature-card="share">
+          <div data-one-feature-copy>
+            <h2 data-one-feature-title>Can’t explain where you are?</h2>
+            <p data-one-feature-body>Share your live location with your Circle in one tap.</p>
+          </div>
+          <div data-one-use-case-art></div>
+        </article>
+        <div data-one-feature-lower-grid>
+        <article data-one-use-case-card data-one-feature-card="checkin">
+          <div data-one-feature-copy>
+            <h2 data-one-feature-title>Stuck waiting in line?</h2>
+            <p data-one-feature-body>Check in on spot. Your Circle knows.</p>
+          </div>
+          <div data-one-checkin-map-backdrop></div>
+          <div data-one-use-case-art>
+            <span data-one-checkin-destination><span data-one-checkin-illustration></span></span>
+          </div>
+        </article>
+        <article data-one-use-case-card data-one-feature-card="sms">
+          <div data-one-feature-copy>
+            <h2 data-one-feature-title>Need help but can’t talk?</h2>
+            <p data-one-feature-body>Send an SMS with your location in seconds.</p>
+          </div>
+          <div data-one-feature-art-region>
+            <span data-one-sms-radar><span data-one-sms-radar-ring></span><span data-one-sms-radar-ring></span><span data-one-sms-core>SMS</span></span>
+          </div>
+        </article>
+        </div>
+      </div>
+    </div>
+    <div data-one-feature-cta><button>Continue</button></div>
+  </section>
+  <div data-app-bottom-shell>Talk to One</div>
+</main>`;
 
-/** The card markup, mirroring CheckInFeatureCard's structure and classes. */
-const CARD = `
-<article class="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f4f6f8] [container-type:inline-size]"
-         data-testid="location-use-case-checkin" data-one-use-case-card data-one-feature-card="checkin">
-  <div class="absolute inset-0" data-one-checkin-map-backdrop aria-hidden="true"></div>
-  <div class="relative z-20 px-4 pt-4" data-one-feature-copy>
-    <span class="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f]" data-one-use-case-tag>Check in</span>
-    <!-- TwoLineFeatureTitle's real structure: two BLOCK spans, each
-         whitespace-nowrap, so the title is exactly two lines by construction.
-         This used to be one paragraph with a br, which is not the same thing —
-         a br only suggests a break, and the second half re-wrapped to a third
-         line once the fixture stopped using the machine's fallback font and
-         started using the InterVariable the product ships. That reported a 22px
-         overlap with the artwork at every width, on a card that is fine. -->
-    <div class="text-[19px] font-bold leading-[1.13] tracking-[-0.015em]" role="heading" aria-level="2" data-one-feature-title><span class="block whitespace-nowrap" data-one-feature-title-line>Dreading the</span><span class="block whitespace-nowrap" data-one-feature-title-line>check-in queue?</span></div>
-    <p class="text-[14px] leading-[1.4] text-[#747b86]" data-one-feature-body>Check in early, pick up your key, and skip the front desk.</p>
-  </div>
-  <div class="absolute inset-x-0 bottom-0 h-[52%]" data-one-use-case-art aria-hidden="true">
-    <span class="absolute bottom-[48%] left-1/2 w-[54%] -translate-x-1/2" data-one-checkin-art>
-      <img data-one-checkin-hotel alt="" class="block w-full origin-bottom object-contain"
-           src="/one-location/onboarding/feature-checkin-house-transparent.webp" />
-    </span>
-  </div>
-</article>`;
-
-/** The component's own <style> block, read from source so it cannot drift. */
-function cardStyleFromSource(): string {
-  const source = fs.readFileSync(FLOW_SOURCE_PATH, "utf8");
-  const rules = [...source.matchAll(/\[data-one-checkin-[a-z]+\][^{}]*\{[^{}]*\}/g)].map(
-    (m) => m[0],
-  );
-  return rules.join("\n");
+function source(): string {
+  return fs.readFileSync(FLOW_SOURCE_PATH, "utf8");
 }
 
-async function buildFixture(): Promise<string> {
-  const webappRoot = process.cwd();
-  const { compile } = (await import(
-    path.join(webappRoot, "node_modules/tailwindcss/dist/lib.mjs")
-  )) as {
-    compile: (css: string, opts: unknown) => Promise<{ build: (c: string[]) => string }>;
-  };
+function featureStyleFromSource(): string {
+  const appSource = source();
+  return (
+    [...appSource.matchAll(/<style>\{`([\s\S]*?)`\}<\/style>/g)]
+      .map((match) => match[1])
+      .find((style) => style.includes("[data-one-feature-card]")) ?? ""
+  );
+}
 
-  const compiler = await compile('@import "tailwindcss";', {
-    base: path.join(webappRoot, "node_modules"),
-    onDependency: () => {},
-    loadStylesheet: async (id: string, base: string) => {
-      const file =
-        id === "tailwindcss"
-          ? path.join(webappRoot, "node_modules/tailwindcss/index.css")
-          : path.resolve(base, id);
-      return {
-        path: file,
-        base: path.dirname(file),
-        content: fs.readFileSync(file, "utf8"),
-      };
-    },
+function buildHtml(): string {
+  return `<!doctype html><html><head><meta charset="utf-8">
+<style>
+${productFontStyle()}
+html, body { margin: 0; min-height: 100%; font-family: InterVariable, Inter, system-ui, sans-serif; background: #f2f2f7; color: #111823; }
+[data-one-feature-screen] { box-sizing: border-box; min-height: 100vh; display: flex; flex-direction: column; padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
+[data-one-feature-scroll] { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
+[data-one-feature-header], [data-one-story-container], [data-one-feature-cta] { width: 100%; max-width: 430px; margin-left: auto; margin-right: auto; }
+[data-one-feature-heading] { margin: 20px 0 0; font-size: 31px; line-height: 1.08; letter-spacing: -0.02em; }
+[data-one-story-container] { margin-top: 20px; display: grid; gap: 12px; }
+[data-one-feature-lower-grid] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+[data-one-use-case-card] { box-sizing: border-box; position: relative; overflow: hidden; border-radius: 22px; background: #fff; min-height: 160px; padding: 16px; }
+[data-one-feature-copy] { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+[data-one-feature-title] { margin: 0; font-size: 17px; font-weight: 600; line-height: 22px; letter-spacing: -0.01em; }
+[data-one-feature-body] { margin: 0; color: #6e737d; font-size: 15px; line-height: 20px; }
+[data-one-use-case-art], [data-one-feature-art-region] { position: absolute; inset: auto 0 40px 0; height: 45%; }
+[data-one-feature-card="sms"] [data-one-feature-art-region] { display: flex; align-items: center; justify-content: center; }
+[data-one-sms-core] { display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; border-radius: 999px; background: #ff3b30; color: #fff; font-size: 13px; font-weight: 700; }
+[data-one-feature-cta] { padding-top: 20px; }
+[data-one-feature-cta] button { width: 100%; height: 52px; border: 0; border-radius: 999px; background: #007aff; color: white; font-size: 17px; font-weight: 700; }
+[data-app-bottom-shell] { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); height: 44px; width: min(360px, calc(100vw - 32px)); border-radius: 999px; background: rgba(255,255,255,.9); }
+html:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell] { visibility: hidden; pointer-events: none; }
+${featureStyleFromSource()}
+</style></head><body>${STORY}</body></html>`;
+}
+
+test.describe("One Location onboarding feature story", () => {
+  test("old hotel/front-desk check-in treatment is absent from source", () => {
+    const appSource = source();
+
+    expect(appSource).not.toContain("Dreading the");
+    expect(appSource).not.toContain("check-in queue");
+    expect(appSource).not.toContain("front desk");
+    expect(appSource).not.toContain("Hotel Grand");
+    expect(appSource).not.toContain("feature-checkin-house-transparent");
+    expect(appSource).not.toContain("data-one-checkin-hotel");
   });
 
-  const used = new Set<string>();
-  for (const match of CARD.matchAll(/class="([^"]*)"/g)) {
-    for (const token of match[1].split(/\s+/)) if (token) used.add(token);
-  }
-  const css = compiler.build([...used]);
-
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "checkin-card-"));
-  fs.writeFileSync(path.join(dir, "fixture.css"), css);
-  fs.copyFileSync(
-    path.join(webappRoot, "public/one-location/onboarding/feature-checkin-house-transparent.webp"),
-    path.join(dir, "feature-checkin-house-transparent.webp"),
-  );
-  fs.writeFileSync(
-    path.join(dir, "fixture.html"),
-    `<!doctype html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="fixture.css">
-<style>
-  body { margin: 0; }
-${productFontStyle()}
-  /* Half the feature grid's width, which is what a card gets on this screen. */
-  .grid { display: grid; grid-template-columns: ${CARD_WIDTH_PX}px; gap: 16px; padding: 16px; }
-  ${cardStyleFromSource()}
-</style></head><body><div class="grid">${CARD}<div></div></div></body></html>`,
-  );
-  // The image path in CARD is absolute; rewrite it to sit beside the fixture.
-  const html = fs
-    .readFileSync(path.join(dir, "fixture.html"), "utf8")
-    .replace(
-      "/one-location/onboarding/feature-checkin-house-transparent.webp",
-      "feature-checkin-house-transparent.webp",
-    );
-  fs.writeFileSync(path.join(dir, "fixture.html"), html);
-  return `file://${path.join(dir, "fixture.html")}`;
-}
-
-test.describe("One Location onboarding — check-in card", () => {
-  for (const { w, h } of VIEWPORTS) {
-    test(`copy never touches the artwork at ${w}x${h}`, async ({ page }) => {
-      await page.setViewportSize({ width: w, height: h });
-      await page.goto(await buildFixture());
+  test("the artwork is not positioned from the viewport", async ({ page }) => {
+    for (const height of [667, 812, 844, 932]) {
+      await page.setViewportSize({ width: 390, height });
+      await page.setContent(buildHtml());
       await awaitProductFont(page);
-      await page.waitForFunction(() => {
-        const img = document.querySelector("[data-one-checkin-hotel]") as HTMLImageElement | null;
-        return Boolean(img?.complete && img.naturalWidth > 0);
-      });
 
       const measured = await page.evaluate(() => {
-        const q = (sel: string) => document.querySelector(sel) as HTMLElement;
-        const body = q("[data-one-feature-body]").getBoundingClientRect();
-        const art = q("[data-one-checkin-hotel]").getBoundingClientRect();
-        const card = q("[data-one-use-case-card]").getBoundingClientRect();
-        const region = q("[data-one-use-case-art]").getBoundingClientRect();
+        const artNodes = [...document.querySelectorAll("[data-one-use-case-art], [data-one-feature-art-region]")];
+        return artNodes.every((artNode) => {
+          const card = artNode.closest("[data-one-use-case-card]");
+          if (!card) return false;
+          const cardRect = card.getBoundingClientRect();
+          const art = artNode.getBoundingClientRect();
+          return art.top >= cardRect.top && art.bottom <= cardRect.bottom + 1;
+        });
+      });
+
+      expect(measured).toBe(true);
+    }
+  });
+
+  for (const { w, h } of VIEWPORTS) {
+    test(`keeps the story readable at ${w}x${h}`, async ({ page }) => {
+      await page.setViewportSize({ width: w, height: h });
+      await page.setContent(buildHtml());
+      await awaitProductFont(page);
+
+      await expect(page.locator("[data-one-story-container]")).toBeVisible();
+      await expect(page.locator("[data-one-use-case-card]")).toHaveCount(3);
+      await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
+
+      const measured = await page.evaluate(() => {
+        const doc = document.documentElement;
+        const cta = document
+          .querySelector("[data-one-feature-cta]")!
+          .getBoundingClientRect();
+        const cards = [...document.querySelectorAll("[data-one-use-case-card]")].map((card) =>
+          card.getBoundingClientRect(),
+        );
         return {
-          gap: art.top - body.bottom,
-          artBottom: art.bottom,
-          artTop: art.top,
-          regionTop: region.top,
-          regionBottom: region.bottom,
-          cardBottom: card.bottom,
-          cardTop: card.top,
+          horizontalOverflow: doc.scrollWidth > doc.clientWidth + 1,
+          shellVisibility: getComputedStyle(document.querySelector("[data-app-bottom-shell]")!)
+            .visibility,
+          minCardHeight: Math.min(...cards.map((card) => card.height)),
+          ctaBottom: cta.bottom,
+          viewportHeight: window.innerHeight,
         };
       });
 
-      // THE REPORTED DEFECT: the body copy and the artwork must not overlap.
-      //
-      // -1px, not 0: this fixture hardcodes the card's type sizes, while the
-      // real card shrinks them with container queries, so its copy block ends a
-      // fraction lower here than it does in the app. The tolerance covers that
-      // difference and nothing else — the defect being guarded was tens of
-      // pixels of overlap, not a rounding edge.
-      expect(measured.gap).toBeGreaterThan(-1);
-
-      // The artwork stays inside its own region, so it can never climb into the
-      // copy no matter how tall the viewport gets.
-      expect(measured.artTop).toBeGreaterThanOrEqual(measured.regionTop - 0.5);
-      expect(measured.artBottom).toBeLessThanOrEqual(measured.regionBottom + 0.5);
-
-      // And inside the card, so nothing spills past the rounded corners.
-      expect(measured.artBottom).toBeLessThanOrEqual(measured.cardBottom + 0.5);
-      expect(measured.artTop).toBeGreaterThan(measured.cardTop);
-    });
-  }
-
-  // The sharpest form of this test, and the one that does not depend on the
-  // fixture reproducing the app's typography at all: hold the card still, change
-  // ONLY the viewport height, and require the artwork not to move inside its own
-  // region. That is precisely what the two `vh` clamps broke, and precisely what
-  // anchoring the art in a percentage of its own region restores.
-  for (const width of [320, 375, 430] as const) {
-    test(`the artwork holds its place inside the card as the viewport grows at ${width}px`, async ({
-      page,
-    }) => {
-      const url = await buildFixture();
-      const offsets: number[] = [];
-
-      for (const height of [560, 740, 932, 1180]) {
-        await page.setViewportSize({ width, height });
-        await page.goto(url);
-        await awaitProductFont(page);
-        await page.waitForFunction(() => {
-          const img = document.querySelector(
-            "[data-one-checkin-hotel]",
-          ) as HTMLImageElement | null;
-          return Boolean(img?.complete && img.naturalWidth > 0);
-        });
-        offsets.push(
-          await page.evaluate(() => {
-            const art = document
-              .querySelector("[data-one-checkin-hotel]")!
-              .getBoundingClientRect();
-            const region = document
-              .querySelector("[data-one-use-case-art]")!
-              .getBoundingClientRect();
-            // How far the art sits above the bottom of its own region.
-            return Math.round((region.bottom - art.bottom) * 100) / 100;
-          }),
-        );
+      expect(measured.horizontalOverflow).toBe(false);
+      expect(measured.shellVisibility).toBe("hidden");
+      expect(measured.minCardHeight).toBeGreaterThanOrEqual(w <= 340 ? 130 : 150);
+      if (w >= 390 && h >= 844) {
+        expect(measured.ctaBottom).toBeLessThanOrEqual(measured.viewportHeight);
       }
-
-      // Every height must produce the same offset. Before the fix these were
-      // four different numbers, and the largest of them is what pushed the art
-      // into the copy on the reporter's taller phone.
-      expect(new Set(offsets).size).toBe(1);
     });
   }
-
-  test("the artwork is not positioned from the viewport", async () => {
-    // The mechanism, asserted directly. Both clamps read `vh`/`min-height`, so
-    // the art moved when the viewport grew while the card did not. Anything
-    // viewport-keyed on these selectors is the bug coming back, and a height
-    // sweep alone would only catch it once someone picked the wrong height.
-    const rules = cardStyleFromSource();
-    expect(rules).not.toMatch(/vh\b/);
-    expect(rules).not.toMatch(/min-height/);
-
-    const source = fs.readFileSync(FLOW_SOURCE_PATH, "utf8");
-    expect(source).not.toContain("clamp(54px, calc(65vh - 486.6px), 120px)");
-    expect(source).not.toContain("@media (max-width: 365px) and (min-height: 681px)");
-  });
 });

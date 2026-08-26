@@ -713,10 +713,11 @@ async def stream_agent_chat(
             directive_frames: list[tuple[str, dict[str, Any]]] = []
             if directives:
                 directive = directives[0]
-                if directive.delegate_agent_id:
+                if directive.delegate_agent_id or directive.kind == "prompt":
                     # Specialist prompt/choice cards are not executable app
-                    # actions. Their existing specialist continuation contract
-                    # remains external to the action receipt ledger.
+                    # actions. One-owned prompt directives, such as the
+                    # editable Gmail draft, use the same client-only channel.
+                    # Neither belongs in the generated-action receipt ledger.
                     directive_frames = _one_directive_frames(
                         directive,
                         conversation_text=text,

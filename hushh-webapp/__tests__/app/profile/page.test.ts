@@ -269,6 +269,43 @@ describe("resolveGmailStatusSummary", () => {
     });
   });
 
+  it("keeps saved receipts healthy after an interrupted background worker", () => {
+    expect(
+      resolveGmailStatusSummary({
+        status: {
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "dev@hushh.ai",
+          scope_csv: "gmail.readonly",
+          last_sync_status: "failed",
+          last_sync_error:
+            "Gmail sync worker stopped before reporting a final status.",
+          last_sync_at: "2026-04-03T10:00:00.000Z",
+          auto_sync_enabled: true,
+          revoked: false,
+          latest_run: {
+            run_id: "run_interrupted",
+            user_id: "user_123",
+            trigger_source: "auto_reconcile",
+            status: "failed",
+            listed_count: 0,
+            filtered_count: 0,
+            synced_count: 0,
+            extracted_count: 0,
+            duplicates_dropped: 0,
+            extraction_success_rate: 0,
+            error_message:
+              "Gmail sync worker stopped before reporting a final status.",
+          },
+        },
+      }),
+    ).toMatchObject({
+      tone: "success",
+      title: "Receipts are up to date",
+    });
+  });
+
   it("formats last updated labels directly from raw timestamps", () => {
     const label = resolveGmailLastUpdatedLabel({
       configured: true,
