@@ -159,6 +159,7 @@ tests/test_pod_migration_freeze.py
 tests/test_pod_migration_job.py
 tests/test_pod_migration_bundle.py
 tests/test_pod_migration_transport.py
+tests/test_pod_migration_live_steps.py
 tests/test_pod_migration_sequence.py
 tests/test_pod_migration_routes.py
 tests/test_pod_server.py
