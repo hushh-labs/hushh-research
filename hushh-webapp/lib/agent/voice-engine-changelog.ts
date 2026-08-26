@@ -31,6 +31,13 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
       "Voice Settings is reachable hands-free from any screen -- say \"open voice settings\" to reach it and adjust anything above without touching the screen.",
   },
   {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "Check in nearby, hands-free",
+    description:
+      "Say \"check in near me\" to see the places closest to you, pick one by name, and finish the check-in -- all without opening the screen. \"Check out\" ends it from anywhere, no navigation needed.",
+  },
+  {
     version: "1.4",
     date: "2026-08-25",
     title: "These actions now run the moment you ask",
