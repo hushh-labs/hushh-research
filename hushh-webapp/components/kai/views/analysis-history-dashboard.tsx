@@ -1232,7 +1232,7 @@ export function AnalysisHistoryDashboard({
           if (!open && !deleteInFlight) setPendingDelete(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent overlayClassName="z-[713]" className="z-[714]">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pendingDelete?.kind === "ticker" ? "Delete all versions?" : "Delete this version?"}
