@@ -624,6 +624,21 @@ export function NearbyCheckInSheet({
   useEffect(() => {
     automaticPlacesRef.current = automaticPlaces;
   }, [automaticPlaces]);
+  /**
+   * Same staleness problem as automaticPlacesRef, for the specific reason
+   * zero candidates came back. Collapsing every cause into one generic
+   * "nothing plausible nearby" message hid a permission-denied or
+   * GPS-accuracy failure behind a sentence that sounds like the person is
+   * simply somewhere with no restaurants around them.
+   */
+  const locationErrorRef = useRef(locationError);
+  useEffect(() => {
+    locationErrorRef.current = locationError;
+  }, [locationError]);
+  const placesErrorRef = useRef(placesError);
+  useEffect(() => {
+    placesErrorRef.current = placesError;
+  }, [placesError]);
 
   const publishState = useCallback(
     (next: OneLocationNearbyPresenceState) => {
@@ -1571,10 +1586,16 @@ export function NearbyCheckInSheet({
     }
 
     if (candidates.length === 0) {
+      // The same capture that fills automaticPlaces also sets one of these on
+      // failure. Surfacing the real reason (permission denied, GPS too
+      // coarse, a search error) instead of a generic "nothing is nearby"
+      // matters here specifically -- the person just said where they are.
+      const specificReason = locationErrorRef.current ?? placesErrorRef.current;
       return {
         status: "blocked" as const,
-        summary:
-          "No plausible places nearby right now. Check-In is open -- search for the place there instead.",
+        summary: specificReason
+          ? `${specificReason} Check-In is open -- search for the place there instead.`
+          : "No plausible places nearby right now. Check-In is open -- search for the place there instead.",
       };
     }
     // Five short names comfortably fits the 320-char settlement-summary budget

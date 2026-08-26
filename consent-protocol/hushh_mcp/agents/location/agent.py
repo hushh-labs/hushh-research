@@ -9,7 +9,7 @@ from typing import Any
 from hushh_mcp.hushh_adk.core import HushhAgent
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 
-from .tools import CONTROL_PLANE_LOCATION_TOOLS, LOCATION_AGENT_TOOLS, V2_LOCATION_TOOLS
+from .tools import V2_LOCATION_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class LocationAgent(HushhAgent):
         manifest_path = os.path.join(os.path.dirname(__file__), "agent.yaml")
         manifest = ManifestLoader.load(manifest_path)
 
-        selected_tools = tools if tools is not None else LOCATION_AGENT_TOOLS
+        selected_tools = tools if tools is not None else V2_LOCATION_TOOLS
 
         super().__init__(
             name=manifest.name,
@@ -62,33 +62,11 @@ class LocationAgent(HushhAgent):
             }
 
 
-_location_agent: LocationAgent | None = None
-
-
-def get_location_agent() -> LocationAgent:
-    global _location_agent
-    if _location_agent is None:
-        _location_agent = LocationAgent()
-    return _location_agent
-
-
-_location_chat_agent: LocationAgent | None = None
-
-
-def get_location_chat_agent() -> LocationAgent:
-    """Singleton LocationAgent restricted to v1 control-plane tools (no crypto handoff)."""
-    global _location_chat_agent
-    if _location_chat_agent is None:
-        _location_chat_agent = LocationAgent(tools=CONTROL_PLANE_LOCATION_TOOLS)
-    return _location_chat_agent
-
-
 _location_chat_agent_v2: LocationAgent | None = None
 
 
 def get_location_chat_agent_v2() -> LocationAgent:
-    """Singleton LocationAgent for v2 chat: control-plane + crypto-handoff prep +
-    public-link tools. Excludes the raw envelope publish/view tools."""
+    """Singleton LocationAgent used by location chat and voice delegation."""
     global _location_chat_agent_v2
     if _location_chat_agent_v2 is None:
         _location_chat_agent_v2 = LocationAgent(tools=V2_LOCATION_TOOLS)

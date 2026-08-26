@@ -77,6 +77,7 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/agent",
   "/one",
   "/one/gmail",
+  "/one/feed",
   "/one/pkm",
   "/one/connected-systems",
   "/one/profile",
@@ -1110,6 +1111,9 @@ async function navigateViaShell(page, spec) {
       return true;
     case "/one/gmail":
       await requestAppNavigation(page, "/one/gmail");
+      return true;
+    case "/one/feed":
+      await requestAppNavigation(page, "/one/feed");
       return true;
     case "/one/pkm":
       await requestAppNavigation(page, "/one/pkm");

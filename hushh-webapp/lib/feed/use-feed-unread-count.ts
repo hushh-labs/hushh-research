@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -18,39 +18,76 @@ import { FeedService } from "@/lib/services/feed-service";
  */
 export function useFeedUnreadCount(): number | null {
   const { user } = useAuth();
-  const [count, setCount] = useState<number | null>(null);
-  const cancelledRef = useRef(false);
+  const currentUserId = user?.uid ?? null;
+  // Object identity distinguishes separate sessions even when an A -> B -> A
+  // account cycle returns to the same uid. State from the first A session is
+  // never considered current for the second.
+  const session = useMemo(() => ({ userId: currentUserId }), [currentUserId]);
+  const [countState, setCountState] = useState<{
+    session: typeof session;
+    count: number | null;
+  }>({ session, count: null });
+  const requestSequenceRef = useRef(0);
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef<{
+    session: typeof session;
+    promise: Promise<void>;
+  } | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const load = useCallback(
-    async (force = false) => {
-      if (!user?.uid) return;
-      try {
-        const idToken = await user.getIdToken();
-        const next = await FeedService.unreadCount({
-          idToken,
-          userId: user.uid,
-          force,
-        });
-        if (!cancelledRef.current) setCount(next);
-      } catch {
-        // Unread count is presentation-only; a transient failure just keeps
-        // the last known value instead of surfacing an error state.
-      }
+    (force = false): Promise<void> => {
+      if (!user?.uid) return Promise.resolve();
+      const existing = inFlightRef.current;
+      if (existing?.session === session) return existing.promise;
+
+      const requestedUserId = user.uid;
+      const requestId = ++requestSequenceRef.current;
+      const isLatestRequest = () => requestSequenceRef.current === requestId;
+      const promise = (async () => {
+        try {
+          const idToken = await user.getIdToken();
+          if (!isLatestRequest()) return;
+          const next = await FeedService.unreadCount({
+            idToken,
+            userId: requestedUserId,
+            force,
+          });
+          if (mountedRef.current && isLatestRequest()) {
+            setCountState((current) =>
+              current.session === session ? { session, count: next } : current,
+            );
+          }
+        } catch {
+          // Unread count is presentation-only; a transient failure just keeps
+          // the last known value instead of surfacing an error state.
+        }
+      })();
+      const request = { session, promise };
+      inFlightRef.current = request;
+      void promise.finally(() => {
+        if (inFlightRef.current === request) inFlightRef.current = null;
+      });
+      return promise;
     },
-    [user],
+    [session, user],
   );
 
   useEffect(() => {
-    cancelledRef.current = false;
+    requestSequenceRef.current += 1;
+    inFlightRef.current = null;
+    setCountState({ session, count: null });
     if (!user?.uid) {
-      setCount(null);
       return;
     }
     void load();
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [user, load]);
+  }, [user, load, session]);
 
   // Shares the Feed's live signal rather than keeping a private timer, so the
   // badge and the Feed list re-check on the same tick and cannot drift into
@@ -72,7 +109,16 @@ export function useFeedUnreadCount(): number | null {
           CACHE_KEYS.FEED_UNREAD_COUNT(user.uid),
         );
         if (cached != null) {
-          setCount(cached);
+          // An optimistic read count is newer than any outstanding recount.
+          // Retire those requests so a late pre-read response cannot restore
+          // the badge the user just cleared by opening Feed.
+          requestSequenceRef.current += 1;
+          if (inFlightRef.current?.session === session) {
+            inFlightRef.current = null;
+          }
+          setCountState((current) =>
+            current.session === session ? { session, count: cached } : current,
+          );
           return;
         }
       }
@@ -80,7 +126,7 @@ export function useFeedUnreadCount(): number | null {
     };
     window.addEventListener(FEED_STATE_CHANGED_EVENT, recount);
     return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, recount);
-  }, [user?.uid, load]);
+  }, [user?.uid, load, session]);
 
-  return count;
+  return countState.session === session ? countState.count : null;
 }

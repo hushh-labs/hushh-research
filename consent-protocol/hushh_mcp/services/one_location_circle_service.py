@@ -203,6 +203,58 @@ def _human_display_name(name: Any, user_id: Any) -> str:
     return cleaned
 
 
+def _identity_label(
+    *,
+    user_id: Any,
+    display_name: Any,
+    email: Any = None,
+    fallback: str = "Someone",
+) -> str:
+    """Resolve a relationship-scoped label without ever exposing a raw id."""
+
+    from hushh_mcp.services.requester_identity import label_from_identity_row
+
+    return label_from_identity_row(
+        {
+            "user_id": str(user_id or ""),
+            "display_name": display_name,
+            "email": email,
+        },
+        fallback=fallback,
+    )
+
+
+def _record_circle_event(
+    conn: Any,
+    *,
+    owner_user_id: str,
+    actor_user_id: str,
+    event_type: str,
+    metadata: dict[str, Any],
+) -> None:
+    """Write a Circle transition to the One Location audit ledger atomically."""
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO one_location_events (
+              owner_user_id, actor_user_id, event_type, metadata
+            )
+            VALUES (
+              :owner_user_id, :actor_user_id, :event_type,
+              CAST(:metadata AS JSONB)
+            )
+            """
+        ),
+        {
+            "owner_user_id": owner_user_id,
+            "actor_user_id": actor_user_id,
+            "event_type": event_type,
+            "metadata": json.dumps(metadata, separators=(",", ":")),
+        },
+    )
+
+
 def _is_product_managed(row: dict[str, Any]) -> bool:
     """Is this a Circle the product provisions, rather than one a person made?
 
@@ -2311,14 +2363,20 @@ class OneLocationCircleService:
                         text(
                             """
                             SELECT
-                              id, owner_user_id, member_limit, status,
-                              is_system, system_kind
-                            FROM one_location_circles
-                            WHERE id = CAST(:circle_id AS UUID)
-                            FOR UPDATE
+                              circle.id, circle.name, circle.owner_user_id,
+                              circle.member_limit, circle.status,
+                              circle.is_system, circle.system_kind,
+                              joiner.user_id,
+                              joiner.display_name,
+                              joiner.email
+                            FROM one_location_circles circle
+                            LEFT JOIN actor_identity_cache joiner
+                              ON joiner.user_id = :user_id
+                            WHERE circle.id = CAST(:circle_id AS UUID)
+                            FOR UPDATE OF circle
                             """
                         ),
-                        {"circle_id": circle_id},
+                        {"circle_id": circle_id, "user_id": user_id},
                     )
                 )
                 if not circle_row or str(circle_row.get("status") or "") != "active":
@@ -2511,6 +2569,26 @@ class OneLocationCircleService:
                     ),
                     {"circle_id": circle_id, "user_id": user_id},
                 )
+                if joined:
+                    inviter_user_id = str(invite_row.get("created_by_user_id") or "")
+                    if inviter_user_id and inviter_user_id != user_id:
+                        joiner_label = _identity_label(
+                            user_id=user_id,
+                            display_name=circle_row.get("display_name"),
+                            email=circle_row.get("email"),
+                        )
+                        _record_circle_event(
+                            conn,
+                            owner_user_id=inviter_user_id,
+                            actor_user_id=user_id,
+                            event_type="location_circle_code_joined",
+                            metadata={
+                                "invite_id": str(invite_row.get("id") or ""),
+                                "circle_id": circle_id,
+                                "circle_name": str(circle_row.get("name") or ""),
+                                "counterpart_label": joiner_label,
+                            },
+                        )
             logger.info(
                 "one_location.circle_joined member=%s joined=%s",
                 redact_log_field("user_id", user_id),
@@ -3136,7 +3214,9 @@ class OneLocationCircleService:
                                 """
                                 SELECT
                                   actor_membership.role,
-                                  actor_identity.display_name AS inviter_display_name
+                                  actor_identity.user_id AS inviter_user_id,
+                                  actor_identity.display_name AS inviter_display_name,
+                                  actor_identity.email AS inviter_email
                                 FROM one_location_circle_memberships actor_membership
                                 LEFT JOIN actor_identity_cache actor_identity
                                   ON actor_identity.user_id = actor_membership.user_id
@@ -3476,6 +3556,11 @@ class OneLocationCircleService:
                         status_code=409,
                     )
                 circle_name = str(circle_row.get("name") or "")
+                adder_label = _identity_label(
+                    user_id=actor_user_id,
+                    display_name=actor_membership_row.get("inviter_display_name"),
+                    email=actor_membership_row.get("inviter_email"),
+                )
                 # Everyone here is already an active connection of the actor,
                 # so nobody here needs to be asked a second time: an invitation
                 # would put a 72-hour wait in front of a membership two people
@@ -3557,6 +3642,19 @@ class OneLocationCircleService:
                         ),
                         {"invite_ids": pending_invite_ids},
                     )
+                for added_user_id in added_user_ids:
+                    _record_circle_event(
+                        conn,
+                        owner_user_id=added_user_id,
+                        actor_user_id=actor_user_id,
+                        event_type="circle_member_added",
+                        metadata={
+                            "circle_id": cleaned_circle_id,
+                            "circle_name": circle_name,
+                            "added_by_label": adder_label,
+                            "counterpart_label": adder_label,
+                        },
+                    )
                 logger.info(
                     "one_location.circle_members_added actor=%s circle_system=%s count=%d",
                     redact_log_field("user_id", actor_user_id),
@@ -3564,7 +3662,6 @@ class OneLocationCircleService:
                     len(added_user_ids),
                 )
             if added_user_ids:
-                from hushh_mcp.services.feed_service import FeedService
                 from hushh_mcp.services.push_notifications import (
                     _lookup_display_name,
                     send_circle_member_added_push,
@@ -3584,24 +3681,6 @@ class OneLocationCircleService:
                         circle_id=cleaned_circle_id,
                         circle_name=circle_name,
                     )
-                    # Feed is a best-effort, post-commit projection: the
-                    # membership is already durable, so a feed-write failure
-                    # must never fail the add that produced it.
-                    try:
-                        FeedService().record_event(
-                            user_id=member_user_id,
-                            source_domain="location",
-                            event_type="circle_member_added",
-                            actor_label=adder_label or None,
-                            metadata={
-                                "circle_id": cleaned_circle_id,
-                                "circle_name": circle_name,
-                                "added_by_user_id": actor_user_id,
-                                "added_by_label": adder_label,
-                            },
-                        )
-                    except Exception:  # noqa: BLE001 - projection cannot roll back the add
-                        logger.exception("one_location.circle_member_added_feed_projection_failed")
             return {
                 # This endpoint no longer creates invitations. Both keys stay,
                 # always empty, so every caller and client that reads them
@@ -3705,6 +3784,7 @@ class OneLocationCircleService:
                               invite.status, invite.expires_at,
                               inviter.display_name AS inviter_display_name,
                               invitee.display_name AS invitee_display_name,
+                              invitee.email AS invitee_email,
                               invite.created_at, invite.responded_at
                             FROM one_location_circle_member_invites invite
                             LEFT JOIN actor_identity_cache inviter
@@ -3974,15 +4054,34 @@ class OneLocationCircleService:
                     accepted = True
                     invite_row["status"] = "accepted"
                     invite_row["responded_at"] = datetime.now(timezone.utc)
+                    invitee_label = _identity_label(
+                        user_id=user_id,
+                        display_name=invite_row.get("invitee_display_name"),
+                        email=invite_row.get("invitee_email"),
+                    )
+                    _record_circle_event(
+                        conn,
+                        owner_user_id=str(invite_row.get("inviter_user_id") or ""),
+                        actor_user_id=user_id,
+                        event_type="location_circle_member_invite_accepted",
+                        metadata={
+                            "invite_id": cleaned_invite_id,
+                            "circle_id": circle_id,
+                            "circle_name": str(invite_row.get("circle_name") or ""),
+                            "counterpart_label": invitee_label,
+                        },
+                    )
             if accepted:
                 from hushh_mcp.services.push_notifications import (
                     send_circle_member_invite_accepted_push,
                 )
 
+                inviter_user_id = str(invite_row.get("inviter_user_id") or "")
+                invitee_display_name = str(invite_row.get("invitee_display_name") or "")
                 send_circle_member_invite_accepted_push(
-                    inviter_user_id=str(invite_row.get("inviter_user_id") or ""),
+                    inviter_user_id=inviter_user_id,
                     invitee_user_id=user_id,
-                    invitee_display_name=str(invite_row.get("invitee_display_name") or ""),
+                    invitee_display_name=invitee_display_name,
                     circle_id=circle_id,
                     circle_name=str(invite_row.get("circle_name") or ""),
                     invite_id=cleaned_invite_id,

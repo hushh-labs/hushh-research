@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import hushh_mcp.services.feed_service as feed_service_module
 import hushh_mcp.services.one_location_circle_service as circle_service_module
 import hushh_mcp.services.push_notifications as push_notifications_module
 from hushh_mcp.services.one_location_circle_service import (
@@ -601,6 +600,83 @@ def test_join_is_idempotent_before_capacity_is_consumed(
     assert circle_lock_index < code_lock_index < membership_lock_index
 
 
+def test_first_code_join_records_one_atomic_inviter_feed_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440001"
+    conn = _CapacityConnection(
+        {"id": invite_id, "circle_id": circle_id},
+        {
+            "id": circle_id,
+            "name": "Family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+            "status": "active",
+            "user_id": "member-user",
+            "display_name": "Member User",
+        },
+        {"user_id": "member-user"},
+        {
+            "id": invite_id,
+            "circle_id": circle_id,
+            "status": "active",
+            "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+            "max_uses": 20,
+            "use_count": 1,
+            "created_by_user_id": "owner-user",
+        },
+        None,
+        {"member_count": 1},
+        None,
+        None,
+        [{"user_id": "member-user"}, {"user_id": "owner-user"}],
+        None,
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        service,
+        "get_circle",
+        lambda **_kwargs: {
+            "id": circle_id,
+            "name": "Family",
+            "members": [
+                {"userId": "member-user", "displayName": "Member User"},
+            ],
+        },
+    )
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_code_joined_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    result = service.join_circle(user_id="member-user", code="2345-6789-ABCD")
+
+    assert result["joined"] is True
+    event_index = next(
+        index for index, sql in enumerate(conn.sql) if "INSERT INTO one_location_events" in sql
+    )
+    event_params = conn.params[event_index]
+    assert event_params["owner_user_id"] == "owner-user"
+    assert event_params["actor_user_id"] == "member-user"
+    assert event_params["event_type"] == "location_circle_code_joined"
+    assert event_params["metadata"] == (
+        f'{{"invite_id":"{invite_id}","circle_id":"{circle_id}",'
+        '"circle_name":"Family","counterpart_label":"Member User"}'
+    )
+    assert len(push_calls) == 1
+
+
 def test_code_join_respects_capacity_reserved_by_other_pending_invites() -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     invite_id = "550e8400-e29b-41d4-a716-446655440001"
@@ -1016,6 +1092,17 @@ def test_targeted_invite_accept_notifies_inviter(
     )
 
     assert result["accepted"] is True
+    event_index = next(
+        index for index, sql in enumerate(conn.sql) if "INSERT INTO one_location_events" in sql
+    )
+    event_params = conn.params[event_index]
+    assert event_params["owner_user_id"] == "inviter-member"
+    assert event_params["actor_user_id"] == "member-user"
+    assert event_params["event_type"] == "location_circle_member_invite_accepted"
+    assert event_params["metadata"] == (
+        f'{{"invite_id":"{invite_id}","circle_id":"{circle_id}",'
+        '"circle_name":"Family","counterpart_label":"Member User"}'
+    )
     assert push_calls == [
         {
             "inviter_user_id": "inviter-member",
@@ -1419,13 +1506,6 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
         "_lookup_display_name",
         lambda user_id: "Owner" if user_id == "owner-user" else "",
     )
-    feed_calls: list[dict] = []
-    monkeypatch.setattr(
-        feed_service_module,
-        "FeedService",
-        lambda: SimpleNamespace(record_event=lambda **kwargs: feed_calls.append(kwargs)),
-    )
-
     result = service.create_member_invites(
         actor_user_id="owner-user",
         circle_id=circle_id,
@@ -1452,11 +1532,18 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
     assert [call["member_user_id"] for call in push_calls] == ["friend-one", "friend-two"]
     assert all(call["added_by_display_name"] == "Owner" for call in push_calls)
     assert all(call["circle_name"] == "Family" for call in push_calls)
-    assert [call["event_type"] for call in feed_calls] == [
-        "circle_member_added",
-        "circle_member_added",
+    event_params = [
+        params
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "INSERT INTO one_location_events" in sql
     ]
-    assert all(call["actor_label"] == "Owner" for call in feed_calls)
+    assert [params["owner_user_id"] for params in event_params] == [
+        "friend-one",
+        "friend-two",
+    ]
+    assert all(params["actor_user_id"] == "owner-user" for params in event_params)
+    assert all(params["event_type"] == "circle_member_added" for params in event_params)
+    assert all('"added_by_label":"Owner"' in params["metadata"] for params in event_params)
 
     # The invitation friend-one already had is resolved, not left dangling.
     assert any(
@@ -2316,12 +2403,6 @@ def test_the_sms_circle_still_introduces_nobody_and_costs_nobody_a_circle(
         lambda **kwargs: push_calls.append(kwargs) or 1,
     )
     monkeypatch.setattr(push_notifications_module, "_lookup_display_name", lambda _u: "Owner")
-    monkeypatch.setattr(
-        feed_service_module,
-        "FeedService",
-        lambda: SimpleNamespace(record_event=lambda **kwargs: None),
-    )
-
     result = service.create_member_invites(
         actor_user_id="owner-user",
         circle_id=circle_id,

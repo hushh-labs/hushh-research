@@ -41,8 +41,7 @@ export function FeedRow({
   const tone = DOMAIN_TONE[item.source_domain] ?? "gray";
   const unreadMarker = (
     <span
-      aria-label={!read ? "Unread" : undefined}
-      aria-hidden={read ? true : undefined}
+      aria-hidden="true"
       data-slot="feed-unread-marker"
       data-state={read ? "read" : "unread"}
       className={cn(
@@ -68,6 +67,7 @@ export function FeedRow({
               : "font-semibold text-foreground",
           )}
         >
+          {!read ? <span className="sr-only">Unread: </span> : null}
           {presentation.label}
         </span>
       }

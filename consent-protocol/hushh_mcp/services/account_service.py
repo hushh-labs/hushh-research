@@ -309,6 +309,7 @@ class AccountService:
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "feed_events": text("DELETE FROM feed_events WHERE user_id = :user_id"),
             "vault_key_wrappers": text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
             "world_model_index_v2": text(
                 "DELETE FROM world_model_index_v2 WHERE user_id = :user_id"
@@ -1092,6 +1093,9 @@ class AccountService:
             "one_location_envelopes",
             "one_location_share_grants",
             "one_location_recipient_keys",
+            # Feed is a derived projection. Clear it after every source table so
+            # present or future source-cleanup fan-out cannot recreate a row.
+            "feed_events",
         ):
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
             results[table_name] = True
@@ -1282,6 +1286,7 @@ class AccountService:
             "trusted_devices": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
+            "feed_events": False,
             "runtime_persona_state": False,
             "vault_key_wrappers": False,
             "vault_keys": False,
@@ -1504,6 +1509,8 @@ class AccountService:
                     "one_location_share_grants",
                     "one_location_recipient_keys",
                     "one_wallet_cards",
+                    # Last derived-data cleanup, before the identity/vault spine.
+                    "feed_events",
                 ):
                     self._delete_user_rows_if_table_exists(
                         conn,

@@ -49,7 +49,6 @@ from hushh_mcp.operons.kai.llm import (
     _gemini_unavailable_payload,
     _require_gemini_ready,
 )
-from hushh_mcp.services.feed_service import FeedService
 
 try:
     from google.genai import types as _genai_types  # type: ignore
@@ -5500,9 +5499,30 @@ class OneEmailKycService:
         for key in allowed:
             params[f"set_{key}"] = key in updates
             params[key] = _json(updates.get(key) or {}) if key == "metadata" else updates.get(key)
+        params["status_transition_source_id"] = (
+            f"{workflow_id}:status-transition:{uuid.uuid4().hex}" if "status" in updates else None
+        )
+        # Keep the owning workflow transition and its Feed projection in one
+        # statement/commit.  DatabaseClient.execute_raw commits each statement,
+        # so a later best-effort FeedService call could otherwise leave a
+        # successfully returned KYC status with no durable user history.
+        #
+        # ``previous`` locks the workflow and lets the projection distinguish a
+        # real state transition from a metadata-only retry.  One operation id
+        # is bound before execute_raw so its internal connection retry reuses
+        # the same identity. Client retries that observe the already-committed
+        # status emit nothing, while a later cycle back to that status receives
+        # a distinct transition identity.
         sql = """
-            UPDATE one_kyc_workflows
-            SET
+            WITH previous AS MATERIALIZED (
+              SELECT workflow_id, status AS previous_status
+              FROM one_kyc_workflows
+              WHERE workflow_id = :workflow_id
+              FOR UPDATE
+            ),
+            updated AS (
+              UPDATE one_kyc_workflows AS workflow
+              SET
               status = CASE WHEN :set_status THEN :status ELSE status END,
               consent_request_id = CASE
                 WHEN :set_consent_request_id THEN :consent_request_id
@@ -5577,8 +5597,34 @@ class OneEmailKycService:
                 ELSE metadata
               END,
               updated_at = NOW()
-            WHERE workflow_id = :workflow_id
-            RETURNING *
+              FROM previous
+              WHERE workflow.workflow_id = previous.workflow_id
+              RETURNING workflow.*, previous.previous_status
+            ),
+            feed_projection AS (
+              INSERT INTO feed_events (
+                user_id,
+                source_domain,
+                event_type,
+                actor_label,
+                metadata,
+                source_row_id
+              )
+              SELECT
+                updated.user_id,
+                'kyc',
+                'kyc_status_changed',
+                'KYC',
+                jsonb_build_object('new_status', LEFT(updated.status, 64)),
+                :status_transition_source_id
+              FROM updated
+              WHERE :set_status
+                AND updated.user_id IS NOT NULL
+                AND updated.status IS DISTINCT FROM updated.previous_status
+              ON CONFLICT DO NOTHING
+              RETURNING id
+            )
+            SELECT * FROM updated
         """
         rows = self.db.execute_raw(sql, params).data
         if not rows:
@@ -5587,19 +5633,7 @@ class OneEmailKycService:
                 status_code=404,
                 code="ONE_KYC_WORKFLOW_NOT_FOUND",
             )
-        row = dict(rows[0])
-        if "status" in updates and row.get("user_id"):
-            FeedService().record_event(
-                user_id=row["user_id"],
-                source_domain="kyc",
-                event_type="kyc_status_changed",
-                actor_label="KYC",
-                metadata={
-                    "new_status": row.get("status"),
-                    "counterparty_label": row.get("counterparty_label"),
-                },
-            )
-        return self._public_workflow(row)
+        return self._public_workflow(dict(rows[0]))
 
     def _get_workflow_by_id(self, workflow_id: str) -> dict[str, Any] | None:
         rows = self.db.execute_raw(
