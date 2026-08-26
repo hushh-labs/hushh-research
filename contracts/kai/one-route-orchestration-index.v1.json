@@ -1404,7 +1404,8 @@
         "location.chat.turn",
         "route.one_agents",
         "route.one_location",
-        "route.one_pkm"
+        "route.one_pkm",
+        "route.voice_settings"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -3938,7 +3939,7 @@
       "route_pattern": "/one/profile/preferences",
       "page_file": "app/one/profile/preferences/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.preferences",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -3968,7 +3969,9 @@
       },
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.voice_settings"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -3981,7 +3984,7 @@
       "route_pattern": "/one/profile/preferences/device",
       "page_file": "app/one/profile/preferences/device/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.preferences.device",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4011,7 +4014,9 @@
       },
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.voice_settings"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -4024,7 +4029,7 @@
       "route_pattern": "/one/profile/preferences/gemini",
       "page_file": "app/one/profile/preferences/gemini/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.preferences.gemini",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4054,7 +4059,9 @@
       },
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.voice_settings"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -4067,7 +4074,7 @@
       "route_pattern": "/one/profile/preferences/kai",
       "page_file": "app/one/profile/preferences/kai/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.preferences.kai",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4097,7 +4104,9 @@
       },
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.voice_settings"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -4110,7 +4119,7 @@
       "route_pattern": "/one/profile/preferences/voice",
       "page_file": "app/one/profile/preferences/voice/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.preferences.voice",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4140,20 +4149,22 @@
       },
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "route.voice_settings"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
-        "mode": "no_delegation",
+        "mode": "one_action_gate",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "consent",
       "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/preferences/voice/changelog",
       "page_file": "app/one/profile/preferences/voice/changelog/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.preferences.voice.changelog",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4183,7 +4194,9 @@
       },
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.voice_settings"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -4196,7 +4209,7 @@
       "route_pattern": "/one/profile/preferences/voice/examples",
       "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.preferences.voice.examples",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4226,7 +4239,9 @@
       },
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.voice_settings"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",

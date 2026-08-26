@@ -2257,7 +2257,8 @@
       "voice_action_contract_ids": [
         "route.one_agents",
         "route.one_location",
-        "route.one_pkm"
+        "route.one_pkm",
+        "route.voice_settings"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -9055,5 +9056,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "2ef0768ebc2426dc0abc74b160663f48fc9d9a8919d6c21390cd4b0407600739"
+  "content_sha256": "35265fb85dc6e1df3ce9230fa409ee7f2fbe475c039e1195cdaf3b19b024ee39"
 }

@@ -469,6 +469,71 @@ def test_auto_approve_preference_uses_server_time_version_and_audit(
     assert preference["ruleVersion"] == 4
 
 
+def test_nearby_check_in_preferences_default_visible_true_requests_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Db:
+        def execute_raw(self, _sql: str, _params: dict):
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().get_nearby_check_in_defaults(user_id="user_a")
+
+    assert preference == {
+        "visible": True,
+        "allowConnectionRequests": False,
+        "updatedAt": None,
+    }
+
+
+def test_nearby_check_in_preferences_update_upserts_and_returns_stored_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    updated_at = datetime.now(timezone.utc)
+
+    class Db:
+        def execute_raw(self, sql: str, params: dict):
+            calls.append((sql, dict(params)))
+            if "INSERT INTO one_location_nearby_check_in_preferences" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "visible": False,
+                            "allow_connection_requests": True,
+                            "updated_at": updated_at,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().update_nearby_check_in_defaults(
+        user_id="user_a",
+        visible=False,
+        allow_connection_requests=True,
+    )
+
+    upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "INSERT INTO one_location_nearby_check_in_preferences" in sql
+    )
+    assert "ON CONFLICT (user_id) DO UPDATE SET" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user_a",
+        "visible": False,
+        "allow_connection_requests": True,
+    }
+    assert preference == {
+        "visible": False,
+        "allowConnectionRequests": True,
+        "updatedAt": updated_at.isoformat(),
+    }
+
+
 def test_auto_approve_preference_rejects_a_circle_the_owner_did_not_create(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1897,6 +1962,8 @@ class FourUserMemoryService(OneLocationAgentService):
         if "FROM one_location_auto_approve_preferences" in sql:
             row = self.auto_approve_preferences.get(str(params.get("user_id") or ""))
             return dict(row) if row else None
+        if "FROM one_location_nearby_check_in_preferences" in sql:
+            return None
         if "AS active_connection" in sql and "AS eligible_circle_id" in sql:
             owner = str(params.get("owner_user_id") or "")
             other = str(params.get("other_user_id") or "")
@@ -6608,6 +6675,15 @@ def test_state_never_reports_auto_approve_off_when_its_authority_read_fails() ->
             raise RuntimeError(f"preference unavailable for {user_id}")
 
     with pytest.raises(RuntimeError, match="preference unavailable"):
+        UnavailablePreferenceService().list_state(user_id="user_a")
+
+
+def test_state_never_reports_nearby_check_in_defaults_when_its_authority_read_fails() -> None:
+    class UnavailablePreferenceService(FourUserMemoryService):
+        def get_nearby_check_in_defaults(self, *, user_id: str) -> dict:
+            raise RuntimeError(f"nearby check-in preference unavailable for {user_id}")
+
+    with pytest.raises(RuntimeError, match="nearby check-in preference unavailable"):
         UnavailablePreferenceService().list_state(user_id="user_a")
 
 

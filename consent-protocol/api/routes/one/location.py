@@ -153,6 +153,13 @@ class UpdateAutoApprovePreferenceRequest(_CamelModel):
     circle_id: UUID | None = Field(default=None, alias="circleId")
 
 
+class UpdateNearbyCheckInPreferencesRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    visible: bool
+    allow_connection_requests: bool = Field(alias="allowConnectionRequests")
+
+
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
@@ -652,6 +659,43 @@ def update_location_auto_approve_preference(
                 enabled=payload.enabled,
                 scope_kind=payload.scope_kind,
                 circle_id=(str(payload.circle_id) if payload.circle_id is not None else None),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/nearby-check-in-preferences")
+def get_location_nearby_check_in_preferences(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the viewer's own Nearby Check-In defaults.
+
+    Separate from `/location/state`, which also carries grants, circles, and
+    recipients -- Voice Settings needs two booleans, and should not pay for
+    the full bulk fetch to render a settings page.
+    """
+    try:
+        return {
+            "preferences": _service().get_nearby_check_in_defaults(
+                user_id=_user_id(token_data)
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/nearby-check-in-preferences")
+def update_location_nearby_check_in_preferences(
+    payload: UpdateNearbyCheckInPreferencesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preferences": _service().update_nearby_check_in_defaults(
+                user_id=_user_id(token_data),
+                visible=payload.visible,
+                allow_connection_requests=payload.allow_connection_requests,
             )
         }
     except Exception as exc:

@@ -35,6 +35,7 @@ import type {
   OneLocationStoredEnvelope,
   OneLocationEncryptedPrivateKey,
   OneLocationNearbyAttendee,
+  OneLocationNearbyCheckInPreference,
   OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
@@ -406,6 +407,35 @@ export class OneLocationService {
       }),
     });
     return response.preference;
+  }
+
+  static async getNearbyCheckInPreferences(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationNearbyCheckInPreference> {
+    const response = await apiJson<{
+      preferences: OneLocationNearbyCheckInPreference;
+    }>("/api/one/location/nearby-check-in-preferences", {
+      headers: jsonAuthHeaders(vaultOwnerToken),
+    });
+    return response.preferences;
+  }
+
+  static async updateNearbyCheckInPreferences(params: {
+    vaultOwnerToken: string;
+    visible: boolean;
+    allowConnectionRequests: boolean;
+  }): Promise<OneLocationNearbyCheckInPreference> {
+    const response = await apiJson<{
+      preferences: OneLocationNearbyCheckInPreference;
+    }>("/api/one/location/nearby-check-in-preferences", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        visible: params.visible,
+        allowConnectionRequests: params.allowConnectionRequests,
+      }),
+    });
+    return response.preferences;
   }
 
   /**

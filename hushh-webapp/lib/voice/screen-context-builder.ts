@@ -48,7 +48,7 @@ export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
  * slots first, so a crowded screen loses the actions nobody is looking at
  * right now rather than whichever happened to be declared last.
  * AVAILABLE_ACTION_IDS_CAP (18) still bounds the total, so a crowded screen
- * trades a few of the 8 GLOBAL_NAV_ACTION_IDS slots for commands that
+ * trades a few of the 9 GLOBAL_NAV_ACTION_IDS slots for commands that
  * actually do something on it.
  */
 export const ACTION_ID_SCREEN_SEGMENT_CAP = 14;
@@ -81,6 +81,7 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.one_pkm",
   "route.consents",
   "route.profile_connected_systems",
+  "route.voice_settings",
 ];
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";

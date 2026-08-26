@@ -329,6 +329,52 @@ describe("OneLocationService", () => {
     );
   });
 
+  it("reads Nearby Check-In preferences from the dedicated endpoint", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      preferences: {
+        visible: true,
+        allowConnectionRequests: false,
+        updatedAt: null,
+      },
+    });
+
+    const preferences = await OneLocationService.getNearbyCheckInPreferences(
+      "vault-token",
+    );
+
+    expect(mockApiJson.mock.calls[0]?.[0]).toBe(
+      "/api/one/location/nearby-check-in-preferences",
+    );
+    expect(preferences).toEqual({
+      visible: true,
+      allowConnectionRequests: false,
+      updatedAt: null,
+    });
+  });
+
+  it("writes Nearby Check-In preferences to the dedicated endpoint", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      preferences: {
+        visible: false,
+        allowConnectionRequests: true,
+        updatedAt: "2026-08-26T09:00:00.000Z",
+      },
+    });
+
+    await OneLocationService.updateNearbyCheckInPreferences({
+      vaultOwnerToken: "vault-token",
+      visible: false,
+      allowConnectionRequests: true,
+    });
+
+    const body = JSON.parse(String(mockApiJson.mock.calls[0]?.[1]?.body));
+    expect(mockApiJson.mock.calls[0]?.[0]).toBe(
+      "/api/one/location/nearby-check-in-preferences",
+    );
+    expect(mockApiJson.mock.calls[0]?.[1]?.method).toBe("PATCH");
+    expect(body).toEqual({ visible: false, allowConnectionRequests: true });
+  });
+
   it("updates the server-owned all-contacts rule", async () => {
     mockApiJson.mockResolvedValueOnce({
       preference: {

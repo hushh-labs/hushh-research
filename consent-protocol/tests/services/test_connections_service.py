@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -2336,3 +2337,53 @@ def test_the_trusted_join_is_skipped_rather_than_guessed_without_a_transaction()
     svc._transaction_connection = None
 
     svc._join_trusted_system_circles(user_a_id="user-a", user_b_id="user-b")
+
+
+def test_get_voice_preferences_defaults_share_scopes_off_when_no_row():
+    svc = _svc()
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning([])):
+        preference = svc.get_voice_preferences(user_id="user-a")
+
+    assert preference == {"shareScopesFromLastRequest": False, "updatedAt": None}
+
+
+def test_update_voice_preferences_upserts_and_returns_stored_row():
+    svc = _svc()
+    calls = []
+    updated_at = datetime.now(timezone.utc)
+
+    def execute_raw(sql, params=None):
+        calls.append((sql, dict(params or {})))
+        if "INSERT INTO connection_voice_preferences" in sql:
+            return SimpleNamespace(
+                data=[{"share_scopes_from_last_request": True, "updated_at": updated_at}]
+            )
+        return SimpleNamespace(data=[])
+
+    db = SimpleNamespace(execute_raw=execute_raw)
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        preference = svc.update_voice_preferences(
+            user_id="user-a", share_scopes_from_last_request=True
+        )
+
+    upsert_sql, upsert_params = next(
+        (sql, params) for sql, params in calls if "INSERT INTO connection_voice_preferences" in sql
+    )
+    assert "ON CONFLICT (user_id) DO UPDATE SET" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user-a",
+        "share_scopes_from_last_request": True,
+    }
+    assert preference == {
+        "shareScopesFromLastRequest": True,
+        "updatedAt": updated_at.isoformat(),
+    }
+
+
+def test_update_voice_preferences_raises_when_upsert_returns_nothing():
+    svc = _svc()
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning([])):
+        with pytest.raises(ConnectionsError) as excinfo:
+            svc.update_voice_preferences(user_id="user-a", share_scopes_from_last_request=True)
+
+    assert excinfo.value.code == "CONNECTION_VOICE_PREFERENCES_UPDATE_FAILED"
