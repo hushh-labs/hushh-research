@@ -17,6 +17,7 @@ import {
   evaluateKaiActionAvailability,
   getKaiActionById,
 } from "@/lib/voice/kai-action-gateway";
+import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -587,6 +588,7 @@ export async function executeAgentGatewayAction(
   }
 
   if (action.execution_target.path === "route") {
+    const destination = deriveVoiceRouteScreen(action.execution_target.target);
     input.router.push(action.execution_target.target);
     return buildResult({
       status: "started",
@@ -595,7 +597,8 @@ export async function executeAgentGatewayAction(
       routeBefore: routeBefore.pathname,
       routeAfter: action.execution_target.target,
       screenBefore: routeBefore.screen,
-      resultSummary: `${action.label} opened in Finance.`,
+      screenAfter: destination.screen,
+      resultSummary: `${action.label} opened.`,
       data: {
         target: action.execution_target.target,
         goal_id: action.goal.goal_id,

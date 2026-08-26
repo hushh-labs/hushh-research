@@ -91,6 +91,8 @@ interface DataTableProps<TData, TValue> {
   filterKey?: string;
   filterOptions?: { label: string; value: string }[];
   filterPlaceholder?: string;
+  searchValue?: string;
+  onSearchValueChange?: (value: string) => void;
   onRowClick?: (
     row: TData,
     event: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
@@ -118,6 +120,8 @@ export function DataTable<TData, TValue>({
   filterKey,
   filterOptions,
   filterPlaceholder = "Filter...",
+  searchValue,
+  onSearchValueChange,
   onRowClick,
   initialPageSize = 8,
   pageSizeOptions = [8, 16, 24],
@@ -135,13 +139,23 @@ export function DataTable<TData, TValue>({
   );
   const [searchTerm, setSearchTerm] = React.useState("");
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const resolvedSearchTerm = searchValue ?? searchTerm;
+  const setResolvedSearchTerm = React.useCallback(
+    (value: string) => {
+      if (searchValue === undefined) {
+        setSearchTerm(value);
+      }
+      onSearchValueChange?.(value);
+    },
+    [onSearchValueChange, searchValue],
+  );
 
   React.useEffect(() => {
     const timer = setTimeout(() => {
-      setGlobalFilter(searchTerm);
+      setGlobalFilter(resolvedSearchTerm);
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchTerm]);
+  }, [resolvedSearchTerm]);
 
   const normalizedSearchKeys = React.useMemo(
     () =>
@@ -253,8 +267,8 @@ export function DataTable<TData, TValue>({
                 autoCorrect="off"
                 autoCapitalize="off"
                 placeholder={searchPlaceholder}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={resolvedSearchTerm}
+                onChange={(e) => setResolvedSearchTerm(e.target.value)}
                 className="pl-9 cursor-text"
                 aria-label="Search table"
               />

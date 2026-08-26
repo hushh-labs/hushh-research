@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Loader2, UserRound } from "lucide-react";
+import { ChevronRight, Loader2, Search, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
@@ -19,9 +19,11 @@ import {
 import { NearbyAroundYou } from "@/components/ria/nearby/nearby-around-you";
 import { SettingsGroup, SettingsSegmentedTabs } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { Button } from "@/lib/morphy-ux/button";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -68,6 +70,7 @@ export default function RiaClientsPage() {
   // Session-only: an advisor lands on their roster, and prospecting is a
   // deliberate second step rather than the default view.
   const [view, setView] = useState<ClientsView>("connected");
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
 
   const clientsResource = useStaleResource<RiaClientListResponse>({
     cacheKey: user?.uid ? `ria_clients_connected_${user.uid}` : "ria_clients_guest",
@@ -103,6 +106,62 @@ export default function RiaClientsPage() {
     },
     [connectedClients, injectedTestClient]
   );
+  const visibleClientItems = useMemo(() => {
+    const query = clientSearchQuery.trim().toLowerCase();
+    if (!query) return clientItems;
+    return clientItems.filter((client) =>
+      [
+        client.investor_display_name,
+        client.investor_email,
+        client.investor_secondary_label,
+        client.investor_user_id,
+      ].some((value) => String(value || "").toLowerCase().includes(query))
+    );
+  }, [clientItems, clientSearchQuery]);
+  useLocalOnboardingActionHandler(
+    "ria.clients.show_connected",
+    () => {
+      setView("connected");
+      return {
+        status: "succeeded",
+        summary: "Showing connected investors.",
+        data: { view: "connected" },
+      };
+    },
+    { enabled: riaCapability === "switch" }
+  );
+  useLocalOnboardingActionHandler(
+    "ria.clients.show_around_you",
+    () => {
+      setView("nearby");
+      return {
+        status: "succeeded",
+        summary: "Showing people around you.",
+        data: { view: "nearby" },
+      };
+    },
+    { enabled: riaCapability === "switch" }
+  );
+  useLocalOnboardingActionHandler(
+    "ria.clients.search_client",
+    (slots) => {
+      const clientName = String(slots.clientName || slots.query || "").trim().slice(0, 80);
+      if (!clientName) {
+        return {
+          status: "blocked",
+          summary: "Which client should I search for?",
+        };
+      }
+      setView("connected");
+      setClientSearchQuery(clientName);
+      return {
+        status: "succeeded",
+        summary: `Searching connected clients for ${clientName}.`,
+        data: { view: "connected" },
+      };
+    },
+    { enabled: riaCapability === "switch" }
+  );
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "ria_clients",
@@ -116,6 +175,13 @@ export default function RiaClientsPage() {
       ],
       controls: [
         {
+          id: "ria_route_tab_profile",
+          label: "Profile",
+          type: "tab",
+          state: "available",
+          actionId: "route.ria_profile",
+        },
+        {
           id: "ria_route_tab_clients",
           label: "Clients",
           type: "tab",
@@ -123,12 +189,43 @@ export default function RiaClientsPage() {
           actionId: "route.ria_clients",
         },
         {
+          id: "ria_route_tab_picks",
+          label: "Picks",
+          type: "tab",
+          state: "available",
+          actionId: "route.ria_picks",
+        },
+        {
           id: "ria_clients_browse_marketplace",
           label: "Browse the marketplace",
           type: "button",
           actionId: "route.ria_marketplace_connect",
         },
-        ...clientItems.slice(0, 8).map((client, index) => ({
+        {
+          id: "ria_clients_show_connected",
+          label: "Connected",
+          type: "tab",
+          state: view === "connected" ? "active" : "available",
+          actionId: "ria.clients.show_connected",
+          voiceAliases: ["only connected", "show connected clients", "connected investors"],
+        },
+        {
+          id: "ria_clients_show_around_you",
+          label: "Around you",
+          type: "tab",
+          state: view === "nearby" ? "active" : "available",
+          actionId: "ria.clients.show_around_you",
+          voiceAliases: ["around me", "who is around me", "people around you"],
+        },
+        {
+          id: "ria_clients_search",
+          label: "Search clients",
+          type: "search",
+          state: clientSearchQuery ? "active" : "available",
+          actionId: "ria.clients.search_client",
+          voiceAliases: ["find client", "search client", "find investor"],
+        },
+        ...visibleClientItems.slice(0, 8).map((client, index) => ({
           id: `ria_clients_client_row_${index + 1}`,
           label: client.investor_display_name || client.investor_email || "Investor",
           type: "button",
@@ -137,17 +234,20 @@ export default function RiaClientsPage() {
         })),
       ],
       activeTab: "clients",
-      visibleModules: ["Connected investors"],
-      selectedObjects: clientItems
+      visibleModules: [view === "nearby" ? "People around you" : "Connected investors"],
+      selectedObjects: visibleClientItems
         .slice(0, 8)
         .map((client) => client.investor_display_name || client.investor_email || client.investor_user_id)
         .filter((value): value is string => Boolean(value)),
       screenMetadata: {
         connected_client_count: clientItems.length,
+        visible_client_count: visibleClientItems.length,
         loading: clientsResource.loading,
+        clients_view: view,
+        search_active: Boolean(clientSearchQuery.trim()),
       },
     }),
-    [clientItems, clientsResource.loading]
+    [clientItems.length, clientSearchQuery, clientsResource.loading, view, visibleClientItems]
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
@@ -194,9 +294,9 @@ export default function RiaClientsPage() {
           title={
             <span className="inline-flex flex-wrap items-center gap-2">
               {RIA_COPY.clients.title}
-              {view === "connected" && clientItems.length > 0 ? (
+              {view === "connected" && visibleClientItems.length > 0 ? (
                 <Badge variant="secondary" className="text-[10px]">
-                  {clientItems.length}
+                  {visibleClientItems.length}
                 </Badge>
               ) : null}
             </span>
@@ -251,8 +351,43 @@ export default function RiaClientsPage() {
                   {RIA_COPY.clients.browse}
                 </Button>
               </div>
+            ) : visibleClientItems.length === 0 ? (
+              <div className="space-y-3 px-4 py-8 text-center">
+                <div className="relative mx-auto max-w-sm">
+                  <Search
+                    className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    type="search"
+                    value={clientSearchQuery}
+                    onChange={(event) => setClientSearchQuery(event.target.value)}
+                    placeholder="Search connected clients"
+                    className="pl-9"
+                    aria-label="Search connected clients"
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground">No connected clients match that search.</p>
+              </div>
             ) : (
-              clientItems.map((client, index) => (
+              <>
+                <div className="px-4 pt-4">
+                  <div className="relative">
+                    <Search
+                      className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <Input
+                      type="search"
+                      value={clientSearchQuery}
+                      onChange={(event) => setClientSearchQuery(event.target.value)}
+                      placeholder="Search connected clients"
+                      className="pl-9"
+                      aria-label="Search connected clients"
+                    />
+                  </div>
+                </div>
+              {visibleClientItems.map((client, index) => (
                 <button
                   key={client.id}
                   type="button"
@@ -298,7 +433,8 @@ export default function RiaClientsPage() {
                   </div>
                   <MaterialRipple variant="none" effect="fade" className="z-0" />
                 </button>
-              ))
+              ))}
+              </>
             )}
           </SettingsGroup>
           )}

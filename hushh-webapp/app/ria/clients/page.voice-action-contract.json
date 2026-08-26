@@ -174,6 +174,199 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "ria.clients.show_connected",
+      "label": "Show Connected Clients",
+      "meaning": "Switches the clients screen to the connected investor roster.",
+      "aliases": [
+        "only connected",
+        "show connected clients",
+        "show connected investors",
+        "switch to connected",
+        "open connected roster"
+      ],
+      "search_keywords": [
+        "connected",
+        "connected clients",
+        "connected investors",
+        "client roster"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria.clients.show_connected"
+      },
+      "control_ids": [
+        "ria_clients_show_connected"
+      ],
+      "state_exposure": [
+        "selected clients view"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/clients/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "ria.clients.show_around_you",
+      "label": "Show Around You",
+      "meaning": "Switches the clients screen to public-association records near the advisor's selected place.",
+      "aliases": [
+        "who is around me",
+        "show people around me",
+        "show around you",
+        "switch to around you",
+        "open nearby records",
+        "show nearby prospects"
+      ],
+      "search_keywords": [
+        "around you",
+        "around me",
+        "nearby",
+        "prospects",
+        "public records"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria.clients.show_around_you"
+      },
+      "control_ids": [
+        "ria_clients_show_around_you"
+      ],
+      "state_exposure": [
+        "selected clients view"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/components/ria/nearby/nearby-around-you.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "ria.clients.search_client",
+      "label": "Search Connected Clients",
+      "meaning": "Filters the connected investor roster by a spoken client name or identifier.",
+      "aliases": [
+        "find client",
+        "find investor",
+        "search client",
+        "search connected clients",
+        "find john"
+      ],
+      "search_keywords": [
+        "find",
+        "search",
+        "client",
+        "investor",
+        "connected"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria.clients.search_client"
+      },
+      "control_ids": [
+        "ria_clients_search"
+      ],
+      "state_exposure": [
+        "visible connected client names",
+        "visible connected client relationship states"
+      ],
+      "goal": {
+        "goal_id": "goal.ria.clients.search_client",
+        "slot_schema": {
+          "clientName": "spoken_person_name"
+        },
+        "required_inputs": [
+          {
+            "name": "clientName",
+            "slot": "clientName",
+            "resolver": "spoken_person_name",
+            "prompt": "Which client should I search for?",
+            "required": true
+          }
+        ],
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.clients.search_client",
+            "label": "Search connected clients",
+            "settlement_target": {
+              "route": "/ria/clients",
+              "screen": "ria_clients"
+            }
+          }
+        ]
+      },
+      "docs_references": [
+        "hushh-webapp/app/ria/clients/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "ria.clients.nearby_shortlist_record",
       "label": "Shortlist Nearby Record",
       "meaning": "Represents the shortlist control on an opened public-association record. Choosing a specific record stays manual until voice carries a selected record id.",

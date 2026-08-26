@@ -81,6 +81,50 @@ describe("executeAgentGatewayAction", () => {
     });
   });
 
+  it("executes generated RIA route actions through browser navigation", async () => {
+    const router = { push: vi.fn() };
+
+    for (const [actionId, target, screenAfter] of [
+      ["route.ria_profile", "/ria/profile", "profile_regulatory"],
+      ["route.ria_clients", "/ria/clients", "ria_clients"],
+      ["route.ria_picks", "/ria/picks", "ria_picks"],
+    ] as const) {
+      router.push.mockClear();
+      const result = await executeAgentGatewayAction({
+        actionId,
+        allowedActionIds: ["route.ria_profile"],
+        userId: "user_1",
+        router,
+        appRuntimeState: runtimeState({
+          route: {
+            pathname: "/ria/profile",
+            screen: "profile_regulatory",
+            subview: null,
+          },
+          persona: {
+            active: "ria",
+            primary_nav: "ria",
+            available: ["ria", "investor"],
+            transition_target: null,
+            ria_switch_available: true,
+            ria_setup_available: false,
+          },
+        }),
+        hasPortfolioData: true,
+        busyOperations: {},
+        setAnalysisParams: vi.fn(),
+      });
+
+      expect(router.push).toHaveBeenCalledWith(target);
+      expect(result).toMatchObject({
+        status: "started",
+        actionId,
+        routeAfter: target,
+        screenAfter,
+      });
+    }
+  });
+
   it("keeps global route actions blocked behind an active blocking layer", async () => {
     const router = { push: vi.fn() };
 

@@ -53,6 +53,7 @@ import { ProseMarkdown } from "@/components/research/prose-markdown";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import {
   RiaService,
   type RiaDossier,
@@ -900,6 +901,67 @@ export function RiaProfileSection({
 
   const currentLicenseNumber = getProfileRiaRefreshLicenseNumber(status);
   const verified = isRiaVerified(status?.verification_status);
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "profile_regulatory",
+      title: "RIA Profile",
+      purpose: "Advisor profile management and verification details.",
+      sections: [
+        {
+          id: "ria_profile_verification",
+          title: "Verification",
+        },
+        {
+          id: "ria_profile_manage",
+          title: "RIA profile",
+        },
+      ],
+      controls: [
+        {
+          id: "ria_route_tab_profile",
+          label: "Profile",
+          type: "tab",
+          state: "active",
+          actionId: "route.ria_profile",
+        },
+        {
+          id: "ria_route_tab_clients",
+          label: "Clients",
+          type: "tab",
+          state: "available",
+          actionId: "route.ria_clients",
+        },
+        {
+          id: "ria_route_tab_picks",
+          label: "Picks",
+          type: "tab",
+          state: "available",
+          actionId: "route.ria_picks",
+        },
+        {
+          id: "ria_profile_edit_services",
+          label: "Edit profile",
+          type: "button",
+          state: editOpen ? "active" : "available",
+          actionId: "ria.profile.edit_services",
+        },
+      ],
+      activeTab: "profile",
+      visibleModules: ["Verification", "Regulatory profile", "RIA profile"],
+      busyOperations: [
+        ...(saving ? ["ria_profile_saving"] : []),
+        ...(deleting ? ["ria_profile_deleting"] : []),
+        ...(refreshingLicense ? ["ria_profile_refreshing_license"] : []),
+      ],
+      screenMetadata: {
+        profile_exists: status?.exists !== false,
+        verified,
+        edit_open: editOpen,
+      },
+    }),
+    [deleting, editOpen, refreshingLicense, saving, status?.exists, verified],
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
   const secRecordMetadata = useMemo(
     () => resolveSecRecordMetadata(status),
     [status],
