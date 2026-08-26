@@ -172,6 +172,173 @@ def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) ->
     assert service.calls[0]["enforce_connection"] is True
 
 
+def test_auto_approval_route_threads_only_the_server_rule_version(monkeypatch) -> None:
+    class ApprovalRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "request": {"id": "request-1", "status": "approved"},
+                "grant": {"id": "grant-1", "status": "active"},
+            }
+
+    service = ApprovalRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    response = client.post(
+        "/api/one/location/requests/request-1/approve",
+        json={
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 7,
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-1",
+            "approval_mode": "automatic",
+            "duration_hours": None,
+            "duration_mode": None,
+            "auto_approve_rule_version": 7,
+        }
+    ]
+
+
+def test_auto_approval_route_rejects_partial_or_unknown_context(monkeypatch) -> None:
+    class RejectProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            raise AssertionError("invalid approval payload reached the service")
+
+    service = RejectProbe()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    rejected_payloads = [
+        {},
+        {"durationHours": 1},
+        {"durationHours": 1, "durationMode": "timed"},
+        {"approvalMode": None},
+        {"approvalMode": "legacy"},
+        {"approvalMode": "manual", "autoApproveRuleVersion": 1},
+        {"approvalMode": "automatic"},
+        {"approvalMode": "automatic", "autoApproveRuleVersion": 0},
+        {
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 1,
+            "durationHours": 1,
+        },
+        {
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 1,
+            "durationMode": "timed",
+        },
+        {"approvalMode": "manual", "autoApproveScopeKind": "all_contacts"},
+        {
+            "approvalMode": "manual",
+            "autoApproveCircleId": "550e8400-e29b-41d4-a716-446655440000",
+        },
+        {"approvalMode": "manual", "autoApproveEnabledAt": "2026-08-24T09:00:00Z"},
+        {"approvalMode": "manual", "automatic": True},
+    ]
+
+    for payload in rejected_payloads:
+        response = client.post(
+            "/api/one/location/requests/request-1/approve",
+            json=payload,
+        )
+        assert response.status_code == 422, payload
+    assert service.calls == []
+
+
+def test_manual_approval_route_requires_explicit_intent(monkeypatch) -> None:
+    class ApprovalRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "request": {"id": "request-1", "status": "approved"},
+                "grant": {"id": "grant-1", "status": "active"},
+            }
+
+    service = ApprovalRouteProbe()
+    client = _client(service, {"user_id": "owner-from-token"}, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        "/api/one/location/requests/request-1/approve",
+        json={"approvalMode": "manual", "durationHours": 1},
+    )
+    no_override_response = client.post(
+        "/api/one/location/requests/request-2/approve",
+        json={"approvalMode": "manual"},
+    )
+
+    assert response.status_code == 200
+    assert no_override_response.status_code == 200
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-1",
+            "approval_mode": "manual",
+            "duration_hours": 1,
+            "duration_mode": None,
+            "auto_approve_rule_version": None,
+        },
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-2",
+            "approval_mode": "manual",
+            "duration_hours": None,
+            "duration_mode": None,
+            "auto_approve_rule_version": None,
+        },
+    ]
+
+
+def test_auto_approve_preference_route_binds_owner_and_scope(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def update_auto_approve_preference(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "enabled": True,
+                "scope": {"kind": "circle", "circleId": kwargs["circle_id"]},
+                "enabledAt": "2026-08-24T09:00:00+00:00",
+                "ruleVersion": 3,
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    response = client.patch(
+        "/api/one/location/auto-approve-preference",
+        json={"enabled": True, "scopeKind": "circle", "circleId": circle_id},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "user_id": "owner-from-token",
+            "enabled": True,
+            "scope_kind": "circle",
+            "circle_id": circle_id,
+        }
+    ]
+
+
 def test_view_envelope_route_threads_allow_empty_query_param(monkeypatch) -> None:
     """The opt-in must reach the service, and must default to off.
 
@@ -266,7 +433,7 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     current_user["user_id"] = user_a
     approve_d = client.post(
         f"/api/one/location/requests/{referral['request']['id']}/approve",
-        json={"durationHours": 1},
+        json={"approvalMode": "manual", "durationHours": 1},
     )
     assert approve_d.status_code == 200
     grant_d = approve_d.json()["grant"]
@@ -341,7 +508,11 @@ def test_public_location_invite_route_creates_request_without_returning_location
     resolve_response = client.get(f"/api/one/location/public-invites/{token}")
     assert resolve_response.status_code == 200
     resolve_payload = resolve_response.json()
-    assert resolve_payload["invite"]["ownerLabel"] == "A trusted person"
+    # The sharer's display name, over the wire. It read "A trusted person" for
+    # every link ever minted because create_public_invite never wrote
+    # metadata.owner_safe_label -- the only field this payload consults.
+    assert resolve_payload["invite"]["ownerLabel"] == "User A"
+    # A name, and nothing else: no id, no phone, no email, no raw name field.
     assert "ownerUserId" not in json.dumps(resolve_payload)
     assert "ownerDisplayName" not in json.dumps(resolve_payload)
     assert "ownerMaskedPhone" not in json.dumps(resolve_payload)

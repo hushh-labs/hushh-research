@@ -909,9 +909,11 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
 
     expect(
-      screen.getByRole("heading", { name: /checking your gmail connection/i }),
+      screen.getByRole("heading", { name: /checking your gmail status/i }),
     ).toBeTruthy();
-    expect(screen.getByText(/this should only take a moment/i)).toBeTruthy();
+    expect(
+      screen.getByText(/your inbox and receipts will appear here as they are ready/i),
+    ).toBeTruthy();
   });
 
   it("keeps previously synced receipts visible with reconnect guidance after Gmail disconnects", async () => {
@@ -991,7 +993,9 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /gmail not connected/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/receipt emails capture purchase interactions/i),
+      screen.getByText(
+        /flag what needs a reply, surfaces upcoming meetings, and turns your receipts/i,
+      ),
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();
     expect(
@@ -1104,7 +1108,7 @@ describe("ProfileReceiptsPage", () => {
 
     await waitFor(() => {
       expect(mocks.toast.error).toHaveBeenCalledWith(
-        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
+        "Connect this inbox from the web app for now.",
       );
     });
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();

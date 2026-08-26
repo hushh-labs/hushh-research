@@ -133,9 +133,15 @@ def test_resolve_model_entry_empty_model_uses_default():
     assert entry.model == default_model_for_provider("gemini")
 
 
-def test_only_gemini_live_model_advertises_native_realtime():
+def test_only_gemini_live_models_advertise_native_realtime():
     assert resolve_model_entry("gemini", "gemini-3.5-flash").supports_native_realtime is False
     assert resolve_model_entry("gemini", "gemini-3.1-flash-lite").supports_native_realtime is False
+    # Canonical live model (developer_api transport) and the Vertex GA
+    # rollback model are the only two realtime-capable entries.
+    assert (
+        resolve_model_entry("gemini", "gemini-3.1-flash-live-preview").supports_native_realtime
+        is True
+    )
     assert (
         resolve_model_entry("gemini", "gemini-live-2.5-flash-native-audio").supports_native_realtime
         is True

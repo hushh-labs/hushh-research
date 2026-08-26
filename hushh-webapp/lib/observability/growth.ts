@@ -216,7 +216,15 @@ export function resolveGrowthEntrySurface(pathname: string): GrowthEntrySurface 
     return "ria_home";
   }
   if (pathname.startsWith("/circle/join")) return "circle_join";
-  if (pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)) {
+  // Both prefixes. `/view/` is where a shared live-location link points now;
+  // `/request/` is what every link minted before the rename carries. Miss
+  // either and those arrivals fall through to the plain `one_location` branch
+  // below and are counted as in-app navigation -- telling shared-link arrivals
+  // apart from in-app ones is the whole job of this funnel.
+  if (
+    pathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
+    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+  ) {
     return "public_location_link";
   }
   if (

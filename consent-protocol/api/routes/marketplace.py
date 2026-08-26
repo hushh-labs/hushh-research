@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -163,10 +164,22 @@ async def record_marketplace_investor_action(
 
 
 @router.post("/contacts/match")
+# Two ceilings on one route. See RateLimits.CONTACT_DISCOVERY_MATCH for why a
+# single number cannot express this: the minute bound stops a loop, the day
+# bound stops the patient walk that is the realistic way to enumerate a user
+# base through a discovery endpoint.
+#
+# Keyed per authenticated user by `get_rate_limit_key`, not per IP, which is
+# the bucket that matters here -- the route requires a Firebase identity, so a
+# caller cannot shed the limit by changing address.
+@limiter.limit(RateLimits.CONTACT_DISCOVERY_MATCH_DAILY)
+@limiter.limit(RateLimits.CONTACT_DISCOVERY_MATCH)
 async def match_marketplace_contacts(
+    request: Request,
     payload: MarketplaceContactMatchRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
+    del request
     service = RIAIAMService()
     try:
         items = await service.match_marketplace_contacts(

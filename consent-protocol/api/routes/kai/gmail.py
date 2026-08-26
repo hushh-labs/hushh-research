@@ -137,7 +137,7 @@ def _to_http_exception(exc: Exception, *, operation: str) -> HTTPException:
         )
     if isinstance(exc, GmailApiError):
         detail: dict[str, Any] = {
-            "code": "GMAIL_CONNECTOR_ERROR",
+            "code": exc.code or "GMAIL_CONNECTOR_ERROR",
             "message": str(exc),
         }
         if exc.payload:

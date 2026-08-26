@@ -177,7 +177,9 @@ The backend feature flag, exact developer app id, audience, redirect allowlist,
 Firebase UID cohort, launch pepper, shared Redis limiter, proxy audience, and
 trusted proxy service-account allowlist must all be present. Production is hard-disabled
 even if configuration drifts. HushhTech must also prove at build and runtime
-that it uses the `hushh-pda-uat` Firebase authority.
+that its Admin and web-client configuration both use the shared `hushh-pda`
+Firebase authority. `hushh-pda-uat` remains the UAT runtime and Secret Manager
+project; it is not a separate Firebase identity authority.
 
 Rollback first disables both cohort flags, then restores captured prior Cloud
 Run revisions if needed. Migration 162 is additive; tables remain inert and no

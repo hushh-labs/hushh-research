@@ -22,6 +22,9 @@ from hushh_mcp.services.consent_request_links import (
     build_connection_request_url,
     build_consent_request_url,
 )
+from hushh_mcp.services.contact_sync_contract import (
+    CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+)
 from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
@@ -155,9 +158,9 @@ _RIA_SCREENING_SECTION_ORDER: tuple[str, ...] = (
 )
 _RIA_KAI_SPECIALIZED_TEMPLATE_ID = "ria_kai_specialized_v1"
 _RIA_KAI_SPECIALIZED_BUNDLE_KEY = "ria_kai_specialized"
-_RIA_KAI_SPECIALIZED_LABEL = "Kai specialized access"
+_RIA_KAI_SPECIALIZED_LABEL = "Portfolio + data"
 _RIA_KAI_SPECIALIZED_DESCRIPTION = (
-    "Advisor-side Kai and explorer access for portfolio, profile, analysis history, "
+    "Advisor-side One and explorer access for portfolio, profile, analysis history, "
     "and runtime context."
 )
 _OFFICIAL_LOCATION_REPORT_URLS: tuple[str, ...] = (
@@ -2647,23 +2650,39 @@ class RIAIAMService:
             await conn.close()
 
     async def get_contact_discoverability(self, user_id: str) -> dict[str, Any]:
-        """Report whether this account can be found by someone who has its number.
-
-        Defaults to enabled: contact sync is only useful if the people in a
-        user's address book are findable, and the match discloses nothing
-        beyond confirming a number the requester already had.
-        """
+        """Report explicit combined consent to be found and auto-connected."""
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
             row = await conn.fetchrow(
-                "SELECT contact_discoverable FROM actor_profiles WHERE user_id = $1",
+                """
+                SELECT contact_discoverable, contact_sync_consent_enabled_at,
+                       contact_sync_consent_rule_version,
+                       contact_sync_consent_contract_version
+                FROM actor_profiles
+                WHERE user_id = $1
+                """,
                 user_id,
+            )
+            enabled = bool(
+                row is not None
+                and row["contact_discoverable"]
+                and row["contact_sync_consent_enabled_at"] is not None
+                and int(row["contact_sync_consent_rule_version"] or 0) > 0
+                and row["contact_sync_consent_contract_version"]
+                == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
             )
             return {
                 "user_id": user_id,
-                "contact_discoverable": (
-                    True if row is None else bool(row["contact_discoverable"])
+                "contact_discoverable": enabled,
+                "contact_sync_consent_enabled_at": (
+                    None if row is None else row["contact_sync_consent_enabled_at"]
+                ),
+                "contact_sync_consent_rule_version": (
+                    0 if row is None else int(row["contact_sync_consent_rule_version"] or 0)
+                ),
+                "contact_sync_consent_contract_version": (
+                    None if row is None else row["contact_sync_consent_contract_version"]
                 ),
             }
         except (
@@ -2674,8 +2693,21 @@ class RIAIAMService:
         finally:
             await conn.close()
 
-    async def set_contact_discoverability(self, user_id: str, enabled: bool) -> dict[str, Any]:
-        """Turn phone-number discoverability on or off for this account."""
+    async def set_contact_discoverability(
+        self,
+        user_id: str,
+        enabled: bool,
+        *,
+        consent_version: str | None = None,
+    ) -> dict[str, Any]:
+        """Set combined consent for verified contact matching and auto-connect."""
+
+        normalized_consent_version = str(consent_version or "").strip() or None
+        if enabled and normalized_consent_version != CONTACT_SYNC_CONSENT_CONTRACT_VERSION:
+            raise RIAIAMPolicyError(
+                "Contact sync consent disclosure is out of date. Refresh the app and try again.",
+                status_code=409,
+            )
         conn = await self._conn()
         try:
             async with conn.transaction():
@@ -2687,23 +2719,55 @@ class RIAIAMService:
                         user_id,
                         personas,
                         last_active_persona,
-                        contact_discoverable
+                        contact_discoverable,
+                        contact_sync_consent_enabled_at,
+                        contact_sync_consent_rule_version,
+                        contact_sync_consent_contract_version
                     )
-                    VALUES ($1, ARRAY['investor']::text[], 'investor', $2)
+                    VALUES (
+                      $1, ARRAY['investor']::text[], 'investor', $2,
+                      CASE WHEN $2 THEN NOW() ELSE NULL END,
+                      1,
+                      CASE WHEN $2 THEN $3 ELSE NULL END
+                    )
                     ON CONFLICT (user_id) DO UPDATE
                     SET
                       contact_discoverable = $2,
+                      contact_sync_consent_enabled_at = CASE
+                        WHEN $2 AND NOT actor_profiles.contact_discoverable THEN NOW()
+                        WHEN $2 THEN COALESCE(
+                          actor_profiles.contact_sync_consent_enabled_at, NOW()
+                        )
+                        ELSE NULL
+                      END,
+                      contact_sync_consent_rule_version =
+                        actor_profiles.contact_sync_consent_rule_version + 1,
+                      contact_sync_consent_contract_version = CASE
+                        WHEN $2 THEN $3
+                        ELSE NULL
+                      END,
                       updated_at = NOW()
-                    RETURNING user_id, contact_discoverable
+                    RETURNING user_id, contact_discoverable,
+                              contact_sync_consent_enabled_at,
+                              contact_sync_consent_rule_version,
+                              contact_sync_consent_contract_version
                     """,
                     user_id,
                     enabled,
+                    normalized_consent_version,
                 )
                 if row is None:
                     raise RuntimeError("Failed to update contact discoverability")
                 return {
                     "user_id": row["user_id"],
                     "contact_discoverable": bool(row["contact_discoverable"]),
+                    "contact_sync_consent_enabled_at": row["contact_sync_consent_enabled_at"],
+                    "contact_sync_consent_rule_version": int(
+                        row["contact_sync_consent_rule_version"] or 0
+                    ),
+                    "contact_sync_consent_contract_version": row[
+                        "contact_sync_consent_contract_version"
+                    ],
                 }
         except (
             asyncpg.exceptions.UndefinedColumnError,
@@ -5247,8 +5311,10 @@ class RIAIAMService:
             async with conn.transaction():
                 await self._ensure_iam_schema_ready(conn)
                 await self._ensure_vault_user_row(conn, user_id)
-                await self._ensure_actor_profile_row(conn, user_id)
 
+                # ria_profiles.user_id already FK-proves that actor_profiles exists.
+                # Avoid locking that row before actor_identity_cache cleanup so this
+                # path keeps the same identity-then-profile lock order as contact sync.
                 profile_row = await conn.fetchrow(
                     "SELECT id FROM ria_profiles WHERE user_id = $1", user_id
                 )
@@ -8922,15 +8988,158 @@ class RIAIAMService:
 
     @staticmethod
     def _normalize_contact_phone_for_hash(value: Any) -> str | None:
+        """A stored phone number as the E.164 string the client hashed.
+
+        No country guessing. This used to read a bare ten-digit number as North
+        American -- `if len(digits) == 10: return f"+1{digits}"` -- which is the
+        same bug the client-side normalizer removed and documented at
+        `lib/contacts/phone-normalization.ts:11-15`.
+
+        It is worse here than it was there. On the client a wrong guess only
+        produced a digest that missed. Here it fabricates an identity: a stored
+        `9876543210` belonging to an Indian account was hashed as
+        `+19876543210`, so a requester holding the real US number `+19876543210`
+        would have been told that stranger is on Hussh. A guess that can
+        disclose somebody's membership to a person who does not know them is
+        not a fallback, and returning nothing is the correct answer to a
+        question we cannot answer.
+
+        Every writer of `actor_identity_cache.phone_number` in this repo stores
+        E.164 with the leading `+` -- the Firebase mirror in
+        `ActorIdentityService.sync_from_firebase`, the token claim path, and the
+        UAT test-confirm path through `_normalize_phone_number`, which forces a
+        `+` unconditionally. Migration 047 added the column with no backfill.
+        The counter below exists to prove that from production traffic rather
+        than from reading the writers, because a row predating any of them
+        would now go unmatched instead of wrongly matched.
+        """
+
         raw = str(value or "").strip()
         digits = re.sub(r"\D", "", raw)
         if not digits:
             return None
-        if raw.startswith("+"):
-            return f"+{digits}"
-        if len(digits) == 10:
-            return f"+1{digits}"
+        if not raw.startswith("+"):
+            # Not an error and not fatal -- the row still matches whenever its
+            # digits already carry a country code. Logged without the number so
+            # the count is visible and the value never is.
+            logger.warning(
+                "contact_match.stored_phone_missing_plus digits_len=%s",
+                len(digits),
+            )
         return f"+{digits}"
+
+    async def match_one_network_contact_lookups_exact(
+        self,
+        user_id: str,
+        *,
+        phone_lookups: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Directly correlate every submitted contact proof without scan truncation.
+
+        The legacy marketplace matcher intentionally caps its candidate scan.
+        A mutating sync may not inherit that approximation: the client must not
+        be told a valid match is unmatched merely because its uid sorted after
+        an internal row cap. This query joins each bounded proof to the indexed
+        last-four bucket and compares the SHA-256 digest in Postgres, returning
+        matched rows only and never returning the digest or phone digits.
+        """
+
+        normalized: list[tuple[str, str, str]] = []
+        for item in phone_lookups[:1000]:
+            lookup_id = str(item.get("lookup_id") or "").strip()
+            digest = str(item.get("hash") or "").strip().lower()
+            last4 = str(item.get("last4") or "").strip()
+            if (
+                lookup_id
+                and len(digest) == 64
+                and all(ch in "0123456789abcdef" for ch in digest)
+                and len(last4) == 4
+                and all(ch in "0123456789" for ch in last4)
+            ):
+                normalized.append((lookup_id, digest, last4))
+        if not normalized:
+            return []
+
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                WITH submitted_lookup AS (
+                  SELECT lookup_id, digest_hex, last4
+                  FROM UNNEST($2::text[], $3::text[], $4::text[])
+                    AS submitted(lookup_id, digest_hex, last4)
+                ),
+                correlated_identity AS (
+                  SELECT
+                    submitted.lookup_id,
+                    identity.user_id,
+                    identity.display_name,
+                    identity.photo_url,
+                    COUNT(*) OVER (PARTITION BY submitted.lookup_id) AS match_count
+                  FROM submitted_lookup submitted
+                  JOIN actor_identity_cache identity
+                    ON RIGHT(
+                      regexp_replace(identity.phone_number, '[^0-9]', '', 'g'), 4
+                    ) = submitted.last4
+                   AND encode(
+                     digest(
+                       convert_to(
+                         '+' || regexp_replace(identity.phone_number, '[^0-9]', '', 'g'),
+                         'UTF8'
+                       ),
+                       'sha256'
+                     ),
+                     'hex'
+                   ) = submitted.digest_hex
+                  WHERE identity.phone_verified = TRUE
+                    AND identity.phone_number IS NOT NULL
+                )
+                SELECT
+                  identity.lookup_id,
+                  identity.user_id,
+                  COALESCE(NULLIF(identity.display_name, ''), profile.display_name)
+                    AS display_name,
+                  identity.photo_url
+                FROM correlated_identity identity
+                LEFT JOIN actor_profiles actor ON actor.user_id = identity.user_id
+                LEFT JOIN marketplace_public_profiles profile
+                  ON profile.user_id = identity.user_id
+                -- A stale duplicate verified-phone binding is not a reason to
+                -- pick one account by uid ordering. Treat it as no match until
+                -- identity repair makes the proof unambiguous. Count every
+                -- verified binding before applying discoverability so a hidden
+                -- duplicate cannot make another account appear unique.
+                WHERE identity.match_count = 1
+                  AND identity.user_id <> $1
+                  AND actor.contact_discoverable = TRUE
+                  AND actor.contact_sync_consent_enabled_at IS NOT NULL
+                  AND actor.contact_sync_consent_rule_version > 0
+                  AND actor.contact_sync_consent_contract_version = $5
+                ORDER BY identity.lookup_id
+                """,
+                user_id,
+                [item[0] for item in normalized],
+                [item[1] for item in normalized],
+                [item[2] for item in normalized],
+                CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+            )
+            return [
+                {
+                    "lookup_id": str(row["lookup_id"]),
+                    "user_id": str(row["user_id"]),
+                    "display_name": row["display_name"],
+                    "photo_url": row["photo_url"],
+                }
+                for row in rows
+            ]
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
 
     async def match_marketplace_contacts(
         self,
@@ -8949,8 +9158,8 @@ class RIAIAMService:
             investors who opted in). This is the Connect deck's policy.
 
         ``one_network``
-            Any account that is phone verified and has not turned off contact
-            discoverability. This is what One Location contact sync needs; the
+            Any account that is phone verified and has explicitly enabled the
+            combined find-and-auto-connect setting. This is what One Location contact sync needs; the
             marketplace policy returns nothing for ordinary users because
             ``marketplace_public_profiles.is_discoverable`` defaults to FALSE.
 
@@ -8981,13 +9190,28 @@ class RIAIAMService:
         # base grew past a few thousand accounts, so the pre-filter is now sized
         # against collision volume rather than the result limit, and still
         # bounded so a wide lookup set cannot pull an unbounded result set.
-        candidate_row_cap = min(max(limit_safe * 50, 500), 5000)
+        #
+        # Sized against the buckets actually asked for, not a flat ceiling.
+        #
+        # The old `min(..., 5000)` was a truncation with no meaning attached to
+        # it: rows come back `ORDER BY aic.user_id ASC`, an ordering the query's
+        # own comment calls arbitrary, and anything past the cap was never
+        # digest-compared. A last4 bucket holds roughly one ten-thousandth of
+        # the user base, so a full address book of 1000 buckets expects
+        # `users / 10` candidates -- which crosses 5000 at only fifty thousand
+        # accounts. Past that, a person whose Firebase uid sorts late was
+        # dropped from every large lookup, deterministically and permanently,
+        # and the response was an ordinary empty list. Somebody could be
+        # invisible to their own contacts forever with nothing to see.
+        #
+        # The bound is still real: `phone_lookups` is capped at 1000 by the
+        # route, so this cannot exceed 50k rows however the request is shaped,
+        # and the digest set that decides matches is bounded by the same 1000.
+        candidate_row_cap = min(max(len(last4_values) * 50, 500), 50_000)
 
         if normalized_scope == "one_network":
-            # actor_profiles is LEFT JOINed so an account that has never had a
-            # profile row written still matches. The COALESCE below supplies the
-            # discoverable-by-default posture for that case; an inner join would
-            # silently make those accounts unfindable.
+            # The combined setting is explicit and versioned. A missing profile
+            # row or a legacy default-TRUE row is not relationship consent.
             eligibility_join = """
                 LEFT JOIN marketplace_public_profiles mp
                   ON mp.user_id = aic.user_id
@@ -8997,7 +9221,18 @@ class RIAIAMService:
                 LEFT JOIN ria_profiles rp
                   ON rp.user_id = aic.user_id
             """
-            eligibility_predicate = "AND COALESCE(ap.contact_discoverable, TRUE) = TRUE"
+            eligibility_predicate = """
+                  AND ap.contact_discoverable = TRUE
+                  AND ap.contact_sync_consent_enabled_at IS NOT NULL
+                  AND ap.contact_sync_consent_rule_version > 0
+                  AND ap.contact_sync_consent_contract_version = $4
+            """
+            query_args: tuple[Any, ...] = (
+                user_id,
+                last4_values,
+                candidate_row_cap,
+                CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+            )
         else:
             eligibility_join = """
                 JOIN marketplace_public_profiles mp
@@ -9020,6 +9255,7 @@ class RIAIAMService:
                     )
                   )
             """
+            query_args = (user_id, last4_values, candidate_row_cap)
 
         conn = await self._conn()
         try:
@@ -9056,9 +9292,7 @@ class RIAIAMService:
                 ORDER BY aic.user_id ASC
                 LIMIT $3::integer
                 """,  # nosec B608
-                user_id,
-                last4_values,
-                candidate_row_cap,
+                *query_args,
             )
             matches: list[dict[str, Any]] = []
             seen_users: set[str] = set()
@@ -9109,7 +9343,18 @@ class RIAIAMService:
                         "kind": kind,
                         "display_name": row["display_name"] or row["identity_display_name"],
                         "headline": row["headline"],
-                        "phone_last4": last4,
+                        # No phone digits, not even four.
+                        #
+                        # The caller derived every digest it sent from its own
+                        # address book, so it already holds the number behind
+                        # each match -- echoing part of it back tells the caller
+                        # nothing it did not have, and costs a real leak the
+                        # moment a response is logged, cached, or rendered into
+                        # a page. Both of those were happening: the marketplace
+                        # deck rendered these four digits into the DOM, and One
+                        # Location stripped them on arrival. A field one client
+                        # has to defend against and another leaks is a field
+                        # that should never have left the server.
                         "profile": profile,
                     }
                 )

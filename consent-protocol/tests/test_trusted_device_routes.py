@@ -7,7 +7,10 @@ import pytest
 from fastapi import HTTPException
 
 from api.routes import account, consent
-from hushh_mcp.services.trusted_device_service import TrustedDeviceError
+from hushh_mcp.services.trusted_device_service import (
+    TrustedDeviceError,
+    TrustedDeviceService,
+)
 
 
 class _FakeTrustedDeviceService:
@@ -192,41 +195,23 @@ async def test_device_owner_capability_closes_revocation_issuance_race(
 
 
 @pytest.mark.asyncio
-async def test_signed_in_trusted_device_rollout_fails_closed_without_allowlist(
+async def test_signed_in_trusted_device_guard_allows_any_account_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Enrollment is open to every signed-in account once the feature is enabled;
+    # the per-account rollout allowlist has been removed.
     monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: set())
-
-    with pytest.raises(HTTPException) as raised:
-        await account._trusted_device_guard("user-1")
-
-    assert raised.value.status_code == 403
-    assert raised.value.detail["code"] == "TRUSTED_DEVICE_NOT_ALLOWED"
-
-
-@pytest.mark.asyncio
-async def test_signed_in_trusted_device_rollout_accepts_exact_uid(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"user-1", "other-user"})
 
     await account._trusted_device_guard("user-1")
 
 
 @pytest.mark.asyncio
-async def test_pkce_exchange_guard_fails_closed_without_rollout_allowlist(
+async def test_pkce_exchange_guard_allows_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: set())
 
-    with pytest.raises(HTTPException) as raised:
-        await account._trusted_device_guard()
-
-    assert raised.value.status_code == 403
-    assert raised.value.detail["code"] == "TRUSTED_DEVICE_NOT_ALLOWED"
+    await account._trusted_device_guard()
 
 
 @pytest.mark.asyncio
@@ -367,32 +352,6 @@ def test_trusted_device_vault_handoff_accepts_only_bounded_ciphertext() -> None:
 
 
 @pytest.mark.asyncio
-async def test_email_rollout_entry_requires_verified_firebase_email(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from firebase_admin import auth as firebase_auth
-
-    class _Record:
-        email = "owner@example.com"
-        email_verified = False
-
-    async def _run_in_threadpool(function, *args, **kwargs):
-        return function(*args, **kwargs)
-
-    monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"user-1"})
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"owner@example.com"})
-    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
-    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
-    monkeypatch.setattr(firebase_auth, "get_user", lambda *_args, **_kwargs: _Record())
-
-    with pytest.raises(HTTPException) as raised:
-        await account._trusted_device_guard("user-1")
-
-    assert raised.value.status_code == 403
-
-
-@pytest.mark.asyncio
 async def test_trusted_device_exchange_identity_uses_verified_firebase_email(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -453,7 +412,6 @@ async def test_trusted_device_exchange_returns_server_verified_account_email(
         return function(*args, **kwargs)
 
     monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"user-1"})
     monkeypatch.setattr(account, "TrustedDeviceService", _Service)
     monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
     monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
@@ -479,3 +437,269 @@ async def test_trusted_device_exchange_returns_server_verified_account_email(
         "account_email": "owner@example.com",
         "replaced_device_id": None,
     }
+
+
+# --- Sync-state, self-status, and seal-ack (migration 176) ---
+
+_SYNC_DEV = "tdv_" + ("b" * 32)
+
+
+class _FakeSyncStore:
+    """Minimal in-memory store for the sync-state service methods."""
+
+    def __init__(self, rows: dict[tuple[str, str], dict[str, Any]] | None = None) -> None:
+        self.rows = rows or {}
+        self.audited: list[dict[str, Any]] = []
+
+    def get_device_status(self, *, user_id: str, device_id: str) -> dict[str, Any] | None:
+        return self.rows.get((user_id, device_id))
+
+    def record_sync(self, *, user_id: str, device_id: str, cursor: int | None, now_ms: int) -> None:
+        row = self.rows.get((user_id, device_id))
+        if row and row.get("status") == "active":
+            row["last_synced_at"] = now_ms
+            if cursor is not None:
+                row["last_sync_cursor"] = cursor
+
+    def seal_device(self, *, user_id: str, device_id: str, now_ms: int) -> bool:
+        row = self.rows.get((user_id, device_id))
+        if row and row.get("status") == "revoked" and not row.get("sealed_at"):
+            row["sealed_at"] = now_ms
+            return True
+        return False
+
+    def audit(self, *, user_id, device_id, event_type, created_at, metadata=None) -> None:
+        self.audited.append({"event_type": event_type, "metadata": metadata})
+
+
+def test_device_status_reports_active_with_sync_metadata() -> None:
+    store = _FakeSyncStore(
+        {("u1", _SYNC_DEV): {"status": "active", "revoked_at": None, "last_synced_at": 111}}
+    )
+    status = TrustedDeviceService(store=store).device_status(user_id="u1", device_id=_SYNC_DEV)
+    assert status == {
+        "device_id": _SYNC_DEV,
+        "status": "active",
+        "revoked_at": None,
+        "last_synced_at": 111,
+    }
+
+
+def test_device_status_is_scoped_and_unknown_is_none() -> None:
+    store = _FakeSyncStore({("u1", _SYNC_DEV): {"status": "active"}})
+    svc = TrustedDeviceService(store=store)
+    assert svc.device_status(user_id="u1", device_id="tdv_" + ("c" * 32)) is None
+    # A foreign caller cannot read another user's device (own-device scoping).
+    assert svc.device_status(user_id="u2", device_id=_SYNC_DEV) is None
+
+
+def test_seal_device_is_one_way_and_idempotent() -> None:
+    store = _FakeSyncStore({("u1", _SYNC_DEV): {"status": "revoked", "sealed_at": None}})
+    svc = TrustedDeviceService(store=store)
+    first = svc.seal_device(user_id="u1", device_id=_SYNC_DEV)
+    assert first is not None and first["status"] == "revoked"
+    assert first["sealed_at"] is not None
+    # Idempotent: a second ack returns the same sealed_at and audits only once.
+    second = svc.seal_device(user_id="u1", device_id=_SYNC_DEV)
+    assert second is not None and second["sealed_at"] == first["sealed_at"]
+    assert [a["event_type"] for a in store.audited] == ["device_sealed"]
+
+
+def test_seal_device_never_touches_active_device() -> None:
+    store = _FakeSyncStore({("u1", _SYNC_DEV): {"status": "active", "sealed_at": None}})
+    svc = TrustedDeviceService(store=store)
+    result = svc.seal_device(user_id="u1", device_id=_SYNC_DEV)
+    assert result is not None and result["status"] == "active"
+    assert result["sealed_at"] is None
+    assert store.rows[("u1", _SYNC_DEV)]["status"] == "active"
+    assert store.audited == []
+
+
+def test_seal_device_unknown_is_none() -> None:
+    assert (
+        TrustedDeviceService(store=_FakeSyncStore()).seal_device(user_id="u1", device_id=_SYNC_DEV)
+        is None
+    )
+
+
+def test_record_sync_stamps_active_and_swallows_bad_id() -> None:
+    store = _FakeSyncStore({("u1", _SYNC_DEV): {"status": "active"}})
+    svc = TrustedDeviceService(store=store)
+    svc.record_sync(user_id="u1", device_id=_SYNC_DEV, cursor=42)
+    assert store.rows[("u1", _SYNC_DEV)]["last_synced_at"] is not None
+    assert store.rows[("u1", _SYNC_DEV)]["last_sync_cursor"] == 42
+    # A malformed device id is a silent no-op, never an exception.
+    svc.record_sync(user_id="u1", device_id="not-a-device", cursor=1)
+
+
+@pytest.mark.asyncio
+async def test_status_route_maps_none_to_unknown_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    class _Svc:
+        def device_status(self, **_kwargs: Any) -> None:
+            return None
+
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    with pytest.raises(HTTPException) as raised:
+        await account.trusted_device_status(device_id=_SYNC_DEV, firebase_uid="u1")
+    assert raised.value.status_code == 404
+    assert raised.value.detail["code"] == "TRUSTED_DEVICE_UNKNOWN"
+
+
+@pytest.mark.asyncio
+async def test_status_route_returns_status_and_server_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    class _Svc:
+        def device_status(self, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "device_id": _SYNC_DEV,
+                "status": "revoked",
+                "revoked_at": 5,
+                "last_synced_at": None,
+            }
+
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    result = await account.trusted_device_status(device_id=_SYNC_DEV, firebase_uid="u1")
+    assert result["status"] == "revoked"
+    assert isinstance(result["server_time_ms"], int)
+
+
+@pytest.mark.asyncio
+async def test_status_route_db_error_fails_closed_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _run_in_threadpool(function, **kwargs):
+        raise RuntimeError("db down")
+
+    class _Svc:
+        def device_status(self, **_kwargs: Any) -> dict[str, Any]:
+            return {"status": "active"}
+
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    with pytest.raises(HTTPException) as raised:
+        await account.trusted_device_status(device_id=_SYNC_DEV, firebase_uid="u1")
+    assert raised.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_seal_ack_route_maps_none_to_unknown_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    class _Svc:
+        def seal_device(self, **_kwargs: Any) -> None:
+            return None
+
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    with pytest.raises(HTTPException) as raised:
+        await account.trusted_device_seal_ack(device_id=_SYNC_DEV, firebase_uid="u1")
+    assert raised.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_seal_ack_route_first_ack_stamps_and_is_idempotent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    store = _FakeSyncStore({("u1", _SYNC_DEV): {"status": "revoked", "sealed_at": None}})
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: TrustedDeviceService(store=store))
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+
+    first = await account.trusted_device_seal_ack(device_id=_SYNC_DEV, firebase_uid="u1")
+    assert first["status"] == "revoked" and first["sealed_at"] is not None
+    second = await account.trusted_device_seal_ack(device_id=_SYNC_DEV, firebase_uid="u1")
+    assert second["sealed_at"] == first["sealed_at"]
+    # Audited exactly once across the two acks.
+    assert [a["event_type"] for a in store.audited] == ["device_sealed"]
+
+
+@pytest.mark.asyncio
+async def test_device_sync_stamps_record_sync_only_for_device_caller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routes import pkm_routes_shared
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    calls: list[dict[str, Any]] = []
+
+    class _RecSvc:
+        def record_sync(self, **kwargs: Any) -> None:
+            calls.append(kwargs)
+
+    class _FakePkm:
+        async def list_device_sync_events(self, **_kwargs: Any) -> dict[str, Any]:
+            return {"events": [], "next_cursor": 7}
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkm())
+    monkeypatch.setattr(pkm_routes_shared, "TrustedDeviceService", lambda: _RecSvc())
+    monkeypatch.setattr(pkm_routes_shared, "run_in_threadpool", _run_in_threadpool)
+
+    dev = "tdv_" + ("d" * 32)
+    resp = await pkm_routes_shared.get_device_sync_events(
+        user_id="u1",
+        after_cursor=0,
+        limit=100,
+        token_data={"user_id": "u1", "agent_id": f"device:{dev}"},
+    )
+    assert resp.next_cursor == 7
+    assert calls == [{"user_id": "u1", "device_id": dev, "cursor": 7}]
+
+    # A non-device caller is never stamped.
+    calls.clear()
+    await pkm_routes_shared.get_device_sync_events(
+        user_id="u1",
+        after_cursor=0,
+        limit=100,
+        token_data={"user_id": "u1", "agent_id": "browser"},
+    )
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_device_sync_stamp_failure_does_not_fail_the_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routes import pkm_routes_shared
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    class _RaisingSvc:
+        def record_sync(self, **_kwargs: Any) -> None:
+            raise RuntimeError("stamp boom")
+
+    class _FakePkm:
+        async def list_device_sync_events(self, **_kwargs: Any) -> dict[str, Any]:
+            return {"events": [], "next_cursor": 3}
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkm())
+    monkeypatch.setattr(pkm_routes_shared, "TrustedDeviceService", lambda: _RaisingSvc())
+    monkeypatch.setattr(pkm_routes_shared, "run_in_threadpool", _run_in_threadpool)
+
+    dev = "tdv_" + ("e" * 32)
+    resp = await pkm_routes_shared.get_device_sync_events(
+        user_id="u1",
+        after_cursor=0,
+        limit=100,
+        token_data={"user_id": "u1", "agent_id": f"device:{dev}"},
+    )
+    # The read still succeeds even though the best-effort stamp raised.
+    assert resp.next_cursor == 3

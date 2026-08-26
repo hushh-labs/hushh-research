@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   searchDirectory: vi.fn(),
   listConnections: vi.fn(),
+  listConnectionsPage: vi.fn(),
   listRequests: vi.fn(),
   sendRequest: vi.fn(),
   cancel: vi.fn(),
@@ -12,7 +19,12 @@ const mocks = vi.hoisted(() => ({
   getScopeCatalog: vi.fn(),
   searchInformationScopes: vi.fn(),
   onConnectionCapabilityMutated: vi.fn(),
+  onConnectionGraphMutated: vi.fn(),
   routerPush: vi.fn(),
+  searchParams: new URLSearchParams(),
+  shareLink: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
   // The real hook hands back the same user across renders. Rebuilding it per
   // render would retrigger every effect keyed on it and spin forever, which
   // would say nothing about the page.
@@ -20,8 +32,17 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mocks.routerPush, replace: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({
+    push: mocks.routerPush,
+    replace: vi.fn(),
+    back: vi.fn(),
+  }),
   usePathname: () => "/one/connect",
+  // The outer Connections/Circles tab lives in `?tab=`, because a circle is a
+  // place you can be sent and a tab that only exists in `useState` cannot be
+  // linked to. `mocks.searchParams` is a real URLSearchParams so a test can
+  // set the tab the way a URL would.
+  useSearchParams: () => mocks.searchParams,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -38,6 +59,7 @@ vi.mock("@/lib/services/connections-service", () => ({
   ConnectionsService: {
     searchDirectory: mocks.searchDirectory,
     listConnections: mocks.listConnections,
+    listConnectionsPage: mocks.listConnectionsPage,
     listRequests: mocks.listRequests,
     sendRequest: mocks.sendRequest,
     cancel: mocks.cancel,
@@ -50,6 +72,7 @@ vi.mock("@/lib/services/connections-service", () => ({
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onConnectionCapabilityMutated: mocks.onConnectionCapabilityMutated,
+    onConnectionGraphMutated: mocks.onConnectionGraphMutated,
   },
 }));
 
@@ -63,12 +86,26 @@ vi.mock("@/components/connect/nearby-directories", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: mocks.toastSuccess, error: mocks.toastError },
 }));
 
+// The ladder itself (native sheet -> Web Share -> clipboard) is proved in
+// __tests__/share/share-link.test.ts. What belongs here is the page's half of
+// the contract: when an invite is offered, and what it hands over.
+vi.mock("@/lib/share/share-link", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/share/share-link")>(
+    "@/lib/share/share-link",
+  );
+  return { ...actual, shareLink: mocks.shareLink };
+});
+
 import ConnectPageClient from "@/app/connect/page-client";
+import { ShareUnavailableError } from "@/lib/share/share-link";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
-import { parseVoiceCard, parseVoiceConfirm } from "@/lib/voice/voice-action-card";
+import {
+  parseVoiceCard,
+  parseVoiceConfirm,
+} from "@/lib/voice/voice-action-card";
 
 function person(userId: string, displayName: string) {
   return {
@@ -79,6 +116,27 @@ function person(userId: string, displayName: string) {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+type TestConnectionPage = {
+  items: Array<{
+    connectionId: string;
+    userId: string;
+    displayName: string;
+    photoUrl: null;
+  }>;
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
+  audience: "all";
+};
+
 /** Ten people, so a limit of 8 is visibly a cap rather than the whole set. */
 const EVERYONE = Array.from({ length: 10 }, (_, index) =>
   person(`u${index}`, `Person ${index}`),
@@ -86,7 +144,28 @@ const EVERYONE = Array.from({ length: 10 }, (_, index) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A leaked search query in sessionStorage would silently seed the next
+  // test's render, the same way a leaked `?tab=` would.
+  window.sessionStorage.clear();
+  // A fresh URL per test: the outer tab is read from it, so a leaked
+  // `?tab=circles` would silently render the wrong surface for everything
+  // that ran after it.
+  mocks.searchParams = new URLSearchParams();
   mocks.listConnections.mockResolvedValue([]);
+  mocks.listConnectionsPage.mockImplementation(async (options) => {
+    const allItems = await mocks.listConnections(options);
+    const items =
+      options.audience === "ria"
+        ? allItems.filter((item: { isRia?: boolean }) => item.isRia === true)
+        : allItems;
+    return {
+      items,
+      page: options.page ?? 1,
+      hasMore: false,
+      totalCount: items.length,
+      audience: options.audience ?? "all",
+    };
+  });
   mocks.listRequests.mockResolvedValue([]);
   mocks.getScopeCatalog.mockResolvedValue({
     counterpartUserId: "u0",
@@ -101,6 +180,283 @@ beforeEach(() => {
 });
 
 describe("Connect — People", () => {
+  it("shows viewer-relative contact provenance on a fresh connection read", async () => {
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-contact",
+        userId: "u-contact",
+        displayName: "Asha Contact",
+        photoUrl: null,
+        createdAt: "2026-08-25T00:00:00Z",
+        connectedFromContacts: true,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("Asha Contact")).toBeTruthy();
+    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+  });
+
+  it("loads page 2 in stable server order and keeps its contact badge", async () => {
+    mocks.listConnectionsPage.mockImplementation(async (options) => ({
+      items:
+        options.page === 2
+          ? [
+              {
+                connectionId: "c-51",
+                userId: "u-51",
+                displayName: "Same Name",
+                photoUrl: null,
+                connectedFromContacts: true,
+              },
+            ]
+          : [
+              {
+                connectionId: "c-1",
+                userId: "u-1",
+                displayName: "Same Name",
+                photoUrl: null,
+              },
+            ],
+      page: options.page ?? 1,
+      hasMore: options.page !== 2,
+      totalCount: 5000,
+      audience: options.audience ?? "all",
+    }));
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("My connections (5000)")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load more connections" }),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Same Name")).toHaveLength(2),
+    );
+    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    expect(mocks.listConnectionsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 2, limit: 50, audience: "all" }),
+    );
+  });
+
+  it("blocks Load More while a removal event refreshes page 1", async () => {
+    const refreshedPageOne = deferred<TestConnectionPage>();
+    const stalePageThree = deferred<TestConnectionPage>();
+    let firstPageCallCount = 0;
+    let secondPageCallCount = 0;
+    mocks.listConnectionsPage.mockImplementation(async (options) => {
+      const page = options.page ?? 1;
+      if (page === 1) {
+        firstPageCallCount += 1;
+        if (firstPageCallCount > 1) return refreshedPageOne.promise;
+        return {
+          items: [
+            {
+              connectionId: "c-current",
+              userId: "u-current",
+              displayName: "Current Person",
+              photoUrl: null,
+            },
+          ],
+          page: 1,
+          hasMore: true,
+          totalCount: 3,
+          audience: "all" as const,
+        };
+      }
+      if (page === 2) {
+        secondPageCallCount += 1;
+        return {
+          items: [
+            {
+              connectionId:
+                secondPageCallCount === 1 ? "c-old-page-2" : "c-new-page-2",
+              userId:
+                secondPageCallCount === 1 ? "u-old-page-2" : "u-new-page-2",
+              displayName:
+                secondPageCallCount === 1
+                  ? "Old Page Two"
+                  : "Refreshed Page Two",
+              photoUrl: null,
+            },
+          ],
+          page: 2,
+          hasMore: true,
+          totalCount: 3,
+          audience: "all" as const,
+        };
+      }
+      if (page === 3) return stalePageThree.promise;
+      throw new Error(`Unexpected connections page ${page}`);
+    });
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("Current Person")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load more connections" }),
+    );
+    expect(await screen.findByText("Old Page Two")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load more connections" }),
+    );
+    expect(await screen.findByRole("button", { name: "Loading…" })).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("consent-state-changed", {
+          detail: { action: "connection_removed" },
+        }),
+      );
+    });
+
+    const loadMoreDuringRefresh = await screen.findByRole("button", {
+      name: "Load more connections",
+    });
+    expect((loadMoreDuringRefresh as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(loadMoreDuringRefresh);
+    expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(4);
+    expect(
+      mocks.listConnectionsPage.mock.calls.filter(
+        ([options]) => options.page === 3,
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      stalePageThree.resolve({
+        items: [
+          {
+            connectionId: "c-stale-page-3",
+            userId: "u-stale-page-3",
+            displayName: "Stale Page Three",
+            photoUrl: null,
+          },
+        ],
+        page: 3,
+        hasMore: false,
+        totalCount: 3,
+        audience: "all",
+      });
+      await stalePageThree.promise;
+    });
+
+    expect(screen.queryByText("Stale Page Three")).toBeNull();
+    expect((loadMoreDuringRefresh as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      refreshedPageOne.resolve({
+        items: [
+          {
+            connectionId: "c-refreshed",
+            userId: "u-refreshed",
+            displayName: "Refreshed Person",
+            photoUrl: null,
+          },
+        ],
+        page: 1,
+        hasMore: true,
+        totalCount: 2,
+        audience: "all",
+      });
+      await refreshedPageOne.promise;
+    });
+
+    expect(await screen.findByText("Refreshed Person")).toBeTruthy();
+    expect(screen.queryByText("Old Page Two")).toBeNull();
+    const loadMoreAfterRefresh = screen.getByRole("button", {
+      name: "Load more connections",
+    });
+    expect((loadMoreAfterRefresh as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(loadMoreAfterRefresh);
+    expect(await screen.findByText("Refreshed Page Two")).toBeTruthy();
+    expect(
+      mocks.listConnectionsPage.mock.calls.map(([options]) => options.page),
+    ).toEqual([1, 2, 3, 1, 2]);
+  });
+
+  it("restarts paging after removing a connection loaded beyond page 1", async () => {
+    let removed = false;
+    mocks.removeConnection.mockImplementation(async () => {
+      removed = true;
+    });
+    mocks.listConnectionsPage.mockImplementation(async (options) => {
+      const page = options.page ?? 1;
+      const items = !removed
+        ? page === 1
+          ? [
+              {
+                connectionId: "c-first",
+                userId: "u-first",
+                displayName: "First Person",
+                photoUrl: null,
+              },
+            ]
+          : [
+              {
+                connectionId: "c-remove",
+                userId: "u-remove",
+                displayName: "Remove Me",
+                photoUrl: null,
+              },
+            ]
+        : page === 1
+          ? [
+              {
+                connectionId: "c-first",
+                userId: "u-first",
+                displayName: "First Person",
+                photoUrl: null,
+              },
+              {
+                connectionId: "c-shifted",
+                userId: "u-shifted",
+                displayName: "Shifted Boundary",
+                photoUrl: null,
+              },
+            ]
+          : [
+              {
+                connectionId: "c-tail",
+                userId: "u-tail",
+                displayName: "Tail Person",
+                photoUrl: null,
+              },
+            ];
+      return {
+        items,
+        page,
+        hasMore: page === 1,
+        totalCount: removed ? 3 : 2,
+        audience: options.audience ?? "all",
+      };
+    });
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("First Person")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load more connections" }),
+    );
+    const remove = await screen.findByRole("button", {
+      name: "Remove connection with Remove Me",
+    });
+    fireEvent.click(remove);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(await screen.findByText("Shifted Boundary")).toBeTruthy();
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("me");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load more connections" }),
+    );
+    expect(await screen.findByText("Tail Person")).toBeTruthy();
+
+    const loadedPages = mocks.listConnectionsPage.mock.calls.map(
+      ([options]) => options.page,
+    );
+    expect(loadedPages).toEqual([1, 2, 1, 2]);
+  });
+
   it("asks for a bounded sample before anyone has searched", async () => {
     render(<ConnectPageClient />);
 
@@ -113,11 +469,7 @@ describe("Connect — People", () => {
     });
     expect(mocks.searchDirectory.mock.calls[0][0].query).toBe("");
 
-    expect(
-      await screen.findByText(
-        "Search by name.",
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText("Search by name.")).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
@@ -127,11 +479,7 @@ describe("Connect — People", () => {
     // by default, and a way through it.
     render(<ConnectPageClient />);
 
-    expect(
-      await screen.findByText(
-        "Search by name.",
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText("Search by name.")).toBeTruthy();
     // The pager paints a tick after the empty-state copy, so a synchronous
     // read here fails whenever the machine is loaded -- it went 3-for-5 under
     // parallel CI load while passing 4-for-4 on an idle laptop. This file is
@@ -185,13 +533,57 @@ describe("Connect — People", () => {
     // The empty-query description disappearing is the unambiguous signal that
     // this is no longer the bounded discovery surface.
     await waitFor(() =>
-      expect(
-        screen.queryByText(
-          "Search by name.",
-        ),
-      ).toBeNull(),
+      expect(screen.queryByText("Search by name.")).toBeNull(),
     );
     expect(await screen.findByText("Page 1")).toBeTruthy();
+  });
+
+  it("restores a typed search query after the page remounts", async () => {
+    // Regression: navigating to a person's detail screen and using the
+    // shared back control remounts this page. The search box is local
+    // React state, not URL state, so it used to come back empty even
+    // though the person had just been searching (issue #5921).
+    const { unmount } = render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Person 9" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    unmount();
+
+    render(<ConnectPageClient />);
+    expect(
+      (screen.getByLabelText("Search people") as HTMLInputElement).value,
+    ).toBe("Person 9");
+    await waitFor(() =>
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "Person 9" }),
+      ),
+    );
+  });
+
+  it("clears the stored search query once the box is emptied", async () => {
+    const { unmount } = render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Person 9" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(3));
+
+    unmount();
+
+    render(<ConnectPageClient />);
+    expect(
+      (screen.getByLabelText("Search people") as HTMLInputElement).value,
+    ).toBe("");
   });
 
   it("renders every person the directory returned, in the order it returned them", async () => {
@@ -425,7 +817,8 @@ describe("Connect — People", () => {
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     expect(sendRequest).not.toBeNull();
-    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    let result:
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({ person: "Person 9" });
     });
@@ -520,8 +913,16 @@ describe("Connect — People", () => {
     // would fail identically and bounce the card straight back.
     mocks.searchDirectory.mockResolvedValue({
       items: [
-        { userId: "u9", displayName: "Ankit Kumar Singh", relationship: "none" as const },
-        { userId: "u10", displayName: "Ankit Kumar Singh", relationship: "none" as const },
+        {
+          userId: "u9",
+          displayName: "Ankit Kumar Singh",
+          relationship: "none" as const,
+        },
+        {
+          userId: "u10",
+          displayName: "Ankit Kumar Singh",
+          relationship: "none" as const,
+        },
       ],
       hasMore: false,
       page: 1,
@@ -531,15 +932,25 @@ describe("Connect — People", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
-    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    let result:
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
-      result = await sendRequest!({ person: "Ankit Kumar Singh", userId: "u10" });
+      result = await sendRequest!({
+        person: "Ankit Kumar Singh",
+        userId: "u10",
+      });
     });
 
     expect(result).toMatchObject({ status: "succeeded" });
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({ addresseeUserId: "u10" }),
     );
+    // The walkthrough panel reads this to show who the request just went to
+    // -- the same name+detail shape the disambiguation card above shows.
+    expect(result?.data?.subject).toEqual({
+      name: "Ankit Kumar Singh",
+      detail: null,
+    });
   });
 
   it("finds someone whose stored name is not how it was spoken", async () => {
@@ -557,14 +968,17 @@ describe("Connect — People", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
-    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    let result:
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({ person: "Abdul Rashid" });
     });
 
     expect(result).toMatchObject({ status: "succeeded" });
     // Searched the longest word, not the whole phrase.
-    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({ query: "Rashid" });
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
+      query: "Rashid",
+    });
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({ addresseeUserId: "u9" }),
     );
@@ -581,7 +995,8 @@ describe("Connect — People", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
-    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    let result:
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({ person: "Abdul Rashid" });
     });
@@ -601,7 +1016,8 @@ describe("Connect — People", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
-    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    let result:
+      Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
     await act(async () => {
       result = await sendRequest!({ person: "Abdul" });
     });
@@ -658,9 +1074,7 @@ describe("Connect — People", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select many people" }));
 
-    expect(
-      screen.getByText("Pick up to 8, across pages."),
-    ).toBeTruthy();
+    expect(screen.getByText("Pick up to 8, across pages.")).toBeTruthy();
 
     for (let index = 0; index < 8; index += 1) {
       fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
@@ -680,7 +1094,9 @@ describe("Connect — People", () => {
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
 
     fireEvent.click(screen.getByRole("button", { name: "Review 8 of 8" }));
-    expect(await screen.findByRole("heading", { name: "Send connection requests" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Send connection requests" }),
+    ).toBeTruthy();
     // Not "This only sends a connection request." any more: the bulk path can
     // now carry RIA Picks, so that sentence would be false the moment one is
     // ticked. This wording is accurate whether or not any are.
@@ -755,7 +1171,10 @@ describe("Connect — People", () => {
     // reason, in place of one.
     mocks.searchDirectory.mockResolvedValue({
       items: [
-        { ...person("u1", "Connected Carl"), relationship: "connected" as const },
+        {
+          ...person("u1", "Connected Carl"),
+          relationship: "connected" as const,
+        },
         {
           ...person("u2", "Requested Rita"),
           relationship: "pending_outgoing" as const,
@@ -940,6 +1359,36 @@ describe("Connect — People", () => {
     expect(screen.queryByText("Ordinary Person")).toBeNull();
   });
 
+  it("does not relabel stale People rows when the RIAs page fails to load", async () => {
+    mocks.listConnectionsPage.mockImplementation(async (options) => {
+      if (options.audience === "ria") {
+        throw new Error("temporary RIAs read failure");
+      }
+      return {
+        items: [
+          {
+            connectionId: "c-person",
+            userId: "u-person",
+            displayName: "People Only Row",
+            photoUrl: null,
+          },
+        ],
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+        audience: "all",
+      };
+    });
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("People Only Row")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+
+    expect(await screen.findByText("My RIAs (0)")).toBeTruthy();
+    expect(screen.queryByText("People Only Row")).toBeNull();
+  });
+
   it("treats a connection with no RIA annotation as not an adviser", async () => {
     // A cached page written before the field existed, or any payload the
     // server has not annotated, must fail CLOSED — hidden from the RIAs tab
@@ -1020,6 +1469,14 @@ describe("Connect — removing a connection", () => {
     expect(mocks.removeConnection).toHaveBeenCalledWith(
       expect.objectContaining({ connectionId: "c-1" }),
     );
+    const finalConnectionRead =
+      mocks.listConnectionsPage.mock.calls.at(-1)?.[0];
+    expect(finalConnectionRead).toMatchObject({
+      page: 1,
+      query: "",
+      audience: "all",
+    });
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("me");
   });
 
   it("offers a picker before it offers a confirmation when the name is ambiguous", async () => {
@@ -1028,7 +1485,12 @@ describe("Connect — removing a connection", () => {
     // are-you-sure for whoever was picked.
     mocks.listConnections.mockResolvedValue([
       RASHID,
-      { ...RASHID, connectionId: "c-2", userId: "u-2", maskedEmail: "r***2@gmail.com" },
+      {
+        ...RASHID,
+        connectionId: "c-2",
+        userId: "u-2",
+        maskedEmail: "r***2@gmail.com",
+      },
     ]);
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
@@ -1083,6 +1545,31 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("w-full")).toBe(false);
     // And the one it keeps when it is not.
     expect(classes.has("justify-end")).toBe(true);
+  });
+
+  it("keeps My connections scrollable when the list grows", async () => {
+    // Three connections fit naturally. A hundred should not turn the top of
+    // Connect into a full-page receipt before the search field appears.
+    mocks.listConnections.mockResolvedValue(
+      Array.from({ length: 12 }, (_, index) => ({
+        connectionId: `c-${index}`,
+        userId: `u-${index}`,
+        displayName: `Trusted Person ${index + 1}`,
+        maskedEmail: `t***${index}@example.com`,
+      })),
+    );
+
+    const { container } = render(<ConnectPageClient />);
+    expect(await screen.findByText("My connections (12)")).toBeTruthy();
+
+    const list = container.querySelector(
+      '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
+    );
+    expect(list).toBeTruthy();
+    expect(list!.className).toContain("max-h-[232px]");
+    expect(list!.className).toContain("overflow-y-auto");
+    expect(list!.className).toContain("overscroll-contain");
+    expect(list!.className).toContain("sm:max-h-[320px]");
   });
 
   it("asks for the search field in two words", async () => {
@@ -1150,10 +1637,308 @@ describe("Connect — the phone-width geometry QA reported", () => {
       name: "Select many people",
     });
     expect(toggle.textContent).toBe("Select many");
-    expect(toggle.getAttribute("aria-label")!.startsWith(toggle.textContent!)).toBe(
-      true,
-    );
+    expect(
+      toggle.getAttribute("aria-label")!.startsWith(toggle.textContent!),
+    ).toBe(true);
     // Not a single bare verb: the label has to carry the plural.
     expect(toggle.textContent!.split(/\s+/).length).toBeGreaterThan(1);
+  });
+});
+
+describe("Connect — inviting someone who is not on One yet", () => {
+  // jsdom serves the page from http://localhost, which is exactly the origin a
+  // recipient cannot open, so the build origin stands in for it here the same
+  // way it does inside the iOS and Android shells.
+  const REAL_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://one.hushh.ai";
+    mocks.shareLink.mockResolvedValue("native-share");
+  });
+
+  afterEach(() => {
+    if (REAL_APP_URL === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+    else process.env.NEXT_PUBLIC_APP_URL = REAL_APP_URL;
+  });
+
+  async function searchForNobody(query = "Bob Kanjilal") {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: query },
+    });
+    return screen.findByText(`No one matches "${query}"`);
+  }
+
+  it("offers an invite instead of stopping at the dead end", async () => {
+    // The whole point of the issue: "No one matches" is a true statement and
+    // an unhelpful one, because the likeliest reason a name is missing is that
+    // the person has not joined.
+    await searchForNobody();
+
+    expect(await screen.findByText("Invite them to One")).toBeTruthy();
+    expect(
+      screen.getByText("Send them the app. You can connect once they join."),
+    ).toBeTruthy();
+  });
+
+  it("leaves the no-results row inert, so only the invite is tappable", async () => {
+    // "No one matches Bob" states a fact. Making it a control would mean
+    // tapping a sentence to do something it does not describe.
+    const row = await searchForNobody();
+    const factRow = row.closest("[data-testid='settings-row']");
+    expect(factRow).toBeTruthy();
+    expect(factRow?.querySelector("button")).toBeNull();
+  });
+
+  it("shares the app itself, with nothing attached to it", async () => {
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledTimes(1));
+    const sent = mocks.shareLink.mock.calls[0][0];
+    // Option B: no token, no code, no pending connection. Nobody is added to
+    // anything by receiving this, and consent is still asked for later through
+    // the normal request flow.
+    expect(sent.url).toBe("https://one.hushh.ai/");
+    expect(new URL(sent.url).search).toBe("");
+    // The link lives in `url` only -- WhatsApp and Messages append it to
+    // `text`, and a link in both is delivered twice.
+    expect(sent.text).not.toContain("http");
+  });
+
+  it("does not name the person who was searched for", async () => {
+    // The query is a string somebody typed, not a verified identity, and the
+    // recipient of the message is not that string. Putting it in the invite
+    // would deliver "invite Bob Kanjilal" to whoever the sender picks.
+    await searchForNobody("Bob Kanjilal");
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalled());
+    expect(JSON.stringify(mocks.shareLink.mock.calls[0][0])).not.toContain(
+      "Bob Kanjilal",
+    );
+  });
+
+  it("says nothing extra when the sheet did the talking", async () => {
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalled());
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("confirms the clipboard fallback, which is the one send nobody sees", async () => {
+    mocks.shareLink.mockResolvedValue("copied");
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() =>
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Invite link copied."),
+    );
+  });
+
+  it("treats a dismissed sheet as a decision, not a failure", async () => {
+    const cancelled = new Error("Share canceled");
+    cancelled.name = "AbortError";
+    mocks.shareLink.mockRejectedValue(cancelled);
+
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalled());
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("tells a browser that cannot share that there is nothing to retry", async () => {
+    mocks.shareLink.mockRejectedValue(new ShareUnavailableError());
+
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "This browser cannot share links.",
+      ),
+    );
+  });
+
+  it("reports a share that failed inside a channel that does exist", async () => {
+    mocks.shareLink.mockRejectedValue(new Error("Something went wrong"));
+
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Could not share the invite.",
+      ),
+    );
+  });
+
+  it("does not open a second sheet when the row is tapped twice", async () => {
+    // On iOS the promise settles only when the sheet is dismissed, and asking
+    // to present a second sheet over the first is rejected outright -- so a
+    // double tap used to earn an error toast.
+    let release: (value: string) => void = () => {};
+    mocks.shareLink.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await searchForNobody();
+    const invite = await screen.findByText("Invite them to One");
+    fireEvent.click(invite);
+    fireEvent.click(invite);
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      release("native-share");
+    });
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("can be used again once the first sheet closes", async () => {
+    await searchForNobody();
+    const invite = await screen.findByText("Invite them to One");
+    fireEvent.click(invite);
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(invite);
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledTimes(2));
+  });
+
+  it("is not offered before anyone has searched", async () => {
+    // Nothing has been looked for, so nothing is missing. The unsearched
+    // surface is a starting point, not a failure.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("No people yet")).toBeTruthy();
+    expect(screen.queryByText("Invite them to One")).toBeNull();
+  });
+
+  it("is not offered on RIAs, where a missing name means something else", async () => {
+    // A name absent from RIAs means their adviser profile is not verified --
+    // very often a person who is already on One. An app link does not fix that
+    // and would send someone to invite an existing member.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Bob Kanjilal" },
+    });
+
+    expect(
+      await screen.findByText('No one matches "Bob Kanjilal"'),
+    ).toBeTruthy();
+    expect(screen.queryByText("Invite them to One")).toBeNull();
+  });
+
+  it("is not offered when this build has no link a recipient could open", async () => {
+    // A native build with no origin baked in. Offering a button that cannot
+    // produce a working link is worse than not offering one.
+    delete process.env.NEXT_PUBLIC_APP_URL;
+
+    await searchForNobody();
+    expect(screen.queryByText("Invite them to One")).toBeNull();
+  });
+});
+
+describe("Connect — Circles", () => {
+  it("opens on Connections when the URL says nothing", async () => {
+    render(<ConnectPageClient />);
+
+    // The default is not written to the URL on mount: doing that would eat one
+    // router.back() step for every arrival.
+    expect(await screen.findByText("Search by name.")).toBeTruthy();
+    expect(screen.queryByTestId("connect-circles-tab")).toBeNull();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("shows circles instead of the directory when the URL asks for them", async () => {
+    mocks.searchParams = new URLSearchParams("tab=circles");
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
+    // The whole directory half is gone, not merely scrolled past: the search
+    // box drives a paged server query that has nothing to do with this tab.
+    expect(screen.queryByLabelText("Search people")).toBeNull();
+    expect(screen.queryByRole("button", { name: "RIAs" })).toBeNull();
+  });
+
+  it("names the default tab explicitly, so back to Connections navigates", async () => {
+    // The App Router refuses a navigation whose only change is that the whole
+    // query string disappears -- measured on UAT, recorded in
+    // lib/navigation/top-shell-breadcrumbs.ts. `?tab=all` is what makes this a
+    // control rather than a dead press.
+    mocks.searchParams = new URLSearchParams("tab=circles");
+    render(<ConnectPageClient />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Connections" }));
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
+  });
+
+  it("discards an armed selection when the people list goes away", async () => {
+    // A six-person batch still primed under a list nobody can see is worse than
+    // losing the picks: the button that sends it is on the other tab. The reset
+    // runs before the navigation, so it is observable in this render even
+    // though the mocked URL does not change.
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Select many people" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Cancel selecting people" }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Circles" }));
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
+    // Back to a plain list, with nothing armed against it.
+    expect(
+      screen.getByRole("button", { name: "Select many people" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the inner directory tabs to themselves", async () => {
+    // People / RIAs / Around you answers "which directory"; the outer strip
+    // answers "people, or groupings of them". Two axes, two strips -- and the
+    // inner one stays local state, which is what keeps its pinned contract
+    // untouched.
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+
+    expect(
+      await screen.findByText("Advisors with a verified profile."),
+    ).toBeTruthy();
+    // No navigation: the inner strip does not touch the URL.
+    expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 });

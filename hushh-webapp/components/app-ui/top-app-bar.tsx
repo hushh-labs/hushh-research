@@ -241,7 +241,7 @@ function resolveCommonRouteBreadcrumb(
 ): TopShellBreadcrumbConfig | null {
   const section = getAgentSection(lastAgentSectionId);
   const backHref = section?.href ?? ROUTES.ONE_HOME;
-  const parentLabel = section?.label ?? "Agents";
+  const parentLabel = section?.label ?? "One";
 
   if (pathname === ROUTES.PROFILE) {
     return {
@@ -274,7 +274,7 @@ function getScrolledRouteTitle(pathname: string): {
   }
   if (pathname === ROUTES.HOME || pathname === ROUTES.ONE_HOME) {
     return {
-      label: "Agents",
+      label: "One",
       icon: LayoutDashboard,
       interactive: false as const,
     };
@@ -387,16 +387,15 @@ function TopShellBreadcrumbTrail({
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
+        const isLocationRoot = item.label === "Location";
         return (
           <span
             key={`${item.label}-${index}`}
             className={cn(
-              "flex min-w-0 items-center gap-1",
-              // The last crumb (current page) keeps its full label; earlier
-              // ancestors are allowed to shrink and truncate so a deep trail
-              // like "Profile > Preferences > Gemini" collapses gracefully on
-              // narrow iOS widths instead of colliding/overflowing the header.
-              isLast ? "shrink-0" : "min-w-0 shrink",
+              "flex items-center gap-1",
+              isLast || isLocationRoot
+                ? "shrink-0 whitespace-nowrap"
+                : "min-w-0 shrink",
             )}
           >
             {index > 0 ? (
@@ -408,7 +407,12 @@ function TopShellBreadcrumbTrail({
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="min-w-0 max-w-[9rem] shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
+                className={cn(
+                  "text-[color:var(--app-secondary-label)] transition-colors hover:text-current",
+                  isLocationRoot
+                    ? "shrink-0 whitespace-nowrap"
+                    : "min-w-0 max-w-[9rem] shrink truncate",
+                )}
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -423,10 +427,11 @@ function TopShellBreadcrumbTrail({
             ) : (
               <span
                 className={cn(
-                  "truncate",
                   isLast
                     ? "min-w-0 shrink-0 font-semibold text-current"
-                    : "min-w-0 shrink text-[color:var(--app-secondary-label)]",
+                    : isLocationRoot
+                      ? "shrink-0 whitespace-nowrap text-[color:var(--app-secondary-label)]"
+                      : "min-w-0 shrink truncate text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >
@@ -1429,7 +1434,7 @@ function OnboardingRouteActions() {
           <DropdownMenuItem
             variant="destructive"
             onClick={() => void requestDeleteAccount()}
-            className="cursor-pointer rounded-[10px] hover:!bg-red-600 hover:!text-white hover:[&_svg]:!stroke-white hover:[&_svg]:!text-white focus:!bg-red-600 focus:!text-white focus:[&_svg]:!stroke-white focus:[&_svg]:!text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
           >
             <Trash2 className="h-4 w-4 text-current" />
             Delete account
@@ -1466,10 +1471,10 @@ function OnboardingRouteActions() {
                 event.preventDefault();
                 if (!isDeleting) void handleDeleteAccount();
               }}
-              className="bg-red-600 text-white hover:bg-red-700"
+              variant="destructive"
               disabled={isDeleting}
             >
-              {isDeleting ? "Deleting..." : "Yes, delete my account"}
+              {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -16,39 +16,37 @@ const PROFILE_SOURCE = fs.readFileSync(
 );
 
 describe("One Location settings placement", () => {
-  it("keeps Settings as a compact Now-hub entry", () => {
+  it("keeps Settings out of the compact Now hub", () => {
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
-    expect(nowSource).toContain('testId="one-location-settings-entry"');
-    expect(nowSource).toContain('title="Settings"');
+    expect(nowSource).not.toContain('testId="one-location-settings-entry"');
+    expect(nowSource).not.toContain('title="Settings"');
     expect(nowSource).not.toContain('title="Privacy"');
   });
 
-  it("offers Request Location inside the unified Actions grid", () => {
-    // Request location is an action, not status or utility. It belongs beside
-    // Share location, Check-In, and SMS in the Actions grid, while
-    // Settings stays quiet in More.
+  it("offers Ask for location inside the compact Now actions", () => {
+    // Request location is an action, not status or utility. The compact Now
+    // tab shows Ask, Check in, and SMS without dashboard section labels or a
+    // duplicated utility list.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
     expect(nowSource).toContain('data-testid="one-location-now-actions"');
     expect(nowSource).toContain('testId: "one-location-request-row"');
-    expect(nowSource).toContain('title: "Request location"');
-    expect(nowSource).toContain('title: "SMS"');
+    expect(nowSource).toContain('title: "Ask for location"');
+    expect(nowSource).toContain('title: "Save My Soul"');
 
     const actionsIndex = nowSource.indexOf("LocationActionGrid");
-    const requestIndex = nowSource.indexOf('title: "Request location"');
+    const requestIndex = nowSource.indexOf('title: "Ask for location"');
     const activityIndex = nowSource.indexOf("one-location-now-activity");
-    const moreIndex = nowSource.indexOf("one-location-now-more");
-    const settingsIndex = nowSource.indexOf('title="Settings"');
     expect(actionsIndex).toBeGreaterThan(-1);
     expect(requestIndex).toBeGreaterThan(actionsIndex);
     expect(activityIndex).toBeGreaterThan(requestIndex);
-    expect(moreIndex).toBeGreaterThan(activityIndex);
-    expect(settingsIndex).toBeGreaterThan(moreIndex);
+    expect(nowSource).not.toContain("one-location-now-more");
+    expect(nowSource).not.toContain("LocationNowGroupLabel");
 
     // Reuses the existing ask flow rather than introducing a second one, so
     // voice and the search bar keep naming a single control.
@@ -56,29 +54,19 @@ describe("One Location settings placement", () => {
     expect(HUB_SOURCE).toContain('onRequestLocation={() => openFlow("ask")}');
   });
 
-  it("gives Request Location an icon distinct from Share location", () => {
+  it("gives Ask for location an icon distinct from Share location", () => {
     // These two actions are opposites -- give a location out, ask for one in.
     // They sit in one grid now, so the glyphs must be distinct at a glance.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
-    const iconFor = (title: string) => {
-      const titleIndex = nowSource.indexOf(`title: "${title}"`);
-      expect(titleIndex).toBeGreaterThan(-1);
-      return /icon: <(\w+) \/>/.exec(
-        nowSource.slice(titleIndex, titleIndex + 180),
-      )?.[1];
-    };
+    const requestIndex = nowSource.indexOf('title: "Ask for location"');
+    const requestItem = nowSource.slice(requestIndex, requestIndex + 240);
 
-    const requestIcon = iconFor("Request location");
-    const shareIcon = iconFor("Share location");
-
-    expect(requestIcon).toBeTruthy();
-    expect(shareIcon).toBeTruthy();
-    expect(requestIcon).not.toBe(shareIcon);
-    // Both plane glyphs are interchangeable at this size; neither belongs here.
-    expect(["Send", "Navigation"]).not.toContain(requestIcon);
+    expect(requestIndex).toBeGreaterThan(-1);
+    expect(requestItem).toContain('<LocationMenuGlyph name="ask"');
+    expect(nowSource).toContain('data-location-share-pulse-icon=""');
   });
 
   it("owns Saved Locations and does not duplicate it in Profile preferences", () => {

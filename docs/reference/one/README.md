@@ -13,6 +13,7 @@ flowchart TD
   kai["Kai Runtime Compatibility"]
   ontology["Agent Ontology"]
   feed["Feed Notification Model"]
+  gmail["Owner-Approved Gmail Email"]
 
   root --> voice
   voice --> goal
@@ -22,6 +23,7 @@ flowchart TD
   voice --> kai
   root --> ontology
   root --> feed
+  root --> gmail
 ```
 
 One is the private agent and relationship layer. Current-state One reference
@@ -43,7 +45,7 @@ for finance-specialist runtime references, and keep future-only One plans under
 
 ## References
 
-- [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current One Voice runtime: ADK `Runner.run_live` over Vertex, One's root agent tree (google_search, open_screen, AgentTool Finance/RIA, specialist turn tools), the browser wire protocol, relay ticket auth, and the consent/directive boundary.
+- [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current One Voice runtime: ADK `Runner.run_live` over the model's declared transport (Gemini Developer API for the canonical live model; Vertex for the rollback), One's root agent tree (google_search, open_screen, AgentTool Finance/RIA, specialist turn tools), the browser wire protocol, relay ticket auth, and the consent/directive boundary.
 - [one-goal-framework.md](./one-goal-framework.md): governed goal planning and running across Gemini Live voice, Agent Chat, typed search, command bar, and UI action buttons.
 - [one-agent-hierarchy.md](./one-agent-hierarchy.md): current One-led app agent hierarchy, A2A/specialist registry, consent authority cascade, and Codex subagent boundary.
 - [gemini-runtime-configuration.md](./gemini-runtime-configuration.md): Connections-owned managed Gemini and Google AI Studio BYOK boundary for typed turns and live voice.
@@ -53,3 +55,4 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [../../vision/agent-ontology.md](../../vision/agent-ontology.md): Hussh / One / Kai / Nav / KYC role contract.
 - [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.
 - [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell — the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.
+- [gmail-owner-approved-email.md](./gmail-owner-approved-email.md): one shared Gmail connection for receipt/inbox context and owner-approved personal email drafting and delivery; includes the explicit boundary from the `one@hushh.ai` KYC mailbox.

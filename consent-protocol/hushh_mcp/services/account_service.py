@@ -8,6 +8,7 @@ from typing import Any, Dict, Literal
 from sqlalchemy import text
 
 from db.db_client import get_db, get_db_connection
+from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,9 @@ class AccountService:
         self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "contact_sync_lookup_budgets": text(
+                "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
+            ),
             "actor_identity_cache": text(
                 "DELETE FROM actor_identity_cache WHERE user_id = :user_id"
             ),
@@ -160,6 +164,9 @@ class AccountService:
                    OR requester_user_id = :user_id
                    OR referred_by_user_id = :user_id
                 """
+            ),
+            "one_location_auto_approve_preferences": text(
+                "DELETE FROM one_location_auto_approve_preferences WHERE user_id = :user_id"
             ),
             "one_location_envelopes": text(
                 """
@@ -789,6 +796,30 @@ class AccountService:
                 ),
                 params,
             )
+        # Migration 163 widened that same trigger to fire on `system_kind IS
+        # NOT NULL` as well, because Trusted is deliberately NOT `is_system`.
+        # Clearing only the flag therefore stopped being enough to open the
+        # escape hatch: 163 backfills `system_kind = 'sms'` onto every existing
+        # SMS Circle, so the row demoted above still trips the trigger on the
+        # DELETE below, and a Trusted Circle trips it having never been
+        # `is_system` at all. That is incident #5574 -- account deletion 500s --
+        # arriving a second time by a different column.
+        #
+        # Guarded on the column so a database that predates 163 still deletes.
+        if self._table_exists(conn, "one_location_circles") and self._column_exists(
+            conn, "one_location_circles", "system_kind"
+        ):
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circles
+                    SET system_kind = NULL
+                    WHERE owner_user_id = :user_id
+                      AND system_kind IS NOT NULL
+                    """
+                ),
+                params,
+            )
         conn.execute(
             text(
                 """
@@ -1042,6 +1073,7 @@ class AccountService:
             results=results,
         )
         for table_name in (
+            "one_location_auto_approve_preferences",
             "one_location_events",
             "one_location_nearby_presences",
             "one_location_sms_contacts",
@@ -1078,6 +1110,7 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                lock_connection_graph_users(conn, user_ids=[user_id])
                 self._clear_user_data_tables(conn, user_id, results)
 
                 # Re-seed the profile spine to a clean One default so the dashboard
@@ -1089,6 +1122,11 @@ class AccountService:
                         SET personas = ARRAY['investor']::text[],
                             last_active_persona = 'investor',
                             investor_marketplace_opt_in = FALSE,
+                            contact_discoverable = FALSE,
+                            contact_sync_consent_enabled_at = NULL,
+                            contact_sync_consent_rule_version =
+                                contact_sync_consent_rule_version + 1,
+                            contact_sync_consent_contract_version = NULL,
                             updated_at = NOW()
                         WHERE user_id = :user_id
                         """
@@ -1220,6 +1258,7 @@ class AccountService:
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
+            "one_location_auto_approve_preferences": False,
             "one_location_events": False,
             "one_location_nearby_presences": False,
             "one_location_sms_contacts": False,
@@ -1251,6 +1290,7 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                lock_connection_graph_users(conn, user_ids=[user_id])
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
@@ -1439,6 +1479,12 @@ class AccountService:
                     results=results,
                 )
                 for table_name in (
+                    # This budget is deliberately preserved by persona reset so
+                    # reset cannot become a rate-limit bypass. A full account
+                    # deletion removes the identity, so its FK-free budget row
+                    # must be purged here as well.
+                    "contact_sync_lookup_budgets",
+                    "one_location_auto_approve_preferences",
                     "one_location_events",
                     "one_location_nearby_presences",
                     "one_location_sms_contacts",

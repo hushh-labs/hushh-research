@@ -1,13 +1,15 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OneLocationCircleInvitePreview } from "@/lib/one-location/types";
 
 const mockReplace = vi.fn();
 const mockPreview = vi.fn();
+const mockRememberPendingCircleJoin = vi.fn();
+const mockIsResolved = vi.fn();
 let searchParams = new URLSearchParams();
 let authState: {
-  user: { getIdToken: () => Promise<string> } | null;
+  user: { uid: string; getIdToken: () => Promise<string> } | null;
   isAuthenticated: boolean;
   loading: boolean;
 };
@@ -34,9 +36,21 @@ vi.mock("@/lib/one-location/service", () => ({
   },
 }));
 
+vi.mock("@/lib/one-location/pending-circle-join", () => ({
+  rememberPendingCircleJoin: (userId: string, code: string) =>
+    mockRememberPendingCircleJoin(userId, code),
+}));
+
+vi.mock("@/lib/services/one-setup-completion-hint-service", () => ({
+  OneSetupCompletionHintService: {
+    isResolved: (userId: string) => mockIsResolved(userId),
+  },
+}));
+
 import CircleJoinPage from "@/app/circle/join/page";
 
 const CODE = "SWDXENDPB954";
+const USER_ID = "user-1";
 
 function preview(
   overrides: Partial<OneLocationCircleInvitePreview> = {},
@@ -54,7 +68,7 @@ function preview(
 
 function signedIn() {
   authState = {
-    user: { getIdToken: () => Promise.resolve("id-token") },
+    user: { uid: USER_ID, getIdToken: () => Promise.resolve("id-token") },
     isAuthenticated: true,
     loading: false,
   };
@@ -64,6 +78,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   searchParams = new URLSearchParams({ code: CODE });
   authState = { user: null, isAuthenticated: false, loading: false };
+  // Resolved (setup already finished) unless a test says otherwise -- the
+  // parking behaviour under test is the exception, not the default.
+  mockIsResolved.mockReturnValue(true);
 });
 
 describe("/circle/join landing", () => {
@@ -94,7 +111,7 @@ describe("/circle/join landing", () => {
     expect(container.textContent).toBe("");
     await waitFor(() =>
       expect(mockReplace).toHaveBeenCalledWith(
-        "/one/location?action=join-circle",
+        "/one/connect?tab=circles&action=join-circle",
       ),
     );
   });
@@ -126,7 +143,7 @@ describe("/circle/join landing", () => {
       "You're already in this Circle.",
     );
     expect(screen.getByTestId("circle-join-continue")).toHaveTextContent(
-      "Open One Location",
+      "Open One",
     );
   });
 
@@ -179,7 +196,7 @@ describe("/circle/join landing", () => {
 
     // A failed lookup is never the end of the road -- the hub takes a retype.
     expect(screen.getByTestId("circle-join-continue")).toHaveTextContent(
-      "Open One Location",
+      "Open One",
     );
   });
 
@@ -213,6 +230,45 @@ describe("/circle/join landing", () => {
     expect(status).toHaveAttribute("aria-live", "polite");
     await waitFor(() =>
       expect(status).toHaveTextContent("JHUMMA's Circle. JHUMMA KUMARI · 1 person."),
+    );
+  });
+
+  // #5307: /circle/join renders for a mid-setup recipient (it is exempt from
+  // OnboardingJourneyGuard -- see routes.test.ts), but the surface it hands
+  // off to is not. Without parking the code here first, that redirect into
+  // /one/setup drops it silently.
+  //
+  // #5458 repointed the handoff from /one/location to Connect: the Location
+  // agent runs a first-run onboarding takeover that no query parameter
+  // bypasses, so a recipient who had never used Location was shown "Share your
+  // location easily with anyone" instead of the code they had been handed.
+  it("parks the code before handing off when setup has not resolved (#5307)", async () => {
+    signedIn();
+    mockIsResolved.mockReturnValue(false);
+    mockPreview.mockResolvedValue(preview());
+
+    render(<CircleJoinPage />);
+
+    fireEvent.click(await screen.findByTestId("circle-join-continue"));
+
+    expect(mockRememberPendingCircleJoin).toHaveBeenCalledWith(USER_ID, CODE);
+    expect(mockReplace).toHaveBeenCalledWith(
+      `/one/connect?tab=circles&action=join-circle&code=${CODE}`,
+    );
+  });
+
+  it("does not park the code once setup has already resolved", async () => {
+    signedIn();
+    mockIsResolved.mockReturnValue(true);
+    mockPreview.mockResolvedValue(preview());
+
+    render(<CircleJoinPage />);
+
+    fireEvent.click(await screen.findByTestId("circle-join-continue"));
+
+    expect(mockRememberPendingCircleJoin).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith(
+      `/one/connect?tab=circles&action=join-circle&code=${CODE}`,
     );
   });
 });

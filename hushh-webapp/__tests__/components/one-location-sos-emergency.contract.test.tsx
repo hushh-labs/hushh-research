@@ -72,22 +72,21 @@ describe("One Location SMS emergency actions", () => {
     expect(SMS_PANEL_SOURCE).not.toContain("100dvh");
   });
 
-  it("uses the shared TaskFlowHeader, titled with its own crumb", () => {
-    expect(SMS_PANEL_SOURCE).toContain("TaskFlowHeader");
-    expect(SMS_PANEL_SOURCE).toContain('title="Save my Soul"');
-    // No route-local <h1>: the header primitive owns the title element.
-    expect(SMS_PANEL_SOURCE).not.toContain("<h1");
+  it("titles the focused emergency screen without the generic task subtitle", () => {
+    expect(SMS_PANEL_SOURCE).not.toContain("TaskFlowHeader");
+    expect(SMS_PANEL_SOURCE).toContain("Save My Soul");
+    expect(SMS_PANEL_SOURCE).toContain("<h1");
+    expect(SMS_PANEL_SOURCE).not.toContain(
+      "Alerts your emergency contacts with your live location.",
+    );
   });
 
   it("keeps the design's palette on tokens so light theme is not blind", () => {
     for (const token of [
-      "--sos-core-from",
-      "--sos-core-to",
-      "--sos-glow-rgb",
       "--sos-ring-track",
       "--sos-control-surface",
       "--sos-label",
-      "--sos-live-face",
+      "--sos-placeholder",
     ]) {
       expect(SMS_PANEL_SOURCE).toContain(token);
       // Declared for BOTH themes: once on :root, once under .dark.
@@ -127,7 +126,10 @@ describe("One Location SMS emergency actions", () => {
 
   it("keeps SMS contacts — reachable from SOS — on the same header system", () => {
     expect(SMS_CONTACTS_SOURCE).toContain("TaskFlowHeader");
-    expect(SMS_CONTACTS_SOURCE).toContain('title="SMS contacts"');
+    expect(SMS_CONTACTS_SOURCE).toContain('title="Emergency contacts"');
+    expect(SMS_CONTACTS_SOURCE).toContain(
+      "Choose who receives your Save My Soul alerts.",
+    );
     expect(SMS_CONTACTS_SOURCE).not.toContain("<h1");
     expect(SMS_CONTACTS_SOURCE).not.toContain("ChevronLeft");
     expect(SMS_CONTACTS_SOURCE).not.toContain("fixed inset-0");
@@ -138,10 +140,7 @@ describe("One Location SMS emergency actions", () => {
     // Keyframes belong in app/globals.css, never an inline <style> island.
     expect(SMS_PANEL_SOURCE).not.toContain("@keyframes");
     expect(SMS_PANEL_SOURCE).not.toContain("<style>");
-    expect(GLOBALS_SOURCE).toContain("@keyframes sosRadarPulse");
-    expect(GLOBALS_SOURCE).toContain("@keyframes sosCorePulse");
-    expect(GLOBALS_SOURCE).toContain("@keyframes sosHalo");
-    expect(GLOBALS_SOURCE).toContain("[data-sos-pulse]");
+    expect(SMS_PANEL_SOURCE).not.toContain("data-sos-pulse");
     expect(GLOBALS_SOURCE).toContain("[data-sos-core]");
   });
 

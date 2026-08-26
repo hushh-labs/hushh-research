@@ -91,7 +91,7 @@ const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
 
 const controlInputClassName =
-  "h-12 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-4 text-[15px] leading-5 text-foreground outline-none transition-colors placeholder:text-[color:var(--app-tertiary-label)] focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent)]/25 disabled:opacity-60";
+  "h-12 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-4 text-[15px] leading-5 text-foreground outline-none transition-colors placeholder:text-[color:var(--app-tertiary-label)] focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent)]/25 disabled:opacity-60";
 
 /**
  * Blue is a promise that the tap moves you forward. When it cannot, the button
@@ -1278,9 +1278,7 @@ export function SaveLocationModal({
               {/* A caption, not a card. It reassures; it is not a control, and
                   the panel it used to sit in gave it a control's weight. */}
               <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
-                {deferredUntilVault
-                  ? "Saves once your lock is set."
-                  : "Private to you."}
+                Private to you.
               </p>
             </div>
 

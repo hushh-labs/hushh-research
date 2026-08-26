@@ -15,7 +15,7 @@
  * page's existing revoke handler.
  */
 
-import { useEffect, useRef } from "react";
+import { type KeyboardEvent, type MouseEvent, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -104,6 +104,7 @@ export function LiveShareStatusCard({
   onStop,
   stopBusy,
   onChangeDuration,
+  onShareMore,
   onEnded,
 }: {
   status: LiveShareStatus;
@@ -121,6 +122,8 @@ export function LiveShareStatusCard({
    * different share to the person watching.
    */
   onChangeDuration?: () => void;
+  /** Opens the existing share composer while a share is already live. */
+  onShareMore?: () => void;
   /** Fired once when the countdown reaches zero, so the page can reconcile. */
   onEnded?: () => void;
 }) {
@@ -176,13 +179,34 @@ export function LiveShareStatusCard({
       ? `${status.count > 1 ? "Last ends" : "Ends"} ${formatShareEndsAt(endsAtMs)}`
       : null;
 
+  const runChildAction =
+    (action?: () => void) => (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      action?.();
+    };
+
+  const openManageFromKeyboard = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onManage();
+  };
+
   return (
     <section
+      role="button"
+      tabIndex={0}
       aria-label="Your live location share"
       data-testid="one-location-live-share"
       data-ui-contract="control-group"
       data-ui-id="location-live-share"
-      className={cn(CARD_SURFACE, LIVE_SHARE_CARD_CLASSNAME)}
+      onClick={onManage}
+      onKeyDown={openManageFromKeyboard}
+      className={cn(
+        CARD_SURFACE,
+        LIVE_SHARE_CARD_CLASSNAME,
+        "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+      )}
     >
       <div className={LIVE_SHARE_HEADER_CLASSNAME}>
         <span className="inline-flex min-w-0 items-center gap-2">
@@ -199,7 +223,7 @@ export function LiveShareStatusCard({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onStop}
+            onClick={runChildAction(onStop)}
             disabled={stopBusy}
             className={cn(
               LIVE_SHARE_ACTION_CLASSNAME,
@@ -218,7 +242,7 @@ export function LiveShareStatusCard({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onManage}
+            onClick={runChildAction(onManage)}
             className={cn(
               LIVE_SHARE_ACTION_CLASSNAME,
               "text-[color:var(--app-accent)]",
@@ -293,10 +317,10 @@ export function LiveShareStatusCard({
             <Button
               variant="ghost"
               size="sm"
-              onClick={onChangeDuration}
+              onClick={runChildAction(onChangeDuration)}
               className={cn(
                 LIVE_SHARE_ACTION_CLASSNAME,
-                "text-[color:var(--app-accent)]",
+                "ml-auto text-[color:var(--app-accent)]",
               )}
               data-ui-contract="occlusion-sensitive"
               data-ui-role="control"
@@ -307,6 +331,20 @@ export function LiveShareStatusCard({
             </Button>
           ) : null}
         </div>
+      ) : null}
+
+      {onShareMore ? (
+        <Button
+          type="button"
+          onClick={runChildAction(onShareMore)}
+          className="mt-4 min-h-[48px] w-full rounded-[16px] bg-[color:var(--app-accent)] px-5 font-[family-name:var(--font-app-body)] text-[17px] font-semibold leading-[22px] tracking-[-0.02em] text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.99]"
+          data-ui-contract="occlusion-sensitive"
+          data-ui-role="control"
+          data-ui-id="location-live-share-more"
+          data-testid="one-location-live-share-more"
+        >
+          Share with more
+        </Button>
       ) : null}
     </section>
   );

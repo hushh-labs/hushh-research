@@ -157,6 +157,109 @@ describe("InteractionIntentCoordinator", () => {
     });
   });
 
+  it("patches subject without moving phase, and later phase-only updates keep it", () => {
+    const coordinator = new InteractionIntentCoordinator();
+    const run = coordinator.startActionRun({
+      actionId: "connect.send_request",
+      label: "Send a connection request",
+      source: "voice",
+    });
+    expect(coordinator.getActiveActionRun()).toMatchObject({ subject: null });
+
+    coordinator.updateActionRun(run.id, {
+      subject: { name: "Ankit Kumar Singh", detail: "an•••@hushh.ai" },
+    });
+    expect(coordinator.getActiveActionRun()).toMatchObject({
+      phase: "acknowledged",
+      subject: { name: "Ankit Kumar Singh", detail: "an•••@hushh.ai" },
+    });
+
+    coordinator.finishActionRunFromSettlement(run.id, {
+      status: "succeeded",
+      summary: "Connection request sent to Ankit Kumar Singh.",
+    });
+    const snapshot = coordinator
+      .getActionRunsSnapshot()
+      .find((entry) => entry.id === run.id);
+    expect(snapshot).toMatchObject({
+      phase: "completed",
+      subject: { name: "Ankit Kumar Singh", detail: "an•••@hushh.ai" },
+    });
+  });
+
+  it("carries an optional goalId through a run so related steps can be grouped later", () => {
+    const coordinator = new InteractionIntentCoordinator();
+    const withGoal = coordinator.startActionRun({
+      actionId: "location.pause_updates",
+      label: "Pause updates",
+      source: "voice",
+      directiveId: "directive_1",
+      goalId: "goal.location.pause_updates",
+    });
+    const withoutGoal = coordinator.startActionRun({
+      actionId: "connect.open_people",
+      label: "Open Connect people",
+      source: "voice",
+      directiveId: "directive_2",
+    });
+
+    expect(withGoal.goalId).toBe("goal.location.pause_updates");
+    expect(withoutGoal.goalId).toBeNull();
+  });
+
+  it("renders a backend-direct action_result directive as an already-terminal run", () => {
+    // Mirrors exactly what agent-bar.tsx's `kind === "action_result"` branch
+    // does: no directiveId (nothing to settle), start then immediately move
+    // to the terminal phase the backend already computed.
+    const coordinator = new InteractionIntentCoordinator();
+    const run = coordinator.startActionRun({
+      actionId: "connect.remove_connection",
+      label: "Remove connection",
+      source: "voice",
+      message: "Removed Roopmann. They can no longer be picked for location sharing.",
+    });
+    expect(run.directiveId).toBeNull();
+    expect(run.phase).toBe("acknowledged");
+
+    const updated = coordinator.updateActionRun(run.id, {
+      phase: "completed",
+      message: "Removed Roopmann. They can no longer be picked for location sharing.",
+    });
+
+    expect(updated).toMatchObject({
+      id: run.id,
+      phase: "completed",
+      message: "Removed Roopmann. They can no longer be picked for location sharing.",
+    });
+    expect(updated?.completedAtMs).not.toBeNull();
+    // No active run left to show a spinner for -- it settled immediately,
+    // same as any other terminal run.
+    expect(coordinator.getActiveActionRun()).toBeNull();
+    // But it stays in the rolling snapshot VoiceWalkthroughPanel reads, so
+    // the person still sees what happened, not a card that vanished.
+    expect(coordinator.getActionRunsSnapshot()).toContainEqual(
+      expect.objectContaining({ id: run.id, phase: "completed" }),
+    );
+  });
+
+  it("renders a failed action_result the same way, with the failure message visible", () => {
+    const coordinator = new InteractionIntentCoordinator();
+    const run = coordinator.startActionRun({
+      actionId: "location.approve_request",
+      label: "Approve request",
+      source: "voice",
+      message: "That request is no longer pending.",
+    });
+
+    const updated = coordinator.updateActionRun(run.id, {
+      phase: "failed",
+      message: "That request is no longer pending.",
+    });
+
+    expect(updated?.phase).toBe("failed");
+    expect(updated?.message).toBe("That request is no longer pending.");
+  });
+
   it("cancels non-terminal interaction work on background without owning vault state", () => {
     const coordinator = new InteractionIntentCoordinator();
     const cancelNavigation = vi.fn();

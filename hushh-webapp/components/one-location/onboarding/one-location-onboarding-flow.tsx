@@ -19,6 +19,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
   READY_CODE_CLASSNAME,
@@ -76,6 +77,7 @@ export type OnboardingCircleInvite = {
 export type OnboardingContactMatch = {
   userId: string;
   displayName: string;
+  connectionStatus: "connected" | "request_required" | "suppressed";
 };
 
 /**
@@ -96,6 +98,7 @@ export type OnboardingCirclePreview = {
 export type OnboardingContactSyncResult =
   | { status: "matched"; matches: OnboardingContactMatch[] }
   | { status: "none"; partial: boolean }
+  | { status: "cancelled" }
   | { status: "failed"; message: string; canOpenSettings: boolean };
 
 type OneLocationOnboardingFlowProps = {
@@ -133,6 +136,8 @@ type OneLocationOnboardingFlowProps = {
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
   contactsStepAvailable?: boolean;
+  /** Account-backed web fallback versus the device address book. */
+  contactsSource?: "device" | "google";
   /**
    * Read the address book and return whichever contacts already have One.
    * Called only after the person taps on the contacts screen, never on mount.
@@ -235,11 +240,13 @@ function OnboardingSkipButton({
   disabled = false,
   inverse = false,
   floating = false,
+  plain = false,
 }: {
   onClick: () => void;
   disabled?: boolean;
   inverse?: boolean;
   floating?: boolean;
+  plain?: boolean;
 }) {
   return (
     <button
@@ -248,8 +255,10 @@ function OnboardingSkipButton({
       disabled={disabled}
       className={cn(
         "min-h-11 rounded-full text-[16px] font-bold disabled:opacity-50",
-        floating
-          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)] dark:ring-white/[0.06]"
+        plain
+          ? "px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
+          : floating
+          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-accent-bright)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
           : inverse
             ? "text-white"
             : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
@@ -266,6 +275,7 @@ function OnboardingNavigation({
   disabled = false,
   inverse = false,
   floating = false,
+  plain = false,
   busy = false,
   className,
 }: {
@@ -274,6 +284,7 @@ function OnboardingNavigation({
   disabled?: boolean;
   inverse?: boolean;
   floating?: boolean;
+  plain?: boolean;
   busy?: boolean;
   className?: string;
 }) {
@@ -292,11 +303,13 @@ function OnboardingNavigation({
         disabled={disabled}
         className={cn(
           "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
-          floating
-            ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-white dark:ring-white/[0.06]"
+          plain
+            ? "text-[#59616c] dark:text-[color:var(--app-label)]"
+            : floating
+              ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
             : inverse
               ? "bg-white/15 text-white"
-              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white",
+              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]",
         )}
         aria-label="Go back"
       >
@@ -309,6 +322,7 @@ function OnboardingNavigation({
       <OnboardingSkipButton
         inverse={inverse}
         floating={floating}
+        plain={plain}
         onClick={onSkip}
         disabled={disabled}
       />
@@ -419,7 +433,7 @@ function WelcomeScreen({
                 strokeWidth={2.5}
                 data-testid="location-agent-heading-icon"
               />
-              Location Agent
+              Location
             </p>
             <h1
               className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
@@ -472,7 +486,7 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
       <rect
         width="200"
         height="168"
-        className="fill-[#edf1f6] dark:fill-[#1b222d]"
+        className="fill-[#edf1f6] dark:fill-[color:var(--app-secondary-surface)]"
       />
       {/* green / park blocks */}
       <rect x="10" y="4" width="48" height="42" rx="6" fill={park} />
@@ -484,7 +498,7 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
         width="34"
         height="30"
         rx="4"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
       />
       <rect
         x="150"
@@ -492,7 +506,7 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
         width="52"
         height="34"
         rx="4"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
       />
       <rect
         x="8"
@@ -500,37 +514,37 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
         width="44"
         height="48"
         rx="5"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
       />
       {/* road casings */}
       <path
         d="M-12 86 H212"
-        className="stroke-white dark:stroke-[#0f141c]"
+        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
         strokeWidth="15"
         fill="none"
       />
       <path
         d="M100 -12 V180"
-        className="stroke-white dark:stroke-[#0f141c]"
+        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
         strokeWidth="15"
         fill="none"
       />
       <path
         d="M150 58 L214 122"
-        className="stroke-white dark:stroke-[#0f141c]"
+        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
         strokeWidth="10"
         fill="none"
       />
       {/* road centre hairlines */}
       <path
         d="M-12 86 H212"
-        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
+        className="stroke-[#dde3ec] dark:stroke-[color:var(--app-separator)]"
         strokeWidth="1.5"
         fill="none"
       />
       <path
         d="M100 -12 V180"
-        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
+        className="stroke-[#dde3ec] dark:stroke-[color:var(--app-separator)]"
         strokeWidth="1.5"
         fill="none"
       />
@@ -553,52 +567,6 @@ const SHARE_LOCATION_AVATARS = [
   },
 ] as const;
 
-function FeatureStatusPill({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "relative z-30 flex h-8 w-max max-w-full items-center gap-1 rounded-full bg-white/95 px-2 text-[9px] font-bold leading-none text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.15)] dark:bg-[#f4f7fb]",
-        className,
-      )}
-      data-one-use-case-alert
-    >
-      <span
-        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#28b867] text-white"
-        aria-hidden="true"
-      >
-        <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
-      </span>
-      <span className="min-w-max whitespace-nowrap">{children}</span>
-    </span>
-  );
-}
-
-function FeatureStatusRow({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "relative z-30 mt-auto flex shrink-0 items-center pb-3",
-        className,
-      )}
-      data-one-feature-status-row
-    >
-      <FeatureStatusPill>{children}</FeatureStatusPill>
-    </div>
-  );
-}
-
 function TwoLineFeatureTitle({
   lines,
   className,
@@ -612,7 +580,7 @@ function TwoLineFeatureTitle({
       aria-level={2}
       aria-label={lines.join(" ")}
       className={cn(
-        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-white",
+        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-[color:var(--app-label)]",
         className,
       )}
       data-one-feature-title
@@ -634,7 +602,7 @@ function TwoLineFeatureTitle({
 function ShareLocationFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
+      className="relative flex aspect-[1.56/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-trip"
       data-one-use-case-card
       data-one-feature-card="share"
@@ -643,7 +611,7 @@ function ShareLocationFeatureCard() {
       <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
       <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
+          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
           data-one-use-case-tag
         >
           Share location
@@ -653,7 +621,7 @@ function ShareLocationFeatureCard() {
           className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
-          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
+          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Share your live location with your Circle in one tap.
@@ -680,12 +648,12 @@ function ShareLocationFeatureCard() {
         </svg>
         <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
         <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
-        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
+        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[color:var(--app-primary-surface)] dark:shadow-none" />
         {SHARE_LOCATION_AVATARS.map((avatar, index) => (
           <span
             key={avatar.src}
             className={cn(
-              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
+              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[color:var(--app-primary-surface)] dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none",
               avatar.className,
             )}
             data-one-share-avatar={index + 1}
@@ -702,9 +670,6 @@ function ShareLocationFeatureCard() {
           </span>
         ))}
       </div>
-      <FeatureStatusRow className="px-5">
-        Sharing with Mom, Driver +1
-      </FeatureStatusRow>
     </article>
   );
 }
@@ -717,22 +682,25 @@ function CheckInFeatureCard() {
       data-one-use-case-card
       data-one-feature-card="checkin"
     >
-      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
+      <div
+        className="relative z-20 bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)] to-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4"
+        data-one-feature-copy
+      >
         <span
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
+          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[color:var(--app-success-surface)] dark:text-[color:var(--app-success-bright)]"
           data-one-use-case-tag
         >
           Check in
         </span>
         <TwoLineFeatureTitle
-          lines={["Stuck in the", "check-in line?"]}
+          lines={["Stuck waiting", "in line?"]}
           className="text-[19px]"
         />
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
+          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
-          Check in early, pick up your key, and skip the front desk.
+          Check in on spot. Your Circle knows.
         </p>
       </div>
       <div
@@ -742,36 +710,32 @@ function CheckInFeatureCard() {
       >
         <MapBackdrop tone="checkin" />
       </div>
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[68%] bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)] to-transparent"
+        aria-hidden="true"
+      />
       <div
-        className="absolute inset-x-0 bottom-0 h-[52%]"
+        className="absolute inset-x-0 bottom-0 h-[46%]"
         data-one-use-case-art
         aria-hidden="true"
       >
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[color:var(--app-primary-surface)] to-transparent" />
-        {/* Green location-pin overlay removed: the check-in card now shows the
-            clean building artwork on its own. The [data-one-checkin-pin]
-            responsive rules below are harmless no-ops now. */}
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)]/85 to-transparent" />
         <span
-          className="absolute bottom-[48%] left-1/2 w-[54%] -translate-x-1/2"
-          style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
-          data-one-checkin-art
+          className="absolute bottom-[18%] left-1/2 flex h-[64px] w-[64px] -translate-x-1/2 items-center justify-center rounded-full bg-white/90 shadow-[0_8px_22px_rgba(24,57,91,0.16)] ring-1 ring-white/80 dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
+          data-one-checkin-destination
         >
-          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-          <img
-            src="/one-location/onboarding/feature-checkin-house-transparent.webp"
-            alt=""
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-            className="block w-full origin-bottom object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
-            style={{ transform: "rotateY(8deg)" }}
-            data-one-checkin-hotel
+          <MapPin
+            className="h-9 w-9 text-[color:var(--app-accent)]"
+            strokeWidth={2.4}
           />
+          <span
+            className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[color:var(--app-success)] text-white ring-[3px] ring-white dark:ring-[color:var(--app-secondary-surface)]"
+            data-one-checkin-illustration
+          >
+            <Check className="h-3.5 w-3.5" strokeWidth={3.2} />
+          </span>
         </span>
       </div>
-      <FeatureStatusRow className="px-3">
-        Checked in at Hotel Grand
-      </FeatureStatusRow>
     </article>
   );
 }
@@ -786,17 +750,17 @@ function SaveMySoulFeatureCard() {
     >
       <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
+          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
           data-one-use-case-tag
         >
-          SMS &middot; Save My Soul
+          SMS · Save My Soul
         </span>
         <TwoLineFeatureTitle
-          lines={["Need help but", "can\u2019t talk?"]}
+          lines={["Need help but", "can’t talk?"]}
           className="text-[19px]"
         />
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
+          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Send an SMS with your location in seconds.
@@ -818,22 +782,17 @@ function SaveMySoulFeatureCard() {
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full border-2 border-[#ef302f]/30 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+              className="absolute inset-0 rounded-full border-2 border-[#ff3b30]/30 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
             />
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-[10px] rounded-full border-2 border-[#ef302f]/25 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+              className="absolute inset-[10px] rounded-full border-2 border-[#ff3b30]/25 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
             />
             <span
               data-one-sms-core
-              className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-bold text-white"
+              className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-[#ff3b30] text-[15px] font-bold text-white shadow-[0_12px_22px_rgba(255,59,48,0.28)] dark:shadow-none"
             >
-              <span
-                data-one-onboarding-motion
-                data-one-sms-core-pulse
-                className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
-              />
               <span className="relative z-10" data-one-sms-label>
                 SMS
               </span>
@@ -841,9 +800,6 @@ function SaveMySoulFeatureCard() {
           </span>
         </div>
       </div>
-      <FeatureStatusRow className="px-3">
-        Alerted 3 contacts
-      </FeatureStatusRow>
     </article>
   );
 }
@@ -896,7 +852,7 @@ function FeaturesScreen({
       data-one-feature-screen
     >
       <OnboardingNavigation
-        floating
+        plain
         onBack={onBack}
         onSkip={onSkip}
         disabled={leaving}
@@ -907,24 +863,28 @@ function FeaturesScreen({
            the viewport edges while everything else stayed in the column. Passed
            here rather than inside OnboardingNavigation: the welcome screen's
            copy of that nav is already railed at 560 by its parent. */
-        className="mx-auto w-full max-w-[1040px]"
+        className="mx-auto w-full max-w-[700px] md:max-w-[1040px]"
       />
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-one-feature-scroll
       >
-        <header className="mx-auto mt-3 w-full max-w-[700px] shrink-0" data-one-feature-header>
+        <header className="mx-auto mt-5 w-full max-w-[700px] shrink-0" data-one-feature-header>
           <h1
-            className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
+            className="ui-text-agent-title text-[#111823] dark:!text-[color:var(--app-label)]"
             data-one-feature-heading
           >
             Keep your people updated.
           </h1>
         </header>
-        <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
+        <div
+          className="mx-auto mt-5 grid w-full max-w-[700px] shrink-0 gap-3"
+          data-one-feature-grid
+          data-one-story-container
+        >
           <ShareLocationFeatureCard />
           <div
-            className="grid grid-cols-2 items-start gap-4"
+            className="grid grid-cols-2 items-start gap-3"
             data-one-feature-lower-grid
           >
             <CheckInFeatureCard />
@@ -933,7 +893,7 @@ function FeaturesScreen({
         </div>
         <p
           className={cn(
-            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
+            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[color:var(--app-secondary-label)]",
             !waitingForLocation && !permissionBusy && "sr-only",
           )}
           aria-live="polite"
@@ -941,12 +901,12 @@ function FeaturesScreen({
           {status}
         </p>
       </div>
-      <div className="mx-auto w-full max-w-[560px] shrink-0 pt-5" data-one-feature-cta>
+      <div className="mx-auto w-full max-w-[430px] shrink-0 pt-5" data-one-feature-cta>
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
           disabled={permissionBusy}
-          className="h-[58px] min-h-[58px]"
+          className="h-[52px] min-h-[52px]"
         >
           {locationPreparationRetry ? "Try again" : "Continue"}
         </PrimaryButton>
@@ -957,40 +917,60 @@ function FeaturesScreen({
           80% { opacity: 0; }
           100% { transform: scale(1.35); opacity: 0; }
         }
-        @keyframes oneSmsCore {
-          0%, 100% { transform: scale(1); box-shadow: 0 14px 26px rgba(239,48,47,0.34); }
-          50% { transform: scale(1.06); box-shadow: 0 18px 34px rgba(239,48,47,0.46); }
-        }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
         [data-one-feature-heading] {
-          --type-agent-title-size: 34px;
+          --type-agent-title-size: 31px;
           --type-agent-title-line: 1.08;
         }
         [data-one-feature-copy] {
-          --one-feature-copy-gap: 12px;
+          --one-feature-copy-gap: 10px;
           display: flex;
           flex-direction: column;
           align-items: flex-start;
           gap: var(--one-feature-copy-gap);
         }
-        @media (max-width: 431px), (min-width: 432px) and (max-height: 920px) {
-          [data-one-feature-scroll] { flex: 1 1 auto; }
-          [data-one-feature-grid] {
-            flex: 0 0 auto;
-            min-height: 0;
-            grid-template-rows: auto;
+        @media (max-width: 430px) {
+          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
+          [data-one-feature-heading] { --type-agent-title-size: 31px; }
+          [data-one-feature-card] { border-radius: 22px; }
+        }
+        @media (max-width: 380px) {
+          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
+          [data-one-feature-grid] { gap: 10px; }
+          [data-one-feature-lower-grid] { gap: 10px; }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: 17px;
           }
-          [data-one-feature-lower-grid] {
-            height: auto;
-            min-height: 0;
-            align-items: stretch;
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 12.5px;
+            line-height: 1.34;
           }
-          [data-one-feature-card] {
-            height: auto;
-            min-height: 0;
+        }
+        @media (max-width: 340px) {
+          [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
+          [data-one-feature-heading] { --type-agent-title-size: 29px; }
+          [data-one-feature-grid] { gap: 8px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-card] { border-radius: 20px; }
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            width: 60%;
+            padding: 14px 14px 0;
           }
+          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 18px; }
+          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12.5px; line-height: 1.34; }
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] { padding: 12px 12px 0; gap: 7px; }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; line-height: 1.3; }
+          [data-one-use-case-tag] { padding: 4px 9px; font-size: 10px; }
+          [data-one-feature-cta] { padding-top: 14px; }
+          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
         }
         @media (max-height: 780px) {
           [data-one-feature-screen] {
@@ -999,79 +979,32 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 52px; }
           [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-heading] { --type-agent-title-size: 32px; }
-          [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
-          [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
-          [data-one-feature-lower-grid] { gap: 12px; }
+          [data-one-feature-grid] { margin-top: 14px; gap: 10px; }
+          [data-one-feature-lower-grid] { gap: 10px; }
           [data-one-feature-cta] { padding-top: 14px; }
           [data-one-feature-cta] button { min-height: 50px; height: 50px; }
-        }
-        @media (max-height: 680px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 6px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
-          }
-          [data-one-onboarding-navigation] { height: 44px; }
-          [data-one-feature-header] { margin-top: 4px; }
-          [data-one-feature-heading] { --type-agent-title-size: 30px; }
-          [data-one-feature-subtitle] {
-            margin-top: 6px;
-            font-size: 13px;
-            line-height: 17px;
-            white-space: nowrap;
-          }
-          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-cta] { padding-top: 8px; }
-          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
-        }
-        @media (max-width: 431px) and (min-height: 820px) {
-          [data-one-feature-header] { margin-top: 16px; }
-          [data-one-feature-grid] { margin-top: 26px; gap: 14px; }
-        }
-        @media (max-width: 431px) {
-          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { --type-agent-title-size: 34px; }
-          [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
-          [data-one-feature-grid] {
-            gap: 12px;
-          }
-          [data-one-feature-lower-grid] {
-            gap: 12px;
-          }
-          [data-one-feature-card] {
-            border-radius: 22px;
-          }
         }
         @media (min-width: 768px) {
           [data-one-feature-scroll] {
             align-items: center;
             flex: 0 0 auto;
-            padding-right: 0;
           }
           [data-one-feature-header] {
-            margin-top: 18px;
             max-width: 1040px;
           }
           [data-one-feature-heading] {
             --type-agent-title-size: 34px;
           }
           [data-one-feature-grid] {
-            display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            grid-template-areas:
-              "share checkin sms";
+            grid-template-areas: "share checkin sms";
             align-items: stretch;
-            width: 100%;
             max-width: 1040px;
             margin-top: 24px;
             gap: 18px;
           }
           [data-one-feature-lower-grid] {
             display: contents;
-          }
-          [data-one-feature-card] {
-            min-height: 0;
           }
           [data-one-feature-card="share"] {
             grid-area: share;
@@ -1089,7 +1022,9 @@ function FeaturesScreen({
             aspect-ratio: auto;
             min-height: 390px;
           }
-          [data-one-feature-card="share"] [data-one-feature-copy] {
+          [data-one-feature-card="share"] [data-one-feature-copy],
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
             width: auto;
             padding: 20px 18px 0;
           }
@@ -1110,353 +1045,22 @@ function FeaturesScreen({
             font-size: 15px;
             line-height: 1.35;
           }
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            width: auto;
-            padding: 20px 18px 0;
-          }
           [data-one-feature-card="checkin"] [data-one-use-case-art] {
             inset: auto 0 42px 0;
             width: 100%;
             height: 54%;
           }
           [data-one-feature-card="checkin"] [data-one-checkin-art] {
-            left: 50%;
             width: 42%;
           }
           [data-one-feature-card="sms"] [data-one-feature-art-region] {
-            position: relative;
-            inset: auto;
             align-items: center;
             justify-content: center;
-          }
-          [data-one-feature-card="sms"] [data-one-sms-radar-clearance] {
-            width: 108px;
-            height: 108px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-status-row],
-          [data-one-feature-card="sms"] [data-one-feature-status-row] {
-            padding-right: 18px;
-            padding-left: 18px;
           }
           [data-one-feature-cta] {
             max-width: 430px;
             padding-top: 22px;
             padding-bottom: 4px;
-          }
-        }
-        @media (max-width: 380px) {
-          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
-        }
-        @media (max-width: 340px) {
-          [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-feature-heading] { --type-agent-title-size: 31px; }
-          [data-one-feature-grid] { gap: 10px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-card] { border-radius: 20px; }
-        }
-        @media (max-width: 300px) {
-          [data-one-feature-lower-grid] { grid-template-columns: minmax(0, 1fr); }
-          [data-one-feature-card="checkin"], [data-one-feature-card="sms"] { aspect-ratio: 1.15 / 1; }
-          [data-one-feature-title] { font-size: 16px; }
-          [data-one-feature-body] { font-size: 11px; }
-          [data-one-use-case-alert] { font-size: 9px; }
-        }
-        @container (max-width: 420px) {
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 8px;
-            width: 60%;
-            padding: 16px 14px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 3px 9px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 19px;
-            line-height: 1.12;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 14px;
-            line-height: 1.35;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] {
-            height: 28px;
-            padding-left: 7px;
-            padding-right: 7px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-right: 14px;
-            padding-left: 14px;
-          }
-        }
-        @container (max-width: 310px) {
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 6px;
-            padding: 13px 11px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 3px 7px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 17px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 12px;
-            line-height: 1.3;
-          }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-bottom: 9px;
-            padding-right: 11px;
-            padding-left: 11px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] {
-            height: 24px;
-            gap: 3px;
-            padding-left: 5px;
-            padding-right: 5px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child {
-            width: 12px;
-            height: 12px;
-          }
-        }
-        @container (max-width: 220px) {
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 6px;
-            padding-top: 10px;
-            padding-left: 12px;
-            padding-right: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 3px 9px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: clamp(15px, calc(5vw - 4.5px), 17px);
-            line-height: 1.12;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title] {
-            letter-spacing: -0.025em;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 13.5px;
-            line-height: 1.3;
-          }
-          [data-one-checkin-pin] {
-            top: 14px;
-            bottom: auto;
-          }
-          [data-one-feature-card="sms"] [data-one-feature-art-region] {
-            align-items: flex-start;
-            padding-top: 12px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 28px;
-            padding-left: 7px;
-            padding-right: 7px;
-            font-size: 9px;
-          }
-          [data-one-sms-radar-clearance] { width: 81px; height: 81px; }
-          [data-one-sms-radar] { width: 60px; height: 60px; }
-          [data-one-sms-core] { width: 44px; height: 44px; font-size: 13px; }
-        }
-        @container (max-width: 165px) {
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 4px;
-            padding-top: 8px;
-            padding-left: 7px;
-            padding-right: 5px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 3px 7px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: clamp(14px, 9.5cqw, 15px);
-            line-height: 1.08;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title] {
-            letter-spacing: -0.05em;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 12px;
-            line-height: 1.25;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-status-row],
-          [data-one-feature-card="sms"] [data-one-feature-status-row] {
-            padding-right: 6px;
-            padding-bottom: 8px;
-            padding-left: 6px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 24px;
-            gap: 3px;
-            padding-left: 4px;
-            padding-right: 4px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
-            width: 12px;
-            height: 12px;
-          }
-          [data-one-checkin-pin] { top: 22px; bottom: auto; width: 24px; height: 24px; }
-          [data-one-checkin-art] { width: 52%; }
-          [data-one-sms-radar-clearance] { width: 54px; height: 54px; }
-          [data-one-sms-radar] { width: 40px; height: 40px; }
-          [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
-        }
-        @media (max-width: 431px) and (max-height: 680px) {
-          [data-one-feature-heading] { --type-agent-title-size: 30px; }
-          [data-one-feature-subtitle] {
-            margin-top: 6px;
-            font-size: 13px;
-            line-height: 17px;
-            white-space: nowrap;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 17px; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; }
-          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-cta] { padding-top: 8px; }
-          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
-        }
-        @media (max-width: 340px) and (max-height: 680px) {
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 16px; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 14px; }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11px; }
-        }
-        @media (max-width: 431px) and (max-height: 560px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 4px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
-          }
-          [data-one-onboarding-navigation] { height: 38px; }
-          [data-one-feature-header] { margin-top: 2px; }
-          [data-one-feature-heading] { --type-agent-title-size: 28px; }
-          [data-one-feature-subtitle] {
-            margin-top: 4px;
-            font-size: 11.5px;
-            line-height: 15px;
-          }
-          [data-one-feature-grid] {
-            grid-template-rows: auto;
-            margin-top: 6px;
-            gap: 6px;
-          }
-          [data-one-feature-lower-grid] { gap: 6px; }
-          [data-one-feature-cta] { padding-top: 6px; }
-          [data-one-feature-cta] button { min-height: 42px; height: 42px; }
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 5px;
-            width: 60%;
-            padding: 9px 9px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 2px 7px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 15.5px;
-            line-height: 1.08;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 10px;
-            line-height: 1.2;
-          }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-right: 9px;
-            padding-bottom: 6px;
-            padding-left: 9px;
-          }
-          [data-one-share-avatar="2"] { left: 20%; }
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 4px;
-            padding-top: 7px;
-            padding-left: 6px;
-            padding-right: 5px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 2px 6px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 13px;
-            line-height: 1.08;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 9.5px;
-            line-height: 1.2;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-status-row],
-          [data-one-feature-card="sms"] [data-one-feature-status-row] {
-            padding-right: 5px;
-            padding-bottom: 6px;
-            padding-left: 5px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert],
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 22px;
-            padding-right: 4px;
-            padding-left: 4px;
-            font-size: 8px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
-            width: 11px;
-            height: 11px;
-          }
-          [data-one-checkin-pin] { top: 8px; }
-          [data-one-checkin-art] { width: 44%; }
-          [data-one-sms-radar-clearance] { width: 40px; height: 40px; }
-          [data-one-sms-radar] { width: 32px; height: 32px; }
-          [data-one-sms-core] { width: 28px; height: 28px; font-size: 11px; }
-        }
-        @media (min-width: 768px) {
-          [data-one-feature-card="share"] [data-one-feature-copy],
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            width: auto;
-            padding: 20px 18px 0;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title],
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 20px;
-            line-height: 1.14;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body],
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 15px;
-            line-height: 1.35;
           }
         }
       `}</style>
@@ -1488,6 +1092,7 @@ function formatCircleCode(code: string): string {
  */
 function ContactsScreen({
   state,
+  source,
   matches,
   addedUserIds,
   addingUserIds,
@@ -1505,6 +1110,7 @@ function ContactsScreen({
     | { kind: "none"; partial: boolean }
     | { kind: "matched" }
     | { kind: "failed"; message: string; canOpenSettings: boolean };
+  source: "device" | "google";
   matches: OnboardingContactMatch[];
   addedUserIds: string[];
   addingUserIds: string[];
@@ -1516,12 +1122,19 @@ function ContactsScreen({
   onContinue: () => void;
   leaving: boolean;
 }) {
+  const MATCH_PAGE_SIZE = 100;
+  const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_PAGE_SIZE);
+  useEffect(() => setVisibleMatchCount(MATCH_PAGE_SIZE), [matches]);
+  const visibleMatches = matches.slice(0, visibleMatchCount);
   const primed = state.kind === "idle" || state.kind === "busy";
+  const contactOperationBusy = state.kind === "busy";
+  const navigationDisabled = leaving || contactOperationBusy;
 
   return (
     <div
       className="flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]"
       data-testid="one-location-onboarding-contacts-surface"
+      aria-busy={contactOperationBusy}
     >
       {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
           under the clock and battery on every notched iPhone -- reachable
@@ -1530,34 +1143,35 @@ function ContactsScreen({
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          disabled={navigationDisabled}
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+        <OnboardingSkipButton onClick={onSkip} disabled={navigationDisabled} />
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
         <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
           <UserPlus className="h-7 w-7" strokeWidth={2} />
         </span>
-        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
+        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
           Find your people
         </h1>
-        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
           {primed
             ? "Find contacts already on One."
             : state.kind === "matched"
-              ? "Add anyone you trust."
+              ? "Connected matches are ready. You can request the rest."
               : "You can always find people later from the People tab."}
         </p>
 
         {primed ? (
           <>
-            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-white/[0.08] dark:bg-[#1c212a]">
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
               {state.kind === "busy" ? (
-                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
+                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
                   <Loader2 className="h-5 w-5 animate-spin" /> Checking your
                   contacts
                 </div>
@@ -1566,12 +1180,17 @@ function ContactsScreen({
                   {/* Say what happens to the address book before asking for it.
                       A vague ask on a location product is what makes people
                       decline, and the decline is permanent on iOS. */}
-                  <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
-                    Your contacts are checked using a one-way hash. One never
-                    stores your contact list, and nobody is contacted for you.
+                  <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                    One sends a protected match code and the last four digits,
+                    not names or full phone numbers. Your contact list is never
+                    stored. A match connects automatically only when that person
+                    has allowed contact connections; otherwise you can choose
+                    whether to send a request.
                   </p>
                   <PrimaryButton onClick={onSync} disabled={leaving}>
-                    Check my contacts
+                    {source === "google"
+                      ? "Connect Google Contacts"
+                      : "Check my contacts"}
                   </PrimaryButton>
                 </div>
               )}
@@ -1581,44 +1200,74 @@ function ContactsScreen({
 
         {state.kind === "matched" ? (
           <ul className="mt-6 space-y-2" data-testid="onboarding-contact-matches">
-            {matches.map((match) => {
+            {visibleMatches.map((match) => {
               const added = addedUserIds.includes(match.userId);
               const adding = addingUserIds.includes(match.userId);
+              const connected = match.connectionStatus === "connected";
+              const requestRequired = match.connectionStatus === "request_required";
               return (
                 <li
                   key={match.userId}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                 >
-                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#151b26] dark:text-[#f5f7fb]">
-                    {match.displayName}
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
+                    <span className="min-w-0 truncate">{match.displayName}</span>
+                    {connected ? <ContactSourceBadge /> : null}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => onAdd(match.userId)}
-                    disabled={added || adding || leaving}
-                    className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
-                  >
-                    {adding ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : added ? (
-                      <Check className="h-4 w-4" strokeWidth={2.5} />
-                    ) : null}
-                    {added ? "Requested" : adding ? "Adding" : "Add"}
-                  </button>
+                  {requestRequired ? (
+                    <button
+                      type="button"
+                      onClick={() => onAdd(match.userId)}
+                      disabled={added || adding || leaving}
+                      className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                    >
+                      {adding ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : added ? (
+                        <Check className="h-4 w-4" strokeWidth={2.5} />
+                      ) : null}
+                      {added ? "Requested" : adding ? "Sending" : "Request"}
+                    </button>
+                  ) : (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
+                      {connected ? (
+                        <Check className="h-4 w-4 text-emerald-600" />
+                      ) : null}
+                      {connected ? "Connected" : "Not connected"}
+                    </span>
+                  )}
                 </li>
               );
             })}
+            {visibleMatches.length < matches.length ? (
+              <li className="flex flex-col items-center gap-2 pt-2">
+                <span className="text-xs text-[#73777f]" aria-live="polite">
+                  Showing {visibleMatches.length} of {matches.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleMatchCount((current) =>
+                      Math.min(current + MATCH_PAGE_SIZE, matches.length),
+                    )
+                  }
+                  className="press-scale min-h-11 rounded-full border border-[#e4e6e9] px-5 text-sm font-semibold dark:border-white/[0.08]"
+                >
+                  Show more
+                </button>
+              </li>
+            ) : null}
           </ul>
         ) : null}
 
         {state.kind === "none" ? (
-          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
-            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
               {state.partial
                 ? "None of the contacts you shared are on One yet."
                 : "None of your contacts are on One yet."}
             </p>
-            <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
+            <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
               Your circle code is on the next screen — send it to whoever you
               want here.
             </p>
@@ -1626,17 +1275,27 @@ function ContactsScreen({
         ) : null}
 
         {state.kind === "failed" ? (
-          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
-            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
               {state.message}
             </p>
             {state.canOpenSettings ? (
               <button
                 type="button"
                 onClick={onOpenSettings}
-                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
               >
                 Open Settings
+              </button>
+            ) : null}
+            {source === "google" ? (
+              <button
+                type="button"
+                onClick={onSync}
+                disabled={leaving}
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+              >
+                Try again
               </button>
             ) : null}
           </div>
@@ -1648,7 +1307,7 @@ function ContactsScreen({
             nobody, or a plugin failure must never be a dead end. */}
         <PrimaryButton
           onClick={onContinue}
-          disabled={leaving}
+          disabled={navigationDisabled}
           inverse={primed && state.kind === "idle"}
         >
           {state.kind === "idle" ? "Not now" : "Continue"}
@@ -1757,12 +1416,12 @@ function ReadyScreen({
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85 dark:text-white"
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:text-[color:var(--app-label)] dark:shadow-[var(--app-glass-shadow)]"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <span className="rounded-full bg-white/85 px-1 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85">
+        <span className="rounded-full bg-white/85 px-1 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:shadow-[var(--app-glass-shadow)]">
           <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
         </span>
       </header>
@@ -1778,12 +1437,12 @@ function ReadyScreen({
               telling that person they are on a map, over a panel that says the
               map is unavailable, is the one thing this screen must not do. */}
           <h1
-            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[#f5f7fb]"
+            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[color:var(--app-label)]"
             data-one-ready-title
           >
             {mapPoint ? "You're on the map." : "You're all set."}
           </h1>
-          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
             Private until you share.
           </p>
 
@@ -1793,17 +1452,17 @@ function ReadyScreen({
             in three seconds cannot afford a sentence that only restates its own
             layout. */}
         <div
-          className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
+          className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
           data-testid="one-location-onboarding-invite-card"
           data-one-ready-code
         >
           {loading ? (
-            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
+            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
               <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
             </div>
           ) : error ? (
             <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
-              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[#aeb8c7]">
+              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
                 {error}
               </p>
               <button
@@ -1820,7 +1479,7 @@ function ReadyScreen({
                   your people to Ankit's Circle" spent five words introducing
                   the two things directly under it -- a code and a Share
                   button -- which the card's own shape already introduces. */}
-              <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[#aeb8c7]">
+              <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
                 {invite.circleName}
               </p>
               <p
@@ -1835,14 +1494,14 @@ function ReadyScreen({
               {/* Kept, shortened. The expiry changes what the person does with
                   the code, so it stays; "You can get a fresh one any time" is a
                   reassurance about a screen they have not reached yet. */}
-              <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[#8d99a8]">
+              <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                 Expires in 72 hours
               </p>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={onCopy}
-                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 >
                   {copied ? (
                     <Check className="h-5 w-5" strokeWidth={2.5} />
@@ -1862,7 +1521,7 @@ function ReadyScreen({
               </div>
             </>
           ) : (
-            <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[#8d99a8]">
+            <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
               {/* Where to get it is the button at the bottom of this screen,
                   which already says "Open One Location". Saying it again here
                   is the paragraph this card used to be. */}
@@ -1875,7 +1534,7 @@ function ReadyScreen({
           <div className="mt-4" data-testid="onboarding-join-circle">
             {joinAccepted ? (
               <p
-                className="flex items-center gap-2 rounded-[20px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-5 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:text-[#dce6f5]"
+                className="flex items-center gap-2 rounded-[20px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-5 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
                 role="status"
               >
                 <Check
@@ -1891,22 +1550,22 @@ function ReadyScreen({
                 // stack at the same width, so a 16px inset under a 20px one put
                 // every line of the join card 4px left of the code card's --
                 // a visibly ragged edge down the panel.
-                className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                 data-testid="onboarding-join-circle-preview"
               >
                 {/* Name, owner and size before accepting. Deciding whether to
                     share your location with a group is not a decision anyone
                     should make against an opaque string. */}
-                <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[#f5f7fb]">
+                <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
                   {joinPreview.name}
                 </p>
-                <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
+                <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
                   {joinPreview.ownerDisplayName} &middot;{" "}
                   {joinPreview.memberCount}{" "}
                   {joinPreview.memberCount === 1 ? "person" : "people"}
                 </p>
                 {joinPreview.alreadyMember ? (
-                  <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
+                  <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
                     Already in this circle.
                   </p>
                 ) : (
@@ -1952,13 +1611,13 @@ function ReadyScreen({
                     autoCapitalize="characters"
                     autoCorrect="off"
                     spellCheck={false}
-                    className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-white/15 dark:bg-white/[0.06] dark:text-[#f5f7fb]"
+                    className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                   />
                   <button
                     type="button"
                     onClick={onPreviewJoinCode}
                     disabled={joinBusy || !joinCode.trim() || leaving}
-                    className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                    className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                   >
                     {joinBusy ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -1970,7 +1629,7 @@ function ReadyScreen({
             )}
             {joinError ? (
               <p
-                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[#ff9a90]"
+                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[color:var(--app-destructive)]"
                 role="status"
               >
                 {joinError}
@@ -1987,7 +1646,7 @@ function ReadyScreen({
         <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
             <p
-              className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
+              className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]"
               role="status"
             >
               That didn&apos;t save. Tap again.
@@ -2047,6 +1706,7 @@ export function OneLocationOnboardingFlow({
   completeLabel = "Open One Location",
   mapPoint = null,
   contactsStepAvailable = true,
+  contactsSource = "device",
   onSyncOnboardingContacts,
   onAddOnboardingContact,
   onOpenContactSettings,
@@ -2322,6 +1982,10 @@ export function OneLocationOnboardingFlow({
     setContactState({ kind: "busy" });
     try {
       const result = await onSyncOnboardingContacts();
+      if (result.status === "cancelled") {
+        setContactState({ kind: "idle" });
+        return;
+      }
       if (result.status === "matched" && result.matches.length > 0) {
         setContactMatches(result.matches);
         setContactState({ kind: "matched" });
@@ -2558,12 +2222,10 @@ export function OneLocationOnboardingFlow({
 
   return (
     <main
-      // z-560, above the agent bar's elevated z-540. The bar normally sits at
-      // z-118 and onboarding covered it, but it raises itself to 540 for a
-      // pending confirmation or an interactive voice layer -- at which point it
-      // tied with this overlay and won on DOM order, drawing "Talk to One"
-      // across the primary CTA. Onboarding is modal; nothing belongs over it.
-      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[#f4f7fb] sm:[--type-agent-title-size:44px]"
+      // Onboarding is modal; nothing from the app shell belongs over it. Keep
+      // it above elevated Talk to One / bottom-nav states without touching those
+      // global controls.
+      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[color:var(--app-label)] sm:[--type-agent-title-size:44px]"
       data-one-onboarding-design="location-agent-v2"
       data-no-route-swipe
       data-testid="one-location-onboarding"
@@ -2572,7 +2234,7 @@ export function OneLocationOnboardingFlow({
       <NativeTestBeacon {...nativeTest} />
       <section
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[color:var(--app-grouped-background)]",
           // The welcome and feature screens own the full-bleed desktop canvas,
           // while their inner content rails keep the designed width. Expanding
           // the canvas is fine; stretching feature cards is what creates the
@@ -2635,6 +2297,7 @@ export function OneLocationOnboardingFlow({
         {screen === "contacts" ? (
           <ContactsScreen
             state={contactState}
+            source={contactsSource}
             matches={contactMatches}
             addedUserIds={addedContactIds}
             addingUserIds={addingContactIds}

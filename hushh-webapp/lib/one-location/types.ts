@@ -7,6 +7,18 @@ export type LocationSourcePlatform =
 
 export type OneLocationShareDurationMode = "timed" | "until_stopped";
 
+export type AutoApproveScope =
+  | { kind: "all_contacts" }
+  | { kind: "circle"; circleId: string };
+
+export type OneLocationAutoApprovePreference = {
+  enabled: boolean;
+  scope: AutoApproveScope | null;
+  enabledAt: string | null;
+  ruleVersion: number;
+  updatedAt?: string | null;
+};
+
 export type OneLocationRecommendationTier =
   | "needs_action"
   | "trusted_circle"
@@ -52,6 +64,14 @@ export type OneLocationRecipient = {
   profileHeadline?: string | null;
   verificationBadge?: string | null;
   lastInteractionAt?: string | null;
+  connectedFromContacts?: boolean;
+};
+
+export type OneLocationRecipientPage = {
+  items: OneLocationRecipient[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
 };
 
 export type OneLocationViewerCapabilities = {
@@ -230,6 +250,20 @@ export type OneLocationPublicInvite = {
   createdAt?: string | null;
   updatedAt?: string | null;
   revokedAt?: string | null;
+  /**
+   * The owner's own share link, app-relative (`/one/location/view/<token>`).
+   *
+   * Present only for the owner, and only while the invite is still usable. The
+   * token used to be returned exactly once, at creation, and nothing could
+   * recover it afterwards -- so after a reload the app knew a link was live and
+   * had nothing to copy. The server now derives it from the invite id and hands
+   * it back on every read.
+   *
+   * Still optional, and callers must treat it that way: an invite minted before
+   * the token was derivable has no recoverable link, and the field is absent
+   * rather than wrong.
+   */
+  publicUrl?: string | null;
 };
 
 export type OneLocationPublicInviteSubmission = {
@@ -280,6 +314,12 @@ export type OneLocationCircleViewerCapabilities = {
   canManageCircle: boolean;
   /** False for a system Circle: everything else an owner may do still applies. */
   canDeleteCircle?: boolean;
+  /** Stated by the server rather than inferred from "not the owner".
+   *
+   *  A system Circle's owner was offered a Leave that `_end_membership`
+   *  refuses every time, and a Trusted Circle cannot be left by anybody: its
+   *  roster IS the connection graph, so the way out is to disconnect. */
+  canLeaveCircle?: boolean;
   canModerateInvites: boolean;
 };
 
@@ -289,12 +329,24 @@ export type OneLocationCircleSummary = {
   kind: OneLocationCircleKind;
   role: OneLocationCircleRole;
   memberCount: number;
-  memberLimit: number;
+  /** `null` where the product does not impose one.
+   *
+   *  A Trusted Circle mirrors the connection graph and connections are not
+   *  capped, so the server reports no ceiling for it rather than the number it
+   *  happens to store. */
+  memberLimit: number | null;
   /**
    * Provisioned and depended on by the product (today: the SMS/Emergency
    * Circle). Members are managed normally; the Circle itself cannot be deleted.
+   *
+   * A Trusted Circle is deliberately NOT flagged here -- migration 163 carries
+   * the reasoning -- so read `systemKind` to ask "is this the product's", and
+   * this only to ask "is this the emergency one, on a server old enough not to
+   * say".
    */
   isSystem?: boolean;
+  /** Which product-managed Circle this is, or `null` for one a person named. */
+  systemKind?: "sms" | "trusted" | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   viewerCapabilities?: OneLocationCircleViewerCapabilities;
@@ -323,6 +375,7 @@ export type OneLocationCircleMember = {
   relationship?: OneLocationCircleMemberRelationship;
   /** False when there is nothing to request: self, connected, or already pending. */
   canConnect?: boolean;
+  connectedFromContacts?: boolean;
 };
 
 export type OneLocationCircleMemberRelationship =
@@ -337,6 +390,20 @@ export type OneLocationCircleDetail = OneLocationCircleSummary & {
   activeInviteCode?: OneLocationCircleInviteCode | null;
   /** True only for a legacy active code that must be explicitly rotated by the owner. */
   inviteCodeNeedsOwnerRotation?: boolean;
+};
+
+/** Circle metadata/capabilities returned without materializing its roster. */
+export type OneLocationCircleOverview = OneLocationCircleSummary & {
+  activeInviteCode?: OneLocationCircleInviteCode | null;
+  /** True only for a legacy active code that must be explicitly rotated by the owner. */
+  inviteCodeNeedsOwnerRotation?: boolean;
+};
+
+export type OneLocationCircleMemberPage = {
+  items: OneLocationCircleMember[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
 };
 
 export type OneLocationCircleInviteCode = {
@@ -362,6 +429,7 @@ export type OneLocationCircleEligibleConnection = {
   displayName: string;
   photoUrl?: string | null;
   connectedAt?: string | null;
+  connectedFromContacts?: boolean;
 };
 
 export type OneLocationCircleMemberInviteStatus =
@@ -394,6 +462,13 @@ export type OneLocationCircleEligibleConnections = {
   pendingInvites: OneLocationCircleMemberInvite[];
   remainingCapacity: number;
 };
+
+export type OneLocationCircleEligibleConnectionsPage =
+  OneLocationCircleEligibleConnections & {
+    page: number;
+    hasMore: boolean;
+    totalCount: number;
+  };
 
 export type OneLocationNetworkConnection = {
   id: string;
@@ -431,6 +506,8 @@ export type OneLocationMyRecipientKey = {
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
   circles?: OneLocationCircleSummary[];
+  /** Server-owned, cross-device standing approval rule. */
+  autoApprovePreference?: OneLocationAutoApprovePreference;
   /** Pending targeted invitations for this user to join a named Circle. */
   circleMemberInvites?: OneLocationCircleMemberInvite[];
   myRecipientKey?: OneLocationMyRecipientKey | null;

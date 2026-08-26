@@ -939,6 +939,95 @@ def test_targeted_invite_accept_rechecks_direct_connection_and_creates_origins(
     )
 
 
+def test_targeted_invite_accept_notifies_inviter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Accepting used to write the membership silently -- the inviter's
+    # Circle only reflected the new member after a manual reload, since
+    # nothing told their client anything had changed.
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440002"
+    now = datetime.now(timezone.utc)
+    conn = _CapacityConnection(
+        {"id": invite_id, "circle_id": circle_id},
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+            "status": "active",
+            "name": "Family",
+            "kind": "family",
+        },
+        {"user_id": "member-user"},
+        {
+            "id": invite_id,
+            "circle_id": circle_id,
+            "inviter_user_id": "inviter-member",
+            "invitee_user_id": "member-user",
+            "invitee_display_name": "Member User",
+            "status": "pending",
+            "expires_at": now + timedelta(hours=1),
+            "created_at": now,
+        },
+        None,
+        {"user_id": "inviter-member"},
+        {"id": "connection-id"},
+        {"id": "direct-origin-id"},
+        {"circle_count": 0},
+        # No `member_count` row here. The capacity check is one statement now --
+        # the `circle_count` subquery above -- so a second count is a result the
+        # service never asks for, and this scripted connection hands rows out in
+        # order regardless of SQL. It was silently feeding the membership INSERT
+        # a count and then feeding _connect_member_to_circle a None, which reads
+        # as "you are not in this Circle" and raised
+        # LOCATION_CIRCLE_MEMBERSHIP_NOT_ACTIVE on a member who had just joined.
+        None,
+        [
+            {"user_id": "member-user"},
+            {"user_id": "inviter-member"},
+            {"user_id": "owner-user"},
+        ],
+        None,
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        service,
+        "get_circle",
+        lambda **_kwargs: {"id": circle_id, "name": "Family"},
+    )
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_invite_accepted_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    result = service.accept_member_invite(
+        user_id="member-user",
+        invite_id=invite_id,
+    )
+
+    assert result["accepted"] is True
+    assert push_calls == [
+        {
+            "inviter_user_id": "inviter-member",
+            "invitee_user_id": "member-user",
+            "invitee_display_name": "Member User",
+            "circle_id": circle_id,
+            "circle_name": "Family",
+            "invite_id": invite_id,
+        }
+    ]
+
+
 def test_targeted_invite_accept_fails_if_direct_connection_was_removed() -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     invite_id = "550e8400-e29b-41d4-a716-446655440002"
@@ -2591,3 +2680,693 @@ def test_no_add_path_can_walk_into_invitation_payload_code() -> None:
         isinstance(node, ast.Return) and isinstance(node.value, ast.Dict)
         for node in ast.walk(transaction)
     )
+
+
+def test_a_system_circle_has_no_join_code_on_the_server_not_only_in_the_payload() -> None:
+    """`canViewInviteCode` was a claim the API did not keep.
+
+    `_circle_summary` has always reported `is_owner and not is_system`, under a
+    comment reading "A system Circle has no code at all." The SELECT in
+    `create_invite_code` did not read `is_system` and nothing below checked it,
+    so an owner reaching the endpoint directly could mint a bearer code that
+    joins a stranger into their emergency SMS roster.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 10,
+            "is_system": True,
+        },
+        {"role": "owner"},
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_invite_code(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            rotate=False,
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_SYSTEM_NO_CODE"
+    assert raised.value.status_code == 409
+    # Refused before any code row is touched, so a rotate cannot revoke the
+    # Circle's (nonexistent) code as a side effect of being refused.
+    assert not any("one_location_circle_invite_codes" in sql for sql in conn.sql)
+    # The other direction -- that an ordinary Circle still mints a code -- is
+    # already proved by test_owner_can_rotate_the_shared_circle_code and the
+    # two code tests above it, all of which pass a circle row carrying no
+    # `is_system` key and reach the INSERT.
+
+
+def test_a_code_minted_before_the_guard_still_cannot_open_a_system_circle() -> None:
+    """Closing the minting side alone would leave the codes already out there.
+
+    Until the guard above, `bootstrap_first_circle` could hand out a code for an
+    SMS Circle. Those codes are live, valid for 72 hours, and redeemable by
+    whoever holds them, so the redemption side has to refuse too.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440001"
+    conn = _CapacityConnection(
+        {"id": invite_id, "circle_id": circle_id},
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 10,
+            "status": "active",
+            "is_system": True,
+        },
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.join_circle(user_id="stranger-user", code="2345-6789-ABCD")
+
+    # Not a new error state: from the holder's side it is a code that does not
+    # work, and naming the Circle's kind would tell a stranger something about a
+    # roster they have no business knowing exists.
+    assert raised.value.code == "LOCATION_CIRCLE_CODE_INVALID"
+    assert raised.value.status_code == 404
+    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
+
+
+def test_a_trusted_circle_has_no_join_code_either() -> None:
+    """The same door, on the Circle the flag cannot see.
+
+    The guard above asked `is_system`, which was the whole question while the
+    SMS Circle was the only product-managed Circle. Trusted is deliberately NOT
+    `is_system` -- migration 163 carries the reasoning -- so it walked straight
+    through and could be minted a bearer code.
+
+    A code into a Trusted Circle is a code into the list of everyone the owner
+    is connected to, handed to whoever holds it.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 100,
+            "is_system": False,
+            "system_kind": "trusted",
+        },
+        {"role": "owner"},
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_invite_code(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            rotate=False,
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_SYSTEM_NO_CODE"
+    assert raised.value.status_code == 409
+    assert not any("one_location_circle_invite_codes" in sql for sql in conn.sql)
+
+
+def test_a_trusted_code_cannot_be_redeemed_either() -> None:
+    """And the redemption side, for the same reason.
+
+    Closing only the minting side would leave live any code handed out before
+    the guard widened.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440001"
+    conn = _CapacityConnection(
+        {"id": invite_id, "circle_id": circle_id},
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 100,
+            "status": "active",
+            "is_system": False,
+            "system_kind": "trusted",
+        },
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.join_circle(user_id="stranger-user", code="2345-6789-ABCD")
+
+    # The same answer a stranger gets for any Circle that will not take them:
+    # naming the kind would tell them a roster exists.
+    assert raised.value.code == "LOCATION_CIRCLE_CODE_INVALID"
+    assert raised.value.status_code == 404
+
+
+def test_both_code_doors_read_the_kind_and_not_only_the_flag() -> None:
+    """Structural, because the two tests above pass either way once fixed.
+
+    What they cannot catch is the next product-managed Circle: a third kind
+    added with `is_system = FALSE` would sail through a guard written as
+    `bool(row.get("is_system"))` exactly as Trusted did. Both doors go through
+    one predicate now, and this asserts they still do.
+    """
+
+    import inspect
+
+    for fn in (
+        OneLocationCircleService.create_invite_code,
+        OneLocationCircleService.join_circle,
+    ):
+        source = inspect.getsource(fn)
+        assert "_is_product_managed(" in source, fn.__name__
+        assert 'bool(circle_row.get("is_system"))' not in source, fn.__name__
+        # And it can only answer correctly if the row carries the column.
+        assert "system_kind" in source, fn.__name__
+
+
+def test_onboarding_never_names_or_shares_a_system_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`list_circles` is ordered `updated_at DESC`.
+
+    `ensure_sms_system_circle` stamps `updated_at` on every rename and
+    limit-heal, so the most recently updated owned Circle is routinely the SMS
+    Circle -- and onboarding would then name it, mint a code for it, and invite
+    the person's friends into their emergency roster.
+    """
+
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        service,
+        "list_circles",
+        lambda **_kwargs: [
+            {"id": "sms-circle", "role": "owner", "isSystem": True, "name": "SMS Circle"},
+        ],
+    )
+    created: list[dict] = []
+
+    def _create_circle(**kwargs):
+        created.append(kwargs)
+        return {"id": "new-circle", "name": kwargs.get("name")}
+
+    monkeypatch.setattr(service, "create_circle", _create_circle)
+    monkeypatch.setattr(
+        service,
+        "create_invite_code",
+        lambda **_kwargs: {"code": "2345-6789-ABCD"},
+    )
+
+    result = service.bootstrap_first_circle(user_id="owner-user", name="Neelesh's Circle")
+
+    # A Circle of their own, not the emergency one wearing their name.
+    assert result["circleId"] == "new-circle"
+    assert result["circleName"] == "Neelesh's Circle"
+    assert len(created) == 1
+
+
+def test_onboarding_still_reuses_a_circle_the_person_actually_made(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        service,
+        "list_circles",
+        lambda **_kwargs: [
+            {"id": "sms-circle", "role": "owner", "isSystem": True, "name": "SMS Circle"},
+            {"id": "family", "role": "owner", "isSystem": False, "name": "K Family"},
+        ],
+    )
+
+    def _fail(**_kwargs):
+        raise AssertionError("bootstrap created a Circle when one already existed")
+
+    monkeypatch.setattr(service, "create_circle", _fail)
+    monkeypatch.setattr(
+        service,
+        "create_invite_code",
+        lambda **_kwargs: {"code": "2345-6789-ABCD"},
+    )
+
+    result = service.bootstrap_first_circle(user_id="owner-user", name="Neelesh's Circle")
+
+    assert result["circleId"] == "family"
+    assert result["circleName"] == "K Family"
+
+
+def test_onboarding_does_not_pick_the_trusted_circle_as_your_first_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one system Circle this picker cannot recognise by `isSystem`.
+
+    Trusted is provisioned with `is_system = FALSE` on purpose, so the guard
+    above -- written when the SMS Circle was the only product-managed one --
+    lets it straight through. It is also the FIRST owned Circle most people
+    have, because it is created the moment they accept a connection and long
+    before they make one of their own.
+
+    Picked here, it goes to `create_invite_code`, which refuses a Trusted
+    Circle, so onboarding does not merely hand out the wrong Circle -- it
+    raises, and the person gets no first Circle at all.
+    """
+
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        service,
+        "list_circles",
+        lambda **_kwargs: [
+            {
+                "id": "trusted-circle",
+                "role": "owner",
+                "isSystem": False,
+                "systemKind": "trusted",
+                "name": "Trusted",
+            },
+        ],
+    )
+    created: list[dict] = []
+
+    def _create_circle(**kwargs):
+        created.append(kwargs)
+        return {"id": "new-circle", "name": kwargs.get("name")}
+
+    monkeypatch.setattr(service, "create_circle", _create_circle)
+    minted: list[dict] = []
+
+    def _mint(**kwargs):
+        minted.append(kwargs)
+        return {"code": "2345-6789-ABCD"}
+
+    monkeypatch.setattr(service, "create_invite_code", _mint)
+
+    result = service.bootstrap_first_circle(user_id="owner-user", name="Neelesh's Circle")
+
+    assert result["circleId"] == "new-circle"
+    assert result["circleName"] == "Neelesh's Circle"
+    assert len(created) == 1
+    # And the code it hands onboarding belongs to that new Circle, never to the
+    # roster of everybody they are connected to.
+    assert [str(call.get("circle_id")) for call in minted] == ["new-circle"]
+
+
+def test_onboarding_still_reuses_a_circle_the_person_made_beside_trusted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard skips the product's Circles, not the person's."""
+
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        service,
+        "list_circles",
+        lambda **_kwargs: [
+            {
+                "id": "trusted-circle",
+                "role": "owner",
+                "isSystem": False,
+                "systemKind": "trusted",
+                "name": "Trusted",
+            },
+            {"id": "family", "role": "owner", "isSystem": False, "name": "K Family"},
+        ],
+    )
+
+    def _fail(**_kwargs):
+        raise AssertionError("bootstrap created a Circle when one already existed")
+
+    monkeypatch.setattr(service, "create_circle", _fail)
+    monkeypatch.setattr(
+        service,
+        "create_invite_code",
+        lambda **_kwargs: {"code": "2345-6789-ABCD"},
+    )
+
+    result = service.bootstrap_first_circle(user_id="owner-user", name="Neelesh's Circle")
+
+    assert result["circleId"] == "family"
+
+
+# ---------------------------------------------------------------------------
+# Trusted: a projection of the connection graph, not a permission over it.
+# ---------------------------------------------------------------------------
+
+
+def test_trusted_grants_no_location_authority_anywhere() -> None:
+    """The consent property, asserted as a property of the idiom.
+
+    Contact sync (#5458) puts matched people into the owner's Trusted Circle
+    before they have accepted anything. The shared-circle arm of location
+    eligibility would then make those people shareable -- membership becoming
+    the thing that grants access, which is exactly backwards.
+
+    Everyone genuinely connected satisfies the connection arm already, so
+    excluding Trusted from the circle arm costs them nothing. Asserted at every
+    site because the join is written seven times, and fixing one is how it came
+    to be written seven times.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+    from hushh_mcp.services import one_location_circle_service as circle_module
+
+    sites = 0
+    for module in (agent_module, circle_module):
+        source = inspect.getsource(module)
+        for block in source.split('"""'):
+            if "JOIN one_location_circles circle" not in block:
+                continue
+            if block.count("one_location_circle_memberships") < 2:
+                continue
+            sites += 1
+            assert "circle.system_kind IS DISTINCT FROM 'trusted'" in block, (
+                "a shared-Circle eligibility join does not exclude Trusted, so "
+                "membership of it would grant location access:\n" + block[:500]
+            )
+
+    assert sites >= 7, f"expected at least 7 shared-Circle joins, found {sites}"
+
+
+def test_a_trusted_circle_reports_no_member_ceiling() -> None:
+    # Its stored limit is SMALLINT's, which is a storage fact rather than a
+    # product one. "47 / 32767" would invite somebody to wonder what happens at
+    # 32,767, and nothing does.
+    summary = OneLocationCircleService._circle_summary(
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "Trusted",
+            "kind": "other",
+            "role": "owner",
+            "owner_user_id": "owner-user",
+            "viewer_user_id": "owner-user",
+            "is_system": False,
+            "system_kind": "trusted",
+            "member_count": 47,
+            "member_limit": 32767,
+        }
+    )
+
+    assert summary["memberLimit"] is None
+    assert summary["systemKind"] == "trusted"
+    assert summary["isSystem"] is False
+
+
+def test_a_trusted_circle_offers_no_door_and_no_exit() -> None:
+    owner = OneLocationCircleService._circle_summary(
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "Trusted",
+            "kind": "other",
+            "role": "owner",
+            "owner_user_id": "owner-user",
+            "viewer_user_id": "owner-user",
+            "is_system": False,
+            "system_kind": "trusted",
+            "member_count": 3,
+            "member_limit": 32767,
+        }
+    )
+    caps = owner["viewerCapabilities"]
+
+    # No code: a link into the Circle would be a link into the whole
+    # connection graph, handed to whoever holds it.
+    assert caps["canViewInviteCode"] is False
+    assert caps["canRotateInviteCode"] is False
+    # Deleting it is not a decision the product offers -- the roster is derived.
+    assert caps["canDeleteCircle"] is False
+    # And the owner is not offered a Leave that would be refused.
+    assert caps["canLeaveCircle"] is False
+
+
+def test_an_ordinary_circle_keeps_every_door_it_had() -> None:
+    # The guards above are narrowings, and a narrowing that catches the ordinary
+    # case is just an outage.
+    summary = OneLocationCircleService._circle_summary(
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "K Family",
+            "kind": "family",
+            "role": "owner",
+            "owner_user_id": "owner-user",
+            "viewer_user_id": "owner-user",
+            "is_system": False,
+            "system_kind": None,
+            "member_count": 4,
+            "member_limit": 100,
+        }
+    )
+    caps = summary["viewerCapabilities"]
+
+    assert summary["memberLimit"] == 100
+    assert summary["systemKind"] is None
+    assert caps["canViewInviteCode"] is True
+    assert caps["canDeleteCircle"] is True
+
+
+def test_a_member_of_an_ordinary_circle_can_still_leave() -> None:
+    summary = OneLocationCircleService._circle_summary(
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "K Family",
+            "kind": "family",
+            "role": "member",
+            "owner_user_id": "someone-else",
+            "viewer_user_id": "member-user",
+            "is_system": False,
+            "system_kind": None,
+            "member_count": 4,
+            "member_limit": 100,
+        }
+    )
+
+    assert summary["viewerCapabilities"]["canLeaveCircle"] is True
+
+
+def test_the_trusted_reconcile_never_resurrects_a_removed_member() -> None:
+    """`NOT EXISTS (any status)` is the whole guard.
+
+    This runs on every bootstrap. Filtering the guard on `status = 'active'`
+    instead would re-add somebody who had been removed, on every single login --
+    the same trap `_migrate_sms_contacts_into_circle` documents and
+    test_service_migration_never_resurrects_a_removed_contact locks.
+    """
+
+    import inspect
+
+    source = inspect.getsource(OneLocationCircleService._reconcile_trusted_members)
+    guard = source[source.index("NOT EXISTS") :]
+    guard = guard[: guard.index("ON CONFLICT")]
+
+    assert "existing.circle_id" in guard
+    assert "existing.user_id" in guard
+    # The absence that matters.
+    assert "status" not in guard
+
+
+def test_the_trusted_reconcile_seeds_only_real_connections() -> None:
+    # Migration 135 backfilled a `named_circle` connection for every co-member
+    # pair in every Circle -- eighteen pairs of strangers per twenty-person
+    # Circle, by 138's own account. Those people never agreed to anything about
+    # each other and do not belong in each other's Trusted Circle.
+    import inspect
+
+    source = inspect.getsource(OneLocationCircleService._reconcile_trusted_members)
+
+    assert "origin.status = 'active'" in source
+    assert "origin.origin_kind <> 'named_circle'" in source
+    assert "conn_row.status = 'active'" in source
+
+
+def test_the_trusted_reconcile_says_nothing_to_anybody() -> None:
+    # `create_member_invites` sends a push and writes a feed event per member
+    # added. A reconcile for a 200-connection account must be silent.
+    import inspect
+
+    source = (
+        inspect.getsource(OneLocationCircleService._reconcile_trusted_members)
+        + inspect.getsource(OneLocationCircleService.ensure_trusted_system_circle)
+        + inspect.getsource(OneLocationCircleService.ensure_trusted_membership_for_pair)
+    )
+
+    assert "send_circle_member_added_push" not in source
+    assert "FeedService" not in source
+    assert "record_event" not in source
+
+
+def test_the_trusted_reconcile_is_not_bound_by_a_member_ceiling() -> None:
+    # Refusing to record a connection somebody already accepted would be worse
+    # than an oversized roster. The ceiling is written once, when the Circle is
+    # created; neither the reconcile nor the accept-path enroll consults it.
+    import inspect
+
+    for method in (
+        OneLocationCircleService._reconcile_trusted_members,
+        OneLocationCircleService.ensure_trusted_membership_for_pair,
+    ):
+        source = inspect.getsource(method)
+        # The pair-enroll creates the Circle if it is missing, so it names the
+        # constant -- but never reads the column back to compare against.
+        assert "member_count" not in source
+
+
+def test_a_trusted_membership_is_reactivated_on_reconnect() -> None:
+    # The opposite of the contact-match path, where a dismissal must survive a
+    # re-sync. Reconnecting is exactly when a Trusted membership should return.
+    import inspect
+
+    source = inspect.getsource(OneLocationCircleService.ensure_trusted_membership_for_pair)
+
+    assert "ON CONFLICT (circle_id, user_id) DO UPDATE SET" in source
+    assert "status = 'active'" in source
+    assert "ended_at = NULL" in source
+
+
+# ---------------------------------------------------------------------------
+# What a Circle hands back, and to whom.
+# ---------------------------------------------------------------------------
+
+
+def test_the_join_code_is_withheld_from_anyone_who_may_not_see_it() -> None:
+    """`canViewInviteCode` was an instruction sitting on top of the secret.
+
+    `get_circle` attached the live twelve-character code to every response, so
+    a plain member who could not see it on screen could read it out of the
+    payload one request later. Minting was closed to non-owners earlier in this
+    stack; reading is the other half of handing something out.
+    """
+
+    import inspect
+
+    source = inspect.getsource(OneLocationCircleService.get_circle)
+    # The payload is computed, then gated on the capability the same response
+    # already carries.
+    assert "invite_code_payload = self._invite_code_payload(" in source
+    assert "canViewInviteCode" in source
+    assert 'circle["activeInviteCode"] = invite_code_payload if can_view_code else None' in source
+    # Never attached unconditionally again.
+    assert 'circle["activeInviteCode"] = self._invite_code_payload(' not in source
+    # And the rotation hint still reads the real state rather than this
+    # viewer's view of it -- otherwise a member is told to rotate a healthy code.
+    assert 'summary_row.get("code_id") and invite_code_payload is None' in source
+
+
+def test_nobody_adds_a_member_to_trusted_by_hand() -> None:
+    """Its roster is derived, so a hand-written membership is unexplainable.
+
+    The capability said `is_owner` alone, and Trusted is owner-scoped, so the
+    detail screen rendered a filled "Add people" button -- and the endpoint
+    honoured it, writing a `named_circle` origin scoped to Trusted. That is the
+    exact provenance `ensure_trusted_system_circle` documents it must never
+    write: such an origin is revoked when the membership ends, which is
+    backwards for a roster derived from the connection itself.
+    """
+
+    import inspect
+
+    summary = inspect.getsource(OneLocationCircleService._circle_summary)
+    assert '"canInviteMembers": is_owner and not is_trusted' in summary
+
+    # And the endpoint refuses independently, because a capability flag is an
+    # instruction rather than a control.
+    invites = inspect.getsource(OneLocationCircleService.create_member_invites)
+    assert "circle.system_kind" in invites
+    assert 'if str(circle_row.get("system_kind") or "") == "trusted":' in invites
+    assert "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION" in invites
+
+
+def test_the_trusted_refusal_comes_before_the_ownership_check() -> None:
+    """Its owner is refused too, so the order has to put the kind first.
+
+    Checking ownership first would let the Circle's owner -- the one person who
+    passes it -- straight through to the write.
+    """
+
+    import inspect
+
+    invites = inspect.getsource(OneLocationCircleService.create_member_invites)
+    assert invites.index('== "trusted"') < invites.index("LOCATION_CIRCLE_OWNER_REQUIRED")
+
+
+def test_a_user_id_is_never_shown_where_a_name_belongs() -> None:
+    """The identity cache can hold the uid as the display name.
+
+    For an account with no display name the sync has been observed to store the
+    Firebase uid itself, and a Circle row rendered it verbatim:
+    "6mRRECV04CYyKrGQT1sGe2zszdt1's SMS Circle" on a real screen -- an opaque
+    28-character token where a person's name belongs.
+
+    Fixing the sync is its own change. Nothing that formats a name for a reader
+    should trust it in the meantime.
+    """
+
+    from hushh_mcp.services.one_location_circle_service import _human_display_name
+
+    uid = "6mRRECV04CYyKrGQT1sGe2zszdt1"
+    # The name IS the id it is keyed by.
+    assert _human_display_name(uid, uid) == ""
+    # Or is uid-shaped even when keyed by somebody else.
+    assert _human_display_name(uid, "another-user") == ""
+    assert _human_display_name("", uid) == ""
+    # Real names survive, including ones with unusual casing or a single word.
+    assert _human_display_name("John Smith", uid) == "John Smith"
+    assert _human_display_name("hushh Social", uid) == "hushh Social"
+    assert _human_display_name("Anastasia", uid) == "Anastasia"
+
+
+def test_a_shared_system_circle_falls_back_rather_than_showing_the_uid() -> None:
+    """What the reader actually sees once the name is refused."""
+
+    summary = OneLocationCircleService._circle_summary(
+        {
+            "id": "circle-1",
+            "owner_user_id": "6mRRECV04CYyKrGQT1sGe2zszdt1",
+            "name": "SMS Circle",
+            "is_system": True,
+            "system_kind": "sms",
+            "member_count": 3,
+            "member_limit": 10,
+            "owner_display_name": "6mRRECV04CYyKrGQT1sGe2zszdt1",
+            "viewer_user_id": "83gXHbAmS6eh4vhprEhO20ASjrL2",
+        }
+    )
+    assert summary["name"] == "Shared SMS Circle"
+
+    # And a real owner name still disambiguates, which is the whole point of
+    # the rename: three friends' rosters must not be three identical rows.
+    named = OneLocationCircleService._circle_summary(
+        {
+            "id": "circle-2",
+            "owner_user_id": "PJc45gn3Qqb9wO42oHOks1NBVD83",
+            "name": "SMS Circle",
+            "is_system": True,
+            "system_kind": "sms",
+            "member_count": 3,
+            "member_limit": 10,
+            "owner_display_name": "hushh Social",
+            "viewer_user_id": "83gXHbAmS6eh4vhprEhO20ASjrL2",
+        }
+    )
+    assert named["name"] == "hushh Social's SMS Circle"

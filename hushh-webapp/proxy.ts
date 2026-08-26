@@ -4,6 +4,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
+import {
+  LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX,
+  PUBLIC_LOCATION_VIEW_PREFIX,
+} from "./lib/one-location/public-invite-url";
 
 // Routes that don't require authentication (VaultLockGuard handles protected routes)
 const PUBLIC_ROUTES = [
@@ -77,6 +81,13 @@ export function proxy(request: NextRequest) {
   for (const [legacyRoot, canonicalRoot] of [
     [LEGACY_PROFILE_ROOT, ROUTES.PROFILE],
     [LEGACY_CONNECT_ROOT, ROUTES.CONNECT],
+    // Public live-location links. The page moved to `/view` because "request"
+    // described the submission form this route used to be, not the location it
+    // shows — but the old path is already inside messages that were sent, so it
+    // redirects rather than 404s. Deliberately a redirect and not a rewrite:
+    // the recipient should SEE the honest path once they arrive, which is the
+    // whole reason for the rename.
+    [LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX, PUBLIC_LOCATION_VIEW_PREFIX],
   ] as const) {
     if (pathname !== legacyRoot && !pathname.startsWith(`${legacyRoot}/`)) {
       continue;

@@ -123,11 +123,15 @@ describe("the Requests sent list", () => {
     // fixture: re-adding the word here would not change the fixture and would
     // not turn it red. This assertion is what closes that gap, so the two are
     // load-bearing together, not redundant.
+    const pendingBranchStart = source.indexOf('request.status === "pending" ?');
+    expect(pendingBranchStart).toBeGreaterThan(-1);
+    const pendingBranchEnd = source.indexOf(
+      "requestStatusWord(request.status)",
+      pendingBranchStart,
+    );
+    expect(pendingBranchEnd).toBeGreaterThan(pendingBranchStart);
     const pendingBranch = source
-      .slice(
-        source.indexOf('request.status === "pending" ?'),
-        source.indexOf("requestStatusWord(request.status)"),
-      )
+      .slice(pendingBranchStart, pendingBranchEnd)
       // The comment explaining the decision says "Pending" itself.
       .replace(/^\s*\/\/.*$/gm, "");
     expect(pendingBranch.trim().length).toBeGreaterThan(0);

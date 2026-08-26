@@ -116,6 +116,25 @@ Consent and audit metadata for these scopes may include actor ids, request ids,
 grant ids, duration, timestamps, status, and reason codes. It must not include
 coordinates, addresses, map previews, or movement traces.
 
+Standing auto-approval is off by default and names either all currently
+eligible Location contacts or one explicit Circle. The first-party client may
+pre-screen pending requests for responsiveness, but that snapshot is not
+authority. When it submits an automatic approval, the backend verifies that the
+request arrived after the standing rule was enabled, then revalidates the
+requester against the named relationship scope under the same lock that writes
+the grant. An active contact-sync connection is evaluated by the same
+`all_contacts` rule as an active request-accepted connection; the pre-existing
+standing rule and the later location request remain the authority, while the
+connection alone grants no location access. Every approval declares `manual`
+or `automatic`; missing intent is
+rejected so an older automatic client cannot fall through to the manual path.
+A Circle rule is limited to an active, person-created Circle owned by
+the approving user. A relationship removed before the mutation, a pre-existing
+request, or a partial rule fails closed and leaves the request pending. Manual
+owner approval remains a separate explicit-consent path and may answer a direct
+request from a new person. A standing rule never approves `until_stopped`;
+ongoing access always requires an explicit owner decision.
+
 ## One Nearby Presence Capability Scopes
 
 Nearby presence is short-lived workflow state, separate from

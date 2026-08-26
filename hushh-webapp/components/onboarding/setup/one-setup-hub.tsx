@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PlugZap } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   AppPageContentRegion,
@@ -338,6 +339,20 @@ export function OneSetupHub() {
         }
       }
       if (!runtimeChoiceConfirmed) {
+        // The action stays tappable precisely so this can fire. A permanent
+        // line under the button was the only thing naming the blocker before,
+        // and it sat there unread until someone had already tapped and got
+        // nothing back; the phone action had a `title` tooltip, which a touch
+        // device never shows at all. A toast answers the tap that asked, and
+        // carries the way out with it.
+        //
+        // One block, no description: the toast ceiling is two lines.
+        toast.info("Choose your AI first.", {
+          action: {
+            label: "Choose",
+            onClick: () => router.push(ROUTES.ONE_SETUP_CONNECTIONS),
+          },
+        });
         return {
           status: "blocked" as const,
           summary: "Choose your AI first.",
@@ -393,7 +408,8 @@ export function OneSetupHub() {
     <AppPageShell
       as="main"
       width="reading"
-      className="relative isolate"
+      fitContent
+      className="relative isolate max-w-[600px] pb-[calc(20px+env(safe-area-inset-bottom))]"
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
@@ -436,15 +452,16 @@ export function OneSetupHub() {
             <button
               type="button"
               onClick={() => void handleMasterAck()}
-              disabled={dismissing || !runtimeChoiceComplete}
-              title={
-                !runtimeChoiceComplete ? "Choose your AI first." : undefined
-              }
+              disabled={dismissing}
+              aria-disabled={!runtimeChoiceComplete || undefined}
               data-testid="one-setup-master-ack-mobile"
               // Same rule as the desktop footer: the accent is reserved for a
               // tap that can actually finish. A faded accent still reads blue,
-              // so a blocked finish goes neutral rather than dimmed.
-              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-100 sm:hidden"
+              // so a blocked finish goes neutral rather than dimmed -- but it
+              // stays tappable, because the `title` tooltip that used to carry
+              // the reason here is invisible on the touch devices this action
+              // exists for. The tap raises the toast instead.
+              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-100 aria-disabled:text-muted-foreground aria-disabled:hover:bg-transparent sm:hidden"
             >
               {masterActionLabel}
             </button>
@@ -459,19 +476,25 @@ export function OneSetupHub() {
           <>
             {total > 0 ? (
               <div
-                className={styles.segmentedProgress}
+                className={styles.setupProgress}
                 role="progressbar"
                 aria-valuemin={0}
                 aria-valuemax={total}
                 aria-valuenow={done}
                 aria-label={`${done} of ${total} set up`}
               >
-                {Array.from({ length: total }).map((_, index) => (
+                <div className={styles.setupProgressLabel}>
+                  {done} of {total} complete
+                </div>
+                <div className={styles.setupProgressTrack} aria-hidden>
                   <span
-                    key={index}
-                    data-filled={index < done ? "true" : undefined}
+                    className={styles.setupProgressFill}
+                    style={{
+                      width:
+                        total > 0 ? `${Math.round((done / total) * 100)}%` : "0%",
+                    }}
                   />
-                ))}
+                </div>
               </div>
             ) : null}
             <div className={styles.flatChecklist}>
@@ -562,18 +585,18 @@ export function OneSetupHub() {
                 label={masterActionLabel}
                 onComplete={() => void handleMasterAck()}
                 busy={dismissing}
-                disabled={!runtimeChoiceComplete}
+                blocked={!runtimeChoiceComplete}
                 controlId="one-setup-master-ack"
                 actionId="setup.hub_master_ack"
                 testId="one-setup-master-ack"
                 purpose={
                   "Finish setup and protect what you save."
                 }
-                supportingText={
-                  !runtimeChoiceComplete
-                    ? "Choose your AI first."
-                    : "Set up the rest later."
-                }
+                // The blocker is no longer named here. It was permanent copy
+                // that had to be read before the tap to be any use, and the
+                // tap is exactly when people want the answer -- so it moved
+                // into the toast the blocked tap now raises.
+                supportingText="Set up the rest later."
                 variant="blue-gradient"
                 effect="fill"
               />

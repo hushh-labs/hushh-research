@@ -798,6 +798,17 @@
       "primary_access_path": "Alpaca/Plaid funding, ACH, transfer, webhook, reconciliation, and trade-intent services"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "gmail_owner_send_actions",
+        "google_email_send_actions"
+      ],
+      "id": "gmail_owner_approved_delivery",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services"
+    },
+    {
       "data_class": "provider_cache",
       "exact_tables": [
         "google_provider_connections",
@@ -988,6 +999,7 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "one_location_access_requests",
+        "one_location_auto_approve_preferences",
         "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
@@ -1005,7 +1017,7 @@
       "id": "one_location_agent",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
       "data_class": "personal_metadata",
@@ -1018,6 +1030,22 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_agent_engagement_sessions",
+        "one_referral_attributions",
+        "one_referral_codes",
+        "one_referral_events",
+        "one_referral_policies",
+        "one_referral_relationships",
+        "one_referral_risk_reviews"
+      ],
+      "id": "one_referral_program",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only."
     },
     {
       "data_class": "personal_projection",
@@ -1187,19 +1215,20 @@
       "id": "trusted_device_registry",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used tracking, and revocation through TrustedDeviceService."
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService."
     },
     {
       "data_class": "workflow_state",
       "exact_tables": [
         "connection_requests",
         "connections",
-        "connection_origins"
+        "connection_origins",
+        "contact_sync_lookup_budgets"
       ],
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 126 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 125. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active."
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, viewer-relative contact_sync provenance, and one or more named Circles. Contact sync requires the target's explicit versioned combined find-and-auto-connect consent, revalidates the submitted digest against the current verified phone, and writes every eligible non-suppressed match as canonical graph projections transactionally. contact_sync_lookup_budgets is the Postgres-authoritative cross-instance abuse-budget seam; SlowAPI is only the outer request-count guard. Named Circle join/accept writes only named_circle origins. The canonical pair remains active while any origin is active."
     },
     {
       "data_class": "personal_encrypted",
@@ -2404,6 +2433,29 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
+      "native_surface_id": "native-route-email-agent",
+      "page_file": "app/one/email/page.tsx",
+      "pathname": "/one/email",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.email"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
       "native_surface_id": "native-route-feed",
       "page_file": "app/one/feed/page.tsx",
       "pathname": "/one/feed",
@@ -2991,6 +3043,16 @@
             "addSmsContact",
             "removeSmsContact"
           ]
+        },
+        {
+          "backend_endpoint_family": "/api/one/connections/contact-sync",
+          "native_transport": "CapacitorHttp direct backend via ConnectionsService after local contact normalization and hashing",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/connections-service.ts",
+          "service_methods": [
+            "syncContacts"
+          ]
         }
       ],
       "cache": {
@@ -3062,6 +3124,7 @@
           "location.decline_request",
           "location.delete_circle",
           "location.delete_saved_location",
+          "location.find_contacts",
           "location.leave_circle",
           "location.open_active_shares",
           "location.open_ask",
@@ -3236,6 +3299,29 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/location/view/[token]/page.tsx",
+      "pathname": "/one/location/view/[token]",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.view.token"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
       "native_surface_id": "native-route-one-marketplace",
       "page_file": "app/one/marketplace/page.tsx",
       "pathname": "/one/marketplace",
@@ -3297,6 +3383,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3374,6 +3461,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3405,6 +3493,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3818,6 +3907,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
+      "pathname": "/one/profile/preferences/voice/examples",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.preferences.voice.examples"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -3836,6 +3948,31 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.receipts"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/referrals/page.tsx",
+      "pathname": "/one/profile/referrals",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_referrals_panel"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.support"
       }
     },
     {
@@ -4533,6 +4670,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/r/[slug]/page.tsx",
+      "pathname": "/r/[slug]",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.r.slug"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
@@ -4987,28 +5147,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "7e80edea1cd750f9883c78a6aca19341b5e4cb4d842f7a2ade9a49d446957f34",
-    "agent_registry": "a421da6c4298782fb21585d240f52d9a36b032a80ded56ec114107bb80a7b175",
-    "cache_manifest": "a920c21d5fd0aa406d20ce8a46b6aa88caf32c0cb033ff3a91e274ec6097258c",
-    "data_plane": "3b2f555c7835a04a7802b93e72df0014b6e5fbdbcae986e9d3cd019e4aa64846",
+    "action_gateway": "4da0727c2fdeadb78bc4650914827d77ad085c72dbfebff7e1f1baa2e89c07a1",
+    "agent_registry": "ee0eeb9ba4cdc177301df5ed35e03b93cdc8d116f4249d7ba6eb69b1362559a5",
+    "cache_manifest": "13a2f556b7ea2ebbcf7729c5ba7dfa8875a79d8dd4a37df2b8dc2471ca544879",
+    "data_plane": "e54c50888114e8ec012180b6eb142335164d429494a7cab7a084a1ab0df64e84",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "e6e3e5388d1f1660d0f72c295fceb091116bbf66944f00b85454fa7d2c76d768",
-    "route_index": "f79cefbb2f233a0f6e56627ced99229bd92dc19733ddf02248f8cd79a1e191b1",
-    "route_layout": "eb6b7ee4e27a828a37aced9e26d0002c70d5e22ea1e4271722093e4e093e6d0b",
-    "surface_map": "bd6fca5b4da4add3c0c7f78c1c1ae3d41836feb8146be12e003243318d1b01fc",
+    "one_specialist_tools": "91046655f19b6c84fa76f27faa3309b7f28887aec26cae65e2b3fa6843f389e4",
+    "route_index": "eb051f176332f390083c5e270b7dcc494994a68352b741c16b1765efdc63243e",
+    "route_layout": "178064ac4f170604e1014eb9eb87fad2aae55c1a9a7039dbd34c4b20ea51704b",
+    "surface_map": "956b3a9d00d47795f6e1102e87f8817d75097f5a0e5e1f5b9b2d1db9969da6f0",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 183,
+    "actions": 185,
     "agents": 19,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 129,
+    "physical_routes": 134,
     "semantic_routes": 14,
-    "table_families": 51
+    "table_families": 53
   }
 }

@@ -90,9 +90,9 @@ export function groupGrantsByCounterpart(
 /**
  * How to label one share inside a per-person row.
  *
- * Reuses the badge copy the recipient's card already shows for an SMS-triggered
- * share, so the same share is not called two different things on two screens.
+ * Keeps the lane name aligned to the product-facing action. The server keeps
+ * the internal `sos` identifier; the UI says Save My Soul.
  */
 export function grantLaneLabel(grant: OneLocationGrant): string {
-  return isSmsTriggeredGrant(grant) ? "Shared via SMS" : "Location share";
+  return isSmsTriggeredGrant(grant) ? "Save My Soul" : "Location share";
 }

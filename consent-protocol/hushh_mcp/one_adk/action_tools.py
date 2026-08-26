@@ -23,25 +23,53 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Callable, Literal
 
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.consent.token import validate_token_with_db
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
     is_voice_entirely_disabled,
     resolve_voice_domain,
     voice_domain_label,
 )
+from hushh_mcp.operons.location.policy import (
+    TIMED_LOCATION_SHARE_DURATION_MODE,
+    UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
+    normalize_duration_hours,
+)
 from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.live_voice_context import (
     read_completed_action,
     read_failed_action,
     read_live_voice_context,
+    record_completed_action,
+    record_failed_action,
+)
+from hushh_mcp.services.one_location_agent_service import (
+    OneLocationAgentError,
+    OneLocationAgentService,
+)
+from hushh_mcp.services.one_location_circle_service import (
+    OneLocationCircleError,
+    OneLocationCircleService,
+)
+from hushh_mcp.services.spoken_name_resolver import (
+    UnresolvedPersonName,
+    ambiguous_match_names,
+    join_names_for_speech,
+    match_by_name,
+    match_circle_by_name,
+    normalize_spoken_name,
+    resolve_spoken_names,
+    split_spoken_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +80,8 @@ _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
+_STATE_USER_ID = "hussh:user_id"
+_STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -249,6 +279,862 @@ def _directive_flags(
     }
 
 
+# Action ids that skip the client-directive/local-handler round trip entirely
+# and mutate through the backend service layer directly, the same functions
+# the REST endpoints call. Deliberately narrow: only actions with no
+# client-only secret (no live-coordinate encryption) and no editable draft
+# state (nothing a person picks and reconsiders before confirming) belong
+# here -- see the "Backend-direct voice execution" plan for the full
+# reasoning. Extend this set action by action, not by widening the shape.
+BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        "location.leave_circle",
+        "location.delete_circle",
+        "location.stop_share",
+        "location.approve_request",
+        "location.decline_request",
+        "location.create_circle",
+        "location.add_to_circle",
+        "location.rename_circle",
+        "connect.remove_connection",
+        "connect.cancel_request",
+        "connect.send_request",
+    }
+)
+
+# Directory search shape connect.send_request's resolution mirrors exactly --
+# app/connect/page-client.tsx's own DIRECTORY_RESOLVE_MAX_PAGES/_PAGE_SIZE.
+_DIRECTORY_RESOLVE_MAX_PAGES = 5
+_DIRECTORY_RESOLVE_PAGE_SIZE = 50
+
+# Unlike BACKEND_DIRECT_ACTION_IDS, these two are only backend-direct when
+# the model actually named a person -- there is no backend concept of
+# "whatever's currently selected in the composer" for the frontend-driven
+# tap-then-voice hybrid flow these actions were built for. When `person` is
+# absent, _is_backend_direct() falls through to the normal directive-parking
+# path below, which still correctly uses the browser's own selection state,
+# completely unaffected.
+BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        "location.send_request",
+        "location.share_selected",
+    }
+)
+
+
+def _is_backend_direct(clean_id: str, clean_slots: dict[str, Any]) -> bool:
+    """The one predicate every backend-direct eligibility check must share.
+
+    Used identically at all three sites that need to agree on this (the
+    available_action_ids guard exemption, the screen-reachability guard
+    exemption, and the final dispatch decision) so they can never drift out
+    of sync with each other -- exactly the failure mode this whole
+    initiative exists to eliminate.
+    """
+    if clean_id in BACKEND_DIRECT_ACTION_IDS:
+        return True
+    if clean_id in BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS:
+        return bool(str(clean_slots.get("person") or "").strip())
+    return False
+
+
+# Backend-direct errors that carry a spoken-safe .message, across the three
+# service modules these actions mutate through.
+_BackendDirectError = (OneLocationCircleError, OneLocationAgentError, ConnectionsError)
+
+
+class _BackendDirectConfirmationNeeded(Exception):  # noqa: N818 - control-flow signal, not a failure
+    """Raised to ask the model to confirm before mutating, not to report a failure.
+
+    connect.remove_connection is the one BACKEND_DIRECT_ACTION_IDS action with
+    a hand-written two-step confirm gate independent of the contract's
+    execution_policy (it is allow_direct; the browser's local handler always
+    asked anyway, because removing a connection has no undo). Bypassing the
+    browser means bypassing its confirm card too, so this reimplements the
+    same two-step shape conversationally: the first call raises this, which
+    _run_backend_direct_action turns into a `blocked` status carrying the
+    question to ask; the model is expected to ask it, hear a real yes, and
+    call again with `confirmed: true` in slots. Deliberately NOT recorded via
+    record_failed_action -- asking a question is not a failure, and the
+    already-failed guard must not stop the confirmed retry from going through.
+    """
+
+
+async def _verify_backend_direct_authorization(
+    tool_context: ToolContext,
+) -> tuple[bool, str, str]:
+    """Re-validate auth for a backend-direct mutation, matching the REST layer exactly.
+
+    A backend-direct action skips the browser round trip that would
+    otherwise carry a REST call through ``require_vault_owner_token`` --
+    without this, a directive-parked action would be LESS guarded than the
+    same action run by tap, because the WebSocket's own consent token
+    (``_STATE_CONSENT_TOKEN``) is stored raw and unvalidated the moment it
+    arrives (``adk_live.py``'s app_context handler only length-bounds it).
+    This re-runs the identical cryptographic check
+    (``validate_token_with_db`` against ``ConsentScope.VAULT_OWNER``,
+    including the DB-backed revocation check) the REST endpoints already
+    depend on, plus a same-user cross-check the REST layer gets for free
+    from its own auth dependency binding token to path.
+
+    Returns ``(authorized, user_id, reason)`` -- ``reason`` is a message
+    safe to hand back to the model on refusal, never the raw validation
+    error.
+    """
+    session_user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
+    if not session_user_id:
+        return False, "", "The user is not signed in."
+    token = str(tool_context.state.get(_STATE_CONSENT_TOKEN) or "").strip()
+    if not token:
+        return False, "", "The vault is locked. Unlock it, then try again."
+    valid, _reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
+    if not valid or token_obj is None:
+        return (
+            False,
+            "",
+            "The vault is locked or the session has expired. Unlock it, then try again.",
+        )
+    if str(token_obj.user_id) != session_user_id:
+        # Should be structurally impossible (the token was minted for the
+        # session that sent it) -- refuse rather than assume, since silently
+        # trusting a mismatch here is exactly the class of bug this
+        # re-validation exists to catch.
+        logger.warning("backend_direct_token_user_mismatch action_user=%s", session_user_id)
+        return False, "", "The vault is locked. Unlock it, then try again."
+    return True, session_user_id, ""
+
+
+async def _run_backend_direct_action(
+    clean_id: str,
+    clean_slots: dict[str, Any],
+    tool_context: ToolContext,
+    *,
+    label: str,
+) -> dict[str, Any]:
+    """Execute a BACKEND_DIRECT_ACTION_IDS action against the service layer directly.
+
+    No client_directive is parked and no browser round trip happens. On
+    success/failure this records the same completed/failed bookkeeping the
+    settlement path would have, so the existing already_completed/
+    already_failed loop-guard at the top of run_app_action still works with
+    no browser involved at all.
+    """
+    session_id = getattr(getattr(tool_context, "session", None), "id", None)
+    fingerprint = _slot_fingerprint(clean_slots)
+    authorized, user_id, reason = await _verify_backend_direct_authorization(tool_context)
+    if not authorized:
+        logger.info("one_adk_action_decision action=%s status=unauthorized", clean_id)
+        # Not recorded as a failure: an unauthorized attempt is not something
+        # retrying-with-the-same-inputs would ever fix by itself (it needs a
+        # sign-in/unlock in between), so it must not trip the "already
+        # failed, don't try again" guard the way a real execution failure
+        # should.
+        return {"status": "blocked", "message": reason}
+
+    try:
+        result_message = await _execute_backend_direct_mutation(
+            clean_id, clean_slots, user_id, tool_context
+        )
+    except _BackendDirectConfirmationNeeded as exc:
+        logger.info("one_adk_action_decision action=%s status=confirmation_needed", clean_id)
+        return {"status": "blocked", "message": str(exc)}
+    except _BackendDirectError as exc:
+        record_failed_action(session_id, clean_id, fingerprint, exc.message)
+        logger.info("one_adk_action_decision action=%s status=failed reason=%s", clean_id, exc.code)
+        _park_action_result_directive(tool_context, clean_id, status="failed", message=exc.message)
+        return {"status": "failed", "message": exc.message}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        record_failed_action(session_id, clean_id, fingerprint, "unexpected_error")
+        logger.exception(
+            "one_adk_action_decision action=%s status=failed reason=unexpected", clean_id
+        )
+        failure_message = f"{label} did not go through. Try again in a moment."
+        _park_action_result_directive(
+            tool_context, clean_id, status="failed", message=failure_message
+        )
+        return {"status": "failed", "message": failure_message}
+
+    record_completed_action(session_id, clean_id, fingerprint)
+    logger.info("one_adk_action_decision action=%s status=completed backend_direct=true", clean_id)
+    _park_action_result_directive(
+        tool_context, clean_id, status="completed", message=result_message
+    )
+    return {
+        "status": "completed",
+        "message": result_message,
+    }
+
+
+def _park_action_result_directive(
+    tool_context: ToolContext,
+    action_id: str,
+    *,
+    status: Literal["completed", "failed"],
+    message: str,
+) -> None:
+    """Give a backend-direct mutation the same on-screen visibility any other
+    action already gets, without a browser round trip.
+
+    A BACKEND_DIRECT_ACTION_IDS mutation already knows its true outcome by
+    the time this runs -- there is nothing for the browser to execute or
+    settle back, unlike a `kind: "action"` directive. This rides the exact
+    same turn-boundary `hussh:pending_directive` -> `clientDirective`
+    delivery every other directive already uses (adk_live.py), just a kind
+    the browser renders as an already-terminal step instead of dispatching
+    to a local handler. adk_live.py's settlement-tracking/GC bookkeeping
+    must treat this kind as never awaiting a settlement -- there is nothing
+    for the browser to report back.
+    """
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{action_id}:result"] = {
+        "kind": "action_result",
+        "payload": {"actionId": action_id, "status": status, "message": message},
+    }
+
+
+def _park_publish_location_envelopes_directive(
+    tool_context: ToolContext, shares: list[dict[str, str]]
+) -> None:
+    """Ask the browser to encrypt-and-publish the live coordinate for grants
+    location.share_selected just created backend-direct.
+
+    Coordinates must never reach the backend in plaintext -- this is the one
+    step a backend-direct mutation cannot do itself. Deliberately a NEW kind,
+    not the `kind: "action"` + delegateAgentId: "agent_location" shape the
+    older text-chat specialist pathway already uses for the same underlying
+    work (runLocationDirective's publish_share branch): reusing that shape
+    here would pull this into adk_live.py's issue()/settlement/GC
+    bookkeeping, which only ever applies to `kind == "action"` -- there is
+    nothing for the browser to settle back for this one, the grant already
+    exists. Payload carries only grantId/recipientKeyId/label per share,
+    never a public key: runLocationDirective already refuses to trust one
+    from a directive and re-reads it from server state itself.
+    """
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"] = {
+        "kind": "publish_location_envelopes",
+        "payload": {"shares": shares},
+    }
+
+
+def _parse_share_duration(value: Any) -> tuple[float | None, str]:
+    """A spoken/slot share duration -> (duration_hours, duration_mode).
+
+    "until_stopped" is the one non-numeric value SHARE_VOICE_DURATION_VALUES
+    (page.tsx) accepts -- everything else goes through the same authoritative
+    normalize_duration_hours() create_grant itself is built on, rather than
+    re-deriving the frontend's own silent clamp.
+    """
+    raw = str(value or "").strip()
+    if raw == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE:
+        return None, UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    try:
+        return normalize_duration_hours(raw), TIMED_LOCATION_SHARE_DURATION_MODE
+    except ValueError as exc:
+        raise OneLocationAgentError("LOCATION_SHARE_DURATION_INVALID", str(exc)) from exc
+
+
+def _resolve_named_circle(
+    circle_service: OneLocationCircleService, user_id: str, spoken: str
+) -> dict[str, Any]:
+    """Resolve a spoken circle name against this user's circles, or raise.
+
+    Shared by every backend-direct action that names an existing circle
+    (leave/delete/add-to/rename) so "which circle did you mean" reads the
+    same way regardless of which of them asked.
+    """
+    circles: list[dict[str, Any]] = circle_service.list_circles(user_id=user_id)
+    match = match_circle_by_name(circles, spoken, lambda c: str(c.get("name") or ""))
+    if match.match is None and match.ambiguous:
+        names = ", ".join(str(c.get("name") or "") for c in match.ambiguous[:4])
+        raise OneLocationCircleError(
+            "LOCATION_CIRCLE_AMBIGUOUS",
+            f"More than one circle matches that: {names}. Say which one.",
+        )
+    resolved: dict[str, Any] | None = match.match
+    if resolved is None:
+        available = ", ".join(str(c.get("name") or "") for c in circles[:6])
+        message = (
+            f"You do not have a circle by that name. Your circles are: {available}."
+            if available
+            else "You do not have any circles yet."
+        )
+        raise OneLocationCircleError("LOCATION_CIRCLE_NOT_FOUND", message)
+    return resolved
+
+
+def _unresolved_people_note(
+    unresolved: list[UnresolvedPersonName[Any]], name_of: Callable[[Any], str], noun: str
+) -> str:
+    """One trailing sentence naming what a multi-person resolution left out.
+
+    Empty string when everyone named resolved. Shared by every backend-direct
+    action that now accepts more than one person in a turn -- silently
+    dropping "Bob" from "stop sharing with Sarah and Bob" without saying so
+    would leave the person thinking Bob was included.
+    """
+    if not unresolved:
+        return ""
+    parts: list[str] = []
+    for entry in unresolved:
+        if entry.kind == "ambiguous":
+            names = ambiguous_match_names(entry.matches, name_of)
+            parts.append(f'more than one match for "{entry.spoken_text}" ({names})')
+        else:
+            parts.append(f'no {noun} for "{entry.spoken_text}"')
+    return " Could not do this for: " + "; ".join(parts) + "."
+
+
+def _parse_positive_hours(value: Any, *, default: float) -> float:
+    """A spoken/slot duration, or a safe default when absent or nonsense.
+
+    location.send_request has no established voice-side duration floor/accept
+    set the way location.share_selected's does (SHARE_VOICE_DURATION_VALUES) --
+    deliberately not inventing one here; this only guards against a missing or
+    malformed value, matching the frontend's own plain default (page.tsx's
+    durationHours state starts at "1").
+    """
+    try:
+        hours = float(str(value))
+    except (TypeError, ValueError):
+        return default
+    return hours if hours > 0 else default
+
+
+async def _execute_backend_direct_mutation(
+    action_id: str, slots: dict[str, Any], user_id: str, tool_context: ToolContext
+) -> str:
+    """Resolve slots and call the real service function. Raises on failure.
+
+    Returns the sentence the model should say -- computed here, server-side,
+    rather than left generic, for the same reason ``_proposal_summary`` in
+    the Calendar service composes its own sentence: this is the one place
+    that knows exactly what happened.
+
+    ``tool_context`` is only used by location.share_selected, to park the
+    ``publish_location_envelopes`` directive alongside the mutation -- every
+    other branch ignores it.
+    """
+    if action_id in ("location.leave_circle", "location.delete_circle"):
+        circle_service = OneLocationCircleService()
+        spoken_circle = str(slots.get("circle") or "").strip()
+        matched = _resolve_named_circle(circle_service, user_id, spoken_circle)
+        circle_name = str(matched.get("name") or "this circle")
+        circle_id = str(matched.get("id") or "")
+        if action_id == "location.leave_circle":
+            circle_service.leave_circle(user_id=user_id, circle_id=circle_id)
+            return f"Left {circle_name}."
+        circle_service.delete_circle(owner_user_id=user_id, circle_id=circle_id)
+        return f"Deleted {circle_name}."
+
+    if action_id == "location.create_circle":
+        circle_service = OneLocationCircleService()
+        spoken_name = str(slots.get("name") or "").strip()
+        spoken_kind = str(slots.get("kind") or "").strip().lower()
+        kind = spoken_kind if spoken_kind in ("family", "friends") else "other"
+        # Exact name only, matching the browser handler: a near match must
+        # still create the circle that was asked for, not silently reuse an
+        # existing one that merely sounds similar.
+        existing = circle_service.list_circles(user_id=user_id)
+        duplicate = next(
+            (
+                c
+                for c in existing
+                if normalize_spoken_name(str(c.get("name") or ""))
+                == normalize_spoken_name(spoken_name)
+            ),
+            None,
+        )
+        if duplicate is not None:
+            return f"You already have a circle called {duplicate.get('name') or spoken_name}."
+        created = circle_service.create_circle(owner_user_id=user_id, name=spoken_name, kind=kind)
+        created_name = str(created.get("name") or spoken_name)
+        return f"Created the circle {created_name}. Nobody is in it yet -- say who to add."
+
+    if action_id == "location.rename_circle":
+        circle_service = OneLocationCircleService()
+        spoken_circle = str(slots.get("circle") or "").strip()
+        spoken_name = str(slots.get("name") or "").strip()
+        matched = _resolve_named_circle(circle_service, user_id, spoken_circle)
+        circle_id = str(matched.get("id") or "")
+        old_name = str(matched.get("name") or "this circle")
+        if normalize_spoken_name(old_name) == normalize_spoken_name(spoken_name):
+            return f"{old_name} is already called that."
+        existing = circle_service.list_circles(user_id=user_id)
+        duplicate = next(
+            (
+                c
+                for c in existing
+                if str(c.get("id") or "") != circle_id
+                and normalize_spoken_name(str(c.get("name") or ""))
+                == normalize_spoken_name(spoken_name)
+            ),
+            None,
+        )
+        if duplicate is not None:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_NAME_TAKEN",
+                f"You already have a circle called {duplicate.get('name') or spoken_name}. "
+                "Pick a different name.",
+            )
+        renamed = circle_service.update_circle(
+            owner_user_id=user_id, circle_id=circle_id, name=spoken_name
+        )
+        return f"Renamed {old_name} to {renamed.get('name') or spoken_name}."
+
+    if action_id == "location.add_to_circle":
+        circle_service = OneLocationCircleService()
+        spoken_circle = str(slots.get("circle") or "").strip()
+        matched = _resolve_named_circle(circle_service, user_id, spoken_circle)
+        circle_id = str(matched.get("id") or "")
+        circle_name = str(matched.get("name") or "this circle")
+        raw_people = str(slots.get("person") or "").strip()
+        if not raw_people:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_INVITE_BATCH_INVALID", "Say who you want to add to the circle."
+            )
+        eligible = circle_service.list_eligible_direct_connections(
+            actor_user_id=user_id, circle_id=circle_id
+        )
+        resolution = resolve_spoken_names(
+            eligible, raw_people, lambda c: str(c.get("displayName") or "")
+        )
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ", ".join(str(c.get("displayName") or "") for c in ambiguous.matches[:4])
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_INVITE_AMBIGUOUS",
+                    f"More than one person matches that name: {names}. Say which one.",
+                )
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_INVITE_NOT_FOUND",
+                f"Nobody who can be added to {circle_name} matches that name. "
+                "They have to be connected to you and not already in it.",
+            )
+        added = circle_service.create_member_invites(
+            actor_user_id=user_id,
+            circle_id=circle_id,
+            invitee_user_ids=[str(c.get("userId") or "") for c in resolution.resolved],
+        )
+        added_names = [
+            str(c.get("displayName") or "")
+            for c in resolution.resolved
+            if str(c.get("userId") or "") in set(added.get("addedUserIds") or [])
+        ]
+        if not added_names:
+            added_names = [str(c.get("displayName") or "") for c in resolution.resolved]
+        return f"Added {join_names_for_speech(added_names)} to {circle_name}."
+
+    if action_id in ("location.stop_share", "location.approve_request", "location.decline_request"):
+        agent_service = OneLocationAgentService()
+        raw_people = str(slots.get("person") or "").strip()
+        if action_id == "location.stop_share":
+            candidates = agent_service.list_active_owner_grants(owner_user_id=user_id)
+            name_of = lambda g: str(g.get("recipientDisplayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(candidates, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise OneLocationAgentError(
+                        "LOCATION_GRANT_AMBIGUOUS",
+                        f'More than one active share matches "{ambiguous.spoken_text}": {names}. '
+                        "Say which one.",
+                    )
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_NOT_FOUND",
+                    "Nobody currently has your location shared with that name.",
+                )
+            stopped_names: list[str] = []
+            for grant in resolution.resolved:
+                stopped_names.append(str(grant.get("recipientDisplayName") or "them"))
+                agent_service.revoke_grant(
+                    owner_user_id=user_id, grant_id=str(grant.get("id") or "")
+                )
+            note = _unresolved_people_note(resolution.unresolved, name_of, "active share")
+            return (
+                f"Stopped sharing your location with {join_names_for_speech(stopped_names)}.{note}"
+            )
+
+        candidates = agent_service.list_pending_owner_requests(owner_user_id=user_id)
+        name_of = lambda r: str(r.get("requesterDisplayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_AMBIGUOUS",
+                    f'More than one request matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_NOT_FOUND", "Nobody is waiting on your decision with that name."
+            )
+        settled_names: list[str] = []
+        for request in resolution.resolved:
+            settled_names.append(str(request.get("requesterDisplayName") or "their"))
+            request_id = str(request.get("id") or "")
+            if action_id == "location.approve_request":
+                agent_service.approve_request(
+                    owner_user_id=user_id,
+                    request_id=request_id,
+                    approval_mode="manual",
+                    duration_hours=None,
+                    duration_mode=None,
+                )
+            else:
+                agent_service.deny_request(owner_user_id=user_id, request_id=request_id)
+        note = _unresolved_people_note(resolution.unresolved, name_of, "request")
+        verb = "Approved" if action_id == "location.approve_request" else "Declined"
+        return f"{verb} {join_names_for_speech(settled_names)}'s request.{note}"
+
+    if action_id == "location.share_selected":
+        agent_service = OneLocationAgentService()
+        raw_people = str(slots.get("person") or "").strip()
+        candidates = agent_service.list_verified_recipients(owner_user_id=user_id)
+        name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_SHARE_TARGET_AMBIGUOUS",
+                    f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise OneLocationAgentError(
+                "LOCATION_SHARE_TARGET_NOT_FOUND",
+                f"{raw_people or 'That person'} is not one of your connections.",
+            )
+        duration_hours, duration_mode = _parse_share_duration(slots.get("duration_hours"))
+        shared_names: list[str] = []
+        shares: list[dict[str, str]] = []
+        for recipient in resolution.resolved:
+            recipient_name = str(recipient.get("displayName") or "them")
+            grant = agent_service.create_grant(
+                owner_user_id=user_id,
+                recipient_user_id=str(recipient.get("userId") or ""),
+                recipient_key_id=(str(recipient.get("keyId") or "") or None),
+                duration_hours=duration_hours,
+                duration_mode=duration_mode,
+                enforce_connection=True,
+            )
+            shared_names.append(recipient_name)
+            # No public key in this payload -- runLocationDirective re-reads
+            # it from server state itself rather than trusting a directive a
+            # model produced. Grants with no key yet still publish nothing
+            # (runLocationDirective's own "hasn't set up location sharing
+            # yet" refusal already covers that gap) -- unaffected here.
+            shares.append(
+                {
+                    "grantId": str(grant.get("id") or ""),
+                    "recipientKeyId": str(recipient.get("keyId") or ""),
+                    "recipientUserId": str(recipient.get("userId") or ""),
+                    "label": recipient_name,
+                }
+            )
+        _park_publish_location_envelopes_directive(tool_context, shares)
+        note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
+        # Reports success as soon as the grant exists -- the client-side
+        # encrypt-and-publish step this directive triggers is real async work
+        # a backend-direct call cannot await. If it later fails, the grant
+        # still exists (recipient sees "waiting for location"), which is
+        # already today's product state for that gap, not a new one.
+        return f"Shared your location with {join_names_for_speech(shared_names)}.{note}"
+
+    if action_id == "location.send_request":
+        agent_service = OneLocationAgentService()
+        raw_people = str(slots.get("person") or "").strip()
+        # Same pool share_selected resolves recipients against -- the
+        # browser's own select_ask_recipient handler asks and shares from
+        # "the identical pool of people" (page.tsx's own comment), so voice
+        # answers the same question the same way regardless of direction.
+        candidates = agent_service.list_verified_recipients(owner_user_id=user_id)
+        name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_TARGET_AMBIGUOUS",
+                    f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_TARGET_NOT_FOUND",
+                f"{raw_people or 'That person'} is not one of your connections.",
+            )
+        duration_hours = _parse_positive_hours(slots.get("duration_hours"), default=1.0)
+        asked_names: list[str] = []
+        for target in resolution.resolved:
+            asked_names.append(str(target.get("displayName") or "them"))
+            agent_service.request_access(
+                requester_user_id=user_id,
+                owner_user_id=str(target.get("userId") or ""),
+                requested_duration_hours=duration_hours,
+                requested_duration_mode="timed",
+            )
+        note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
+        return f"Asked {join_names_for_speech(asked_names)} for their location.{note}"
+
+    if action_id in ("connect.remove_connection", "connect.cancel_request", "connect.send_request"):
+        connections_service = ConnectionsService()
+        raw_people = str(slots.get("person") or "").strip()
+        if action_id == "connect.send_request":
+            if not raw_people:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_PERSON_REQUIRED", "Say who you want to connect with."
+                )
+
+            def _directory_name(c: dict[str, Any]) -> str:
+                return str(c.get("displayName") or "")
+
+            sent_names: list[str] = []
+            already_connected_names: list[str] = []
+            blocked_notes: list[str] = []
+            not_found_names: list[str] = []
+            ambiguous_entry: tuple[str, list[dict[str, Any]]] | None = None
+
+            for spoken_name in split_spoken_names(raw_people):
+                search_term = max(spoken_name.split() or [spoken_name], key=len)
+                directory_candidates: list[dict[str, Any]] = []
+                page = 1
+                while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
+                    result = connections_service.search_directory(
+                        user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+                    )
+                    directory_candidates.extend(result.get("items") or [])
+                    if not result.get("hasMore"):
+                        break
+                    page += 1
+                matches = match_by_name(directory_candidates, spoken_name, _directory_name)
+                if not matches:
+                    not_found_names.append(spoken_name)
+                    continue
+                if len(matches) > 1:
+                    if ambiguous_entry is None:
+                        ambiguous_entry = (spoken_name, matches)
+                    continue
+                person = matches[0]
+                display_name = _directory_name(person) or spoken_name
+                relationship = str(person.get("relationship") or "none")
+                # The backend already distinguishes these four states; asking
+                # to connect with someone already connected is success (the
+                # thing they wanted is already true), not a refusal.
+                if relationship == "connected":
+                    already_connected_names.append(display_name)
+                elif relationship == "pending_outgoing":
+                    blocked_notes.append(f"already asked {display_name}, waiting on them")
+                elif relationship == "pending_incoming":
+                    blocked_notes.append(
+                        f"{display_name} already asked you -- accept theirs instead"
+                    )
+                elif relationship != "none":
+                    blocked_notes.append(f"a new request isn't available for {display_name}")
+                else:
+                    connections_service.create_request(
+                        user_id, addressee_user_id=str(person.get("userId") or "")
+                    )
+                    sent_names.append(display_name)
+
+            if not sent_names and not already_connected_names:
+                if ambiguous_entry is not None:
+                    spoken_name, matches = ambiguous_entry
+                    names = ambiguous_match_names(matches, _directory_name)
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_AMBIGUOUS",
+                        f'More than one person matches "{spoken_name}": {names}. Say which one.',
+                    )
+                if blocked_notes:
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_BLOCKED", "; ".join(blocked_notes).capitalize() + "."
+                    )
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND",
+                    f"I could not find {join_names_for_speech(not_found_names) or 'that person'} "
+                    "in Connect.",
+                )
+
+            parts: list[str] = []
+            if sent_names:
+                parts.append(f"Sent a connection request to {join_names_for_speech(sent_names)}.")
+            if already_connected_names:
+                parts.append(
+                    f"Already connected to {join_names_for_speech(already_connected_names)}, "
+                    "so nothing to send there."
+                )
+            extra = list(blocked_notes)
+            if not_found_names:
+                extra.append(f"could not find {join_names_for_speech(not_found_names)}")
+            if ambiguous_entry is not None:
+                spoken_name, matches = ambiguous_entry
+                names = ambiguous_match_names(matches, _directory_name)
+                extra.append(f'more than one match for "{spoken_name}" ({names})')
+            if extra:
+                parts.append("Also: " + "; ".join(extra) + ".")
+            return " ".join(parts)
+
+        if action_id == "connect.remove_connection":
+            connections = connections_service.list_connections(user_id=user_id)
+            name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(connections, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise ConnectionsError(
+                        "CONNECTION_AMBIGUOUS",
+                        f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                        "Say which one.",
+                    )
+                raise ConnectionsError(
+                    "CONNECTION_NOT_FOUND",
+                    f"{raw_people or 'That person'} is not one of your connections.",
+                )
+            display_names = [
+                str(c.get("displayName") or "this person") for c in resolution.resolved
+            ]
+            confirmed = bool(slots.get("confirmed") is True)
+            if not confirmed:
+                raise _BackendDirectConfirmationNeeded(
+                    f"Ask: remove your connection{'s' if len(display_names) > 1 else ''} with "
+                    f"{join_names_for_speech(display_names)}? Only call this action again with "
+                    "confirmed set to true after they say yes -- do not assume, and do not ask twice."
+                )
+            for connection in resolution.resolved:
+                connections_service.remove_connection(
+                    user_id=user_id, connection_id=str(connection.get("connectionId") or "")
+                )
+            note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
+            return (
+                f"Removed {join_names_for_speech(display_names)}. They can no longer be picked "
+                f"for location sharing.{note}"
+            )
+
+        # cancel_request's real target is the pending CONNECTION REQUEST, not
+        # the connection graph -- but ConnectionsService.cancel_request()
+        # already accepts the counterpart's user id as a fallback when no
+        # request id resolves, so matching against connections here would
+        # silently answer the wrong question (only settled connections, never
+        # pending outgoing asks). List outgoing requests instead.
+        outgoing = connections_service.list_requests(user_id=user_id, direction="outgoing")
+        name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(outgoing, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_AMBIGUOUS",
+                    f'More than one pending request matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise ConnectionsError(
+                "CONNECTION_REQUEST_NOT_FOUND",
+                f"You have no pending request to {raw_people or 'that person'}.",
+            )
+        cancelled_names: list[str] = []
+        for request in resolution.resolved:
+            cancelled_names.append(str(request.get("counterpartDisplayName") or "that person"))
+            connections_service.cancel_request(
+                user_id=user_id, request_id=str(request.get("id") or "")
+            )
+        note = _unresolved_people_note(resolution.unresolved, name_of, "pending request")
+        return (
+            f"Cancelled your connection request to {join_names_for_speech(cancelled_names)}.{note}"
+        )
+
+    raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
+
+
+async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dict[str, Any] | None]:
+    """Shared auth gate for the backend-direct read tools below.
+
+    Same re-validated check the backend-direct mutations use
+    (``_verify_backend_direct_authorization``) -- these tools return
+    consent-scoped personal and location data, so they get the real
+    VAULT_OWNER re-validation, not a lighter signed-in-only check.
+    """
+    authorized, user_id, reason = await _verify_backend_direct_authorization(tool_context)
+    if not authorized:
+        return None, {"status": "blocked", "message": reason}
+    return user_id, None
+
+
+async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
+    """List the person's own Location circles: name, kind, and role in each.
+
+    Reads live from the backend, not from whatever the current screen has
+    published -- safe to call from anywhere, any time.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    circles = OneLocationCircleService().list_circles(user_id=user_id)
+    return {"status": "ok", "circles": circles}
+
+
+async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
+    """List who the person is currently sharing their live location with."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    shares = OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id)
+    return {"status": "ok", "shares": shares}
+
+
+async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
+    """List who is currently sharing their live location with this person."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    shares = OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id)
+    return {"status": "ok", "shares": shares}
+
+
+async def list_pending_location_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List location access requests waiting on this person's approve/decline."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    requests = OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id)
+    return {"status": "ok", "requests": requests}
+
+
+async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
+    """List the person's Connect connections."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    connections = ConnectionsService().list_connections(user_id=user_id)
+    return {"status": "ok", "connections": connections}
+
+
+async def list_pending_connection_requests(
+    tool_context: ToolContext,
+    direction: Literal["incoming", "outgoing"] = "incoming",
+) -> dict[str, Any]:
+    """List pending Connect requests. "incoming" = waiting on this person to accept;
+    "outgoing" = this person's own asks still waiting on someone else."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    requests = ConnectionsService().list_requests(user_id=user_id, direction=direction)
+    return {"status": "ok", "requests": requests}
+
+
 async def run_app_action(
     action_id: str, slots: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
@@ -444,11 +1330,16 @@ async def run_app_action(
     available_action_ids = _available_action_ids(tool_context)
     # Navigation actions (route.*, allow_direct) are invocable from any
     # screen by design; the browser's per-screen inventory does not bound
-    # them. All other actions must be declared by the current surface.
+    # them. Backend-direct actions are the same in spirit: they mutate
+    # through the service layer directly and were never going to ask the
+    # browser to run a local handler, so there is no screen inventory for
+    # them to be missing from -- the person can be looking at anything.
+    # All other actions must be declared by the current surface.
     if (
         available_action_ids is not None
         and clean_id not in available_action_ids
         and not is_navigation_action(entry)
+        and not _is_backend_direct(clean_id, clean_slots)
     ):
         # A journey entry action is legitimately off-screen right now, but it is
         # not out of reach: start_app_goal navigates to its authored destination
@@ -508,6 +1399,7 @@ async def run_app_action(
         and action_screens
         and current_screen not in action_screens
         and not is_navigation_action(entry)
+        and not _is_backend_direct(clean_id, clean_slots)
     ):
         label = str(entry.get("label") or clean_id)
         where = sorted(action_screens)[0]
@@ -565,6 +1457,20 @@ async def run_app_action(
     )
     trusted_activation = flags["trustedActivationRequired"]
     needs_confirmation = flags["needsConfirmation"]
+
+    # Backend-direct actions never reach the directive-parking path below --
+    # once no confirmation is owed (the ordinary case; the person's own
+    # require_tap_confirmation preference still routes through the normal
+    # browser confirm card, unchanged), the mutation happens right here and
+    # the browser is never involved.
+    if (
+        _is_backend_direct(clean_id, clean_slots)
+        and not needs_confirmation
+        and not trusted_activation
+    ):
+        label = str(entry.get("label") or clean_id)
+        return await _run_backend_direct_action(clean_id, clean_slots, tool_context, label=label)
+
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
         "slots": clean_slots,

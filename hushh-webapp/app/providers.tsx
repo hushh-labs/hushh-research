@@ -148,10 +148,23 @@ function AppShellFrame({ children }: ProvidersProps) {
     [shellPathname],
   );
   const routeLayoutMode = routeLayout.mode;
-  // Chrome visibility is a property of the ROUTE, not of the `?action=` flow
-  // open inside it. Every Location task flow keeps the shell's back control,
-  // breadcrumb and avatar.
+  // Chrome visibility is primarily route-owned. A small set of focused
+  // Location flows still keeps the top shell while clearing bottom chrome.
   const hidesPersistentChrome = routeLayout.persistentChrome === "none";
+  const locationAction = String(searchParams?.get("action") || "").trim();
+  const focusedLocationChromeFlow =
+    shellPathname === ROUTES.ONE_LOCATION &&
+    (locationAction === "sos" ||
+      locationAction === "sms-contacts" ||
+      locationAction === "create-circle" ||
+      locationAction === "circle-detail");
+  const focusedSosChromeFlow =
+    shellPathname === ROUTES.ONE_LOCATION && locationAction === "sos";
+  // Focused query-scoped Location flows clear the bottom command/navigation
+  // stack while keeping the top shell route context.
+  const bottomChromeHidden = hidesPersistentChrome || focusedSosChromeFlow;
+  const effectiveHideCommandBar =
+    chromeState.hideCommandBar || focusedLocationChromeFlow;
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
@@ -222,13 +235,13 @@ function AppShellFrame({ children }: ProvidersProps) {
           topShellMetrics.contentOffsetMode === "fullscreen-flow"
             ? "fullscreen-flow"
             : "normal",
-        "--bottom-chrome-stack-height": chromeState.hideCommandBar
-          ? "var(--app-bottom-inset)"
+        "--bottom-chrome-stack-height": effectiveHideCommandBar
+          ? "var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem))"
           : "var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui)))",
-        "--bottom-chrome-full-height": chromeState.hideCommandBar
-          ? "calc(var(--onboarding-agent-bar-clearance) + var(--bottom-chrome-fade-overscan) + 1.5rem)"
+        "--bottom-chrome-full-height": effectiveHideCommandBar
+          ? "calc(var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem)) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui))) + var(--bottom-chrome-fade-overscan))",
-        "--bottom-chrome-search-height": chromeState.hideCommandBar
+        "--bottom-chrome-search-height": effectiveHideCommandBar
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
@@ -248,10 +261,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                 : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
-      chromeState.hideCommandBar,
+      effectiveHideCommandBar,
       hideGlobalChrome,
-      isPublicStandaloneRoute,
       hidesPersistentChrome,
+      isPublicStandaloneRoute,
       routeLayout.pageTopLocalOffset,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
@@ -279,10 +292,10 @@ function AppShellFrame({ children }: ProvidersProps) {
     isRiaRoute(pathname) || foundationVoiceOnlyChrome;
   const bottomShellModel = {
     ambientEnabled:
-      ambientChromeEnabled && !isFullscreenTopFlow && !hidesPersistentChrome,
+      ambientChromeEnabled && !isFullscreenTopFlow && !bottomChromeHidden,
     navigationHidden:
-      chromeState.hideCommandBar || foundationVoiceOnlyChrome,
-    hidden: hidesPersistentChrome,
+      effectiveHideCommandBar || foundationVoiceOnlyChrome,
+    hidden: bottomChromeHidden,
   };
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
@@ -300,7 +313,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   useKaiBottomChromeProgressCssVar(
     !chromeState.useOnboardingChrome &&
       !pinnedBottomChrome &&
-      !hidesPersistentChrome,
+      !bottomChromeHidden,
   );
   // Add a root platform class for native-iOS specific CSS hooks.
   useEffect(() => {
@@ -489,7 +502,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                           <AppTopShell model={topShellModel} />
                         </Suspense>
                       ) : null}
-                      {!hidesPersistentChrome ? (
+                      {!hidesPersistentChrome && !effectiveHideCommandBar ? (
                         <Suspense fallback={null}>
                           <KaiCommandBarGlobal />
                         </Suspense>
@@ -550,7 +563,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                           <AppTopShell model={topShellModel} />
                         </Suspense>
                       ) : null}
-                      {!hidesPersistentChrome ? (
+                      {!hidesPersistentChrome && !effectiveHideCommandBar ? (
                         <Suspense fallback={null}>
                           <KaiCommandBarGlobal />
                         </Suspense>

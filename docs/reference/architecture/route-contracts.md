@@ -99,6 +99,8 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
+- `/one/gmail`
+- `/one/email`
 - `/one/kyc`
 - `/one/marketplace`
 - `/marketplace`

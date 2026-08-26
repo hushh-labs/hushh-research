@@ -1,5 +1,7 @@
 "use client";
 
+import { useRedeemReferralAttribution } from "@/lib/referral/use-redeem-referral-attribution";
+
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -26,10 +28,11 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
  * Most One surfaces are private and must stay behind VaultLockGuard +
  * PhoneMandateGuard. Root setup admission is applied once app-wide by
  * OnboardingJourneyGuard. However, a small set of One routes
- * are intentionally public - notably shared temporary location links at
- * `/one/location/request/[token]`. Anyone who receives such a link must be
- * able to open it and view the shared live location WITHOUT signing in or
- * having a Hushh account.
+ * are intentionally public - notably shared live-location links at
+ * `/one/location/view/[token]` (and `/one/location/request/[token]`, the path
+ * links minted before the rename still carry). Anyone who receives such a link
+ * must be able to open it and view the shared live location WITHOUT signing in
+ * or having a Hushh account.
  *
  * The source of truth for "which One routes are public" is `isPublicRoute()`
  * in lib/navigation/routes.ts, which the server-side middleware (proxy.ts)
@@ -96,6 +99,12 @@ function SignedInGate({ children }: { children: ReactNode }) {
 
 export function OneAuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+
+  // A referral link opened before sign-in left an opaque attribution handle
+  // behind. Entering One is where it is redeemed -- the person being referred
+  // never opens the Referrals tab, so redeeming there would mean no referral
+  // ever completes. Silent by design; see the hook.
+  useRedeemReferralAttribution();
 
   // Mounted outside the guards on purpose: the observer needs to see the
   // pre-authentication state too, and anything rendered as a child of

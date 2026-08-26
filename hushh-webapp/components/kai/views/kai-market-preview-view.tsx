@@ -162,7 +162,7 @@ function formatHeadlinePublished(value: string | null | undefined): string {
 
 const oneMarketRootClassName = cn(
   marketSurfaceVariablesClassName,
-  "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
+  "relative isolate mx-auto flex min-h-0 w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-transparent font-sans text-[color:var(--one-fg)] antialiased",
   // The page background always matches the app shell (--background) so the
   // route never paints its own lighter panel inside the shell (the "double
@@ -1168,7 +1168,7 @@ function toBreadthMetric(
       eyebrow: "Overview",
       title: "Advancers vs decliners",
       summary:
-        "Breadth shows whether participation is broad or concentrated across the names Kai is tracking right now.",
+        "Breadth shows whether participation is broad or concentrated across the names One is tracking right now.",
       value,
       delta:
         trackedCount > 0
@@ -1184,7 +1184,7 @@ function toBreadthMetric(
           lines: [
             trackedCount > 0
               ? `${gainers} of ${trackedCount} tracked names are higher today.`
-              : "Kai does not have a fresh breadth snapshot yet.",
+              : "One does not have a fresh breadth snapshot yet.",
             trackedCount > 0
               ? `${losers} tracked names are lower today.`
               : "The breadth feed is still warming.",
@@ -1281,7 +1281,7 @@ function toSectorLeadershipMetric(
           lines: [
             leader?.sector
               ? `${leader.sector} is leading the current sector board.`
-              : "Kai has not resolved a clean sector leader yet.",
+              : "One has not resolved a clean sector leader yet.",
             typeof leader?.change_pct === "number" &&
             Number.isFinite(leader.change_pct)
               ? `Move: ${leader.change_pct >= 0 ? "+" : ""}${leader.change_pct.toFixed(2)}%`
@@ -2048,7 +2048,7 @@ export function KaiMarketPreviewView() {
               id: "route.kai_dashboard",
               label: "Connect portfolio",
               purpose:
-                "Opens portfolio setup so Kai can personalize this market surface.",
+                "Opens portfolio setup so One can personalize this market surface.",
               voiceAliases: ["connect portfolio", "open portfolio"],
             },
           ]
@@ -2219,7 +2219,7 @@ export function KaiMarketPreviewView() {
           `}
         </style>
       ) : null}
-      <div className="flex-1 pb-[calc(148px+env(safe-area-inset-bottom))] pt-0">
+      <div className="flex-1 pb-6 pt-0">
         <KaiWorkspaceHeader
           workspace="market"
           title="Market"
@@ -2339,7 +2339,7 @@ export function KaiMarketPreviewView() {
                       </span>
                     </span>
                     <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">
-                      Watch Kai&apos;s analysts debate a stock and get a clear
+                      Watch One&apos;s analysts debate a stock and get a clear
                       recommendation.
                     </span>
                   </span>

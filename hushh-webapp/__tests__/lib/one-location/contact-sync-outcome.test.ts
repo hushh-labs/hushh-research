@@ -2,109 +2,122 @@ import { describe, expect, it } from "vitest";
 
 import { describeContactSyncOutcome } from "@/lib/one-location/contact-signals";
 
-/**
- * A partial contact read must never be reported as a whole one.
- *
- * The web Contact Picker and iOS limited access both return only a hand-picked
- * subset. Phrasing that as "3 people added as a contact signal" tells the user
- * their whole address book was searched, which is the wrong conclusion to draw
- * about who is and is not on Hushh.
- */
 const base = {
   matchedUserIds: [] as string[],
   totalContacts: 0,
   sourcePlatform: "android" as const,
   limited: false,
   truncated: false,
+  inviteCandidateCount: 0,
+  autoConnectedCount: 0,
+  alreadyConnectedCount: 0,
+  requestRequiredCount: 0,
+  uncheckableContactCount: 0,
+  unknownContactCount: 0,
+  mutationOutcomeUnknown: false,
+  uncheckedContactCount: 0,
+  lookupLimitExceeded: false,
+  lookupLimitedContactCount: 0,
+  partial: false,
 };
 
 describe("describeContactSyncOutcome", () => {
-  it("reports a full read as a plain count with no remedy", () => {
+  it("distinguishes automatic connections from request-required matches", () => {
     const outcome = describeContactSyncOutcome({
       ...base,
       matchedUserIds: ["a", "b", "c"],
-      totalContacts: 400,
+      autoConnectedCount: 1,
+      alreadyConnectedCount: 1,
+      requestRequiredCount: 1,
     });
-    expect(outcome.title).toBe("3 people added as a contact signal.");
-    expect(outcome.remedy).toBeNull();
-    expect(outcome.description).toBeUndefined();
+
+    expect(outcome.title).toBe("2 contacts connected from your contacts");
+    expect(outcome.description).toContain(
+      "1 contact needs a connection request.",
+    );
   });
 
-  it("says how many of the shared contacts matched when access was partial", () => {
+  it("offers invites only for fully checked unmatched contacts", () => {
     const outcome = describeContactSyncOutcome({
       ...base,
-      matchedUserIds: ["a", "b", "c"],
-      totalContacts: 40,
-      sourcePlatform: "web",
-      limited: true,
+      totalContacts: 30,
+      inviteCandidateCount: 20,
+      uncheckableContactCount: 4,
     });
-    // The count must be scoped to what was actually checked.
-    expect(outcome.title).toBe("3 of the 40 contacts you shared are on Hushh");
-    expect(outcome.description).toContain("not your whole address book");
+
+    expect(outcome.title).toBe("No Hushh users matched this time");
+    expect(outcome.description).toContain(
+      "20 contacts were checked and can be invited.",
+    );
+    expect(outcome.description).toContain(
+      "4 contacts had no usable phone number.",
+    );
+    expect(outcome.remedy).toBe("invite");
   });
 
-  it("offers the picker again on web, never a settings page that cannot help", () => {
-    // openAppSettings resolves false in a browser, so a Settings action there
-    // is a button that silently does nothing.
-    const web = describeContactSyncOutcome({
-      ...base,
-      totalContacts: 10,
-      sourcePlatform: "web",
-      limited: true,
-    });
-    expect(web.remedy).toBe("pick_more");
-  });
-
-  it("offers settings on iOS limited access, where the subset is sticky", () => {
-    const ios = describeContactSyncOutcome({
+  it("reports known unchecked rows and offers an idempotent retry", () => {
+    const outcome = describeContactSyncOutcome({
       ...base,
       matchedUserIds: ["a"],
-      totalContacts: 12,
+      totalContacts: 2501,
+      uncheckedContactCount: 501,
+      partial: true,
+    });
+
+    expect(outcome.title).toBe("1 contact matched in this partial sync");
+    expect(outcome.description).toBe("501 contacts were not checked yet.");
+    expect(outcome.remedy).toBe("sync_again");
+  });
+
+  it("does not describe a response-lost batch as unmatched or inviteable", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 2500,
+      unknownContactCount: 1000,
+      uncheckedContactCount: 500,
+      mutationOutcomeUnknown: true,
+      partial: true,
+    });
+
+    expect(outcome.title).toBe("Some contact results need confirmation");
+    expect(outcome.description).toContain(
+      "1000 contacts need confirmation and are not counted as unmatched or inviteable.",
+    );
+    expect(outcome.description).toContain("500 contacts were not checked yet.");
+    expect(outcome.remedy).toBe("sync_again");
+  });
+
+  it("uses the picker remedy for a partial web read", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      sourcePlatform: "web",
+      limited: true,
+      partial: true,
+    });
+
+    expect(outcome.remedy).toBe("pick_more");
+  });
+
+  it("uses Settings for sticky iOS limited access", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
       sourcePlatform: "ios",
       limited: true,
+      partial: true,
     });
-    expect(ios.remedy).toBe("open_settings");
-    expect(ios.description).toContain("shared with Hushh");
+
+    expect(outcome.remedy).toBe("open_settings");
   });
 
-  it("does not claim nobody matched when only a subset was searched", () => {
+  it("does not treat non-cap unchecked contacts as a cap-only result", () => {
     const outcome = describeContactSyncOutcome({
       ...base,
-      totalContacts: 25,
-      sourcePlatform: "web",
-      limited: true,
+      lookupLimitExceeded: true,
+      lookupLimitedContactCount: 2,
+      uncheckedContactCount: 3,
+      partial: true,
     });
-    expect(outcome.title).toBe(
-      "None of the 25 contacts you shared are on Hushh yet",
-    );
-    expect(outcome.title).not.toContain("No One users matched");
-  });
 
-  it("still reports a genuine empty result plainly on a full read", () => {
-    const outcome = describeContactSyncOutcome({ ...base, totalContacts: 300 });
-    expect(outcome.title).toBe("No One users matched from this contact scan.");
-    expect(outcome.remedy).toBeNull();
-  });
-
-  it("flags a truncated book, which is partial for a different reason", () => {
-    const outcome = describeContactSyncOutcome({
-      ...base,
-      matchedUserIds: ["a"],
-      totalContacts: 5000,
-      truncated: true,
-    });
-    expect(outcome.title).toBe("1 person added as a contact signal.");
-    expect(outcome.description).toContain("larger than the sync limit");
-  });
-
-  it("uses singular wording for a single contact and a single match", () => {
-    const outcome = describeContactSyncOutcome({
-      ...base,
-      matchedUserIds: ["a"],
-      totalContacts: 1,
-      sourcePlatform: "web",
-      limited: true,
-    });
-    expect(outcome.title).toBe("1 of the 1 contact you shared is on Hushh");
+    expect(outcome.remedy).toBe("sync_again");
   });
 });

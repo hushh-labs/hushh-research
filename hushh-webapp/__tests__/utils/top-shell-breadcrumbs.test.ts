@@ -247,6 +247,33 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one");
   });
 
+  it("shows shared top-left back navigation for the RIA claim flow", () => {
+    expect(resolveTopShellBreadcrumb("/ria/claim")).toEqual({
+      backHref: "/ria/onboarding",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: "/ria/onboarding" },
+        { label: "Claim profile" },
+      ],
+    });
+
+    const returnToSetup = new URLSearchParams();
+    returnToSetup.set("return_to", "/one/setup");
+
+    expect(resolveTopShellBreadcrumb("/ria/claim", returnToSetup)).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: "/one/setup" },
+        { label: "Claim profile" },
+      ],
+    });
+  });
+
   it("gives per-capability setup steps a back affordance to the hub", () => {
     expect(resolveTopShellBreadcrumb("/one/setup/finance")).toEqual({
       backHref: "/one/setup",
@@ -499,12 +526,16 @@ describe("top shell breadcrumbs", () => {
     ];
 
     for (const { path, label } of surfaces) {
+      const expectedItems =
+        path === "/one/location"
+          ? [{ label: "One" }]
+          : [{ label: "One", href: "/one" }, { label }];
       // No origin → Agents dashboard.
       expect(resolveTopShellBreadcrumb(path)).toEqual({
         backHref: "/one",
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: "/one" }, { label }],
+        items: expectedItems,
       });
 
       // Opened from the dashboard (?from=/one) → back to the dashboard, and the
@@ -515,7 +546,7 @@ describe("top shell breadcrumbs", () => {
         backHref: "/one",
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: "/one" }, { label }],
+        items: expectedItems,
       });
 
       // Unsafe / protocol-relative origins are rejected → Agents fallback.
@@ -543,8 +574,8 @@ describe("top shell breadcrumbs", () => {
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
       ["private-check-in", "Private Check-In"],
-      // The crumb mirrors the screen's own <h1>, which reads "Save my Soul".
-      ["sos", "Save my Soul"],
+      // The implementation action id stays sos; the visible product name is shared.
+      ["sos", "Save My Soul"],
       // NOTE: sms-contacts is deliberately absent from this table — it is the
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.
@@ -558,7 +589,7 @@ describe("top shell breadcrumbs", () => {
       ["privacy", "Settings"],
       ["active-shares", "Active shares"],
       ["shared-with-me", "Shared with me"],
-      ["needs-review", "Needs my review"],
+      ["needs-review", "Needs review"],
     ];
 
     for (const [action, label] of cases) {
@@ -651,9 +682,16 @@ describe("top shell breadcrumbs", () => {
     // Settings → SMS contacts → back to the Settings flow (not "Now").
     const fromSettings = new URLSearchParams();
     fromSettings.set("action", "sms-contacts");
-    expect(
-      resolveTopShellBreadcrumb("/one/location", fromSettings)?.backHref,
-    ).toBe("/one/location?action=settings");
+    const settingsTrail = resolveTopShellBreadcrumb(
+      "/one/location",
+      fromSettings,
+    );
+    expect(settingsTrail?.backHref).toBe("/one/location?action=settings");
+    expect(settingsTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Emergency contacts",
+    ]);
 
     // SOS → SMS contacts → back to SOS. Contacts is reachable mid-emergency,
     // and returning that person to Settings drops them out of the flow they
@@ -661,20 +699,30 @@ describe("top shell breadcrumbs", () => {
     const fromSos = new URLSearchParams();
     fromSos.set("action", "sms-contacts");
     fromSos.set("source", "sos");
-    expect(resolveTopShellBreadcrumb("/one/location", fromSos)?.backHref).toBe(
-      "/one/location?action=sos",
-    );
+    const sosTrail = resolveTopShellBreadcrumb("/one/location", fromSos);
+    expect(sosTrail?.backHref).toBe("/one/location?action=sos");
+    expect(sosTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Save My Soul",
+      "Emergency contacts",
+    ]);
 
     // An unrecognised source is not an emergency; Settings stays the default.
     const fromUnknown = new URLSearchParams();
     fromUnknown.set("action", "sms-contacts");
     fromUnknown.set("source", "nearby");
-    expect(
-      resolveTopShellBreadcrumb("/one/location", fromUnknown)?.backHref,
-    ).toBe("/one/location?action=settings");
+    const unknownTrail = resolveTopShellBreadcrumb(
+      "/one/location",
+      fromUnknown,
+    );
+    expect(unknownTrail?.backHref).toBe("/one/location?action=settings");
+    expect(unknownTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Emergency contacts",
+    ]);
   });
-
-
   it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
     // top-bar back returns to the hub (not Profile/dashboard) — "jaise aaya waise

@@ -2,7 +2,61 @@
 # Deploy to: Cloud Run (service name configurable via substitutions)
 
 steps:
-  # Step 1: Build Docker image with runtime-specific environment variables (using Secrets)
+  # Step 1: Resolve the environment-specific Google Contacts browser client.
+  #
+  # The Docker Cloud Builder image intentionally contains only the Docker CLI;
+  # it does not contain gcloud. Resolve the optional Secret Manager value in a
+  # Cloud SDK step, then hand the public client id to the Docker step through
+  # Cloud Build's ephemeral /workspace volume.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+
+        google_contacts_client_id_file="/workspace/.google-contacts-client-id"
+        google_contacts_secret_error="$$(mktemp)"
+        trap 'rm -f "$${google_contacts_secret_error}"' EXIT
+
+        : > "$${google_contacts_client_id_file}"
+        chmod 600 "$${google_contacts_client_id_file}"
+
+        # Google Contacts rolls out one environment at a time. A missing value
+        # is a hard UAT failure; production/dev remain dark until their own
+        # explicit OAuth client setup is complete.
+        if gcloud secrets versions access latest \
+          --secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID \
+          --project="$PROJECT_ID" \
+          > "$${google_contacts_client_id_file}" \
+          2> "$${google_contacts_secret_error}"; then
+          GOOGLE_CONTACTS_CLIENT_ID_VAL="$$(tr -d '\r\n' < "$${google_contacts_client_id_file}")"
+          if [[ -z "$${GOOGLE_CONTACTS_CLIENT_ID_VAL}" ]]; then
+            echo "Google Contacts OAuth client configuration is empty."
+            exit 1
+          fi
+          case "$${GOOGLE_CONTACTS_CLIENT_ID_VAL}" in
+            *.apps.googleusercontent.com) ;;
+            *)
+              echo "Google Contacts OAuth client configuration is invalid."
+              exit 1
+              ;;
+          esac
+          printf '%s' "$${GOOGLE_CONTACTS_CLIENT_ID_VAL}" \
+            > "$${google_contacts_client_id_file}"
+        elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}" \
+          && [[ "${_DEPLOY_ENV}" == "uat" ]]; then
+            echo "Missing UAT Google Contacts OAuth client configuration."
+            exit 1
+        elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}"; then
+          echo "Google Contacts is not configured for ${_DEPLOY_ENV}; keeping the browser fallback dark."
+        else
+          echo "Unable to access Google Contacts OAuth client configuration."
+          exit 1
+        fi
+    id: "resolve-google-contacts-client-config"
+
+  # Step 2: Build Docker image with runtime-specific environment variables (using Secrets)
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
     args:
@@ -28,6 +82,15 @@ steps:
             exit 1
           fi
         done
+
+        google_contacts_client_id_file="/workspace/.google-contacts-client-id"
+        if [[ ! -f "$${google_contacts_client_id_file}" ]]; then
+          echo "Google Contacts OAuth client resolver artifact is missing."
+          exit 1
+        fi
+        GOOGLE_CONTACTS_CLIENT_ID_VAL="$$(cat "$${google_contacts_client_id_file}")"
+        trap 'rm -f "$${google_contacts_client_id_file}"' EXIT
+
         # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
         # so an unchanged package-lock turns dependency install into a cache hit. First
         # build after this lands is cold (seeds :buildcache); later builds are minutes.
@@ -60,6 +123,7 @@ steps:
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
+          --build-arg "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$$GOOGLE_CONTACTS_CLIENT_ID_VAL" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL \
           -f hushh-webapp/Dockerfile \
@@ -140,7 +204,7 @@ steps:
         "${cmd[@]}"
     id: "deploy-frontend"
 
-# NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already
+# NOTE: no top-level `images:` block — `docker buildx build --push` (Step 2) already
 # pushes every tag. Listing images here would make Cloud Build re-push from the local
 # daemon, which is empty under the buildx docker-container driver, and fail.
 

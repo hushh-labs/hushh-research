@@ -78,7 +78,11 @@ function HomeContent() {
     let cancelled = false;
 
     void (async () => {
-      const idToken = await AuthService.getIdToken();
+      // A Firebase session can still be restoring a few frames after a fresh
+      // sign-in or a referral redirect. A single null read here used to fail
+      // this whole resolution hard ("Unable to verify setup progress"); wait
+      // briefly and retry once before treating it as a genuine sign-out.
+      const idToken = await AuthService.getIdTokenWithRetry();
       if (!idToken) {
         throw new Error("Native session did not provide an ID token.");
       }

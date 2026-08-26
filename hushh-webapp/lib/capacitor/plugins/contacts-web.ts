@@ -85,7 +85,16 @@ export class HushhContactsWeb implements HushhContactsPlugin {
           totalAvailable: 0,
         };
       }
-      throw new Error("Contacts are only available in the native mobile app.");
+      // NOT "install the app". The picker exists in this browser — it just
+      // refused this call, and the three ways it does that are all things the
+      // page did rather than things the browser cannot do: invoking outside a
+      // user gesture, running in an insecure context, or sitting in a
+      // cross-origin iframe. Telling somebody whose browser supports contacts
+      // to go and install an app is advice that cannot help them, and it sent
+      // every one of those cases to the wrong place.
+      throw new Error(
+        "Could not open the contact picker. Tap the button again — and if this page is embedded in another site, open it directly.",
+      );
     }
 
     const limit = Math.max(1, Math.min(options?.limit ?? 500, 2000));

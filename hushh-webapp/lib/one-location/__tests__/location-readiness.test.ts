@@ -148,7 +148,7 @@ describe("status label", () => {
     ).toBe("Location off");
   });
 
-  it("says blocked when it is, and pause outranks everything", () => {
+  it("says blocked when it is, and paused devices read as off", () => {
     expect(
       locationStatusLabel({
         readiness: "blocked",
@@ -164,7 +164,7 @@ describe("status label", () => {
         paused: true,
         accuracyLimited: true,
       }),
-    ).toBe("Location paused");
+    ).toBe("Location off");
   });
 
   it("reports limited accuracy only while the preview is actually on", () => {
@@ -195,7 +195,7 @@ describe("status label", () => {
     const cases = [
       [{ readiness: "askable", previewOn: false, paused: false, accuracyLimited: false }, "Location off"],
       [{ readiness: "blocked", previewOn: false, paused: false, accuracyLimited: false }, "Location blocked"],
-      [{ readiness: "blocked", previewOn: true, paused: true, accuracyLimited: true }, "Location paused"],
+      [{ readiness: "blocked", previewOn: true, paused: true, accuracyLimited: true }, "Location off"],
       [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: true }, "Location limited"],
       [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: false }, "Location on"],
     ] as const;

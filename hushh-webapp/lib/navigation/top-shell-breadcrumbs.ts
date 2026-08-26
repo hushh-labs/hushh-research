@@ -66,12 +66,11 @@ function oneLocationActionLabel(action: string): string {
     "private-check-in": "Private Check-In",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
-    "needs-review": "Needs my review",
-    // The crumb must match the on-screen title of the flow it names. The SOS
-    // screen's TaskFlowHeader reads "Save my Soul", so the crumb does too — a
-    // crumb saying "Safety" for a screen titled otherwise breaks the trail.
-    sos: "Save my Soul",
-    "sms-contacts": "SMS contacts",
+    "needs-review": "Needs review",
+    // The implementation identifier remains `sos`; visible navigation uses
+    // the same product name as the flow's single TaskFlowHeader.
+    sos: "Save My Soul",
+    "sms-contacts": "Emergency contacts",
     settings: "Settings",
     privacy: "Settings",
   };
@@ -102,6 +101,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "connected-systems") return "Connected Systems";
   if (panel === "preferences") return "Preferences";
   if (panel === "security") return "Security";
+  if (panel === "referrals") return "Invite friends";
   if (panel === "support") return "Support & feedback";
   if (panel === "gmail") return "Gmail receipts";
   if (panel === "regulatory") return "Regulatory profile";
@@ -163,7 +163,7 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail.startsWith("domain:")) return "Domain detail";
   if (detail.startsWith("connection:")) return "Connection detail";
   if (detail === "appearance") return "Appearance";
-  if (detail === "kai-preferences") return "Kai preferences";
+  if (detail === "kai-preferences") return "Finance preferences";
   if (detail === "gemini") return "Gemini";
   if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
@@ -510,6 +510,22 @@ function resolveTopShellBreadcrumbInner(
     }
   }
 
+  if (pathname === ROUTES.RIA_CLAIM) {
+    const returnHref =
+      normalizeInternalRouteHref(searchParams?.get("return_to")) ||
+      ROUTES.RIA_ONBOARDING;
+    return {
+      backHref: returnHref,
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: returnHref },
+        { label: "Claim profile" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.RIA_ONBOARDING) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
@@ -750,6 +766,25 @@ function resolveTopShellBreadcrumbInner(
       // reached from Settings AND from the middle of an SOS, so it retraces to
       // whichever one opened it (see resolveSmsContactsBackAction).
       const hubView = String(searchParams?.get("view") || "").trim();
+      const smsContactsSource = searchParams?.get("source");
+      if (action === "sms-contacts" && smsContactsSource === "sos") {
+        return {
+          backHref: `${ROUTES.ONE_LOCATION}?action=sos`,
+          width: "profile",
+          align: "center",
+          items: [
+            fromProfile
+              ? { label: "Profile", href: ROUTES.PROFILE }
+              : { label: "One", href: ROUTES.ONE_HOME },
+            { label: "Location", href: ROUTES.ONE_LOCATION },
+            {
+              label: "Save My Soul",
+              href: `${ROUTES.ONE_LOCATION}?action=sos`,
+            },
+            { label: "Emergency contacts" },
+          ],
+        };
+      }
       // Name the tab even when it is the default one.
       //
       // Closing a flow used to return to a bare `/one/location`, and the App
@@ -798,12 +833,7 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [
-        fromProfile
-          ? { label: "Profile", href: ROUTES.PROFILE }
-          : { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Location" },
-      ],
+      items: [{ label: fromProfile ? "Profile" : "One" }],
     };
   }
 
@@ -875,7 +905,7 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "PKM" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Memory" }],
     };
   }
 
@@ -922,6 +952,36 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Connect root (level 2): back returns to /one (level 1).
+  // A Circle flow opened on Connect is a level-three place, and the shell has
+  // to say so -- otherwise the crumb reads "One > Connect" while a create form
+  // is on screen, and its back arrow leaves the workspace entirely instead of
+  // closing the flow. #5458 moved these here from the Location agent, where
+  // they had their own crumb.
+  if (pathname === ROUTES.CONNECT && searchParams?.get("tab") === "circles") {
+    const circleFlowLabels: Record<string, string> = {
+      "create-circle": "New circle",
+      "join-circle": "Join with code",
+      "circle-detail": "Circle",
+    };
+    const label = circleFlowLabels[String(searchParams?.get("action") ?? "")];
+    if (label) {
+      return {
+        // Back closes the flow and returns to the list, naming the tab
+        // explicitly -- the App Router refuses a navigation whose only change
+        // is the whole query string disappearing.
+        backHref: `${ROUTES.CONNECT}?tab=circles`,
+        width: "profile",
+        align: "center",
+        hideBack: false,
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Connect", href: `${ROUTES.CONNECT}?tab=circles` },
+          { label },
+        ],
+      };
+    }
+  }
+
   if (pathname === ROUTES.CONNECT || pathname === ROUTES.MARKETPLACE) {
     return {
       backHref: ROUTES.ONE_HOME,
@@ -1031,6 +1091,23 @@ function resolveTopShellBreadcrumbInner(
         { label: "Preferences", href: preferencesHref },
         { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
         { label: "What's new" },
+      ],
+    };
+  }
+
+  // Same third-level nesting as the changelog above, for the "what can I
+  // say" examples screen.
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES) {
+    const preferencesHref = profilePanelHref("preferences");
+    return {
+      backHref: ROUTES.PROFILE_PREFERENCES_VOICE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Preferences", href: preferencesHref },
+        { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
+        { label: "What can I say" },
       ],
     };
   }

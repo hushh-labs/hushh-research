@@ -530,7 +530,7 @@ export function LocationImmersiveMap({
   // the map, and none is added by drawing the owner's pin as their face.
   const selfAvatarUrl = useEffectiveAvatarUrl();
   const selfDisplayName = auth.user?.displayName ?? null;
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey } = useVault();
   const demoAvailable = isLocationMapDemoAvailable();
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
@@ -666,6 +666,15 @@ export function LocationImmersiveMap({
   const [unavailableReason, setUnavailableReason] = useState<
     "maps-key" | "renderer"
   >("maps-key");
+  // Bumped by the "Try again" control on the unavailable overlay to
+  // re-run the map-creation effect. Only meaningful for the "renderer"
+  // reason -- a missing Maps key is a build-time problem retrying cannot fix.
+  const [mapRetryToken, setMapRetryToken] = useState(0);
+  const handleRetryMap = useCallback(() => {
+    // The create effect itself clears "unavailable" on success (see its
+    // success path below); this only asks it to run again.
+    setMapRetryToken((token) => token + 1);
+  }, []);
   const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
   const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
     string | null
@@ -1340,6 +1349,13 @@ export function LocationImmersiveMap({
         });
       });
       setMapReady(true);
+      // Clears a prior "unavailable" from a retried create. status is also
+      // driven by the marker-refresh effect below, which only runs once on
+      // mount (keyed on rendererReady, not mapReady) -- a retry that
+      // recovers after that effect already ran would otherwise sit on
+      // stale/no data forever, so ask it to run again here too.
+      setStatus((current) => (current === "unavailable" ? "idle" : current));
+      void refresh();
     }).catch(() => {
       if (cancelled) return;
       setUnavailableReason("renderer");
@@ -1377,9 +1393,11 @@ export function LocationImmersiveMap({
     // starting center -- intentionally not a dependency. Consent flips this
     // value later without tearing the map instance down and rebuilding it;
     // the entry-location effect below re-centers the existing instance once
-    // consent and a real position both land.
+    // consent and a real position both land. mapRetryToken exists purely to
+    // force a re-run from the unavailable overlay's "Try again" control --
+    // the effect already tears down and recreates cleanly on every re-run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.userId]);
+  }, [auth.userId, mapRetryToken]);
 
   useEffect(() => {
     if (
@@ -2386,8 +2404,10 @@ export function LocationImmersiveMap({
     // is. Hard-coding Your Map's path silently disarmed it on check-in's own
     // route -- the one screen where the X is now the primary way out, because
     // dismissing the sheet deliberately leaves you standing here.
+    if (!isNative() || typeof window === "undefined") return;
     const exitingFrom = window.location.pathname;
     window.setTimeout(() => {
+      if (typeof window === "undefined") return;
       if (window.location.pathname !== exitingFrom) return;
       window.location.assign(ROUTES.ONE_LOCATION);
     }, 1_200);
@@ -2989,6 +3009,17 @@ export function LocationImmersiveMap({
               ? "Nothing is wrong with your location."
               : "Check your connection and try again."}
           </p>
+          {unavailableReason === "renderer" ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="relative"
+              data-testid="one-location-map-unavailable-retry"
+              onClick={handleRetryMap}
+            >
+              Try again
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {rendererReady && status !== "unavailable" && !isCheckInSurface ? (
@@ -3472,6 +3503,7 @@ export function LocationImmersiveMap({
           open={nearbyCheckInOpen}
           ownerId={auth.userId}
           vaultOwnerToken={vaultOwnerToken}
+          vaultKey={vaultKey}
           captureCurrentPosition={captureAndRememberCurrentLocation}
           onOpenChange={(nextOpen) => {
             if (nextOpen) {

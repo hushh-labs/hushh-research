@@ -168,6 +168,7 @@ steps:
         if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
           secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
         fi
+        add_secret "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
         add_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
         add_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
         add_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
@@ -275,6 +276,7 @@ steps:
           "DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"
           "DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"
           "DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"
+          "DB_POOL_ACQUIRE_TIMEOUT_SECONDS=${_DB_POOL_ACQUIRE_TIMEOUT_SECONDS}"
           "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
           "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
         )
@@ -299,6 +301,8 @@ steps:
         add_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
         add_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
+        add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
+        add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
@@ -366,6 +370,13 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
+        # The probe needs the managed live key when the canonical live model
+        # rides the developer_api transport; mounted only when the secret
+        # exists so lanes without it still create the job.
+        live_key_secret_flag=""
+        if gcloud secrets describe "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+          live_key_secret_flag="--set-secrets=HUSHH_MANAGED_GEMINI_LIVE_API_KEY=${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}:latest"
+        fi
         job_name="${_BACKEND_SERVICE}-genai-readiness"
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" \
@@ -375,6 +386,7 @@ steps:
           --command="python" \
           --args="scripts/verify_managed_vertex_runtime.py" \
           --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
+          ${live_key_secret_flag} \
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
@@ -428,8 +440,22 @@ steps:
           done
         fi
         echo "Probe execution: ${execution_name:-unknown}"
-        classification="$(printf '%s' "${probe_line}" \
-          | sed -n 's/.*"classification":"\([a-z_]*\)".*/\1/p' | head -1)"
+        classification="$(
+          PROBE_LINE="${probe_line}" python - <<'PY'
+        import json
+        import os
+
+        line = os.environ.get("PROBE_LINE", "")
+        marker = "managed_vertex_probe_result"
+        payload = line.split(marker, 1)[1].strip() if marker in line else line
+        try:
+            verdict = json.loads(payload)
+        except json.JSONDecodeError:
+            print("")
+        else:
+            print(str(verdict.get("classification") or ""))
+        PY
+        )"
 
         if [[ "${classification}" == "provider_unavailable" ]]; then
           echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
@@ -477,6 +503,9 @@ substitutions:
   _FIREBASE_ADMIN_CREDENTIALS_SECRET: FIREBASE_ADMIN_CREDENTIALS_JSON
   _BACKEND_RUNTIME_CONFIG_JSON_SECRET: BACKEND_RUNTIME_CONFIG_JSON
   _PLAID_ACCESS_TOKEN_KEY_SECRET: ""
+  # Defaulted to the canonical secret name so every lane picks it up without
+  # workflow changes; add_secret skips gracefully where the secret is absent.
+  _HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET: HUSHH_MANAGED_GEMINI_LIVE_API_KEY
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
@@ -547,12 +576,21 @@ substitutions:
   # off (add_env skips empty values; runtime_settings defaults
   # False), preserving in-memory-only behavior. Set per-env below.
   _KAI_ANALYZE_DURABLE_RUN_STORE: ""
+  # Optional long-lived web SSE fallback. Keep empty for runtime defaults;
+  # deploy workflows set this explicitly per environment.
+  _CONSENT_WEB_FALLBACK_ENABLED: ""
+  _CONSENT_SSE_ENABLED: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _CONSENT_API_PUBLIC_ORIGIN: ""
   _DB_POOL_MIN_SIZE: "1"
   _DB_POOL_MAX_SIZE: "4"
   _DB_SQLALCHEMY_POOL_SIZE: "4"
   _DB_SQLALCHEMY_MAX_OVERFLOW: "0"
+  # Deadline for getting a pooled connection. Covers establishing a new one,
+  # so it has to clear the 15-30s cold-start handshake burst documented in
+  # consent-protocol/server.py. Tunable without a code change so a bad value
+  # can be corrected by a redeploy rather than another PR.
+  _DB_POOL_ACQUIRE_TIMEOUT_SECONDS: "60"
   _CLOUD_RUN_MIN_INSTANCES: "1"
   _CLOUD_RUN_MAX_INSTANCES: "5"
   _RUNTIME_ENVIRONMENT: ""

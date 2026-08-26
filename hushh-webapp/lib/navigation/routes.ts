@@ -79,6 +79,8 @@ export const ROUTES = {
   PROFILE_PREFERENCES_VOICE: "/one/profile/preferences/voice",
   PROFILE_PREFERENCES_VOICE_CHANGELOG:
     "/one/profile/preferences/voice/changelog",
+  PROFILE_PREFERENCES_VOICE_EXAMPLES:
+    "/one/profile/preferences/voice/examples",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
@@ -92,6 +94,7 @@ export const ROUTES = {
   PROFILE_GMAIL: "/one/profile/gmail",
   PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
   PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",
+  PROFILE_REFERRALS: "/one/profile/referrals",
   PROFILE_SUPPORT: "/one/profile/support",
   PROFILE_SUPPORT_ROUTING: "/one/profile/support/routing",
   PROFILE_SUPPORT_COMPOSE: "/one/profile/support/compose",
@@ -115,6 +118,7 @@ export const ROUTES = {
   ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
+  EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
   PKM: "/one/pkm",
   ONE_MARKETPLACE: "/one/marketplace",
@@ -144,6 +148,12 @@ export const ROUTES = {
    * as the same feature.
    */
   ONE_LOCATION_CHECK_IN: "/one/location/check-in",
+  /**
+   * Recipient landing for a shared Circle join link. An entry point from
+   * outside the app, like LOGIN — the destination is the reason the person
+   * opened the app at all, so it must render before setup is checked.
+   */
+  CIRCLE_JOIN: "/circle/join",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
   LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
@@ -449,7 +459,9 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.LOGOUT ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
-    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    normalizedPathname === ROUTES.CIRCLE_JOIN
   );
 }
 
@@ -692,6 +704,11 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    // Both prefixes. `/view/` is where public live-location links point now;
+    // `/request/` is what every link minted before the rename carries, and it
+    // has to stay public or those land on /login instead of on the forwarder
+    // that would have taken them to the right page.
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)

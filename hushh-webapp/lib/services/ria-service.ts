@@ -125,7 +125,6 @@ export interface MarketplaceContactMatch {
   kind: "ria" | "investor" | "one_user";
   display_name: string;
   headline?: string | null;
-  phone_last4?: string | null;
   profile: MarketplaceRia | MarketplaceInvestor;
 }
 
@@ -1204,10 +1203,23 @@ async function toJsonOrThrow<T>(response: Response): Promise<T> {
       payload.detail && typeof payload.detail === "object" && !Array.isArray(payload.detail)
         ? (payload.detail as { code?: unknown })
         : null;
-    const message =
+    const rawMessage =
       detailMessage ||
       (typeof payload.error === "string" && payload.error) ||
       `Request failed: ${response.status}`;
+    // slowapi's default 429 body is the limit itself — "Rate limit exceeded:
+    // 12 per 1 minute" — and callers put whatever string they find straight
+    // into a toast. Reading our own rate-limit arithmetic is how a person
+    // learns we wrote no copy for this state.
+    //
+    // The server sends product copy for the routes a human triggers, so this
+    // only fires against a server that has not shipped it yet: an older
+    // deployment mid-rollout, or a rollback. Matched on slowapi's exact shape
+    // rather than on the status alone, so a route with real 429 copy keeps it.
+    const message =
+      response.status === 429 && /^Rate limit exceeded/i.test(rawMessage)
+        ? "You are doing that a little too quickly. Wait a moment and try again."
+        : rawMessage;
     const code =
       typeof payload.code === "string"
         ? payload.code
@@ -1239,6 +1251,9 @@ async function authFetch(
     signal: options.signal,
   });
 }
+
+export const CONTACT_SYNC_CONSENT_CONTRACT_VERSION =
+  "contact_find_auto_connect_v1" as const;
 
 export class RiaService {
   private static inflight = new Map<string, Promise<unknown>>();
@@ -1469,35 +1484,58 @@ export class RiaService {
     }>(response);
   }
 
-  /**
-   * Whether someone who already holds this user's phone number may learn that
-   * the number belongs to a One account. Defaults to enabled — contact sync is
-   * only useful if the people in a user's address book are findable.
+  /** Explicit combined consent to be found and auto-connected by verified users
+   * who already hold this account's verified phone number. Defaults off.
    */
   static async getContactDiscoverability(
     idToken: string,
-  ): Promise<{ user_id: string; contact_discoverable: boolean }> {
+  ): Promise<{
+    user_id: string;
+    contact_discoverable: boolean;
+    contact_sync_consent_enabled_at?: string | null;
+    contact_sync_consent_rule_version?: number;
+    contact_sync_consent_contract_version?: string | null;
+  }> {
     const response = await authFetch("/api/iam/contact-discoverability", {
       method: "GET",
       idToken,
     });
-    return toJsonOrThrow<{ user_id: string; contact_discoverable: boolean }>(
-      response,
-    );
+    return toJsonOrThrow<{
+      user_id: string;
+      contact_discoverable: boolean;
+      contact_sync_consent_enabled_at?: string | null;
+      contact_sync_consent_rule_version?: number;
+      contact_sync_consent_contract_version?: string | null;
+    }>(response);
   }
 
   static async setContactDiscoverability(
     idToken: string,
     enabled: boolean,
-  ): Promise<{ user_id: string; contact_discoverable: boolean }> {
+  ): Promise<{
+    user_id: string;
+    contact_discoverable: boolean;
+    contact_sync_consent_enabled_at?: string | null;
+    contact_sync_consent_rule_version?: number;
+    contact_sync_consent_contract_version?: string | null;
+  }> {
     const response = await authFetch("/api/iam/contact-discoverability", {
       method: "POST",
       idToken,
-      body: { enabled },
+      body: {
+        enabled,
+        ...(enabled
+          ? { consent_version: CONTACT_SYNC_CONSENT_CONTRACT_VERSION }
+          : {}),
+      },
     });
-    return toJsonOrThrow<{ user_id: string; contact_discoverable: boolean }>(
-      response,
-    );
+    return toJsonOrThrow<{
+      user_id: string;
+      contact_discoverable: boolean;
+      contact_sync_consent_enabled_at?: string | null;
+      contact_sync_consent_rule_version?: number;
+      contact_sync_consent_contract_version?: string | null;
+    }>(response);
   }
 
   static async searchRias(params: {

@@ -36,6 +36,7 @@ ALTER TABLE one_location_events
       'location_share_expired',
       'location_access_request',
       'location_access_approved',
+      'location_auto_approve_rule_changed',
       'location_access_denied',
       -- Not this branch's value: it landed on main in parallel, added to 064
       -- and 068 only. Re-adding the constraint without it would drop it from

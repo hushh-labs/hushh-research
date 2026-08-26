@@ -2,6 +2,23 @@
 
 Status: canonical durable ontology for Hussh, One, Kai, Nav, KYC, and future specialists.
 
+## Naming rule (2026-08-21): "Kai" is not a name people read
+
+**One is the agent name on every human-facing surface**, consumer and
+advisor-facing alike. "Kai" was retired from user-facing copy across the One app
+and the RIA workspace and must not be reintroduced into anything rendered,
+spoken, or written to a person.
+
+**Kai remains the internal finance runtime.** Ids, route segments, contracts,
+plugin names, and code identifiers (`agent_kai`, `/one/kai/*`, `kai.*` actions,
+the Kai Capacitor plugin) are unchanged and should stay that way -- renaming them
+buys nothing and breaks stored state.
+
+Everything below this section describes **architecture and ownership**, not the
+words a person sees. Where a row says "Kai", read "the finance specialist
+runtime, which speaks to people as One". Regulated disclosures on RIA surfaces
+name no agent at all -- see `RIA_COPY.debate.disclaimer`.
+
 ## Visual Map
 
 ```mermaid
@@ -25,8 +42,8 @@ flowchart TB
 | Name | Owns | Does not own |
 | --- | --- | --- |
 | Hussh | Platform, trust model, infrastructure, consent, scoped access, BYOK, zero-knowledge, PKM, developer access, audit | User-facing character voice or specialist decisions |
-| One | Relationship layer, greeting, memory framing, shell notifications, cross-domain help, specialist handoffs | Deep finance judgment, privacy-policy enforcement, or pretending to be every specialist |
-| Kai | Finance analysis, portfolio context, market intelligence, investment debate, RIA/investor finance workflows | Consent-policy authority, vault/deletion decisions, platform identity |
+| One | Relationship layer, greeting, memory framing, shell notifications, cross-domain help, specialist handoffs — and the agent name on every human-facing surface, finance included | Deep finance judgment (the specialist runtime still does the reasoning), privacy-policy enforcement, or pretending to be every specialist |
+| Kai *(internal name only)* | Finance analysis, portfolio context, market intelligence, investment debate, RIA/investor finance workflows | Consent-policy authority, vault/deletion decisions, platform identity — and any presence in user-facing copy |
 | Nav | Consent review, scope grants, vault friction, deletion, suspicious access, privacy and trust explanations | Finance analysis, market judgment, general relationship memory |
 | KYC | Identity/KYC workflow requirements, missing-document state, approval-gated drafts, structured PKM writeback | Broad email autonomy, platform identity, finance judgment, consent-policy authority |
 
@@ -80,7 +97,8 @@ One speaks by default for:
 - background task summaries
 - specialist handoff framing
 
-Kai speaks for:
+The finance specialist runtime (internally "Kai", surfaced to people as One)
+speaks for:
 
 - portfolio and market analysis
 - investment debate and decision receipts
@@ -131,10 +149,14 @@ Approved founder-facing rewrites:
 
 - `Hussh is the platform and trust infrastructure. One is the private agent.`
 - `One listens, remembers, decides, and acts under consent.`
-- `Kai is the finance specialist One summons.`
 - `Nav is the privacy and consent guardian One summons.`
 - `KYC is the identity workflow specialist One summons.`
 - `Your agents. Yours to own.`
+
+Architecture-only, never product copy (see the naming rule at the top):
+
+- `Kai is the finance specialist One summons.` — true of the runtime, but "Kai"
+  is not shown to people. In anything a person reads, One is the finance agent.
 
 Retired or stale wording:
 

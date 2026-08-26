@@ -1,8 +1,7 @@
 {
-  "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 161,
+  "contract_name": "dev_minimum_schema",
+  "expected_migration_version": 176,
   "migration_version_policy": "minimum",
-
   "required_functions": [
     "merge_pkm_domain_summary",
     "remove_domain_summary_key",
@@ -43,6 +42,10 @@
       "personas",
       "last_active_persona",
       "investor_marketplace_opt_in",
+      "contact_discoverable",
+      "contact_sync_consent_enabled_at",
+      "contact_sync_consent_rule_version",
+      "contact_sync_consent_contract_version",
       "created_at",
       "updated_at"
     ],
@@ -58,6 +61,13 @@
       "source",
       "last_synced_at",
       "created_at",
+      "updated_at"
+    ],
+    "contact_sync_lookup_budgets": [
+      "user_id",
+      "bucket_kind",
+      "bucket_start",
+      "lookup_count",
       "updated_at"
     ],
     "actor_verified_email_aliases": [
@@ -243,6 +253,22 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "gmail_owner_send_actions": [
+      "action_id",
+      "user_id",
+      "envelope_hmac",
+      "idempotency_hmac",
+      "recipient_count",
+      "state",
+      "expires_at",
+      "sending_at",
+      "sent_at",
+      "gmail_message_id",
+      "gmail_thread_id",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
     ],
     "one_action_directive_ledger": [
       "directive_id",
@@ -654,6 +680,16 @@
       "source_errors",
       "metadata"
     ],
+    "one_location_auto_approve_preferences": [
+      "user_id",
+      "enabled",
+      "scope_kind",
+      "circle_id",
+      "enabled_at",
+      "rule_version",
+      "created_at",
+      "updated_at"
+    ],
     "one_location_circle_invites": [
       "id",
       "owner_user_id",
@@ -950,7 +986,10 @@
       "status",
       "created_at",
       "last_used_at",
-      "revoked_at"
+      "revoked_at",
+      "last_synced_at",
+      "last_sync_cursor",
+      "sealed_at"
     ],
     "trusted_device_challenges": [
       "challenge_id",
@@ -962,14 +1001,78 @@
       "consumed_at"
     ],
     "google_provider_connections": [
-      "user_id", "provider", "provider_subject", "provider_email", "status",
-      "refresh_token_ciphertext", "refresh_token_iv", "refresh_token_tag",
-      "access_token_ciphertext", "access_token_iv", "access_token_tag",
-      "token_key_version", "access_token_expires_at", "connected_at", "revoked_at", "created_at", "updated_at"
+      "user_id",
+      "provider",
+      "provider_subject",
+      "provider_email",
+      "status",
+      "refresh_token_ciphertext",
+      "refresh_token_iv",
+      "refresh_token_tag",
+      "access_token_ciphertext",
+      "access_token_iv",
+      "access_token_tag",
+      "token_key_version",
+      "access_token_expires_at",
+      "connected_at",
+      "revoked_at",
+      "created_at",
+      "updated_at"
     ],
-    "google_service_grants": ["user_id", "provider", "service", "status", "scope_csv", "access_level", "last_used_at", "disconnected_at", "created_at", "updated_at"],
-    "google_oauth_attempts": ["attempt_id", "user_id", "service", "redirect_uri", "requested_scope_csv", "state_digest", "verifier_ciphertext", "verifier_iv", "verifier_tag", "expires_at", "consumed_at", "created_at"],
-    "google_calendar_action_proposals": ["proposal_id", "user_id", "action", "payload_json", "expected_event_etag", "status", "expires_at", "executed_at", "created_at"],
+    "google_service_grants": [
+      "user_id",
+      "provider",
+      "service",
+      "status",
+      "scope_csv",
+      "access_level",
+      "last_used_at",
+      "disconnected_at",
+      "created_at",
+      "updated_at"
+    ],
+    "google_oauth_attempts": [
+      "attempt_id",
+      "user_id",
+      "service",
+      "redirect_uri",
+      "requested_scope_csv",
+      "state_digest",
+      "verifier_ciphertext",
+      "verifier_iv",
+      "verifier_tag",
+      "expires_at",
+      "consumed_at",
+      "created_at"
+    ],
+    "google_calendar_action_proposals": [
+      "proposal_id",
+      "user_id",
+      "action",
+      "payload_json",
+      "expected_event_etag",
+      "status",
+      "expires_at",
+      "executed_at",
+      "created_at"
+    ],
+    "google_email_send_actions": [
+      "action_id",
+      "user_id",
+      "provider",
+      "payload_hmac",
+      "idempotency_hmac",
+      "recipient_count",
+      "status",
+      "expires_at",
+      "sending_at",
+      "completed_at",
+      "provider_message_id",
+      "provider_thread_id",
+      "error_code",
+      "created_at",
+      "updated_at"
+    ],
     "trusted_device_audit_events": [
       "event_id",
       "user_id",

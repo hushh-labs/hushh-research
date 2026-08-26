@@ -11,6 +11,14 @@ type SetupCompletionFooterProps = {
   onComplete: () => void;
   busy?: boolean;
   disabled?: boolean;
+  /**
+   * Looks unavailable but still accepts the tap, so `onComplete` can say what
+   * is missing. Use this instead of `disabled` whenever a blocked action has a
+   * reason worth speaking: a real `disabled` button swallows the event, and the
+   * explanation then has to live in permanent copy nobody reads until after
+   * they have already tapped.
+   */
+  blocked?: boolean;
   controlId: string;
   actionId?: string;
   testId?: string;
@@ -25,10 +33,12 @@ type SetupCompletionFooterProps = {
 /**
  * Shared terminal setup action.
  *
- * Routes may show this while a prerequisite is pending, but must keep it
- * disabled until their own completion condition is verified. While it is
- * blocked it also drops the accent fill: the blue is the promise that the tap
- * goes through, so it is spent only on an action that can. The canonical
+ * Routes may show this while a prerequisite is pending, but must mark it
+ * `disabled` (inert) or `blocked` (tappable, and it names what is missing)
+ * until their own completion condition is verified. Either way it drops the
+ * accent fill: the blue is the promise that the tap finishes setup, so it is
+ * spent only on an action that can. Prefer `blocked` when there is a specific
+ * reason to give -- an inert control cannot tell anyone why. The canonical
  * bottom inset keeps it above app chrome on safe-area and keyboard-resized
  * native viewports, with the same calm full-width action cadence everywhere.
  */
@@ -37,6 +47,7 @@ export function SetupCompletionFooter({
   onComplete,
   busy = false,
   disabled = false,
+  blocked = false,
   controlId,
   actionId,
   testId,
@@ -65,6 +76,12 @@ export function SetupCompletionFooter({
   // this surface uses, and the enabled state already reserves 1px for a
   // transparent one, so making it visible costs no geometry.
   const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction;
+  // Same neutral container as above, for the case where the tap must still
+  // land. Tailwind's `disabled:` variants key off the real disabled attribute
+  // and never apply to an enabled button, so the blocked look is spelled out
+  // unprefixed here. Hover stays put: the container is not promising passage.
+  const isBlockedTappableAction =
+    blocked && !disabled && !busy && !isQuietSetupAction;
 
   return (
     <div className="mt-6 pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] sm:mt-8 sm:pb-8">
@@ -79,6 +96,7 @@ export function SetupCompletionFooter({
             type="button"
             onClick={onComplete}
             disabled={disabled}
+            aria-disabled={isBlockedTappableAction || undefined}
             loading={busy}
             variant={visualVariant}
             effect={effect}
@@ -90,6 +108,8 @@ export function SetupCompletionFooter({
                 "!border-0 !bg-transparent !text-[var(--app-accent)] hover:!bg-[var(--app-accent-tint)] hover:!text-[var(--app-accent)] disabled:!bg-muted/35 disabled:!text-muted-foreground disabled:!opacity-100",
               isBlockedFilledAction &&
                 "disabled:!border-border disabled:!bg-muted/60 disabled:!text-muted-foreground disabled:!opacity-100",
+              isBlockedTappableAction &&
+                "!border-border !bg-muted/60 !text-muted-foreground !opacity-100 hover:!bg-muted/60 hover:!text-muted-foreground",
             )}
             data-testid={testId}
             data-voice-control-id={controlId}

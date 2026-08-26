@@ -623,7 +623,28 @@ class VaultKeysService:
             ):
                 raise ValueError("stale onboarding journey")
             raise RuntimeError("Failed to update pre-vault state")
-        return self._serialize_user_entry(updated.data[0])
+        result = self._serialize_user_entry(updated.data[0])
+        if next_completed is True:
+            self._sync_referral_qualification(user_id_clean)
+        return result
+
+    @staticmethod
+    def _sync_referral_qualification(user_id: str) -> None:
+        """Best-effort hook: let a completed onboarding progress a referral.
+
+        Referral qualification is a side effect of finishing setup, never a
+        precondition for it -- a bug in the referral pipeline must not be able
+        to stop someone from completing their own onboarding, so any failure
+        here is logged and swallowed rather than raised.
+        """
+        try:
+            from hushh_mcp.services.one_referral_service import (
+                sync_referral_qualification_from_onboarding,
+            )
+
+            sync_referral_qualification_from_onboarding(user_id)
+        except Exception:
+            logger.exception("[vault_keys] referral_qualification_sync_failed user=%s", user_id)
 
     @staticmethod
     def _get_allowed_passkey_rp_ids() -> set[str]:

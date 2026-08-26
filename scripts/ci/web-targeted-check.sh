@@ -89,6 +89,29 @@ if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/c
   ran=1
 fi
 
+# The share ladder, and the origin a shared link has to carry.
+#
+# Both were extracted out of lib/one-location so Connect's "Invite them to One"
+# could reuse them instead of copying a ladder that had already been debugged
+# once. That leaves one module with two live consumers -- the Circle invite
+# share and Connect's invite -- and only the Connect half looks like Connect. A
+# change to lib/share/ that reads as Connect work can therefore break the
+# Circle invite, on a pull request where nothing in components/one-location/ or
+# app/connect/ was touched and no pack above fires.
+#
+# The origin resolver is the one that matters. Capacitor does not serve the
+# installed app from a web origin (App://localhost on iOS, https://localhost on
+# Android), so a regression there ships a link that is dead for every recipient
+# and looks perfectly correct in a browser -- the exact bug the Circle invite
+# was fixed for once already.
+#
+# Both consumers' suites run, not just the new one, because "the extraction did
+# not change Circle behaviour" is the claim that needs holding.
+if has_match '^hushh-webapp/(lib/share/|lib/connect/|__tests__/share/|__tests__/connect/|lib/one-location/(share-circle-code|circle-join-url)\.ts)'; then
+  run_check "Share ladder and link origin" npm run verify:share-ladder
+  ran=1
+fi
+
 # One Location's share and request flows. Until this pack existed, NOTHING in
 # components/one-location/ matched any targeted glob above -- so the duration
 # pickers, the share recipient picker and the whole hub could be changed on a
@@ -100,6 +123,24 @@ fi
 # Number() over.
 if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/)'; then
   run_check "One Location flows" npm run verify:one-location
+  ran=1
+fi
+
+# The referral program.
+#
+# The Referrals tab renders numbers it must never compute: the qualified count,
+# the status of each referral and the qualification bar all arrive decided by
+# the server. A change that turns any of them into a client-side calculation --
+# counting the rows in the list instead of reading the count, or hardcoding 15
+# minutes instead of rendering what the policy returned -- looks harmless in
+# review and quietly makes the number meaningless.
+#
+# The Python half is in the same pack deliberately. The panel's contract is
+# "render exactly the summary you were handed", so a field removed from
+# one_referral_service.py breaks the screen on a pull request where nothing
+# under hushh-webapp/ was touched at all.
+if has_match '^(hushh-webapp/(components/profile/referrals-panel\.tsx|lib/services/referral-service\.ts|__tests__/(components/referrals-panel|services/referral-(service|attribution|stream))|lib/referral/|app/r/|app/api/one/referrals/|app/one/profile/referrals/)|consent-protocol/(hushh_mcp/(services/one_referral_service|operons/referral/)|api/(routes/one/referrals\.py|referral_listener\.py)))'; then
+  run_check "Referral program" npm run verify:referrals
   ran=1
 fi
 

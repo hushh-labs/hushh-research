@@ -9,6 +9,7 @@ export type ProfilePanel =
   | "connected-systems"
   | "preferences"
   | "security"
+  | "referrals"
   | "support"
   | "gmail";
 
@@ -21,6 +22,7 @@ export type ProfileDetail =
   | "device"
   | "voice"
   | "voice-changelog"
+  | "voice-examples"
   | "vault"
   | "session"
   | "gmail-connection"
@@ -59,6 +61,7 @@ export function normalizeProfilePanel(value: string | null): ProfilePanel | null
     value === "connected-systems" ||
     value === "preferences" ||
     value === "security" ||
+    value === "referrals" ||
     value === "support" ||
     value === "gmail"
   ) {
@@ -100,7 +103,8 @@ export function normalizeProfileDetail(
       detail === "gemini" ||
       detail === "device" ||
       detail === "voice" ||
-      detail === "voice-changelog")
+      detail === "voice-changelog" ||
+      detail === "voice-examples")
   ) {
     return detail;
   }
@@ -220,6 +224,13 @@ export function buildProfileRoute(params?: {
         params?.searchParams,
       );
     }
+    if (detail === "voice-examples") {
+      return appendQuery(
+        ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES,
+        {},
+        params?.searchParams,
+      );
+    }
     return appendQuery(ROUTES.PROFILE_PREFERENCES, {}, params?.searchParams);
   }
 
@@ -261,6 +272,10 @@ export function buildProfileRoute(params?: {
 
   if (panel === "gmail") {
     return appendQuery(ROUTES.GMAIL, {}, params?.searchParams);
+  }
+
+  if (panel === "referrals") {
+    return appendQuery(ROUTES.PROFILE_REFERRALS, {}, params?.searchParams);
   }
 
   if (panel === "support") {
@@ -334,6 +349,9 @@ export function resolveProfileRouteState(
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG) {
     return { panel: "preferences", detail: "voice-changelog" };
   }
+  if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES) {
+    return { panel: "preferences", detail: "voice-examples" };
+  }
 
   if (normalizedPath === ROUTES.PROFILE_SECURITY) {
     return { panel: "security", detail: null };
@@ -379,6 +397,10 @@ export function resolveProfileRouteState(
   }
   if (normalizedPath === ROUTES.PROFILE_GMAIL_ACTIONS) {
     return { panel: "gmail", detail: "gmail-actions" };
+  }
+
+  if (normalizedPath === ROUTES.PROFILE_REFERRALS) {
+    return { panel: "referrals", detail: null };
   }
 
   if (normalizedPath === ROUTES.PROFILE_SUPPORT) {

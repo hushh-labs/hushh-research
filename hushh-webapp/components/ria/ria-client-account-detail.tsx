@@ -171,7 +171,7 @@ export function RiaClientAccountDetail({
 
       {!loading && detailError ? (
         <div className="rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-standard)]">
-          <p className="text-sm text-red-500">{detailError}</p>
+          <p className="text-sm text-[color:var(--ria-danger-text)]">{detailError}</p>
         </div>
       ) : null}
 
@@ -239,7 +239,7 @@ export function RiaClientAccountDetail({
                 />
                 <SettingsRow
                   title="Grant source"
-                  description={accountBranch.granted_by_bundle_key || "Kai specialized access"}
+                  description={accountBranch.granted_by_bundle_key || "Portfolio + data"}
                 />
               </SettingsGroup>
             </section>

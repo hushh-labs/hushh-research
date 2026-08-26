@@ -22,7 +22,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { VaultService } from "@/lib/services/vault-service";
+import {
+  VaultAuthSessionNotReadyError,
+  VaultService,
+} from "@/lib/services/vault-service";
 import { downloadTextFile } from "@/lib/utils/native-download";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,7 +44,6 @@ import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-promp
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { checkPrfSupport } from "@/lib/vault/prf-auth";
 import { copyToClipboard } from "@/lib/utils/clipboard";
-import { reloadWindow } from "@/lib/utils/browser-navigation";
 import {
   toInvestorLoading,
   toInvestorMessage,
@@ -145,6 +147,8 @@ export function VaultFlow({
   const [step, setStep] = useState<VaultStep>("checking");
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isRestoringSession, setIsRestoringSession] = useState(false);
+  const [checkAttempt, setCheckAttempt] = useState(0);
   const [passphrase, setPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [recoveryKey, setRecoveryKey] = useState<string>("");
@@ -370,8 +374,12 @@ export function VaultFlow({
 
   // Initial Vault Status Check
   useEffect(() => {
-    const checkStatus = async () => {
+    let cancelled = false;
+    const MAX_SESSION_RESTORE_ATTEMPTS = 3;
+
+    const checkStatus = async (restoreAttempt = 0) => {
       try {
+        setIsRestoringSession(false);
         // Start the vault-state read in parallel with the existence check so a
         // cold backend pays a single round-trip latency instead of two
         // sequential cold calls (which made the first unlock feel slow). The
@@ -456,7 +464,26 @@ export function VaultFlow({
         }
         setStep("unlock");
       } catch (err) {
+        // A Firebase session still restoring is not a Vault failure -- it is
+        // evidence we asked before a token existed. Show a transient
+        // "restoring" state and retry a bounded number of times instead of
+        // surfacing a hard failure for what is, in most cases, a race that
+        // resolves within a second.
+        if (
+          err instanceof VaultAuthSessionNotReadyError &&
+          restoreAttempt < MAX_SESSION_RESTORE_ATTEMPTS
+        ) {
+          if (cancelled) return;
+          setIsRestoringSession(true);
+          setError(null);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (cancelled) return;
+          await checkStatus(restoreAttempt + 1);
+          return;
+        }
+
         console.error("Vault status check failed:", err);
+        setIsRestoringSession(false);
         const errorCode =
           typeof (err as { code?: unknown } | null | undefined)?.code === "string"
             ? (err as { code: string }).code
@@ -472,8 +499,17 @@ export function VaultFlow({
         }
       }
     };
-    checkStatus();
-  }, [allowVaultCreation, nativeTestConfig.vaultPassphrase, shouldPreferPassphraseUnlock, user.uid]);
+    void checkStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    allowVaultCreation,
+    checkAttempt,
+    nativeTestConfig.vaultPassphrase,
+    shouldPreferPassphraseUnlock,
+    user.uid,
+  ]);
 
   useLayoutEffect(() => {
     if (step !== "unlock") {
@@ -994,7 +1030,14 @@ export function VaultFlow({
               </div>
               <p className="text-muted-foreground">{error}</p>
               <Button
-                onClick={reloadWindow}
+                onClick={() => {
+                  // A clean restart of the whole check, not a page reload:
+                  // re-enter "checking" and re-run the effect from scratch
+                  // rather than dragging a stale error/step across a retry.
+                  setError(null);
+                  setIsRestoringSession(false);
+                  setCheckAttempt((attempt) => attempt + 1);
+                }}
                 variant="none"
                 className="border border-input bg-background hover:bg-accent hover:text-accent-foreground"
               >
@@ -1006,7 +1049,15 @@ export function VaultFlow({
       );
     }
 
-    return <HushhLoader label={toInvestorLoading("VAULT")} />;
+    return (
+      <HushhLoader
+        label={
+          isRestoringSession
+            ? "Restoring your session…"
+            : toInvestorLoading("VAULT")
+        }
+      />
+    );
   }
 
   return (

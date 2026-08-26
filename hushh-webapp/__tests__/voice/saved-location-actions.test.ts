@@ -44,9 +44,13 @@ describe("saved-location actions are authored and wired", () => {
     expect(deleteInput?.required).toBe(false);
   });
 
-  it("treats deleting a saved place as destructive and confirmed", () => {
+  it("treats deleting a saved place as destructive, confirmed by its own tap-only card", () => {
+    // allow_direct, not confirm_required: the handler authors its own
+    // VOICE_CONFIRM_DATA_KEY card and gates on `confirmed`, so a generic
+    // spoken-yes gate ahead of it would only add a redundant extra ask
+    // before the tap this destructive action must always require.
     const action = getKaiActionById("location.delete_saved_location");
-    expect(action?.execution_policy).toBe("confirm_required");
+    expect(action?.execution_policy).toBe("allow_direct");
     expect(action?.risk_level).toBe("high");
     // Long enough to be a sentence about consequences, since the confirm
     // card reads this string straight from the contract.

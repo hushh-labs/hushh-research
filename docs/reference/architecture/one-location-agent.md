@@ -252,13 +252,15 @@ or an active Nearby presence. Pausing stops new foreground/background private
 updates, clears the local self preview, and explicitly checks out active Nearby
 presence before the UI may report `Location paused`.
 
-`Auto-share my location` is a durable user-scoped preference, independent from
-Pause. It controls continuous foreground/background updates only for private
-grants the owner already approved; it never creates a grant or auto-approves a
-request. Turning Auto-share off leaves consent and expiry intact and makes new
-shares publish only the location the owner explicitly confirms. Pause
-temporarily suppresses Auto-share without erasing that preference, so both
-settings remain stable across tab changes and route remounts.
+Automatic approval is an account-wide standing rule stored by the server,
+independent from Pause and off by default. It may cover verified contacts or
+one active, person-created Circle. The server owns its activation time and
+version, then rechecks the current relationship, Circle membership, request
+time, and requested duration in the same transaction that creates the grant.
+Turning it off or changing scope invalidates older browser work immediately.
+Pause remains a device preference: it stops that device from scheduling an
+automatic approval or publishing a new encrypted point, without changing the
+account-wide rule for another device.
 
 Pause does not revoke private grants. Their authored expiry remains intact and
 recipients may retain the last encrypted point they already received. Resuming
@@ -374,14 +376,28 @@ Public sharing has two modes: snapshot-backed public location links and legacy
 request-only links.
 
 1. The authenticated owner creates a duration-bounded public link from
-   `/one/location`.
+   `/one/location`. It points at `/one/location/view/<token>`; the older
+   `/one/location/request/<token>` path still resolves, and redirects here, so
+   links minted before the rename keep working.
+   One live link per owner: creating while one is live returns that same link
+   with `reused: true`, its window restarted for the duration just asked for
+   and its snapshot refreshed, rather than minting a second resolvable URL.
 2. The backend returns the raw token once and stores only its hash.
 3. If the owner attached a `publicLocation` snapshot, the public resolve
    response returns safe owner/link metadata plus that snapshot. The public page
-   displays the map immediately with no name, phone, or message form.
+   displays the map immediately with no name, phone, or message form, and
+   re-reads the link while it is live. The owner's foreground heartbeat posts
+   their position to `POST /api/one/location/public-invites/{invite_id}/location`,
+   which writes `publicLocation` and nothing else - never the window - so the
+   pin follows them without the link outliving what they agreed to.
 4. If no snapshot is attached, the link is request-only and the public resolve
-   response exposes only a safe owner label, status, duration, and expiry. By
-   default the safe label is "a trusted person".
+   response exposes only a safe owner label, status, duration, and expiry.
+   The safe label is the sharer's display name, resolved with
+   `allow_email_handle=False` so it is never a phone number and never an email
+   handle; an account that resolves to neither keeps the default,
+   "A trusted person". It is stamped onto the row at create time and resolved
+   again on read, so a link minted before the label existed still names
+   someone.
 5. Request-only public links may submit metadata only. They do not display a map
    or location.
 6. If the phone maps to a verified/keyed Hussh user in a request-only flow, One creates a normal
@@ -518,7 +534,9 @@ The implementation must prove:
   origins
 - notification and audit metadata contain no coordinates
 - public links store token hashes only; snapshot-backed links reveal only the
-  explicit public snapshot, while request-only links never reveal location
+  explicit public snapshot plus the sharer's display name, while request-only
+  links never reveal location. No public payload ever carries the owner's id,
+  phone number, or email address
 - web, iOS, and Android have foreground permission parity
 - saved places round-trip through encrypted Location PKM without plaintext
   local storage or a plaintext backend table

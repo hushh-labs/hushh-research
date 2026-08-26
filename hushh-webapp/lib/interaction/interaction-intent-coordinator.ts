@@ -86,8 +86,24 @@ export type ActionRun = {
   label: string;
   source: InteractionIntentSource;
   directiveId: string | null;
+  /**
+   * The authored journey/goal this run belongs to, when the directive that
+   * started it named one. Two runs sharing a `goalId` are steps of the same
+   * multi-action task (e.g. a navigate step and the local-handler step it
+   * escorts) -- this is the only thing that ties them together, since each
+   * step still arrives as its own directive and its own run.
+   */
+  goalId: string | null;
   phase: ActionRunPhase;
   message: string;
+  /**
+   * Who or what this run acts on, once a handler has resolved it -- the same
+   * name+detail shape `VoiceConfirm`/`VoiceDisambiguationCandidate` already
+   * show, surfaced here so the walkthrough panel can display it live instead
+   * of only inside a confirmation card. Unknown until a handler result says
+   * otherwise, and untouched by phase-only updates.
+   */
+  subject: { name: string; detail?: string | null } | null;
   createdAtMs: number;
   updatedAtMs: number;
   completedAtMs: number | null;
@@ -203,6 +219,7 @@ export class InteractionIntentCoordinator {
     label: string;
     source: InteractionIntentSource;
     directiveId?: string | null;
+    goalId?: string | null;
     phase?: Extract<ActionRunPhase, "acknowledged" | "preparing">;
     message?: string;
   }): ActionRun {
@@ -222,8 +239,10 @@ export class InteractionIntentCoordinator {
       label: input.label,
       source: input.source,
       directiveId: input.directiveId ?? null,
+      goalId: input.goalId ?? null,
       phase,
       message: input.message ?? actionRunMessage(phase, input.label),
+      subject: null,
       createdAtMs: now,
       updatedAtMs: now,
       completedAtMs: null,
@@ -236,18 +255,26 @@ export class InteractionIntentCoordinator {
   updateActionRun(
     runId: string,
     input: {
-      phase: ActionRunPhase;
+      /** Omit to patch `subject`/`message` without moving the run's phase. */
+      phase?: ActionRunPhase;
       message?: string;
+      subject?: ActionRun["subject"];
     },
   ): ActionRun | null {
     let updated: ActionRun | null = null;
     this.actionRuns = this.actionRuns.map((run) => {
       if (run.id !== runId || isTerminalActionRunPhase(run.phase)) return run;
-      const terminal = isTerminalActionRunPhase(input.phase);
+      const phase = input.phase ?? run.phase;
+      const terminal = isTerminalActionRunPhase(phase);
       updated = {
         ...run,
-        phase: input.phase,
-        message: input.message ?? actionRunMessage(input.phase, run.label),
+        phase,
+        message:
+          input.message ??
+          (input.phase !== undefined
+            ? actionRunMessage(phase, run.label)
+            : run.message),
+        subject: input.subject !== undefined ? input.subject : run.subject,
         updatedAtMs: Date.now(),
         completedAtMs: terminal ? Date.now() : null,
       };
@@ -271,6 +298,18 @@ export class InteractionIntentCoordinator {
       phase,
       message: settlement.summary,
     });
+  }
+
+  /**
+   * Test-only. `cancelActiveActionRuns` marks runs terminal but keeps them in
+   * the rolling history for grouping (e.g. `VoiceWalkthroughPanel`), so a
+   * suite that starts real runs against the shared singleton needs a genuine
+   * wipe between tests -- otherwise a later test's runs land inside the
+   * still-recent grouping window of an earlier test's.
+   */
+  resetActionRunsForTests(): void {
+    this.actionRuns = [];
+    this.publish();
   }
 
   cancelActiveActionRuns(message = "Action cancelled"): void {
@@ -546,7 +585,7 @@ export function useActiveActionRun(): ActionRun | null {
   return null;
 }
 
-function isTerminalActionRunPhase(phase: ActionRunPhase): boolean {
+export function isTerminalActionRunPhase(phase: ActionRunPhase): boolean {
   return (
     phase === "completed" ||
     phase === "blocked" ||

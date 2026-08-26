@@ -35,18 +35,50 @@ logger = logging.getLogger(__name__)
 
 _HUSHH_TECH_PRODUCT_PREFIX = "/api/v1/products/hushh-tech/"
 
+#: Paths whose 429 reaches a person rather than a machine.
+#:
+#: slowapi's default body is `{"error": "Rate limit exceeded: 4 per 1 minute"}`,
+#: and the web client surfaces whatever string it finds straight into a toast.
+#: That is an acceptable answer for a developer hitting an API and a poor one
+#: for someone who has just pressed "Check more" on their contacts, so these
+#: paths get typed copy instead. Keep this list to routes a human actually
+#: triggers -- everything else is better served by the exact numeric limit.
+_TYPED_RATE_LIMIT_PATHS = (
+    _HUSHH_TECH_PRODUCT_PREFIX,
+    "/api/marketplace/contacts/match",
+    "/api/one/connections/contact-sync",
+)
+
+_TYPED_RATE_LIMIT_MESSAGES = {
+    "/api/marketplace/contacts/match": (
+        "You have checked your contacts a few times just now. Give it a minute and try again."
+    ),
+    "/api/one/connections/contact-sync": (
+        "You have checked many contacts recently. Give it a little time and try again."
+    ),
+}
+
 
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
-    """Keep the product API typed and non-cacheable without changing other routes."""
-    if not request.url.path.startswith(_HUSHH_TECH_PRODUCT_PREFIX):
+    """Keep human-facing 429s typed and non-cacheable without changing other routes."""
+    path = request.url.path
+    if not path.startswith(_TYPED_RATE_LIMIT_PATHS):
         return _rate_limit_exceeded_handler(request, exc)
+    message = next(
+        (text for prefix, text in _TYPED_RATE_LIMIT_MESSAGES.items() if path.startswith(prefix)),
+        "Try again shortly.",
+    )
     response = JSONResponse(
         status_code=429,
         content={
             "detail": {
                 "code": "RATE_LIMITED",
-                "message": "Try again shortly.",
-            }
+                "message": message,
+            },
+            # slowapi's own shape, kept alongside the typed body so a client
+            # that reads `error` (as the marketplace client does) gets the same
+            # sentence rather than the raw limit string.
+            "error": message,
         },
         headers={
             "Cache-Control": "private, no-store",
@@ -165,6 +197,42 @@ class RateLimits:
 
     # Owners can rotate/revoke a code, but rapid churn is never a normal flow.
     ONE_LOCATION_CIRCLE_MUTATION = "6/minute"  # noqa: S105
+
+    # Contact discovery. This route answers "is the person behind this phone
+    # number on Hushh", a thousand numbers at a time, and it was the only
+    # identity-revealing route in the product carrying no limit at all --
+    # neither its own nor a global one, because SlowAPIMiddleware is never
+    # installed and GLOBAL_PER_IP is referenced nowhere outside its own test.
+    # An authenticated caller could walk the national number space against the
+    # user base at whatever rate their connection allowed.
+    #
+    # Two ceilings, because one number cannot describe the shape of the abuse.
+    # The per-minute bound stops a tight loop; the daily bound is the one that
+    # stops the patient walk, which is the realistic version of this attack.
+    #
+    # The minute bound is deliberately generous, and 4 was wrong. On the web
+    # the Contact Picker hands back only what the person hand-picked, so
+    # `describeContactSyncOutcome` offers a "Check more" action that re-runs
+    # the whole sync -- the product actively asks a user to press this
+    # repeatedly to cover a large address book ten contacts at a time. At 4 a
+    # minute the fifth press failed, and the refusal came from a limit meant
+    # for an attacker. Twelve leaves a press every five seconds, which is
+    # faster than a human can work the picker.
+    #
+    # Nothing is lost by that: the day bound is the security bound. Twenty
+    # draws of up to a thousand numbers is far more than any real address book
+    # needs across every surface and device, and far less than a walk of the
+    # number space requires.
+    CONTACT_DISCOVERY_MATCH = "12/minute"  # noqa: S105
+    CONTACT_DISCOVERY_MATCH_DAILY = "60/day"  # noqa: S105
+
+    # The owner's own position heartbeat onto their live public link. Unlike
+    # every other mutation on this router this one is SUPPOSED to repeat: the
+    # web client publishes on a twenty-second heartbeat plus a movement watch
+    # throttled to one publish per eight seconds, so a walking owner can
+    # legitimately reach the high single digits per minute. Sized with headroom
+    # for that and nothing more -- it still writes one row per call.
+    ONE_LOCATION_PUBLIC_LINK_HEARTBEAT = "30/minute"  # noqa: S105
     # UAT-only One Location nearby-presence simulation. The roster is a stable,
     # bounded sample, and these per-principal limits additionally bound polling,
     # check-in churn, and alias-based connection attempts. Shared enforcement

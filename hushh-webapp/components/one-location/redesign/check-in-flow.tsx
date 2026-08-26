@@ -30,6 +30,8 @@ import {
   UsersRound,
 } from "lucide-react";
 
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
@@ -146,6 +148,7 @@ function ContactRow({
   locked,
   completed,
   label,
+  fromContacts,
   isLast,
   onToggle,
 }: {
@@ -154,6 +157,7 @@ function ContactRow({
   locked: boolean;
   completed: boolean;
   label: string;
+  fromContacts?: boolean;
   isLast: boolean;
   onToggle: () => void;
 }) {
@@ -180,8 +184,13 @@ function ContactRow({
         {initialsOf(label)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[16px] font-semibold text-foreground">
-          {label}
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[16px] font-semibold text-foreground">
+            {label}
+          </span>
+          {fromContacts ? (
+            <ContactSourceBadge className="mt-px shrink-0" />
+          ) : null}
         </span>
         {completed ? (
           <span className="block truncate text-[12px] text-emerald-600 dark:text-emerald-400">
@@ -236,6 +245,13 @@ export function CheckInFlow({
   const [circleSelection, setCircleSelection] =
     useState<CircleRecipientSelection | null>(null);
   const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
+  // Trusted is an auto-managed contact-sync view and may contain thousands of
+  // connections. Private Check-In must stay an explicit, bounded choice, so
+  // only user-managed/SMS Circles and direct contacts are selectable here.
+  const selectableCircles = useMemo(
+    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    [vm.circles],
+  );
   const [confirmedPoint, setConfirmedPoint] =
     useState<PlainLocationPoint | null>(null);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
@@ -614,9 +630,9 @@ export function CheckInFlow({
 
       {/* WHO SHOULD KNOW? */}
       <SectionLabel>Who should know?</SectionLabel>
-      {vm.circles.length ? (
+      {selectableCircles.length ? (
         <div className={cn(CARD, "mb-2 overflow-hidden")}>
-          {vm.circles.map((circle, index) => {
+          {selectableCircles.map((circle, index) => {
             const selected =
               circleSelection?.circle.id === circle.id && circleFullySelected;
             // STATE BEATS CATEGORY: a circle is the people role, but one
@@ -636,7 +652,7 @@ export function CheckInFlow({
                 aria-pressed={selected}
                 className={cn(
                   "flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left",
-                  index < vm.circles.length - 1 &&
+                  index < selectableCircles.length - 1 &&
                     "border-b border-black/[0.06] dark:border-white/[0.08]",
                   selected &&
                     "bg-[color:var(--app-accent-soft)]",
@@ -658,7 +674,7 @@ export function CheckInFlow({
                   <span className="block text-[15px] leading-5 text-muted-foreground">
                     {selected
                       ? `${circleSelection.ready.length} ready now`
-                      : `${circle.memberCount} members`}
+                      : circleMemberCountLabel(circle.memberCount)}
                   </span>
                 </span>
                 <span className="text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)]">
@@ -703,6 +719,9 @@ export function CheckInFlow({
                   onLoadEligibleConnections={
                     vm.onLoadNamedCircleEligibleConnections
                   }
+                  onLoadEligibleConnectionsPage={
+                    vm.onLoadNamedCircleEligibleConnectionsPage
+                  }
                   onInviteConnections={vm.onInviteNamedCircleConnections}
                   onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
                   testId="check-in-circle-grow-actions"
@@ -714,7 +733,10 @@ export function CheckInFlow({
       ) : null}
 
       <div
-        className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}
+        className={cn(
+          CARD,
+          "mb-2 flex items-center gap-2 px-[14px] py-[11px] focus-within:ring-2 focus-within:ring-inset focus-within:ring-[color:var(--app-accent-ring)]",
+        )}
       >
         <Search className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]" />
         <input
@@ -737,6 +759,7 @@ export function CheckInFlow({
                 locked={retryLocked}
                 completed={completedRecipientIds.includes(recipient.userId)}
                 label={vm.recipientLabel(recipient)}
+                fromContacts={recipient.connectedFromContacts}
                 isLast={index === filtered.length - 1}
                 onToggle={() => toggle(recipient.userId)}
               />

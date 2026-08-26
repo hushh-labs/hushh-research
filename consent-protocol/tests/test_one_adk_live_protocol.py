@@ -1,5 +1,7 @@
 """Unit coverage for One ADK Live browser-frame trust boundaries."""
 
+from pathlib import Path
+
 import pytest
 
 from api.routes.one.adk_live import (
@@ -95,7 +97,15 @@ async def test_close_quietly_swallows_a_close_failure_on_an_already_gone_client(
 
 @pytest.mark.asyncio
 async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
-    mode, credential, transport, project, location, _resume = await _receive_runtime_bootstrap(
+    (
+        mode,
+        credential,
+        transport,
+        project,
+        location,
+        _resume,
+        _voice,
+    ) = await _receive_runtime_bootstrap(
         _BootstrapSocket(
             {
                 "type": "runtime_bootstrap",
@@ -116,7 +126,15 @@ async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
 
 @pytest.mark.asyncio
 async def test_runtime_bootstrap_accepts_a_vertex_api_key_only_with_explicit_endpoint_metadata():
-    mode, credential, transport, project, location, _resume = await _receive_runtime_bootstrap(
+    (
+        mode,
+        credential,
+        transport,
+        project,
+        location,
+        _resume,
+        _voice,
+    ) = await _receive_runtime_bootstrap(
         _BootstrapSocket(
             {
                 "type": "runtime_bootstrap",
@@ -152,6 +170,38 @@ async def test_runtime_bootstrap_rejects_a_credential_in_managed_mode():
             ),
             uid="user_1",
         )
+
+
+@pytest.mark.asyncio
+async def test_runtime_bootstrap_accepts_an_allowlisted_voice_name():
+    *_rest, voice_name = await _receive_runtime_bootstrap(
+        _BootstrapSocket(
+            {
+                "type": "runtime_bootstrap",
+                "runtime_credential_mode": "hushh_managed_vertex",
+                "voice_name": "Aoede",
+            }
+        ),
+        uid=None,
+    )
+
+    assert voice_name == "Aoede"
+
+
+@pytest.mark.asyncio
+async def test_runtime_bootstrap_drops_a_voice_name_outside_the_allowlist():
+    *_rest, voice_name = await _receive_runtime_bootstrap(
+        _BootstrapSocket(
+            {
+                "type": "runtime_bootstrap",
+                "runtime_credential_mode": "hushh_managed_vertex",
+                "voice_name": "not-a-real-voice",
+            }
+        ),
+        uid=None,
+    )
+
+    assert voice_name is None
 
 
 def test_live_context_keeps_only_bounded_redacted_ui_fields():
@@ -996,3 +1046,34 @@ def test_one_settlement_produces_one_turn_even_when_it_arms_a_continuation():
     )
     # A failed navigation arms nothing either.
     assert _navigation_continuation_screen("goal.x", navigation_run, "failed") is None
+
+
+def test_the_relay_never_sends_activity_signals_while_the_provider_endpoints_itself():
+    """Activity signals belong to the client only when automatic VAD is off.
+
+    `AutomaticActivityDetection.disabled` is what decides who owns endpointing:
+    "if disabled, the client must send activity signals." This relay leaves
+    `realtime_input_config` unset on its `RunConfig`, so automatic detection is
+    on and the provider owns it -- and a relay that also sends activity_end is
+    asking the provider to close a window it did not hand over.
+
+    The two halves are checked together on purpose. Either one alone is a
+    legitimate design: manual VAD WITH activity signals is fine, and automatic
+    VAD WITHOUT them is fine. It is the mismatch that is the bug, and it was
+    introduced by a comment that read "close the current activity window" as
+    though the window were ours to close.
+    """
+    source = (Path(__file__).resolve().parents[1] / "api/routes/one/adk_live.py").read_text(
+        encoding="utf-8"
+    )
+    # Comments are stripped first. The invariant is about what the relay DOES,
+    # and the comment explaining this fix has to be free to name the call it
+    # removed -- an assertion that a string is absent from a file otherwise
+    # fails on its own rationale, which is exactly what happened here.
+    code = "\n".join(line for line in source.splitlines() if not line.strip().startswith("#"))
+    assert "queue.send_activity_end()" not in code
+    assert "queue.send_activity_start()" not in code
+    # If someone ever disables automatic detection, this test should be
+    # revisited rather than silently kept passing: that is the configuration
+    # where the relay MUST send the signals it is forbidden from sending here.
+    assert "realtime_input_config=" not in code

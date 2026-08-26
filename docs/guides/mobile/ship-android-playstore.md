@@ -11,7 +11,7 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One click cuts a Hussh One Android App Bundle (`.aab`) from an explicitly selected green `main` SHA,
-builds the Capacitor app against the **UAT backend + UAT Firebase**, signs it with the
+builds the Capacitor app against the **UAT backend + shared Firebase authority**, signs it with the
 **Android Release Upload Keystore**, and **uploads it to Google Play Console** (internal, alpha,
 beta, or production track).
 
@@ -89,3 +89,75 @@ npm run android:release:playstore -- --dry-run     # build & sign only, no uploa
 
 1. Open repository on GitHub $\rightarrow$ **Actions** $\rightarrow$ **Ship Android to Google Play Store**.
 2. Click **Run workflow** $\rightarrow$ select track (`internal`, `alpha`, `beta`, `production`) $\rightarrow$ Click **Run workflow**.
+
+## Contacts: the Data safety declaration, and the April 2026 policy
+
+`READ_CONTACTS` is declared in `hushh-webapp/android/app/src/main/AndroidManifest.xml`
+and read by the first-party `HushhContacts` plugin, so this app is in scope for
+Google Play's **Contact Permissions policy**, announced 15 April 2026. Nothing in
+this repo covered it before, and the declaration is a human, one-time Play Console
+action that cannot be automated.
+
+### What the policy requires
+
+Apps targeting **Android 17+ (API 37+)** may request `READ_CONTACTS` only when
+*"the Android Contact Picker is not sufficient for your app to provide core
+functionality."* It is now a **restricted permission**, gated on a declaration.
+
+**Our use case is on the approved list.** Google names *"friend matching with
+server-side processing"* explicitly, and that is exactly what contact sync does:
+the device normalizes each number to E.164 and hashes it, the server matches the
+digests against the user directory, and the match feeds the One Location People
+list and Connect. Read the declaration from that sentence, not from "we sync
+contacts".
+
+What does **not** justify it: inviting or referring. That must use the system
+picker. Our invite path is picker-driven for exactly this reason — the share
+offered after a scan carries no contact data, only the sender's referral link.
+
+### Timeline
+
+| When | What |
+|---|---|
+| 15 April 2026 | Policy announced |
+| **September 2026** | Play Console prompts developers to submit declarations |
+| **January 2027** | Mandatory compliance; non-compliant apps are subject to removal |
+
+### The Data safety form must match the code
+
+A mismatch between the declared behaviour and the actual behaviour is a primary
+removal trigger, so declare what is true:
+
+- **Collected:** phone numbers, in the form of **unsalted SHA-256 digests plus
+  the last four digits**, transmitted to `POST /api/marketplace/contacts/match`.
+  Raw phone numbers and contact names **never leave the device** — see
+  `hushh-webapp/lib/marketplace/contact-matching.ts`.
+- **Stored:** nothing. `RIAIAMService.match_marketplace_contacts` performs zero
+  writes; the request body is consumed in memory and discarded, so a contact who
+  is not a Hussh user leaves no trace on any server.
+- **Shared with third parties:** no.
+- **Purpose:** app functionality (finding people you already know).
+- **Optional:** yes. The flow works fully for someone who grants nothing, and the
+  onboarding step removes itself when contacts are unavailable.
+
+### Prominent disclosure
+
+Play requires an in-app disclosure **before** the permission prompt, inside the
+app rather than only in the listing, and not buried in a menu. The One Location
+onboarding contacts screen already satisfies this — the privacy line renders
+*above* the button that triggers the OS prompt, and the prompt fires on tap
+rather than on mount:
+
+> Your contacts are checked using a one-way hash. One never stores your contact
+> list, and nobody is contacted for you.
+
+Anyone moving that line below the button, or making the prompt fire on screen
+entry, breaks the disclosure requirement as well as the UX intent.
+
+### iOS counterpart
+
+`PrivacyInfo.xcprivacy` currently declares `PhoneNumber` and `Name` but **not**
+`NSPrivacyCollectedDataTypeContacts`. Whether hashes-only egress counts as
+"collecting contacts" is the open question; either add the entry or record the
+written decision. `release-ios-appstore.md` already lists the privacy-manifest
+reconciliation as publish blocker #1, and this is part of it.

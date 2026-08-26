@@ -25,6 +25,9 @@ vi.mock("@/lib/config", () => ({
 
 vi.mock("@/lib/utils/request-timeouts", () => ({
   resolveSlowRequestTimeoutMs: () => 1_000,
+  isRequestTimeoutError: (error: unknown) =>
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError"),
 }));
 
 type BootstrapRoute = {
@@ -65,6 +68,24 @@ describe("/api/vault/bootstrap-state freshness", () => {
 
     await expect(first.json()).resolves.toMatchObject({ setupCompleted: false });
     await expect(second.json()).resolves.toMatchObject({ setupCompleted: true });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a Node timeout once without serving stale setup state", async () => {
+    const timeout = new Error("The operation was aborted due to timeout");
+    timeout.name = "TimeoutError";
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(timeout)
+      .mockResolvedValueOnce(
+        Response.json({ setupCompleted: true, onboardingPhase: "root_completion" }),
+      );
+
+    const response = await route.POST(request());
+
+    await expect(response.json()).resolves.toMatchObject({
+      setupCompleted: true,
+      onboardingPhase: "root_completion",
+    });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

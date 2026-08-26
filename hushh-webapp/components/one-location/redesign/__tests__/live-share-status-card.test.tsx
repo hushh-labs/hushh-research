@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -236,7 +236,47 @@ describe("LiveShareStatusCard", () => {
     expect(onChangeDuration).toHaveBeenCalledTimes(1);
 
     const ends = screen.getByText(/^Ends /);
-    expect(change.parentElement).toBe(ends.parentElement);
+    expect(change.closest("div")).toBe(ends.parentElement);
+  });
+
+  it("opens the share composer from the live timer card for another share", () => {
+    const onShareMore = vi.fn();
+    render(
+      <LiveShareStatusCard
+        status={status()}
+        onManage={vi.fn()}
+        onStop={vi.fn()}
+        onShareMore={onShareMore}
+      />,
+    );
+
+    screen.getByRole("button", { name: "Share with more" }).click();
+    expect(onShareMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open manage when keyboard focus is on a child action", () => {
+    const onManage = vi.fn();
+    render(
+      <LiveShareStatusCard
+        status={status()}
+        onManage={onManage}
+        onStop={vi.fn()}
+        onChangeDuration={vi.fn()}
+        onShareMore={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Stop" }), {
+      key: "Enter",
+    });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Change time" }), {
+      key: " ",
+    });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Share with more" }), {
+      key: "Enter",
+    });
+
+    expect(onManage).not.toHaveBeenCalled();
   });
 
   it("hides Change time when there is no single share to change", () => {

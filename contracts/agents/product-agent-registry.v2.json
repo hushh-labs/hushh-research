@@ -1759,7 +1759,7 @@
       },
       "capabilities": {
         "heads": {
-          "live": "gemini-live-2.5-flash-native-audio",
+          "live": "gemini-3.1-flash-live-preview",
           "specialist_text": "gemini-3.7-flash",
           "text": "gemini-3.7-flash"
         },

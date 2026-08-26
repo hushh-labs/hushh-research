@@ -13,6 +13,7 @@ import type {
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
 import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-machine";
+import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
 
 /**
  * Browser client for Gemini Live full-duplex voice.
@@ -140,6 +141,28 @@ function describeSocketCloseError(event: CloseEvent): string {
   return `Voice session could not start (code ${event.code}).`;
 }
 
+/**
+ * The relay classifies a mid-call failure and sends `{"sessionEnded": {...}}`
+ * before it closes the socket -- but nothing on this side ever read the
+ * frame, so a genuine provider outage and a normal hangup produced the
+ * identical, silent `stop()`. This is the one place that turns the relay's
+ * wire-level reason into something a person can act on.
+ */
+function describeSessionEndedReason(reason: string, resumable: boolean): string {
+  switch (reason) {
+    case "provider_unavailable":
+      return "Voice is temporarily unavailable. Try again in a moment.";
+    case "unknown_tool_call":
+      return "One hit a snag with that request. Try again.";
+    case "runtime_error":
+      return "Something went wrong with the voice connection. Try again.";
+    default:
+      return resumable
+        ? "Voice session ended. Try again in a moment."
+        : "Voice session ended unexpectedly. Try again.";
+  }
+}
+
 function bytesFromBase64(value: string): Uint8Array {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -232,6 +255,17 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private runtimeCredentialMode: "hushh_managed_vertex" | "byok" =
     "hushh_managed_vertex";
   private runtimeCredential: string | null = null;
+  /**
+   * The provider's own opaque continuation token. Seeded from `start()`'s
+   * options when reconnecting, and replaced every time the provider issues a
+   * fresh one (it rotates through a session, not just once). Sent on the next
+   * `runtime_bootstrap` this instance makes, and handed off in the `closed`
+   * event so a NEW instance -- start() always builds one -- can carry it
+   * forward.
+   */
+  private resumptionHandle: string | null = null;
+  /** A Voice Settings persona pick, sent on runtime_bootstrap; null uses the deployment default. */
+  private voiceName: string | null = null;
   private runtimeCredentialTransport: "developer_api" | "vertex_api_key" =
     "developer_api";
   private runtimeVertexProject: string | null = null;
@@ -350,6 +384,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.startContext = context;
     this.latestContext = context;
     this.consentToken = options?.consentToken ?? null;
+    this.resumptionHandle = options?.resumptionHandle?.trim() || null;
+    this.voiceName = options?.voiceName?.trim() || null;
     this.runtimeCredentialMode =
       options?.runtimeCredentialMode === "byok"
         ? "byok"
@@ -617,6 +653,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
           ...(this.runtimeCredentialMode === "byok" && credential
             ? { runtime_credential: credential }
             : {}),
+          ...(this.resumptionHandle
+            ? { resumption_handle: this.resumptionHandle }
+            : {}),
+          ...(this.voiceName ? { voice_name: this.voiceName } : {}),
         }),
       );
       this.runtimeCredential = null;
@@ -675,6 +715,45 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       } else {
         this.fail("Voice is waiting for the current screen. Please try again.");
       }
+      return;
+    }
+
+    // The relay's own classified reason for a mid-call end, sent moments
+    // before it closes the socket. Without reading this, that close reached
+    // `ws.onclose` after `setupComplete` and went through the same silent
+    // `stop()` a normal hangup does -- the person just saw the mic go dark.
+    const sessionEnded = readRecord(message.sessionEnded);
+    if (sessionEnded) {
+      const reason = readString(sessionEnded.reason) ?? "unknown";
+      const resumable = sessionEnded.resumable === true;
+      this.fail(describeSessionEndedReason(reason, resumable), resumable);
+      return;
+    }
+
+    // The provider's own continuation token, reissued through the life of a
+    // session (not just once). Kept for the next runtime_bootstrap this
+    // instance sends, and handed off via the `closed` event once this
+    // instance tears down, so a reconnect can carry it into a fresh one.
+    const sessionResumption = readRecord(message.sessionResumption);
+    const resumptionHandle = readString(sessionResumption?.handle);
+    if (resumptionHandle) {
+      this.resumptionHandle = resumptionHandle;
+      return;
+    }
+
+    // The provider's own advance warning that it is about to end the
+    // session on its own terms. No reconnect exists yet to act on this, so
+    // for now this only stops the signal from being silently dropped --
+    // logged so "how often does this fire, and how much runway does it
+    // actually give" is answerable before building on it.
+    const goAway = readRecord(message.goAway);
+    if (goAway) {
+      logVoiceMetric({
+        metric: "voice_go_away_received",
+        value: 1,
+        turnId: createVoiceTurnId(),
+        tags: { time_left: readString(goAway.timeLeft) },
+      });
       return;
     }
 
@@ -1340,7 +1419,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.handlers.onOutputLevel?.(0);
   }
 
-  private fail(message: string): void {
+  private fail(message: string, resumable?: boolean): void {
     const eventOptions = this.nextEventOptions();
     this.handlers.onError?.(message, eventOptions);
     this.handlers.onEvent?.({
@@ -1350,6 +1429,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       sessionId: eventOptions.sessionId,
       sourceId: eventOptions.sourceId,
       sourceSeq: eventOptions.sourceSeq,
+      ...(resumable !== undefined ? { resumable } : {}),
     });
     this.stop();
   }
@@ -1424,6 +1504,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.handlers.onEvent?.({
       type: "closed",
       provider: this.provider,
+      resumptionHandle: this.resumptionHandle,
     });
     this.handlers.onClose?.();
   }

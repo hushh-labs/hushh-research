@@ -57,10 +57,10 @@ describe("the ask flow's primary action keeps the action colour", () => {
   it("never repaints Send with the success token", () => {
     const hub = read("components/one-location/redesign/location-redesign-hub.tsx");
 
-    const sendButton = hub.slice(
-      hub.indexOf("const isFormValid = vm.selectedRequestOwnerIds.length > 0"),
-      hub.indexOf('"Send request"'),
-    );
+    const sendButton =
+      hub.match(
+        /<Button\s+onClick=\{sendRequest\}[\s\S]*?>\s*Send request\s*<\/Button>/,
+      )?.[0] ?? "";
     expect(sendButton.length).toBeGreaterThan(0);
     expect(sendButton).toContain("bg-[color:var(--app-accent)]");
     // Green is a status, and this screen already says it twice — in the banner
@@ -72,10 +72,13 @@ describe("the ask flow's primary action keeps the action colour", () => {
     const hub = read("components/one-location/redesign/location-redesign-hub.tsx");
 
     expect(hub).toContain("sentSelectionRef");
-    expect(hub).toContain("setJustSent(await vm.onSendRequest(reason))");
+    expect(hub).toContain("const sent = await vm.onSendRequest(reason)");
+    expect(hub).toContain("setJustSent(sent)");
     // The latch must not be part of what disables the button, or one send
     // retires the control for the life of the screen.
-    expect(hub).not.toContain("disabled={!isFormValid || sending || justSent}");
+    expect(hub).not.toContain(
+      "disabled={!isRequestFormValid || sendingRequest || justSent}",
+    );
   });
 });
 

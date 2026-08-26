@@ -111,6 +111,26 @@ export class AuthService {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /**
+   * Bounded token fetch that tolerates a Firebase session still restoring
+   * (common a few frames after a fresh Google/Apple sign-in or a referral
+   * redirect). One short wait-and-retry only -- never an unbounded loop --
+   * so a genuinely signed-out caller still fails fast.
+   */
+  static async getIdTokenWithRetry(options?: {
+    retries?: number;
+    delayMs?: number;
+  }): Promise<string | null> {
+    const retries = options?.retries ?? 1;
+    const delayMs = options?.delayMs ?? 400;
+    let token = await this.getIdToken();
+    for (let attempt = 0; !token && attempt < retries; attempt += 1) {
+      await this.pause(delayMs);
+      token = await this.getIdToken();
+    }
+    return token;
+  }
+
   private static getLocalDevPhoneTestConfig(): {
     phoneNumber: string;
     verificationCode: string;
@@ -1159,6 +1179,8 @@ export class AuthService {
     try {
       const result = await signInWithCredential(phoneClaimAuth, credential);
       claimToken = await result.user.getIdToken(true);
+    } catch (error) {
+      throw this.normalizePhoneVerificationError(error, "link_confirm");
     } finally {
       await firebaseSignOut(phoneClaimAuth).catch(() => undefined);
     }
@@ -1314,6 +1336,20 @@ export class AuthService {
       return this.createPhoneVerificationError(
         code,
         "Use Change phone number to replace the current number.",
+      );
+    }
+
+    if (code === "code-expired") {
+      return this.createPhoneVerificationError(
+        code,
+        "This verification code has expired. Please request a new code.",
+      );
+    }
+
+    if (code === "invalid-verification-code") {
+      return this.createPhoneVerificationError(
+        code,
+        "That verification code is incorrect. Please check the code and try again.",
       );
     }
 

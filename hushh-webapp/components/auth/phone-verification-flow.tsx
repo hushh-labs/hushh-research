@@ -373,11 +373,13 @@ export function PhoneVerificationFlow({
     mode === "link" && currentPhoneNumber ? "linked" : "phone",
   );
   const [busy, setBusy] = useState(false);
-  // State updates do not land until after the current event. These refs keep
-  // an Enter keypress and a pointer activation from starting two auth attempts
-  // in the same turn.
-  const startVerificationAttemptRef = useRef(false);
-  const confirmVerificationAttemptRef = useRef(false);
+  // State updates do not land until after the current event. `busy` alone
+  // cannot gate this: two different actions (Verify and Resend) fired in the
+  // same render both read the same stale `busy=false` before either commits
+  // its `setBusy(true)`. One shared ref -- set synchronously the instant an
+  // attempt starts -- closes that cross-action race, not just same-action
+  // double-clicks.
+  const phoneFlowInFlightRef = useRef(false);
 
   useEffect(() => {
     const nextFields = derivePhoneFields(currentPhoneNumber);
@@ -618,7 +620,7 @@ export function PhoneVerificationFlow({
       resendCode = false,
       phoneNumberOverride?: string,
     ): Promise<StartVerificationOutcome> => {
-      if (busy || startVerificationAttemptRef.current) {
+      if (busy || phoneFlowInFlightRef.current) {
         return "busy";
       }
       const normalizedPhone = (
@@ -654,7 +656,7 @@ export function PhoneVerificationFlow({
         return "already_linked";
       }
 
-      startVerificationAttemptRef.current = true;
+      phoneFlowInFlightRef.current = true;
       setBusy(true);
       try {
         const result = await startVerification(normalizedPhone, { resendCode });
@@ -677,6 +679,12 @@ export function PhoneVerificationFlow({
         }
 
         setSubmittedPhoneNumber(normalizedPhone);
+        // A resend replaces the verification session outright (auth-context
+        // already discards the previous verificationId before starting this
+        // one). Any digits the user typed against the OLD code are stale the
+        // instant a new one exists -- keeping them invites confirming the
+        // wrong session.
+        setVerificationCode("");
         setStep("code");
         morphyToast.success(
           resendCode
@@ -705,7 +713,7 @@ export function PhoneVerificationFlow({
         );
         return "failed";
       } finally {
-        startVerificationAttemptRef.current = false;
+        phoneFlowInFlightRef.current = false;
         setBusy(false);
       }
     },
@@ -794,11 +802,11 @@ export function PhoneVerificationFlow({
         }
         return "invalid";
       }
-      if (busy || confirmVerificationAttemptRef.current) {
+      if (busy || phoneFlowInFlightRef.current) {
         return "busy";
       }
 
-      confirmVerificationAttemptRef.current = true;
+      phoneFlowInFlightRef.current = true;
       setBusy(true);
       try {
         const verifiedUser = await confirmVerification(normalizedCode);
@@ -829,6 +837,15 @@ export function PhoneVerificationFlow({
             phoneNumber: submittedPhoneNumber,
           });
         }
+        // An expired code can never succeed by resubmitting the same digits,
+        // so clear the input and leave the person on the OTP screen with
+        // Resend available. A wrong code stays in place -- it may be a typo
+        // worth fixing, not a dead session -- and no SMS is auto-sent either
+        // way; Resend remains an explicit tap.
+        const errorCode = String((error as { code?: unknown })?.code ?? "");
+        if (errorCode === "code-expired") {
+          setVerificationCode("");
+        }
         if (options.notify) {
           morphyToast.error(
             error instanceof Error
@@ -838,7 +855,7 @@ export function PhoneVerificationFlow({
         }
         return "failed";
       } finally {
-        confirmVerificationAttemptRef.current = false;
+        phoneFlowInFlightRef.current = false;
         setBusy(false);
       }
     },

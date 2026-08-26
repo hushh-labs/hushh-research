@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -58,6 +57,12 @@ from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
     journey_for_specialist_request,
     list_app_actions,
+    list_location_shared_with_me,
+    list_my_connections,
+    list_my_location_circles,
+    list_my_location_shares,
+    list_pending_connection_requests,
+    list_pending_location_requests,
     run_app_action,
     start_app_goal,
 )
@@ -133,26 +138,57 @@ APP_ROUTES: dict[str, str] = {
     "profile": "/profile",
 }
 
-# Voice head runs the GA native-audio Live model on Vertex ADC (regional
-# only; it is NOT published on the global endpoint, so the live client pins
-# a region via AGENT_ONE_ADK_LOCATION). Model is env-swappable through
-# AGENT_ONE_ADK_MODEL with no code change.
+# Voice head model contract. The canonical live model is authored in the One
+# manifest (heads.live) and env-swappable through AGENT_ONE_ADK_MODEL with no
+# code change; the transport per model comes from GEMINI_LIVE_COMPATIBILITY.
 #
-# MODEL CONTRACT - do not bump to a gemini-3.x Live model casually:
-# gemini-live-2.5-flash-native-audio is the GA "Recommended" Vertex Live
-# model and supports send_client_content THROUGHOUT the session. The relay
-# (api/routes/one/adk_live.py) depends on mid-session send_content for
-# greetings, app_speech, user_text turns, settlement notes, and route-change
-# notes. On Gemini 3.x Live, send_client_content only seeds initial history;
-# a 3.x swap would silently break every one of those injection paths.
-# _build_one_live_model() logs a warning if the override looks like 3.x.
+# MODEL CONTRACT (updated 2026-08-21 after an ADK Live rehearsal):
+# gemini-3.1-flash-live-preview is the canonical live model. It is served on
+# the Gemini Developer API only (verified: the Vertex publisher endpoint 404s
+# in us-central1/us-east4/europe-west4/asia-southeast1), so its transport is
+# developer_api with a Hussh-managed key (HUSHH_MANAGED_GEMINI_LIVE_API_KEY).
+# The relay's mid-session injections (greetings, app_speech, user_text turns,
+# settlement notes, route-change notes) all queue single-text-part Contents;
+# on Gemini 3.x Live model names, google-adk (>=2.4.0) transposes each of
+# those into session.send_realtime_input(text=...) automatically
+# (google/adk/models/gemini_llm_connection.py), which the rehearsal verified
+# elicits complete model turns mid-session. The rehearsal also verified that
+# mid-session send_client_content itself is honored on the current 3.1
+# preview build, so both injection channels are live. Rollback lever: set
+# AGENT_ONE_ADK_MODEL=gemini-live-2.5-flash-native-audio (GA, Vertex) — its
+# matrix entry and Vertex transport remain fully supported below.
 _ONE_HEADS = _ONE_MANIFEST.capabilities.get("heads", {})
 _ONE_MODEL = (
     os.getenv("AGENT_ONE_ADK_MODEL")
     or (_ONE_HEADS.get("live") if isinstance(_ONE_HEADS, dict) else None)
-    or "gemini-live-2.5-flash-native-audio"
+    or "gemini-3.1-flash-live-preview"
 ).strip()
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
+# Neither live model pins a voice by default, so each one's own default voice
+# plays -- and the two differ audibly. Native audio models (both the 3.1
+# preview and the 2.5 GA model above) accept any Gemini TTS prebuilt voice
+# name via speech_config. Public (no underscore prefix, unlike the other
+# constants here) because the relay builds RunConfig's speech_config from
+# this directly. Override per-environment with AGENT_ONE_ADK_VOICE_NAME if a
+# different one is wanted.
+ONE_LIVE_VOICE_NAME = (os.getenv("AGENT_ONE_ADK_VOICE_NAME") or "Leda").strip()
+
+# The picker Voice Settings offers, keyed by the exact Gemini TTS prebuilt
+# voice name the relay will pass straight through to speech_config. Google
+# does not publish a gender per voice -- these are its own one-word tone
+# descriptors, kept here so the relay can reject anything else a tampered or
+# out-of-date client might send rather than forwarding an arbitrary string
+# into PrebuiltVoiceConfig. Deliberately a curated subset of the ~30-voice
+# catalog, not all of it -- a picker with thirty near-indistinguishable
+# options is not a feature.
+ONE_LIVE_VOICE_OPTIONS: dict[str, str] = {
+    "Leda": "Youthful",
+    "Aoede": "Breezy",
+    "Achernar": "Soft",
+    "Sulafat": "Warm",
+    "Kore": "Firm",
+    "Puck": "Upbeat",
+}
 # The Developer API Live contract is intentionally separate from the Vertex
 # contract above. It is disabled by default until an ADK integration rehearsal
 # has verified the selected model's BIDI audio, tool calls and mid-session
@@ -165,36 +201,12 @@ _SPECIALIST_MODEL = (
 ).strip()
 
 
-@dataclass(frozen=True)
-class GeminiLiveCompatibility:
-    """One relay requirements for one named Gemini Live model contract."""
-
-    transport: Literal["vertex", "developer_api"]
-    supports_mid_session_client_content: bool
-    operator_enablement_required: bool
-
-
-# The relay injects redacted route state and correlated action settlements after
-# setup, so it requires client content throughout a session. Keep the model
-# differences declarative: adding a Developer API model is an explicit contract
-# decision plus an ADK rehearsal, never a best-effort name-prefix heuristic.
-GEMINI_LIVE_COMPATIBILITY: dict[str, GeminiLiveCompatibility] = {
-    "gemini-live-2.5-flash-native-audio": GeminiLiveCompatibility(
-        transport="vertex",
-        supports_mid_session_client_content=True,
-        operator_enablement_required=False,
-    ),
-    "gemini-2.5-flash-live-preview": GeminiLiveCompatibility(
-        transport="developer_api",
-        supports_mid_session_client_content=True,
-        operator_enablement_required=True,
-    ),
-    "gemini-3.1-flash-live-preview": GeminiLiveCompatibility(
-        transport="developer_api",
-        supports_mid_session_client_content=False,
-        operator_enablement_required=True,
-    ),
-}
+# The Live compatibility registry lives in runtime_providers so the deploy
+# verifier can consult it without importing this module's heavy dependency
+# chain; re-exported here because this is its historical import site.
+from hushh_mcp.runtime_providers.live_compatibility import (  # noqa: E402
+    GEMINI_LIVE_COMPATIBILITY,
+)
 
 
 def _onboarding_goals_enabled(user_id: str) -> bool:
@@ -213,23 +225,49 @@ def _onboarding_goals_enabled(user_id: str) -> bool:
     return not allowlist or user_id in allowlist
 
 
-def _build_one_live_model():
-    """Live model for One's voice head.
+def _managed_live_api_key() -> str:
+    """Hussh-managed Developer API key for developer_api-transport live models.
 
-    Wraps the model id in an ADK ``Gemini`` with an explicit regional
-    location when running on Vertex, because the native-audio Live model is
-    served regionally (us-central1 etc.), not on the global endpoint the
-    genai client defaults to.
+    Distinct from BYOK by design: this key is Hussh-owned (minted in the
+    Gemini billing-bridge project, Secret Manager-delivered) and is only ever
+    used for the canonical managed live model. A person's BYOK key still flows
+    exclusively through build_one_live_runner's BYOK lane.
     """
-    if _ONE_MODEL.startswith("gemini-3"):
+    return (os.getenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY") or "").strip()
+
+
+def _build_one_live_model():
+    """Live model for One's voice head, built on the model's declared transport.
+
+    vertex transport wraps the model id in an ADK ``Gemini`` with an explicit
+    regional location (Vertex live models are served regionally, not on the
+    global endpoint the genai client defaults to). developer_api transport
+    builds the same ADK ``Gemini`` against the Gemini Developer API with the
+    Hussh-managed live key — required for gemini-3.1-flash-live-preview, which
+    is not published on Vertex.
+    """
+    compat = GEMINI_LIVE_COMPATIBILITY.get(_ONE_MODEL)
+    if compat is None:
         logger.warning(
-            "one_adk_live_model_contract_risk model=%s: Gemini 3.x Live treats "
-            "send_client_content as init-history-only; the relay's mid-session "
-            "content injection (greetings, app_speech, settlement and route "
-            "notes) will not work. Stay on gemini-live-2.5-flash-native-audio "
-            "until those paths are migrated to send_realtime_input.",
+            "one_adk_live_model_contract_risk model=%s: not declared in "
+            "GEMINI_LIVE_COMPATIBILITY. The relay's mid-session injection "
+            "channels have not been rehearsed for this model; falling back to "
+            "managed Vertex transport. Author a matrix entry after an ADK "
+            "rehearsal before shipping this model.",
             _ONE_MODEL,
         )
+    if compat is not None and compat.transport == "developer_api":
+        key = _managed_live_api_key()
+        if not key:
+            raise RuntimeError(
+                "managed_live_key_missing: the canonical live model "
+                f"'{_ONE_MODEL}' uses the developer_api transport and requires "
+                "HUSHH_MANAGED_GEMINI_LIVE_API_KEY. Set the secret, or roll "
+                "back with AGENT_ONE_ADK_MODEL=gemini-live-2.5-flash-native-audio."
+            )
+        from hushh_mcp.runtime_providers import build_gemini_byok_adk_model
+
+        return build_gemini_byok_adk_model(_ONE_MODEL, key)
     return build_managed_gemini_adk_model(
         _ONE_MODEL,
         vertex_location=_ONE_LIVE_LOCATION,
@@ -303,7 +341,11 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "with clients, picks, and requests) and Investor (personal portfolio "
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
-    "- Email: approval drafts and client request workflows.\n"
+    "- Email: approval drafts and client request workflows. When a person explicitly "
+    "asks to write, draft, or send a personal Gmail email, call open_gmail_email_draft "
+    "with their exact request. It opens an editable draft only; it never sends "
+    "automatically. Do not delegate personal Gmail sends to the platform Email "
+    "specialist.\n"
     "- Calendar: your connected Google Calendar. For calendar summaries, event "
     "lookups, availability, or free slots, use the Calendar tools. For scheduling, rescheduling, "
     "or cancellation, collect a title, time-zone-qualified start and end, and any "
@@ -325,8 +367,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "cannot interpret. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
-    "Gmail receipt sync is paused. It has no active One, voice, Search, or "
-    "Agent Chat action: do not claim receipt access or call a Gmail tool.\n\n"
+    "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
+    "inbox access, and do not call a tool for either. This does not limit the "
+    "open_gmail_email_draft tool for an explicit personal-email request.\n\n"
     # Section 4: tool invocation conditions, one tool per sentence.
     "Delegate naturally: when a request belongs to a specialist's domain, call "
     "that specialist's tool with the user's request, except KYC which is an "
@@ -407,6 +450,28 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # someone edits it back.
     "and choose again; never pick for them. If it says nobody matched, say so "
     "and stop.\n\n"
+    # Asking is the mirror of sharing and had no worked example of its own --
+    # only the Location share one above, which does not name send_request or
+    # select_ask_recipient anywhere. A live session showed exactly what that
+    # gap looks like: told to ask a named person, One landed on the request
+    # screen but never actually picked them, and Send stayed disabled.
+    "Requesting someone's location ('ask Neelesh where he is', 'request "
+    "Sarah's location') is the same shape as sharing, in reverse: navigate "
+    "first, then ask. Call start_app_goal with action id "
+    "'location.select_ask_recipient' and slots {'person': <the name exactly "
+    "as you heard it>}, never run_app_action, because this is an authored "
+    "journey the same way sharing's pick step is. It answers "
+    "'navigation_started'; say nothing about a recipient yet and ask no "
+    "question. Wait for the destination to settle, then call "
+    "continue_app_goal -- that is what actually runs the match. Its "
+    "settlement report is the first and only place the MATCHED name "
+    "appears; never say a name is picked before that report arrives. Once "
+    "it settles, call run_app_action with 'location.send_request' and SAY "
+    "the matched name as you do it -- 'Asking Sarah Chen where she is' -- "
+    "using the name from the report, never the name you heard. If several "
+    "people matched, ask which one and choose again; never pick for them. "
+    "If nobody matched, say so and stop. Unlike sharing, this needs no "
+    "duration: send_request has none to ask for.\n\n"
     # Circles. Two things go wrong without being told. The small one is asking
     # which circle when the person has exactly one. The serious one is
     # reporting an invitation as a completed add: joining is the other
@@ -425,6 +490,26 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "join only if they accept. Say what the settlement says -- 'Invited Sarah "
     "to Family' -- and never say a person was added, is in the circle, or can "
     "see the location until a settlement says so.\n\n"
+    # Connect. Same shape as sharing a location, and told the same way for
+    # the same reason -- this surface had no worked example at all before,
+    # only the generic "call run_app_action, it will redirect you if
+    # needed" fallback, and a live session showed that redirect was not
+    # reliably being followed when the request started off the Connect
+    # screen: One asked for confirmation, heard yes, and nothing happened.
+    "Connecting with someone the person NAMES ('connect with Ankit', 'send "
+    "a connection request to Ankit and Kushal') is ALSO an authored "
+    "journey: call start_app_goal with action id 'connect.send_request' "
+    "and slots {'person': <the name exactly as you heard it>}, never "
+    "run_app_action for it directly -- start_app_goal opens Connect for "
+    "you when the person is elsewhere, which is most of the time this is "
+    "asked. More than one name in the same request means more than one "
+    "call, one person at a time: ask which to do first if it is not "
+    "obvious, then call start_app_goal for just that one name. Confirm and "
+    "wait for its settlement -- the same 'ASK FOR IT OUT LOUD... then STOP "
+    "and wait' rule below, and the same 'at most ONE action-producing tool "
+    "per turn' rule above -- before calling start_app_goal again for the "
+    "next name. Never call it for a second name while the first is still "
+    "pending, confirming, or settling.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
     "specific -- who, how long, how much: 'Share your location with Sarah for "
@@ -1047,6 +1132,47 @@ async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
     }
 
 
+async def open_gmail_email_draft(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Open an editable Gmail draft for an explicit personal-email request.
+
+    This is intentionally a client-only draft directive. It never contacts Gmail,
+    creates a Gmail-native draft, or sends an email. The browser still requires a
+    current vault-owner token to request a generated draft and an explicit final
+    Send email click before the provider API is called.
+    """
+
+    user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
+    instruction = str(request or "").strip()
+    if not user_id:
+        return {
+            "status": "authentication_required",
+            "message": "Sign in and unlock your vault before drafting an email.",
+        }
+    if not instruction:
+        return {
+            "status": "missing_request",
+            "message": "Ask for the email you want to draft.",
+        }
+
+    # The model performs the semantic decision to call this tool. Keep only the
+    # current explicit instruction in ephemeral client state; no draft values or
+    # recipients are persisted by this directive.
+    tool_context.state[f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft"] = {
+        "kind": "prompt",
+        "payload": {
+            "kind": "gmail_email_draft",
+            "instruction": instruction[:12_000],
+        },
+    }
+    return {
+        "status": "draft_opened",
+        "message": (
+            "An editable Gmail draft is open. It will not send until the person "
+            "reviews it and presses Send email."
+        ),
+    }
+
+
 async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Ask the Email specialist about inbox tasks, approval drafts, or client request workflows."""
     return await _specialist_turn("agent_email", request, tool_context)
@@ -1318,6 +1444,14 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
     connections, connected systems, consent) are plain function
     tools that call the existing governed adk_bridge handlers.
 
+    The Location/Connect `list_*` read tools and `run_app_action`'s
+    BACKEND_DIRECT_ACTION_IDS mutations are the deliberate line for what may
+    depend on the frontend at all: navigation (`open_screen`,
+    `start_app_goal`, `route.*`) is frontend-triggered because there's no
+    backend concept of "which screen is open" -- everything else here reads
+    or writes the real backend data directly, so a frontend screen rewrite
+    can never silently break what these tools return or do.
+
     Uses GoogleSearchTool(bypass_multi_tools_limit=True) rather than the bare
     google_search function-tool. Binding Gemini's native google_search
     directly alongside this many custom function/agent tools in the SAME
@@ -1357,11 +1491,18 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         start_app_goal,
         continue_app_goal,
         list_app_actions,
+        open_gmail_email_draft,
         AgentTool(agent=_build_finance_agent(model=specialist_model)),
         ask_email_agent,
         ask_location_agent,
         ask_connected_systems_agent,
         ask_consent_agent,
+        list_my_location_circles,
+        list_my_location_shares,
+        list_location_shared_with_me,
+        list_pending_location_requests,
+        list_my_connections,
+        list_pending_connection_requests,
         calendar_summary,
         calendar_events,
         calendar_availability,
@@ -1447,11 +1588,14 @@ def build_one_live_runner(
 ) -> Runner:
     """Return the managed runner or an isolated, connection-local BYOK runner.
 
-    The BYOK Live compatibility gate is deliberately explicit. The current
-    managed runner relies on Vertex's 2.5 native-audio contract; a Developer
-    API model can only be enabled once it is named through the strict model
-    allowlist and the deployment flag. This prevents an API key from causing a
-    credential fallback or an unverified model swap.
+    The BYOK Live compatibility gate is deliberately explicit. The managed
+    runner resolves its own transport (developer_api with the Hussh-managed
+    live key for the canonical gemini-3.1-flash-live-preview; Vertex ADC for
+    vertex-transport models); a BYOK Developer API model can only be enabled
+    once it is named through the strict model allowlist and the deployment
+    flag, and its live + specialist models are built from the person's key
+    explicitly. This prevents an API key from causing a credential fallback
+    or an unverified model swap in either direction.
     """
     if runtime_mode == "hushh_managed_vertex":
         return get_one_runner()
