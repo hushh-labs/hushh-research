@@ -192,8 +192,8 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    // Both master actions are gated on the same mandatory AI access choice,
-    // and both must LOOK gated. `disabled:opacity-40/50` over the accent still
+    // The master action is gated on the same mandatory AI access choice and
+    // must LOOK gated. `disabled:opacity-40/50` over the accent still
     // reads as the blue primary action, which is what made a blocked finish
     // look tappable and then swallow the tap.
     expect(footer).toContain(
@@ -203,10 +203,10 @@ describe("One setup hub terminal action contract", () => {
     // ...and a visible edge with it. `muted` is the page surface in the light
     // theme, so the fill alone leaves no control on screen.
     expect(footer).toContain("disabled:!border-border");
-    expect(hub).toContain("disabled:text-muted-foreground");
+    expect(footer).toContain("aria-disabled={isBlockedTappableAction || undefined}");
     expect(hub).not.toContain("disabled:opacity-40");
 
-    // ...but "looks gated" must not mean "eats the tap". Both master actions
+    // ...but "looks gated" must not mean "eats the tap". The master action
     // stay tappable while blocked and answer with a toast, because that is the
     // moment someone is asking. The permanent supporting line and the phone
     // `title` tooltip that used to carry the reason are gone -- the tooltip
@@ -309,33 +309,27 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("isOneSetupSurfaceRoute(path) ? null : raw");
   });
 
-  it("surfaces the master action top-right on mobile and keeps the in-flow footer for desktop", () => {
+  it("keeps the master action in the shared in-flow footer on mobile and desktop", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    // Mobile shows a reachable top-right Skip/Finish (the fixed agent bar would
-    // cover a bottom footer on phones); desktop keeps the in-flow footer.
-    expect(source).toContain('data-testid="one-setup-master-ack-mobile"');
-    expect(source).toContain("sm:hidden");
-    expect(source).toContain('<div className="hidden sm:block">');
+    // One primary setup action should stay in the shared footer; the footer owns
+    // bottom-safe-area clearance, so mobile does not need a separate header CTA.
+    expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
+    expect(source).not.toContain('<div className="hidden sm:block">');
+    expect(source).toContain('<SetupCompletionFooter');
   });
 
-  it("lets the header action drop below the title rather than squeeze it", () => {
+  it("does not reserve header space for a duplicate mobile action", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    // The action cannot wrap its own label and never shrinks, so whatever it
-    // needs it takes. With `min-w-0` the title column surrendered all of it:
-    // at 320px / 200% text the title had 60px to paint 180px of "Finish
-    // setting up One" and ran 96px straight through the action. The floor
-    // plus a wrapping row is what stops that -- and it has to be min-width,
-    // since `flex-1` is `flex: 1 1 0%` and overwrites a basis utility.
-    expect(source).toContain('<div className="flex flex-wrap items-start gap-3">');
-    expect(source).toContain('<div className="min-w-[8rem] flex-1">');
+    expect(source).not.toContain('<div className="flex flex-wrap items-start gap-3">');
+    expect(source).not.toContain('<div className="min-w-[8rem] flex-1">');
     expect(source).not.toContain('<div className="min-w-0 flex-1">');
     expect(source).not.toContain("basis-[8rem]");
   });
