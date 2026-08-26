@@ -178,7 +178,7 @@ export function DurationSelector({
                   "h-9 rounded-full border px-4 transition-colors touch-manipulation",
                   active
                     ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                    : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
+                    : "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
                 )}
               >
                 {option.label}

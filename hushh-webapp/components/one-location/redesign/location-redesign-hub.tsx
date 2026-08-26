@@ -1539,7 +1539,7 @@ const PEOPLE_HEADER_ACTION =
 
 /** People-only grouped surface: compact geometry, shared semantic theme. */
 const PEOPLE_GROUP_SURFACE =
-  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]";
+  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none";
 
 const LOCATION_GROUP_SURFACE =
   "overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:shadow-none";
@@ -3226,7 +3226,7 @@ export function PeopleHub({
       <DropdownMenuContent
         align="end"
         forceMount
-        className="min-w-52 rounded-2xl border border-[color:var(--app-border,rgba(255,255,255,0.1))] bg-[color:var(--app-primary-surface)] p-1.5 shadow-xl dark:border-[color:var(--app-separator)] dark:shadow-[var(--app-glass-shadow)]"
+        className="min-w-52 rounded-2xl border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1.5 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
       >
         <DropdownMenuItem
           data-voice-control-id="one-location-find-contacts"
@@ -5077,7 +5077,7 @@ function AskFlow({
       {justSent ? (
         <div
           role="status"
-          className="flex items-start gap-2.5 rounded-[20px] border border-[color:var(--app-success)]/25 bg-white px-4 py-4 shadow-[0_14px_34px_rgba(15,23,42,0.08)]"
+          className="flex items-start gap-2.5 rounded-[20px] border border-[color:var(--app-success)]/25 bg-[color:var(--app-primary-surface)] px-4 py-4 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
           <ShieldCheck className="mt-0.5 h-[19px] w-[19px] shrink-0 text-[color:var(--app-success)]" />
           <p className="text-[17px] font-medium leading-[22px] text-foreground">
@@ -5263,7 +5263,7 @@ function SelectedRecipientsRail({
           aria-label={ariaLabel ?? title}
           aria-roledescription="recipient summary"
           role="list"
-          className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)]"
+          className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
           <div className="flex shrink-0 -space-x-2" aria-hidden="true">
             {recipients.slice(0, 3).map((recipient) => {
@@ -5271,17 +5271,17 @@ function SelectedRecipientsRail({
               return (
                 <span
                   key={recipient.userId}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-system-fill)] text-[13px] font-semibold text-muted-foreground"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
                 >
                   {initialsFrom(label)}
                 </span>
               );
             })}
-            <span className="flex h-9 min-w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-system-fill)] px-2 text-[13px] font-semibold text-muted-foreground">
+            <span className="flex h-9 min-w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] px-2 text-[13px] font-semibold text-[color:var(--app-secondary-label)]">
               +{recipients.length - 3}
             </span>
           </div>
-          <div className="min-w-0 flex-1 text-[17px] leading-[22px] text-foreground">
+          <div className="min-w-0 flex-1 text-[17px] leading-[22px] text-[color:var(--app-label)]">
             {recipients.map((recipient) => (
               <span key={recipient.userId} className="sr-only">
                 {recipientLabel(recipient)}
@@ -5295,7 +5295,7 @@ function SelectedRecipientsRail({
           aria-label={ariaLabel ?? title}
           aria-roledescription="recipient summary"
           role="list"
-          className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
+          className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
           {recipients.map((recipient) => {
             const label = recipientLabel(recipient);
@@ -5306,7 +5306,7 @@ function SelectedRecipientsRail({
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
                 <ContactAvatar label={label} className="h-8 w-8 text-[13px]" />
-                <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
+                <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
                   <span className="min-w-0 flex-1 truncate">{label}</span>
                   {recipient.connectedFromContacts ? (
                     <ContactSourceBadge className="mt-px shrink-0" />
