@@ -15,9 +15,14 @@ import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import type { NearbyAnchor } from "@/lib/services/nws-nearby-service";
 
 type Mode = "postal" | "coords";
+
+const COUNTRY_OPTIONS = [...COUNTRY_PHONE_OPTIONS].sort((left, right) =>
+  left.value.localeCompare(right.value) || left.label.localeCompare(right.label),
+);
 
 export function NearbyLocationDialog({
   open,
@@ -30,7 +35,7 @@ export function NearbyLocationDialog({
 }) {
   const [mode, setMode] = useState<Mode>("postal");
   const [postal, setPostal] = useState("");
-  const [country, setCountry] = useState("");
+  const [countryCode, setCountryCode] = useState("");
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +43,7 @@ export function NearbyLocationDialog({
   function submit() {
     if (mode === "postal") {
       const code = postal.trim().toUpperCase();
-      const iso = country.trim().toUpperCase();
+      const iso = countryCode.trim().toUpperCase();
       if (code.length < 3) return setError("Enter a postcode.");
       // The upstream accepts one legacy postcode without a country. Everything
       // else needs one, and guessing it would suppress real results.
@@ -103,15 +108,24 @@ export function NearbyLocationDialog({
               className="flex-[2]"
               onKeyDown={(e) => e.key === "Enter" && submit()}
             />
-            <Input
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              placeholder="Country"
+            <select
+              id="nearby-place-country"
               aria-label="Country code"
-              maxLength={2}
-              className="flex-1"
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-            />
+              autoComplete="country"
+              value={countryCode}
+              onChange={(event) => {
+                setCountryCode(event.target.value);
+                setError(null);
+              }}
+              className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">Code</option>
+              {COUNTRY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.value} - {option.label}
+                </option>
+              ))}
+            </select>
           </div>
         ) : (
           <div className="flex gap-2">

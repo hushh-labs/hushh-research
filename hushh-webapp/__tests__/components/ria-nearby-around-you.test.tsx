@@ -182,6 +182,14 @@ async function openAPlace() {
   fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 }
 
+function chooseCountry(code: string, name: string) {
+  const country = screen.getByLabelText(/^country code$/i);
+  expect(
+    screen.getByRole("option", { name: `${code} - ${name}` }),
+  ).toBeInTheDocument();
+  fireEvent.change(country, { target: { value: code } });
+}
+
 describe("Around you", () => {
   it("does not show the location form until it is asked for", async () => {
     render(<NearbyAroundYou />);
@@ -384,13 +392,42 @@ describe("national index", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() => expect(screen.getByText("94010 US")).toBeInTheDocument());
+    expect(mockDiscover.mock.calls[0][0].anchor).toMatchObject({
+      kind: "postal",
+      postalCode: "94010",
+      countryCode: "US",
+    });
     expect(
       screen.queryByText(/United States national public-association index/i),
     ).not.toBeInTheDocument();
+  });
+
+  it("lets advisors choose a country by name while sending the ISO code", async () => {
+    mockDiscover.mockResolvedValue(NOT_COVERED);
+
+    render(<NearbyAroundYou />);
+    fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    const codeOptions = screen
+      .getAllByRole("option")
+      .map((option) => option.getAttribute("value"))
+      .filter(Boolean);
+    expect(codeOptions.slice(0, 3)).toEqual(["AD", "AE", "AF"]);
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "560001" } });
+    chooseCountry("IN", "India");
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/no records here yet/i)).toBeInTheDocument(),
+    );
+    expect(mockDiscover.mock.calls[0][0].anchor).toMatchObject({
+      kind: "postal",
+      postalCode: "560001",
+      countryCode: "IN",
+    });
   });
 
   it("says the list is partial when a source is down", async () => {
@@ -409,7 +446,7 @@ describe("national index", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() => expect(screen.getByText(/Partial — a source is down/i)).toBeInTheDocument());
@@ -429,7 +466,7 @@ describe("national index", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
@@ -452,7 +489,7 @@ describe("national index", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "20500" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() =>
@@ -492,7 +529,7 @@ describe("score regime", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
