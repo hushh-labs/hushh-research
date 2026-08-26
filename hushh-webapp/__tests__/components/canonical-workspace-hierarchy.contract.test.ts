@@ -48,10 +48,21 @@ describe("canonical workspace hierarchy", () => {
 
   it("keeps Finance bottom chrome clearance owned by the shared scroll root", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
+    const tabs = read("components/app-ui/top-shell-tabs.tsx");
 
     expect(finance).toContain('data-finance-workspace="true"');
     expect(finance).toContain('heightMode="active"');
+    expect(finance).toContain("holdHeightDuringTransition={false}");
     expect(finance).toContain('viewportMinHeight="0px"');
+    expect(finance).toContain("scrollAppToTop();");
+    expect(finance).toContain("resetKaiBottomChromeVisibility();");
+    expect(finance).not.toContain("router.replace(destination.href, { scroll: false })");
+    expect(tabs).toContain('const shouldResetScrollOnSelection = tabSet.id === "finance";');
+    expect(tabs).toContain("scrollAppToTop();");
+    expect(tabs).toContain("resetKaiBottomChromeVisibility();");
+    expect(tabs).toContain(
+      "shouldResetScrollOnSelection ? undefined : { scroll: false }",
+    );
     expect(finance).not.toContain('className="h-full w-full"');
     expect(finance).not.toContain("pb-32");
     expect(finance).not.toContain("pb-24");
@@ -61,7 +72,10 @@ describe("canonical workspace hierarchy", () => {
   });
 
   it("keeps Finance Portfolio and Analysis from adding route-local bottom reserves", () => {
-    const portfolio = read("components/kai/views/dashboard-master-view.tsx");
+    const portfolio = [
+      read("components/kai/kai-flow.tsx"),
+      read("components/kai/views/dashboard-master-view.tsx"),
+    ].join("\n");
     const analysis = [
       read("app/one/kai/analysis/page.tsx"),
       read("components/kai/views/analysis-summary-view.tsx"),
@@ -70,6 +84,9 @@ describe("canonical workspace hierarchy", () => {
     ].join("\n");
 
     expect(portfolio).not.toContain("pb-6");
+    expect(portfolio).not.toContain("h-full overflow-hidden");
     expect(analysis).not.toContain("pb-safe");
+    expect(analysis).not.toContain("h-full overflow-hidden");
+    expect(analysis).not.toContain("space-y-6 overflow-hidden");
   });
 });
