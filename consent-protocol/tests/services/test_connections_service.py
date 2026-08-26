@@ -2387,3 +2387,39 @@ def test_update_voice_preferences_raises_when_upsert_returns_nothing():
             svc.update_voice_preferences(user_id="user-a", share_scopes_from_last_request=True)
 
     assert excinfo.value.code == "CONNECTION_VOICE_PREFERENCES_UPDATE_FAILED"
+
+
+def test_get_last_request_scope_handles_splits_by_direction():
+    svc = _svc()
+    responses = iter(
+        [
+            SimpleNamespace(data=[{"id": "req-9"}]),  # latest request lookup
+            SimpleNamespace(
+                data=[
+                    {"scope_handle": "location.live", "direction": "requested"},
+                    {"scope_handle": "calendar.busy", "direction": "offered"},
+                    {"scope_handle": "location.history", "direction": "requested"},
+                ]
+            ),
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        handles = svc.get_last_request_scope_handles(
+            requester_user_id="user-a", addressee_user_id="user-b"
+        )
+
+    assert handles == {
+        "requestedScopeHandles": ["location.live", "location.history"],
+        "offeredScopeHandles": ["calendar.busy"],
+    }
+
+
+def test_get_last_request_scope_handles_is_empty_for_a_first_time_recipient():
+    svc = _svc()
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning([])):
+        handles = svc.get_last_request_scope_handles(
+            requester_user_id="user-a", addressee_user_id="user-b"
+        )
+
+    assert handles == {"requestedScopeHandles": [], "offeredScopeHandles": []}

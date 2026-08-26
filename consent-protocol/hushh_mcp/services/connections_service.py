@@ -2766,6 +2766,52 @@ class ConnectionsService:
             "updatedAt": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
         }
 
+    def get_last_request_scope_handles(
+        self, *, requester_user_id: str, addressee_user_id: str
+    ) -> dict[str, list[str]]:
+        """Scope handles from this requester's most recent request to this
+        exact recipient, split by direction. Empty for a first-time
+        recipient -- there is deliberately no wider "usual scopes" fallback,
+        so a repeat request can only ever offer what this specific person was
+        already asked before, never a guess extrapolated from someone else.
+        """
+        latest_request = self._execute_one(
+            """
+            SELECT id
+            FROM connection_requests
+            WHERE requester_user_id = :requester_user_id
+              AND addressee_user_id = :addressee_user_id
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {
+                "requester_user_id": requester_user_id,
+                "addressee_user_id": addressee_user_id,
+            },
+        )
+        if not latest_request:
+            return {"requestedScopeHandles": [], "offeredScopeHandles": []}
+        proposals = self._execute_many(
+            """
+            SELECT scope_handle, direction
+            FROM connection_scope_proposals
+            WHERE connection_request_id = CAST(:request_id AS UUID)
+            """,
+            {"request_id": str(latest_request.get("id") or "")},
+        )
+        return {
+            "requestedScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "requested" and row.get("scope_handle")
+            ],
+            "offeredScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "offered" and row.get("scope_handle")
+            ],
+        }
+
     def get_voice_preferences(self, *, user_id: str) -> dict[str, Any]:
         """Return the standing default for voice-initiated connection requests.
 

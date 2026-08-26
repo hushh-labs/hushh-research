@@ -33,6 +33,13 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   {
     version: "1.5",
     date: "2026-08-26",
+    title: "A repeat connection request can reuse what you offered last time",
+    description:
+      "Turn on \"Reuse scopes from last request\" in Voice Settings, and asking to connect with someone you've already asked before offers the same access as last time -- they still approve every request either way.",
+  },
+  {
+    version: "1.5",
+    date: "2026-08-26",
     title: "Check in nearby, hands-free",
     description:
       "Say \"check in near me\" to see the places closest to you, pick one by name, and finish the check-in -- all without opening the screen. \"Check out\" ends it from anywhere, no navigation needed.",

@@ -901,6 +901,26 @@ async def _execute_backend_direct_mutation(
             def _directory_name(c: dict[str, Any]) -> str:
                 return str(c.get("displayName") or "")
 
+            # Voice never chose scopes for a request before -- the tap flow's
+            # own dialog is where that choice normally lives, and skipping it
+            # must never be silent. This is the one opt-in exception: reuse
+            # exactly what THIS recipient was already asked/offered last time,
+            # never a guess extrapolated from someone else or a first request.
+            # Read lazily, once, only if a request actually reaches the point
+            # of being created -- every earlier outcome (ambiguous, not
+            # found, already connected) never needs this preference at all.
+            reuse_last_scopes: bool | None = None
+
+            def _reuse_last_scopes() -> bool:
+                nonlocal reuse_last_scopes
+                if reuse_last_scopes is None:
+                    reuse_last_scopes = bool(
+                        connections_service.get_voice_preferences(user_id=user_id).get(
+                            "shareScopesFromLastRequest"
+                        )
+                    )
+                return reuse_last_scopes
+
             sent_names: list[str] = []
             already_connected_names: list[str] = []
             blocked_notes: list[str] = []
@@ -944,8 +964,21 @@ async def _execute_backend_direct_mutation(
                 elif relationship != "none":
                     blocked_notes.append(f"a new request isn't available for {display_name}")
                 else:
+                    addressee_user_id = str(person.get("userId") or "")
+                    requested_scope_handles: list[str] | None = None
+                    offered_scope_handles: list[str] | None = None
+                    if _reuse_last_scopes():
+                        last_scopes = connections_service.get_last_request_scope_handles(
+                            requester_user_id=user_id,
+                            addressee_user_id=addressee_user_id,
+                        )
+                        requested_scope_handles = last_scopes["requestedScopeHandles"] or None
+                        offered_scope_handles = last_scopes["offeredScopeHandles"] or None
                     connections_service.create_request(
-                        user_id, addressee_user_id=str(person.get("userId") or "")
+                        user_id,
+                        addressee_user_id=addressee_user_id,
+                        requested_scope_handles=requested_scope_handles,
+                        offered_scope_handles=offered_scope_handles,
                     )
                     sent_names.append(display_name)
 
