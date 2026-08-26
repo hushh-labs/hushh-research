@@ -123,6 +123,8 @@ export interface UseFeedActionablesResult {
   actionables: FeedActionable[];
   count: number;
   loading: boolean;
+  error: string | null;
+  retry: () => Promise<void>;
   /** A revoked/expired SOS card is sitting in `actionables` with nothing left
    * to act on — only the Feed page's existing Clear button can remove it. */
   hasClearableSmsEmergencies: boolean;
@@ -413,6 +415,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // stamp is stable across refreshes AND is the honest answer to "when did this
   // reach me", so arrival order between two untimed rows is preserved.
   const firstSeenAtRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    firstSeenAtRef.current = new Map();
+  }, [userId]);
   const firstSeenAt = useCallback((id: string) => {
     const remembered = firstSeenAtRef.current.get(id);
     if (remembered !== undefined) return remembered;
@@ -425,18 +430,24 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // worse than a stale history: it offers Approve on a request somebody already
   // answered elsewhere. Every source behind it re-checks on the same live signal
   // the list and the tab badge use.
+  const refreshActionables = useCallback(async () => {
+    await Promise.all([
+      consentSummaryRefresh({ force: true }),
+      consentListRefresh({ force: true }),
+      locationRefresh({ force: true }),
+      connectionsRefresh({ force: true }),
+    ]);
+  }, [
+    connectionsRefresh,
+    consentListRefresh,
+    consentSummaryRefresh,
+    locationRefresh,
+  ]);
+
   useFeedLiveRefresh(
     useCallback(() => {
-      void consentSummaryRefresh({ force: true });
-      void consentListRefresh({ force: true });
-      void locationRefresh({ force: true });
-      void connectionsRefresh({ force: true });
-    }, [
-      connectionsRefresh,
-      consentListRefresh,
-      consentSummaryRefresh,
-      locationRefresh,
-    ]),
+      void refreshActionables();
+    }, [refreshActionables]),
     Boolean(userId),
   );
 
@@ -511,6 +522,29 @@ export function useFeedActionables(): UseFeedActionablesResult {
           displayTimestamp: toDisplayTimestamp(entry.issued_at),
         });
       }
+
+      // The Feed intentionally loads only the first Consent Center page. When
+      // the authoritative summary says more requests exist, keep the queue
+      // complete by ending the loaded slice with a route to the full workspace
+      // instead of silently making request 21+ unreachable from Feed.
+      const loadedConsentCount = consentItems?.length ?? 0;
+      const remainingConsentCount =
+        (pendingConsentCount ?? 0) - loadedConsentCount;
+      if (consentItems && remainingConsentCount > 0) {
+        items.push({
+          id: "consent:overflow",
+          icon: ShieldCheck,
+          iconTone: "accent",
+          title: "View all pending requests",
+          description: `${remainingConsentCount} more pending ${remainingConsentCount === 1 ? "request is" : "requests are"} waiting in Consent Center.`,
+          href: buildConsentCenterHref("pending", { from: "/one/feed" }),
+          chevron: true,
+          actions: [],
+          // Keep this navigation affordance below real actionable rows.
+          sortAt: 0,
+          displayTimestamp: null,
+        });
+      }
     }
 
     // SMS · Save My Soul emergency alerts — a share a contact started as an
@@ -548,7 +582,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // left as the "this was an SOS" signal.
         emphasis: isRevoked ? undefined : "emergency",
         title: `${label} triggered an SOS`,
-        description: isRevoked ? "Emergency SMS - Revoked" : "Emergency SMS - Sent.",
+        description: isRevoked
+          ? "Emergency SMS - Revoked"
+          : "Emergency SMS - Sent.",
         href: buildOneLocationNotificationHref(grant.id),
         chevron: true,
         actions: [],
@@ -577,7 +613,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
         iconTone: "blue",
         title: label,
         // Names the amount, and says when it is extra time on a live share.
-        description: request.message?.trim() || locationAskPromptLine(request, Date.now()),
+        description:
+          request.message?.trim() || locationAskPromptLine(request, Date.now()),
         actions: [
           {
             key: "deny",
@@ -655,6 +692,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 inviteId: invite.id,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -670,6 +708,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 inviteId: invite.id,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -821,15 +860,18 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
     }
 
-    // Running background tasks (portfolio import, Plaid refresh) — Open + Cancel.
+    // Running and failed background work stays actionable. A failed task must
+    // not silently disappear from Feed: the owner route explains recovery,
+    // while Dismiss lets the user acknowledge work they no longer need.
     const appTasks = appTaskState.tasks.filter(
       (task: AppBackgroundTask) =>
         task.userId === userId &&
         !task.dismissedAt &&
         isAppBackgroundTaskVisible(task) &&
-        task.status === "running",
+        (task.status === "running" || task.status === "failed"),
     );
     for (const task of appTasks) {
+      const running = task.status === "running";
       const actions: FeedActionButton[] = [];
       if (task.routeHref) {
         const href = task.routeHref;
@@ -840,13 +882,28 @@ export function useFeedActionables(): UseFeedActionablesResult {
           run: () => router.push(href),
         });
       }
+      if (!running) {
+        actions.push({
+          key: "dismiss",
+          label: "Dismiss",
+          tone: "ghost",
+          run: () => {
+            AppBackgroundTaskService.dismissTask(task.taskId);
+            notifyFeedActionResolved();
+          },
+        });
+      }
       items.push({
         id: `task:${task.taskId}`,
         icon: TrendingUp,
-        iconTone: "gray",
-        spinning: true,
+        iconTone: running ? "gray" : "orange",
+        spinning: running,
         title: task.title,
-        description: task.description || "Working in the background…",
+        description: running
+          ? task.description || "Working in the background…"
+          : task.error ||
+            task.description ||
+            "This background task needs attention.",
         actions,
         sortAt:
           toTimestamp(task.updatedAt || task.startedAt) ||
@@ -892,11 +949,21 @@ export function useFeedActionables(): UseFeedActionablesResult {
     consentListResource.loading ||
     locationResource.loading ||
     connectionsResource.loading;
+  const error = [
+    consentSummaryResource.error,
+    consentListResource.error,
+    locationResource.error,
+    connectionsResource.error,
+  ].some(Boolean)
+    ? "Some pending activity couldn't refresh."
+    : null;
 
   return {
     actionables,
     count: actionables.length,
     loading,
+    error,
+    retry: refreshActionables,
     hasClearableSmsEmergencies: clearableSmsEmergencyIds.length > 0,
     clearSmsEmergencies,
   };

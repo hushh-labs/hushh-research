@@ -12,8 +12,8 @@ const navigationMock = vi.hoisted(() => ({
 
 const agentPopoverMock = vi.hoisted(() => ({ expanded: false }));
 const notificationMock = vi.hoisted(() => ({
-  feedUnreadCount: 0,
-  pendingConsents: 0,
+  feedUnreadCount: 0 as number | null,
+  pendingConsents: 0 as number | null,
 }));
 
 const kaiSessionMock = vi.hoisted(() => {
@@ -161,16 +161,47 @@ describe("Navbar bottom utilities", () => {
     },
   );
 
-  it("places pending consent and unread Feed counts on Feed, not One", () => {
+  it("uses one attention dot when pending and unread notification sets overlap", () => {
     notificationMock.pendingConsents = 3;
     notificationMock.feedUnreadCount = 2;
     render(<Navbar />);
 
+    expect(screen.getByRole("radio", { name: "New activity Feed" })).toBeInTheDocument();
+    expect(screen.queryByText("5")).toBeNull();
+  });
+
+  it.each([
+    { pending: null, unread: 2 },
+    { pending: 4, unread: null },
+  ])(
+    "keeps the attention dot while the other notification source is loading ($pending/$unread)",
+    ({ pending, unread }) => {
+      notificationMock.pendingConsents = pending;
+      notificationMock.feedUnreadCount = unread;
+      render(<Navbar />);
+
+      expect(
+        screen.getByRole("radio", { name: "New activity Feed" }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it("keeps unresolved consent work badged after chronological Feed rows are read", () => {
+    notificationMock.pendingConsents = 3;
+    notificationMock.feedUnreadCount = 0;
+    render(<Navbar />);
+
     expect(
-      within(screen.getByRole("radio", { name: "5 Feed" })).getByText("5"),
+      screen.getByRole("radio", { name: "New activity Feed" }),
     ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("radio", { name: "One" })).queryByText("5"),
-    ).toBeNull();
+  });
+
+  it("removes the attention dot only after both sources settle at zero", () => {
+    notificationMock.pendingConsents = 0;
+    notificationMock.feedUnreadCount = 0;
+    render(<Navbar />);
+
+    expect(screen.getByRole("radio", { name: "Feed" })).toBeInTheDocument();
+    expect(screen.queryByText("New activity")).toBeNull();
   });
 });

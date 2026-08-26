@@ -21,7 +21,9 @@ threadpool dispatch offloads the blocking call without a manual
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,6 +35,74 @@ _MAX_LIMIT = 100
 _SOURCE_DOMAINS = frozenset(
     {"consent", "location", "kai", "kyc", "connected_systems", "connections"}
 )
+_MAX_ACTOR_LABEL_LENGTH = 160
+_MAX_METADATA_STRING_LENGTH = 256
+_MAX_METADATA_NUMBER = 1_000_000_000_000
+POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
+_FEED_SELECT_COLUMNS = "id,source_domain,event_type,actor_label,metadata,read_at,created_at"
+
+# Feed is a plaintext presentation projection. Only keys consumed by the
+# client renderers may cross this boundary; domain rows can contain richer
+# details (coordinates, credentials, account identifiers, or ciphertext)
+# that must remain in their owning stores.
+_SAFE_METADATA_KEYS = frozenset(
+    {
+        "scope_description",
+        "scope",
+        "counterpart_label",
+        "display_name",
+        "first_name",
+        "feed_audience",
+        "reason",
+        "duration_mode",
+        "duration_hours",
+        "requested_duration_mode",
+        "requested_duration_hours",
+        "is_extension",
+        "request_id",
+        "grant_id",
+        "referral_id",
+        "direction",
+        "owner_label",
+        "public_location_view",
+        "submission_id",
+        "circle_name",
+        "circle_id",
+        "invite_id",
+        "added_by_label",
+        "ticker",
+        "user_facing_status",
+        "new_status",
+        "actor_is_self",
+    }
+)
+
+
+def _bounded_text(value: object, *, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned[:limit] if cleaned else None
+
+
+def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
+    if not isinstance(value, dict):
+        return {}
+
+    safe: dict[str, str | int | float | bool] = {}
+    for key in _SAFE_METADATA_KEYS:
+        raw = value.get(key)
+        if isinstance(raw, str):
+            cleaned = _bounded_text(raw, limit=_MAX_METADATA_STRING_LENGTH)
+            if cleaned is not None:
+                safe[key] = cleaned
+        elif isinstance(raw, bool):
+            safe[key] = raw
+        elif isinstance(raw, int) and abs(raw) <= _MAX_METADATA_NUMBER:
+            safe[key] = raw
+        elif isinstance(raw, float) and math.isfinite(raw) and abs(raw) <= _MAX_METADATA_NUMBER:
+            safe[key] = raw
+    return safe
 
 
 class FeedService:
@@ -52,6 +122,7 @@ class FeedService:
         event_type: str,
         actor_label: str | None = None,
         metadata: dict[str, Any] | None = None,
+        source_row_id: str | None = None,
     ) -> None:
         """Best-effort feed write for domains with no existing durable event
         table to trigger from (Kai completion, KYC status, connections).
@@ -63,16 +134,41 @@ class FeedService:
         if source_domain not in _SOURCE_DOMAINS:
             logger.warning("feed.record_event_unknown_domain domain=%s", source_domain)
             return
+        safe_actor_label = _bounded_text(actor_label, limit=_MAX_ACTOR_LABEL_LENGTH)
+        safe_metadata = _safe_feed_metadata(metadata)
         try:
-            self._get_db().table("feed_events").insert(
-                {
-                    "user_id": user_id,
-                    "source_domain": source_domain,
-                    "event_type": event_type,
-                    "actor_label": actor_label,
-                    "metadata": metadata or {},
-                }
-            ).execute()
+            if source_row_id:
+                self._get_db().execute_raw(
+                    """
+                    INSERT INTO feed_events (
+                      user_id, source_domain, event_type, actor_label,
+                      metadata, source_row_id
+                    )
+                    VALUES (
+                      :user_id, :source_domain, :event_type, :actor_label,
+                      CAST(:metadata_json AS JSONB), :source_row_id
+                    )
+                    ON CONFLICT DO NOTHING
+                    """,
+                    {
+                        "user_id": user_id,
+                        "source_domain": source_domain,
+                        "event_type": event_type,
+                        "actor_label": safe_actor_label,
+                        "metadata_json": json.dumps(safe_metadata),
+                        "source_row_id": source_row_id,
+                    },
+                )
+            else:
+                self._get_db().table("feed_events").insert(
+                    {
+                        "user_id": user_id,
+                        "source_domain": source_domain,
+                        "event_type": event_type,
+                        "actor_label": safe_actor_label,
+                        "metadata": safe_metadata,
+                    }
+                ).execute()
         except Exception:
             logger.exception(
                 "feed.record_event_failed domain=%s event_type=%s", source_domain, event_type
@@ -82,7 +178,7 @@ class FeedService:
         self,
         user_id: str,
         *,
-        cursor: str | None = None,
+        cursor: int | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
         """Keyset-paginated feed items, newest first.
@@ -93,12 +189,9 @@ class FeedService:
         """
         bounded_limit = max(1, min(limit, _MAX_LIMIT))
         db = self._get_db()
-        query = db.table("feed_events").select("*").eq("user_id", user_id)
-        if cursor:
-            try:
-                query = query.lt("id", int(cursor))
-            except (TypeError, ValueError):
-                pass
+        query = db.table("feed_events").select(_FEED_SELECT_COLUMNS).eq("user_id", user_id)
+        if cursor is not None:
+            query = query.lt("id", cursor)
         rows = query.order("id", desc=True).limit(bounded_limit + 1).execute().data or []
         has_more = len(rows) > bounded_limit
         rows = rows[:bounded_limit]
@@ -113,15 +206,16 @@ class FeedService:
         db = self._get_db()
         response = (
             db.table("feed_events")
-            .select("id")
+            .select("id", count="exact")
             .eq("user_id", user_id)
             .is_("read_at", None)
+            .limit(0)
             .execute()
         )
-        return len(response.data or [])
+        return int(response.count or 0)
 
-    def mark_read(self, user_id: str, *, up_to_id: int | None = None) -> dict[str, Any]:
-        """Mark unread items read, up to and including ``up_to_id`` if given.
+    def mark_read(self, user_id: str, *, up_to_id: int) -> dict[str, Any]:
+        """Mark unread items read, up to and including ``up_to_id``.
 
         Fired once when the Feed page opens (mirrors Instagram/Twitter's
         "opening the tab clears the badge" convention), not per-item.
@@ -134,8 +228,7 @@ class FeedService:
             .eq("user_id", user_id)
             .is_("read_at", None)
         )
-        if up_to_id is not None:
-            query = query.lte("id", up_to_id)
+        query = query.lte("id", up_to_id)
         query.execute()
         return {"status": "ok"}
 
@@ -145,8 +238,8 @@ class FeedService:
             "id": str(row.get("id")),
             "source_domain": row.get("source_domain"),
             "event_type": row.get("event_type"),
-            "actor_label": row.get("actor_label"),
-            "metadata": row.get("metadata") or {},
+            "actor_label": _bounded_text(row.get("actor_label"), limit=_MAX_ACTOR_LABEL_LENGTH),
+            "metadata": _safe_feed_metadata(row.get("metadata")),
             "read": row.get("read_at") is not None,
             "created_at": row.get("created_at"),
         }

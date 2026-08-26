@@ -70,6 +70,8 @@ import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
 import {
+  acknowledgeInternalAppNavigation,
+  consumePendingInternalAppNavigation,
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
 } from "@/lib/utils/browser-navigation";
@@ -345,8 +347,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   useEffect(() => {
     const handleInternalNavigation = (event: Event) => {
       const customEvent = event as CustomEvent<InternalAppNavigationRequest>;
+      acknowledgeInternalAppNavigation(customEvent.detail);
       const href = String(customEvent.detail?.href || "").trim();
-      if (!href.startsWith("/")) {
+      if (!href.startsWith("/") || href.startsWith("//")) {
         return;
       }
       const replace = Boolean(customEvent.detail?.replace);
@@ -372,6 +375,15 @@ function AppShellFrame({ children }: ProvidersProps) {
       INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
       handleInternalNavigation,
     );
+    const pendingNavigation = consumePendingInternalAppNavigation();
+    if (pendingNavigation) {
+      handleInternalNavigation(
+        new CustomEvent<InternalAppNavigationRequest>(
+          INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+          { detail: pendingNavigation },
+        ),
+      );
+    }
     return () => {
       window.removeEventListener(
         INTERNAL_APP_NAVIGATION_REQUEST_EVENT,

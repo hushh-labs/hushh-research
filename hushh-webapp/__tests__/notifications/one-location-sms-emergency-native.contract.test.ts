@@ -14,6 +14,14 @@ const iosAppDelegate = readFileSync(
   join(process.cwd(), "ios/App/App/AppDelegate.swift"),
   "utf8",
 );
+const capacitorConfig = readFileSync(
+  join(process.cwd(), "capacitor.config.ts"),
+  "utf8",
+);
+const sharedFcmService = readFileSync(
+  join(process.cwd(), "lib/notifications/fcm-service.ts"),
+  "utf8",
+);
 
 describe("One Location emergency SMS native notification contract", () => {
   it("keeps the Android alarm channel aligned with the backend payload", () => {
@@ -31,12 +39,32 @@ describe("One Location emergency SMS native notification contract", () => {
       'emergencySmsNotificationCategory = "ONE_LOCATION_SMS_EMERGENCY"',
     );
     expect(iosAppDelegate).toContain(
-      'emergencySmsProfile = "one_location_sms_emergency"',
-    );
-    expect(iosAppDelegate).toContain(
       'emergencySmsSound = "one_location_sms_alarm.wav"',
     );
     expect(iosAppDelegate).toContain("prepareEmergencySmsSound()");
-    expect(iosAppDelegate).toContain("completionHandler([.badge])");
+    expect(iosAppDelegate).toContain(
+      'emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"',
+    );
+  });
+
+  it("keeps Capacitor as the iOS notification delegate with badge-only foreground presentation", () => {
+    expect(capacitorConfig).toContain("handleApplicationNotifications: true");
+    expect(capacitorConfig).toContain('presentationOptions: ["badge"]');
+    expect(iosAppDelegate).not.toContain(
+      "UNUserNotificationCenter.current().delegate = self",
+    );
+    expect(iosAppDelegate).not.toContain(
+      "extension AppDelegate: UNUserNotificationCenterDelegate",
+    );
+    expect(iosAppDelegate).not.toContain("willPresent notification");
+    expect(iosAppDelegate).not.toContain("emergencySmsProfile");
+  });
+
+  it("keeps the explicit emergency action routed to live location", () => {
+    expect(iosAppDelegate).toContain('emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"');
+    expect(sharedFcmService).toContain(
+      'actionId === ONE_LOCATION_SMS_OPEN_ACTION',
+    );
+    expect(sharedFcmService).toContain("resolveOneLocationNotificationHref(data)");
   });
 });

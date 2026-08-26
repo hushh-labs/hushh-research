@@ -75,6 +75,19 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
   };
 }
 
+let locationMutationSequence = 0;
+
+function newLocationMutationOperationId(prefix: string): string {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return `${prefix}_${globalThis.crypto.randomUUID().replace(/-/g, "")}`;
+  }
+  locationMutationSequence += 1;
+  return `${prefix}_${Date.now().toString(36)}_${locationMutationSequence.toString(36)}`;
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1681,13 +1694,19 @@ export class OneLocationService {
     vaultOwnerToken: string;
     grantId: string;
     durationHours: number;
+    clientOperationId?: string;
   }): Promise<OneLocationGrant> {
-    const response = await apiJson<{ grant: OneLocationGrant }>(
+    const clientOperationId =
+      params.clientOperationId || newLocationMutationOperationId("loc_shorten");
+    const response = await apiJsonWithRetry<{ grant: OneLocationGrant }>(
       `/api/one/location/grants/${encodeURIComponent(params.grantId)}/shorten`,
       {
         method: "PATCH",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ durationHours: params.durationHours }),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          clientOperationId,
+        }),
       },
     );
     return response.grant;
@@ -1724,8 +1743,11 @@ export class OneLocationService {
     grantId: string;
     durationHours: number | null;
     durationMode: OneLocationShareDurationMode;
+    clientOperationId?: string;
   }): Promise<OneLocationGrant> {
-    const response = await apiJson<{ grant: OneLocationGrant }>(
+    const clientOperationId =
+      params.clientOperationId || newLocationMutationOperationId("loc_duration");
+    const response = await apiJsonWithRetry<{ grant: OneLocationGrant }>(
       `/api/one/location/grants/${encodeURIComponent(params.grantId)}/duration`,
       {
         method: "PATCH",
@@ -1733,6 +1755,7 @@ export class OneLocationService {
         body: JSON.stringify({
           durationHours: params.durationHours,
           durationMode: params.durationMode,
+          clientOperationId,
         }),
       },
     );

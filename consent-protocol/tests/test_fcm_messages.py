@@ -61,9 +61,9 @@ class _MessagingStub:
             self.thread_id = thread_id
 
     class APNSPayload:
-        def __init__(self, aps=None, custom_data=None):
+        def __init__(self, aps=None, custom_data=None, **kwargs):
             self.aps = aps
-            self.custom_data = custom_data
+            self.custom_data = {**(custom_data or {}), **kwargs}
 
     class APNSConfig:
         def __init__(self, headers=None, payload=None):
@@ -254,7 +254,7 @@ def test_connection_request_identity_reaches_every_platform() -> None:
         "request_id": request_id,
         "request_url": deep_link,
         "deep_link": deep_link,
-        "notification_tag": "connection-request:addressee-uid",
+        "notification_tag": f"connection-request:{request_id}",
     }
 
     messages = {
@@ -266,7 +266,7 @@ def test_connection_request_identity_reaches_every_platform() -> None:
             title="New connection request",
             body=body,
             request_url=deep_link,
-            notification_tag="connection-request:addressee-uid",
+            notification_tag=f"connection-request:{request_id}",
             show_alert=True,
         )
         for platform in ("web", "ios", "android")
@@ -285,6 +285,7 @@ def test_connection_request_identity_reaches_every_platform() -> None:
         assert "Someone" not in message.notification.body, platform
 
     assert messages["web"].webpush.notification.body == body
+    assert messages["android"].android.notification.tag == (f"connection-request:{request_id}")
     assert messages["web"].webpush.notification.data == {"url": deep_link}
     assert messages["ios"].apns.payload.aps.alert.body == body
     # iOS receives the data map as APNS custom_data, which is what feeds the
@@ -422,10 +423,45 @@ def test_build_push_message_without_alert_is_data_only():
     assert message.notification is None
     assert message.apns is not None
     assert message.webpush is None
-    assert message.data == {"type": "consent_resolved"}
+    assert message.data == {
+        "type": "consent_resolved",
+        "notification_presentation": "silent",
+    }
     assert message.apns.headers == {
         "apns-push-type": "background",
         "apns-priority": "5",
     }
     assert message.apns.payload.aps.content_available is True
     assert message.apns.payload.aps.thread_id == "consent-request:test"
+
+
+def test_real_firebase_encoder_keeps_presentation_and_apns_data_top_level():
+    """Guard the wire shape, not only the intentionally tiny local stub."""
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    for platform in ("web", "ios", "android"):
+        message = build_push_message(
+            messaging,
+            token=f"{platform}-device-id",
+            platform=platform,
+            data={
+                "type": "consent_resolved",
+                "request_id": "request-1",
+            },
+            title="Consent updated",
+            body="Request resolved.",
+            request_url="/one/consent",
+            notification_tag="consent-request:request-1",
+            show_alert=False,
+        )
+        encoded = _MessagingService.encode_message(message)
+        assert encoded["data"]["notification_presentation"] == "silent"
+        assert "notification" not in encoded
+        if platform == "ios":
+            payload = encoded["apns"]["payload"]
+            assert payload["aps"]["content-available"] == 1
+            assert payload["type"] == "consent_resolved"
+            assert "custom_data" not in payload
+        else:
+            assert platform not in encoded

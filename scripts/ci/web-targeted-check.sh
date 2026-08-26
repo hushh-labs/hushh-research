@@ -44,6 +44,15 @@ if has_match '^hushh-webapp/(lib/services/.*(cache|pkm|sync)|__tests__/services/
   ran=1
 fi
 
+# Feed is the notification inbox across web and native. Its contract spans the
+# page, live providers, FCM/SW bridges, navigation handoff, unread/cache state,
+# and the generated browser fixture. Keep that cross-surface pack together so a
+# focused PR cannot update one half while only exercising an unrelated lane.
+if has_match '^(hushh-webapp/(app/one/feed/|app/providers\.tsx|components/(app-ui/settings-ui\.tsx|consent/notification-provider\.tsx|feed/|navbar\.tsx)|lib/(cache/(cache-sync-service|use-stale-resource)\.ts|feed/|notifications/|services/feed-service\.ts|utils/browser-navigation\.ts)|public/firebase-messaging-sw\.js|capacitor\.config\.ts|ios/App/App/AppDelegate\.swift|scripts/(architecture/audit-cache-coherence\.mjs|testing/(capture-feed-needs-you-fixture|verify-signed-in-routes)\.mjs)|e2e/(feed-needs-you-row\.layout\.spec\.ts|fixtures/feed-needs-you-rows\.html)|__tests__/.*(feed|notification-provider|firebase-messaging|fcm-|browser-navigation-pending|navbar-bottom-nav|cache-sync-mutation-cascade|use-stale-resource-lifecycle))|consent-protocol/(api/(routes/one/feed\.py|utils/fcm_messages\.py)|hushh_mcp/services/(account_service|broker_funding_service|feed_service|one_location_agent_service|one_location_circle_service|push_notifications)\.py|db/.*(feed_notification_projection_coverage|circle_feed_durability)|tests/.*(feed|fcm|push_notifications|broker_funding_transfer_notification_task_ref|one_location_list_state_resilience)))'; then
+  run_check "Feed notifications" npm run verify:feed
+  ran=1
+fi
+
 if has_match '^hushh-webapp/(lib/(analytics|observability)|__tests__/services/observability-|scripts/testing/run-observability|scripts/testing/run-uat-analytics|components/.*/.*analytics)'; then
   run_check "analytics contract" npm run verify:analytics
   ran=1

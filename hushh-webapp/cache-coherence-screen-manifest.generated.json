@@ -1731,15 +1731,25 @@
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
-      "cache_keys": [],
+      "cache_keys": [
+        "FEED_LIST",
+        "FEED_UNREAD_COUNT",
+        "CONSENT_CENTER_SUMMARY",
+        "CONSENT_CENTER_LIST",
+        "ONE_LOCATION_STATE",
+        "CONNECTIONS_INCOMING"
+      ],
       "resource_classes": [
-        "unknown"
+        "notification_activity",
+        "consent_list",
+        "location_state",
+        "connection_requests"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "CACHE_TTL.SHORT",
+      "warm_source": "FeedService plus domain-owned actionable resource caches",
+      "refresh_trigger": "foreground push/action signal, visible focus/resume, and 45-second visible polling; explicit retry forces",
+      "mutation_invalidator": "CacheSyncService Feed read lifecycle plus domain mutation invalidators",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1747,18 +1757,19 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
-      "realtime_policy": "not realtime",
+      "realtime_policy": "push/action signals refresh the visible Feed; hidden tabs defer until visible; polling is visibility-scoped and concurrent requests dedupe",
       "reviewer_fixture": "/login?redirect=%2Fone%2Ffeed",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": true,
+        "cache_service": false,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": false,
+        "cache_sync": true,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
@@ -5981,5 +5992,5 @@
       ]
     }
   ],
-  "content_sha256": "e5e81bc37ccacdb5c4896eecc565a4e7c4f009e26fae4f304d0643a29e97c6b3"
+  "content_sha256": "bda439724c88e09708658be48bd986bc13affb98b1321394749de15d92bfeaaf"
 }
