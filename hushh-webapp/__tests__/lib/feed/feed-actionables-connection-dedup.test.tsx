@@ -7,7 +7,7 @@
  *
  * The connections lane owns them. These tests hold that line.
  */
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const CONNECTION_ID = "conn-req-1";
@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   consentItems: [] as Array<Record<string, unknown>>,
   connectionRequests: [] as Array<Record<string, unknown>>,
+  appTasks: [] as Array<Record<string, unknown>>,
+  dismissTask: vi.fn(),
   pendingCount: 0,
 }));
 
@@ -88,8 +90,9 @@ vi.mock("@/lib/services/debate-run-manager", () => ({
 
 vi.mock("@/lib/services/app-background-task-service", () => ({
   AppBackgroundTaskService: {
-    getState: () => ({ tasks: [] }),
+    getState: () => ({ tasks: mocks.appTasks }),
     subscribe: () => () => {},
+    dismissTask: mocks.dismissTask,
   },
   isAppBackgroundTaskVisible: () => true,
 }));
@@ -100,7 +103,11 @@ vi.mock("@/lib/services/consent-center-service", () => ({
 }));
 
 vi.mock("@/lib/services/connections-service", () => ({
-  ConnectionsService: { listRequests: vi.fn(), accept: vi.fn(), reject: vi.fn() },
+  ConnectionsService: {
+    listRequests: vi.fn(),
+    accept: vi.fn(),
+    reject: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/consent/consent-sheet-route", () => ({
@@ -145,6 +152,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
     vi.clearAllMocks();
     mocks.consentItems = [];
     mocks.connectionRequests = [];
+    mocks.appTasks = [];
     mocks.pendingCount = 0;
   });
 
@@ -194,5 +202,49 @@ describe("useFeedActionables — connection request de-duplication", () => {
     expect(result.current.actionables).toHaveLength(1);
     expect(result.current.actionables[0].id).toBe("consent:consent-1");
     expect(result.current.actionables[0].description).toBe("your holdings");
+  });
+
+  it("keeps failed background work visible with recovery and dismiss actions", () => {
+    mocks.appTasks = [
+      {
+        taskId: "import-1",
+        userId: "user-1",
+        kind: "portfolio_import",
+        title: "Portfolio import",
+        description: "Importing your portfolio",
+        status: "failed",
+        routeHref: "/one/kai/portfolio",
+        startedAt: "2026-08-26T08:00:00.000Z",
+        updatedAt: "2026-08-26T08:01:00.000Z",
+        completedAt: "2026-08-26T08:01:00.000Z",
+        error: "Import needs your attention.",
+        dismissedAt: null,
+        metadata: null,
+        visibility: "passive",
+        groupLabel: null,
+        visibleAfterMs: 0,
+        autoClearAfterMs: 0,
+        runningStaleAfterMs: 0,
+      },
+    ];
+
+    const { result } = renderHook(() => useFeedActionables());
+    const failedTask = result.current.actionables.find(
+      (item) => item.id === "task:import-1",
+    );
+
+    expect(failedTask).toMatchObject({
+      description: "Import needs your attention.",
+      spinning: false,
+    });
+    expect(failedTask?.actions.map((action) => action.key)).toEqual([
+      "open",
+      "dismiss",
+    ]);
+
+    act(() => {
+      failedTask?.actions.find((action) => action.key === "dismiss")?.run();
+    });
+    expect(mocks.dismissTask).toHaveBeenCalledWith("import-1");
   });
 });

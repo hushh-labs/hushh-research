@@ -92,12 +92,15 @@ describe("notification-backed Feed projection renderers", () => {
       },
       description: "Accepted your invitation and joined Family",
     },
-  ])("renders $eventType as actionable Feed history", ({ eventType, metadata, description }) => {
-    const presented = presentFeedItem(feedItem(eventType, metadata));
-    expect(presented.label).not.toBe("");
-    expect(presented.description).toBe(description);
-    expect(presented.href).toMatch(/^\/one\/location/);
-  });
+  ])(
+    "renders $eventType as actionable Feed history",
+    ({ eventType, metadata, description }) => {
+      const presented = presentFeedItem(feedItem(eventType, metadata));
+      expect(presented.label).not.toBe("");
+      expect(presented.description).toBe(description);
+      expect(presented.href).toMatch(/^\/one\/location/);
+    },
+  );
 
   it.each([
     ["INCOMING", "completed", "Your deposit completed"],
@@ -126,4 +129,17 @@ describe("notification-backed Feed projection renderers", () => {
       expect(presented.href).toMatch(/^\/one\/kai/);
     },
   );
+
+  it("never promotes a raw phone field into plaintext Feed copy", () => {
+    const presented = presentFeedItem(
+      feedItem(
+        "connection_accepted",
+        { phone_number: "+1 555 010 1234" },
+        "connections",
+      ),
+    );
+
+    expect(presented.label).toBe("Connection");
+    expect(`${presented.label} ${presented.description}`).not.toContain("555");
+  });
 });

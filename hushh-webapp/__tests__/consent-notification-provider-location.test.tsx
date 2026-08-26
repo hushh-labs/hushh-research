@@ -11,6 +11,13 @@ const mocks = vi.hoisted(() => {
   return {
     toast,
     user,
+    auth: {
+      user: user as typeof user | null,
+    },
+    platform: {
+      native: false,
+      value: "web",
+    },
     routerPush: vi.fn(),
     initializeFCM: vi.fn(),
     prepareFCMListeners: vi.fn(),
@@ -32,13 +39,13 @@ vi.mock("sonner", () => ({ toast: mocks.toast }));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    isNativePlatform: () => false,
-    getPlatform: () => "web",
+    isNativePlatform: () => mocks.platform.native,
+    getPlatform: () => mocks.platform.value,
   },
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user }),
+  useAuth: () => ({ user: mocks.auth.user }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -121,26 +128,40 @@ async function renderReady(children?: ReactNode) {
   mocks.dispatchFeedStateChanged.mockClear();
 }
 
-function dispatchLocation(data: Record<string, string>) {
+function dispatchLocation(
+  data: Record<string, string>,
+  options: { source?: "service_worker" } = {},
+) {
+  const detail: {
+    notification: { title: string | undefined; body: string | undefined };
+    data: Record<string, string>;
+    source?: "service_worker";
+    accepted?: boolean;
+  } = {
+    notification: {
+      title: data.notification_title,
+      body: data.notification_body,
+    },
+    data,
+    ...options,
+  };
   act(() => {
     window.dispatchEvent(
       new CustomEvent("fcm-message", {
-        detail: {
-          notification: {
-            title: data.notification_title,
-            body: data.notification_body,
-          },
-          data,
-        },
+        detail,
       }),
     );
   });
+  return detail;
 }
 
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.clearAllMocks();
+  mocks.auth.user = mocks.user;
+  mocks.platform.native = false;
+  mocks.platform.value = "web";
   mocks.prepareFCMListeners.mockResolvedValue(undefined);
   mocks.initializeFCM.mockResolvedValue({ status: "push_active" });
   mocks.getState.mockResolvedValue(EMPTY_LOCATION_STATE);
@@ -204,6 +225,55 @@ describe("global One Location Feed-first notification policy", () => {
       }),
     );
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+  });
+
+  it("queues native location delivery during auth hydration and drains it for the addressed account", async () => {
+    mocks.auth.user = null;
+    mocks.platform.native = true;
+    mocks.platform.value = "ios";
+    const view = renderProvider();
+    const detail = dispatchLocation({
+      type: "location_share_created",
+      grant_id: "grant-auth-hydration-1",
+      user_id: "recipient-user",
+      owner_display_label: "Alex",
+    });
+
+    expect(detail.accepted).not.toBe(true);
+    expect(mocks.startTask).not.toHaveBeenCalled();
+
+    mocks.auth.user = mocks.user;
+    view.rerender(
+      <ConsentNotificationProvider>
+        <div>Settings page</div>
+      </ConsentNotificationProvider>,
+    );
+
+    await waitFor(() =>
+      expect(mocks.startTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: "one_location_share:grant-auth-hydration-1",
+        }),
+      ),
+    );
+  });
+
+  it("leaves a service-worker location push unaccepted while auth is unavailable", () => {
+    mocks.auth.user = null;
+    renderProvider();
+
+    const detail = dispatchLocation(
+      {
+        type: "location_share_created",
+        grant_id: "grant-worker-auth-loading-1",
+        user_id: "recipient-user",
+      },
+      { source: "service_worker" },
+    );
+
+    expect(detail.accepted).not.toBe(true);
+    expect(mocks.startTask).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
   });
 
   it("sanitizes legacy phone suffixes in the Feed record", async () => {

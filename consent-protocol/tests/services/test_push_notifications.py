@@ -83,7 +83,7 @@ def test_connection_request_push_puts_the_requester_label_in_the_data_map(monkey
     )
 
     assert captured["data"]["requester_label"] == "Ankit Sharma"
-    assert captured["data"]["requester_user_id"] == "requester-1"
+    assert "requester_user_id" not in captured["data"]
     assert captured["body"] == "Ankit Sharma wants to connect with you on Hussh."
 
 
@@ -139,6 +139,10 @@ def test_connection_request_push_falls_back_to_the_list_without_an_id(monkeypatc
 
     assert captured["deep_link"] == "/one/consent?tab=connections"
     assert captured["data"]["request_id"] == ""
+    assert captured["data"]["message_id"] == ""
+    assert captured["notification_tag"] == "connection-request"
+    assert "requester-1" not in str(captured["data"])
+    assert "requester-1" not in captured["notification_tag"]
 
 
 def test_connection_request_push_percent_encodes_the_request_id(monkeypatch):

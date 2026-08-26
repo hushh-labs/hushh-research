@@ -477,7 +477,12 @@ function setupWebServiceWorkerBridge(): void {
         }
       | undefined;
     if (message?.type === "hushh:fcm_feed_changed") {
-      dispatchFeedStateChanged("action");
+      // Hidden peer tabs defer work. Their shared Feed hook refreshes the
+      // moment they become visible, avoiding one push fan-out becoming a
+      // separate Feed/count/actionables request burst in every open tab.
+      if (document.visibilityState === "visible") {
+        dispatchFeedStateChanged("action");
+      }
       return;
     }
     if (message?.type === "hushh:fcm_notification_clicked") {
@@ -506,19 +511,20 @@ function setupWebServiceWorkerBridge(): void {
       dispatchFeedStateChanged("action");
       return;
     }
-    window.dispatchEvent(
-      new CustomEvent(FCM_MESSAGE_EVENT, {
-        detail: {
-          data: message.data || {},
-          notification: {
-            title: message.title || "Notification",
-            body: message.body || "",
-          },
-          source: "service_worker",
-        },
-      }),
-    );
-    if (message.delivery_id) {
+    const detail = {
+      data: message.data || {},
+      notification: {
+        title: message.title || "Notification",
+        body: message.body || "",
+      },
+      source: "service_worker",
+      // The authenticated notification consumer flips this synchronously only
+      // after it accepts the payload for the active identity. Merely having a
+      // visible tab is not enough to suppress the worker's system fallback.
+      accepted: false,
+    };
+    window.dispatchEvent(new CustomEvent(FCM_MESSAGE_EVENT, { detail }));
+    if (message.delivery_id && detail.accepted) {
       const source = event.source as { postMessage?: (value: unknown) => void } | null;
       source?.postMessage?.({
         type: "hushh:fcm_push_ack",

@@ -28,12 +28,19 @@ vi.mock("@/lib/feed/feed-events", () => ({
   dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
 }));
 
-import { prepareFCMListeners } from "@/lib/notifications/fcm-service";
+import {
+  FCM_MESSAGE_EVENT,
+  prepareFCMListeners,
+} from "@/lib/notifications/fcm-service";
 
 describe("web system-notification click bridge", () => {
   beforeEach(() => {
     mocks.requestInternalAppNavigation.mockClear();
     mocks.dispatchFeedStateChanged.mockClear();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
     Object.defineProperty(navigator, "serviceWorker", {
       configurable: true,
       value: {
@@ -85,6 +92,65 @@ describe("web system-notification click bridge", () => {
     expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
       href: "/one/feed",
       scroll: false,
+    });
+  });
+
+  it("does not ACK a visible-tab push until an authenticated consumer accepts it", async () => {
+    await prepareFCMListeners();
+    const postMessage = vi.fn();
+
+    mocks.serviceWorkerMessageListener?.({
+      data: {
+        type: "hushh:fcm_push_received",
+        delivery_id: "delivery-unaccepted",
+        data: { type: "connection_request" },
+      },
+      source: { postMessage },
+    } as unknown as MessageEvent);
+
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "hushh:fcm_push_ack" }),
+    );
+  });
+
+  it("does not refresh a hidden peer tab until its visibility hook catches up", async () => {
+    await prepareFCMListeners();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+
+    mocks.serviceWorkerMessageListener?.({
+      data: { type: "hushh:fcm_feed_changed" },
+    } as MessageEvent);
+
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+  });
+
+  it("ACKs only after the active notification consumer marks the payload accepted", async () => {
+    await prepareFCMListeners();
+    const postMessage = vi.fn();
+    const accept = (event: Event) => {
+      (event as CustomEvent<{ accepted: boolean }>).detail.accepted = true;
+    };
+    window.addEventListener(FCM_MESSAGE_EVENT, accept);
+
+    try {
+      mocks.serviceWorkerMessageListener?.({
+        data: {
+          type: "hushh:fcm_push_received",
+          delivery_id: "delivery-accepted",
+          data: { type: "connection_request", user_id: "active-user" },
+        },
+        source: { postMessage },
+      } as unknown as MessageEvent);
+    } finally {
+      window.removeEventListener(FCM_MESSAGE_EVENT, accept);
+    }
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "hushh:fcm_push_ack",
+      delivery_id: "delivery-accepted",
     });
   });
 });

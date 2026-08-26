@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MapPin, Siren } from "lucide-react";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
@@ -74,6 +74,67 @@ describe("FeedActionableRow", () => {
     expect(screen.getByText("Routine row")).toBeInTheDocument();
   });
 
+  it("keeps trailing actions outside a whole-row button or link", () => {
+    const action = {
+      key: "review",
+      label: "Review",
+      tone: "primary" as const,
+      run: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <FeedActionableRow
+        item={actionable({
+          href: "/one/consents",
+          actions: [action],
+        })}
+      />,
+    );
+
+    expect(container.querySelector("a button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Review" })).toBeInTheDocument();
+
+    rerender(
+      <FeedActionableRow
+        item={actionable({
+          href: null,
+          onSelect: vi.fn(),
+          actions: [{ ...action, key: "cancel", label: "Cancel" }],
+        })}
+      />,
+    );
+
+    expect(container.querySelector("button button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("keeps the destructive action in the accessible confirmation name", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          actions: [
+            {
+              key: "decline",
+              label: "Decline",
+              tone: "danger",
+              confirm: true,
+              run: vi.fn(),
+            },
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Decline (tap again to confirm)",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Confirm Decline" }),
+    ).toHaveTextContent("Sure?");
+  });
+
   it("renders a revoked SOS card as a plain row (no frame) but keeps the Siren/red icon signal", () => {
     const { container } = render(
       <FeedActionableRow
@@ -91,9 +152,7 @@ describe("FeedActionableRow", () => {
 
     expect(screen.queryByTestId("feed-sms-emergency")).toBeNull();
     expect(screen.getByText("Mom triggered an SOS")).toBeInTheDocument();
-    expect(
-      container.querySelector('[data-icon-tone="red"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('[data-icon-tone="red"]')).not.toBeNull();
   });
 
   describe("time label", () => {
@@ -130,7 +189,9 @@ describe("FeedActionableRow", () => {
     });
 
     it("shows no time label when displayTimestamp is absent", () => {
-      render(<FeedActionableRow item={actionable({ title: "No time field" })} />);
+      render(
+        <FeedActionableRow item={actionable({ title: "No time field" })} />,
+      );
 
       expect(screen.queryByText(/Today -|Yesterday -/i)).toBeNull();
     });

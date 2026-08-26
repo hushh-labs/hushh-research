@@ -1323,13 +1323,32 @@ export function ConsentNotificationProvider({
 
       const msgType = data.type;
 
+      // The service worker only suppresses its system fallback when this
+      // authenticated consumer accepts the message synchronously. A logged-out,
+      // auth-loading, or wrong-account tab must leave it unacknowledged. Native
+      // One Location delivery has no worker fallback, so retain its existing
+      // auth-hydration queue and validate the target uid when that queue drains.
+      if (!user?.uid) {
+        const canQueueNativeLocation =
+          detail.source !== "service_worker" &&
+          isOneLocationNotificationType(msgType);
+        if (!canQueueNativeLocation) return;
+      }
       if (
-        data.user_id &&
         user?.uid &&
+        data.user_id &&
         String(data.user_id).trim() !== user.uid
       ) {
         return;
       }
+
+      // Validate typed payloads before acknowledging them to the web service
+      // worker. An ACK suppresses the OS fallback, so malformed consent data
+      // must remain unaccepted instead of disappearing from every surface.
+      const parsedConsent =
+        msgType === "consent_request" ? consentFromFCMPayload(data) : null;
+      if (msgType === "consent_request" && !parsedConsent) return;
+      if (user?.uid) detail.accepted = true;
 
       // Dedup: skip if we've already processed this exact message
       const msgId =
@@ -1392,8 +1411,7 @@ export function ConsentNotificationProvider({
       }
 
       if (msgType === "consent_request") {
-        const consent = consentFromFCMPayload(data);
-        if (!consent) return;
+        const consent = parsedConsent!;
         const isNewPendingRequest =
           !knownPendingConsentIdsRef.current.has(consent.id);
         knownPendingConsentIdsRef.current.add(consent.id);

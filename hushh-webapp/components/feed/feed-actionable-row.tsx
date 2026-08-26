@@ -48,7 +48,11 @@ function ActionButton({ action }: { action: FeedActionButton }) {
       type="button"
       disabled={action.disabled || busy}
       aria-label={
-        action.confirm && !armed ? `${action.label} (tap again to confirm)` : undefined
+        showConfirm
+          ? `Confirm ${action.label}`
+          : action.confirm
+            ? `${action.label} (tap again to confirm)`
+            : undefined
       }
       onClick={(event) => {
         // The row itself may be a link/button; never let an action bubble into it.
@@ -64,14 +68,15 @@ function ActionButton({ action }: { action: FeedActionButton }) {
         void runNow();
       }}
       className={cn(
-        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
         action.tone === "primary" &&
           "bg-accent text-accent-foreground hover:bg-accent/90",
         action.tone === "ghost" &&
           "bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.1]",
         action.tone === "danger" &&
           "bg-foreground/[0.06] text-destructive hover:bg-destructive/10",
-        showConfirm && "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        showConfirm &&
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
       )}
     >
       {busy ? <Icon icon={Loader2} size="xs" className="animate-spin" /> : null}
@@ -149,6 +154,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     title: item.title,
     description,
     trailing: <ActionButtons actions={item.actions} />,
+    trailingInteractive: hasActions,
     // Actions are sized to their content and carry three separate `shrink-0`s,
     // so on a phone they take the row's width first and leave the text column
     // at literally 0px: "Deny" + "Approve 4 hours more" is 238.5px of a 358px
@@ -159,17 +165,22 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     stackTrailingOnMobile: hasActions,
   } as const;
 
-  const row = item.href ? (
-    <SettingsRow asChild {...shared} chevron={item.chevron}>
-      <Link
-        href={item.href}
-        prefetch={false}
-        aria-label={`${item.title}. ${item.description}`}
-      />
-    </SettingsRow>
-  ) : (
-    <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect} />
-  );
+  // A row with inline actions must not also wrap those buttons in a link. For
+  // scoped connections the explicit Review action owns navigation; for an
+  // imperative row SettingsRow renders the primary action and trailing actions
+  // as siblings. Both shapes avoid invalid button-in-link/button DOM.
+  const row =
+    item.href && !hasActions ? (
+      <SettingsRow asChild {...shared} chevron={item.chevron}>
+        <Link
+          href={item.href}
+          prefetch={false}
+          aria-label={`${item.title}. ${item.description}`}
+        />
+      </SettingsRow>
+    ) : (
+      <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect} />
+    );
 
   // Emergency SMS alerts get a prominent red frame so a safety alert stands out
   // from routine "Needs you" rows.

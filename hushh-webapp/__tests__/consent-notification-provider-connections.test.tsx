@@ -133,13 +133,18 @@ function PendingCount() {
 }
 
 function dispatchConnectionRequest(data: Record<string, string>) {
+  const detail: {
+    data: Record<string, string>;
+    accepted?: boolean;
+  } = { data: { type: "connection_request", ...data } };
   act(() => {
     window.dispatchEvent(
       new CustomEvent("fcm-message", {
-        detail: { data: { type: "connection_request", ...data } },
+        detail,
       }),
     );
   });
+  return detail;
 }
 
 beforeEach(() => {
@@ -172,7 +177,7 @@ describe("connection-request Feed-first foreground policy", () => {
       mocks.platform.native = native;
       await renderProvider();
 
-      dispatchConnectionRequest({
+      const detail = dispatchConnectionRequest({
         user_id: "recipient-user",
         requester_user_id: "requester-user",
         requester_label: "Rohan",
@@ -186,17 +191,37 @@ describe("connection-request Feed-first foreground policy", () => {
         source: "fcm_connection_request",
         reconcile: true,
       });
+      expect(detail.accepted).toBe(true);
     },
   );
 
   it("drops a payload addressed to a different signed-in user", async () => {
     await renderProvider();
-    dispatchConnectionRequest({
+    const detail = dispatchConnectionRequest({
       user_id: "someone-else",
       request_id: "conn-req-1",
     });
 
     expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
+    expect(detail.accepted).not.toBe(true);
+  });
+
+  it("does not accept a foreground push while signed out", () => {
+    mocks.auth.user = null;
+    render(
+      <ConsentNotificationProvider>
+        <div>Signed out</div>
+      </ConsentNotificationProvider>,
+    );
+
+    const detail = dispatchConnectionRequest({
+      user_id: "recipient-user",
+      request_id: "conn-req-signed-out",
+    });
+
+    expect(detail.accepted).not.toBe(true);
     expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
     expect(mocks.onConsentMutated).not.toHaveBeenCalled();
   });
@@ -248,6 +273,32 @@ describe("connection-request Feed-first foreground policy", () => {
         reconcile: true,
       }),
     );
+  });
+
+  it("leaves a malformed consent payload unacknowledged for system fallback", async () => {
+    await renderProvider();
+    const detail: {
+      source: "service_worker";
+      data: Record<string, string>;
+      accepted?: boolean;
+    } = {
+      source: "service_worker",
+      data: {
+        type: "consent_request",
+        user_id: "recipient-user",
+        requester_label: "Example developer",
+        // request_id is mandatory for an actionable consent.
+      },
+    };
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+    });
+
+    expect(detail.accepted).not.toBe(true);
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
+    expect(mocks.dispatchConsentStateChanged).not.toHaveBeenCalled();
   });
 
   it("re-ingests a final reminder without double-counting one pending request", async () => {

@@ -51,11 +51,41 @@ describe("Feed stays live", () => {
     expect(actionables).not.toMatch(/sortAt:[^,\n]*Date\.now\(\)/);
     expect(actionables).toContain("firstSeenAt(");
   });
+
+  it("proves Feed through warm same-session navigation", () => {
+    const verifier = read("scripts/testing/verify-signed-in-routes.mjs");
+
+    expect(verifier).toContain("SAME_SESSION_SHELL_ROUTES = new Set([");
+    expect(verifier).toMatch(
+      /SAME_SESSION_SHELL_ROUTES = new Set\(\[[\s\S]*?"\/one\/feed"/,
+    );
+    expect(verifier).toContain('case "/one/feed":');
+    expect(verifier).toContain('requestAppNavigation(page, "/one/feed")');
+  });
+
+  it("keys the whole Feed session to the authenticated account", () => {
+    const feedPage = read("components/feed/feed-page.tsx");
+
+    expect(feedPage).toContain('key={user?.uid ?? "signed-out"}');
+  });
+
+  it("reports real Feed readiness through the native route beacon", () => {
+    const route = read("app/one/feed/page.tsx");
+    const feedPage = read("components/feed/feed-page.tsx");
+
+    expect(route).not.toContain('dataState="loaded"');
+    expect(feedPage).toContain("const beaconDataState = contentLoading");
+    expect(feedPage).toContain(
+      'errorCode={showColdError ? "FEED_LOAD_FAILED" : null}',
+    );
+  });
 });
 
 describe("the ask flow's primary action keeps the action colour", () => {
   it("never repaints Send with the success token", () => {
-    const hub = read("components/one-location/redesign/location-redesign-hub.tsx");
+    const hub = read(
+      "components/one-location/redesign/location-redesign-hub.tsx",
+    );
 
     const sendButton =
       hub.match(
@@ -69,7 +99,9 @@ describe("the ask flow's primary action keeps the action colour", () => {
   });
 
   it("re-arms Send from the selection instead of latching it shut", () => {
-    const hub = read("components/one-location/redesign/location-redesign-hub.tsx");
+    const hub = read(
+      "components/one-location/redesign/location-redesign-hub.tsx",
+    );
 
     expect(hub).toContain("sentSelectionRef");
     expect(hub).toContain("const sent = await vm.onSendRequest(reason)");
@@ -84,7 +116,9 @@ describe("the ask flow's primary action keeps the action colour", () => {
 
 describe("quick-action tones come from tokens", () => {
   it("uses the semantic colour variables rather than light-mode hexes", () => {
-    const quickActions = read("components/one-location/redesign/quick-actions.tsx");
+    const quickActions = read(
+      "components/one-location/redesign/quick-actions.tsx",
+    );
 
     expect(quickActions).not.toContain("#34C759");
     expect(quickActions).not.toContain("#FF3B30");

@@ -23,6 +23,56 @@ class _Db:
         return SimpleNamespace(data=[])
 
 
+class _Query:
+    def __init__(self, *, data: list[dict] | None = None, count: int | None = None) -> None:
+        self.data = data or []
+        self.count = count
+        self.calls: list[tuple] = []
+
+    def _record(self, name: str, *args, **kwargs):
+        self.calls.append((name, args, kwargs))
+        return self
+
+    def select(self, *args, **kwargs):
+        return self._record("select", *args, **kwargs)
+
+    def update(self, *args, **kwargs):
+        return self._record("update", *args, **kwargs)
+
+    def eq(self, *args, **kwargs):
+        return self._record("eq", *args, **kwargs)
+
+    def is_(self, *args, **kwargs):
+        return self._record("is", *args, **kwargs)
+
+    def lt(self, *args, **kwargs):
+        return self._record("lt", *args, **kwargs)
+
+    def lte(self, *args, **kwargs):
+        return self._record("lte", *args, **kwargs)
+
+    def order(self, *args, **kwargs):
+        return self._record("order", *args, **kwargs)
+
+    def limit(self, *args, **kwargs):
+        return self._record("limit", *args, **kwargs)
+
+    def execute(self):
+        self.calls.append(("execute", (), {}))
+        return SimpleNamespace(data=self.data, count=self.count)
+
+
+class _QueuedDb:
+    def __init__(self, *queries: _Query) -> None:
+        self.queries = list(queries)
+        self.opened: list[tuple[str, _Query]] = []
+
+    def table(self, name: str) -> _Query:
+        query = self.queries.pop(0)
+        self.opened.append((name, query))
+        return query
+
+
 def test_source_backed_feed_event_uses_idempotent_projection_insert() -> None:
     db = _Db()
     service = FeedService()
@@ -33,7 +83,11 @@ def test_source_backed_feed_event_uses_idempotent_projection_insert() -> None:
         source_domain="location",
         event_type="location_circle_code_joined",
         actor_label="Ankit",
-        metadata={"circle_id": "circle-1"},
+        metadata={
+            "circle_id": "circle-1",
+            "coordinates": {"latitude": 1.2, "longitude": 3.4},
+            "access_token": "must-not-enter-feed",
+        },
         source_row_id="circle_code:invite-1:user-2",
     )
 
@@ -67,3 +121,77 @@ def test_legacy_feed_event_without_source_id_keeps_append_only_insert() -> None:
             "metadata": {},
         }
     ]
+
+
+def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> None:
+    list_query = _Query(
+        data=[
+            {"id": 10, "metadata": {}, "read_at": None},
+            {"id": 9, "metadata": {}, "read_at": None},
+            {"id": 8, "metadata": {}, "read_at": None},
+        ]
+    )
+    count_query = _Query(count=41)
+    service = FeedService()
+    service._db = _QueuedDb(list_query, count_query)
+
+    result = service.list_feed("user-1", cursor=11, limit=2)
+
+    assert [item["id"] for item in result["items"]] == ["10", "9"]
+    assert result["next_cursor"] == "9"
+    assert result["unread_count"] == 41
+    assert ("eq", ("user_id", "user-1"), {}) in list_query.calls
+    assert ("lt", ("id", 11), {}) in list_query.calls
+    assert ("order", ("id",), {"desc": True}) in list_query.calls
+    assert ("limit", (3,), {}) in list_query.calls
+    assert ("select", ("id",), {"count": "exact"}) in count_query.calls
+    assert ("limit", (0,), {}) in count_query.calls
+
+
+def test_mark_read_is_tenant_scoped_and_never_unbounded() -> None:
+    update_query = _Query()
+    service = FeedService()
+    service._db = _QueuedDb(update_query)
+
+    assert service.mark_read("user-1", up_to_id=900719925474099312345) == {"status": "ok"}
+
+    assert ("eq", ("user_id", "user-1"), {}) in update_query.calls
+    assert ("is", ("read_at", None), {}) in update_query.calls
+    assert (
+        "lte",
+        ("id", 900719925474099312345),
+        {},
+    ) in update_query.calls
+
+
+def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
+    row = {
+        "id": 1,
+        "source_domain": "location",
+        "event_type": "location_access_request",
+        "actor_label": f"  {'A' * 200}  ",
+        "metadata": {
+            "counterpart_label": f"  {'B' * 300}  ",
+            "phone_number": "+1 555 010 1234",
+            "requester_masked_phone": "***1234",
+            "requested_duration_hours": 3,
+            "is_extension": True,
+            "coordinates": {"latitude": 1.2, "longitude": 3.4},
+            "ciphertext": "secret",
+            "access_token": "secret",
+            "account_id": "sensitive-account",
+            "counterpart_user_id": "private-user-id",
+            "not_a_number": float("nan"),
+        },
+        "read_at": None,
+        "created_at": "2026-08-26T00:00:00Z",
+    }
+
+    item = FeedService._to_item(row)
+
+    assert item["actor_label"] == "A" * 160
+    assert item["metadata"] == {
+        "counterpart_label": "B" * 256,
+        "requested_duration_hours": 3,
+        "is_extension": True,
+    }

@@ -75,8 +75,9 @@ function metadataDurationLabel(
  * Resolve the most identifying name available for a feed counterparty.
  *
  * Order: a pre-resolved label the backend already chose, then display name,
- * then first name, then a phone number, and only "Someone" as an absolute last
- * resort when nothing identifying exists. `counterpart_label` is preferred
+ * then first name, and only "Someone" as an absolute last resort when nothing
+ * identifying exists. Raw phone fields never belong in the plaintext Feed.
+ * `counterpart_label` is preferred
  * because the backend has already applied its own privacy rules to it — this
  * helper never widens what the row exposes, it only stops falling back to
  * "Someone" when a real identifier is present in the row.
@@ -86,7 +87,6 @@ function resolveCounterpartName(metadata: Record<string, unknown>): string {
     metadataString(metadata, "counterpart_label") ||
     metadataString(metadata, "display_name") ||
     metadataString(metadata, "first_name") ||
-    metadataString(metadata, "phone_number") ||
     "Someone"
   );
 }
@@ -100,7 +100,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
   const scope = metadataString(item.metadata, "scope_description") || metadataString(item.metadata, "scope");
-  // Best-available name for the other party (label → display → first → phone →
+  // Best-available name for the other party (label → display → first →
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
   const who = resolveCounterpartName(item.metadata);
