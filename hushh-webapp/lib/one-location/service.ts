@@ -39,6 +39,7 @@ import type {
   OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
+  OneLocationSosVoicePreference,
   OneLocationGrant,
   OneLocationMapPreferences,
   OneLocationMapState,
@@ -449,6 +450,33 @@ export class OneLocationService {
       }),
     });
     return response.preferences;
+  }
+
+  static async getSosVoicePreference(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationSosVoicePreference> {
+    const response = await apiJson<{
+      preference: OneLocationSosVoicePreference;
+    }>("/api/one/location/sos-voice-preference", {
+      headers: jsonAuthHeaders(vaultOwnerToken),
+    });
+    return response.preference;
+  }
+
+  static async updateSosVoicePreference(params: {
+    vaultOwnerToken: string;
+    defaultAction: OneLocationSosVoicePreference["defaultAction"];
+  }): Promise<OneLocationSosVoicePreference> {
+    const response = await apiJson<{
+      preference: OneLocationSosVoicePreference;
+    }>("/api/one/location/sos-voice-preference", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        defaultAction: params.defaultAction,
+      }),
+    });
+    return response.preference;
   }
 
   /**

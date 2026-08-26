@@ -6106,12 +6106,11 @@
       "surface_id": "one_location",
       "label": "Open emergency SOS",
       "aliases": [
-        "sos",
-        "emergency",
-        "panic",
-        "emergency alert",
-        "help",
-        "open sos"
+        "open sos",
+        "open the sos screen",
+        "show me sos",
+        "sos screen",
+        "open emergency screen"
       ],
       "search_keywords": [
         "sos",
@@ -6120,7 +6119,7 @@
         "help",
         "panic"
       ],
-      "meaning": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this to look at the screen or manage contacts, not to alert anyone -- to send a real alert immediately, use trigger_sos.",
+      "meaning": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this only when the person explicitly asks to look at the screen or manage contacts, not for a bare or ambiguous emergency phrase like 'help' or 'save me' -- those go to sos_default instead, which respects the person's own SOS default. To send a real alert immediately, use trigger_sos.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -10310,8 +10309,7 @@
         "send an sos",
         "trigger sos",
         "send an emergency alert",
-        "i need help",
-        "call for help"
+        "send help now"
       ],
       "search_keywords": [
         "sos",
@@ -10320,7 +10318,7 @@
         "help",
         "send"
       ],
-      "meaning": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
+      "meaning": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. Use this only when the person explicitly says to send, trigger, or call for help right now -- for a bare or ambiguous emergency phrase like 'help' or 'save me', use sos_default instead, which respects the person's own SOS default rather than assuming they meant send. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -10394,6 +10392,123 @@
             "label": "Send an SOS alert",
             "failure_behavior": "stop",
             "action_id": "location.trigger_sos",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.sos_default",
+      "surface_id": "one_location",
+      "label": "Emergency (SOS)",
+      "aliases": [
+        "sos",
+        "emergency",
+        "panic",
+        "emergency alert",
+        "help",
+        "help me",
+        "save me",
+        "i need help",
+        "i'm in danger",
+        "turn on sos",
+        "activate sos",
+        "start sos"
+      ],
+      "search_keywords": [
+        "sos",
+        "emergency",
+        "alert",
+        "help",
+        "panic",
+        "save",
+        "danger"
+      ],
+      "meaning": "Handles a bare or ambiguous emergency phrase -- 'save me', 'sos', 'help', 'emergency', 'turn on sos' -- by doing whatever the person's own SOS default says: either opening the SOS screen so they can decide, or going straight to the send-alert confirm card. Change the default in Voice Settings. Never use this for an explicit 'open the SOS screen' (use open_sos) or an explicit 'send an SOS' (use trigger_sos) -- those always do exactly what they say, regardless of this default.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.sos_default"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active sos incident"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.sos_default",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Emergency (SOS)",
+            "failure_behavior": "stop",
+            "action_id": "location.sos_default",
             "settlement_target": {
               "route": "/one/location",
               "screen": "one_location"

@@ -2898,6 +2898,7 @@
         "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
+        "location.sos_default",
         "location.stop_share",
         "location.stop_sos",
         "location.trigger_sos",

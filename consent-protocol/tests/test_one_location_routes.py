@@ -382,6 +382,53 @@ def test_nearby_check_in_preferences_route_reads_and_writes_the_owner(monkeypatc
     ]
 
 
+def test_sos_voice_preference_route_reads_and_writes_the_owner(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.get_calls: list[dict] = []
+            self.update_calls: list[dict] = []
+
+        def get_sos_voice_preference(self, **kwargs):
+            self.get_calls.append(kwargs)
+            return {"defaultAction": "open", "updatedAt": None}
+
+        def update_sos_voice_preference(self, **kwargs):
+            self.update_calls.append(kwargs)
+            return {
+                "defaultAction": kwargs["default_action"],
+                "updatedAt": "2026-08-26T09:00:00+00:00",
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    get_response = client.get("/api/one/location/sos-voice-preference")
+    assert get_response.status_code == 200
+    assert get_response.json() == {
+        "preference": {"defaultAction": "open", "updatedAt": None}
+    }
+    assert service.get_calls == [{"user_id": "owner-from-token"}]
+
+    patch_response = client.patch(
+        "/api/one/location/sos-voice-preference",
+        json={"defaultAction": "trigger"},
+    )
+    assert patch_response.status_code == 200
+    assert service.update_calls == [
+        {
+            "user_id": "owner-from-token",
+            "default_action": "trigger",
+        }
+    ]
+
+    invalid_response = client.patch(
+        "/api/one/location/sos-voice-preference",
+        json={"defaultAction": "not-a-real-choice"},
+    )
+    assert invalid_response.status_code == 422
+
+
 def test_view_envelope_route_threads_allow_empty_query_param(monkeypatch) -> None:
     """The opt-in must reach the service, and must default to off.
 

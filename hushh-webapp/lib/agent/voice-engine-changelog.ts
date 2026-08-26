@@ -19,6 +19,13 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   {
     version: "1.6",
     date: "2026-08-26",
+    title: "Set what \"help\" does in an emergency",
+    description:
+      "Choose in Voice Settings whether a bare emergency phrase like \"save me\" or \"SOS\" opens the SOS screen or goes straight to sending the alert. Either way, sending still needs an explicit confirmation -- this only changes how fast you get there.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-26",
     title: "Accept or decline a connection request, hands-free",
     description:
       "Say \"accept their connection request\" or \"decline their request\" for a request waiting in your Feed -- no need to open it and tap. Asking to connect with someone who already asked you now points you straight to this instead of trying to send a second request.",

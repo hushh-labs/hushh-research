@@ -1,12 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetState, mockUpdateNearbyCheckInPreferences, mockUpdateAutoApprovePreference } =
-  vi.hoisted(() => ({
-    mockGetState: vi.fn(),
-    mockUpdateNearbyCheckInPreferences: vi.fn(),
-    mockUpdateAutoApprovePreference: vi.fn(),
-  }));
+const {
+  mockGetState,
+  mockUpdateNearbyCheckInPreferences,
+  mockUpdateAutoApprovePreference,
+  mockUpdateSosVoicePreference,
+} = vi.hoisted(() => ({
+  mockGetState: vi.fn(),
+  mockUpdateNearbyCheckInPreferences: vi.fn(),
+  mockUpdateAutoApprovePreference: vi.fn(),
+  mockUpdateSosVoicePreference: vi.fn(),
+}));
 const { mockGetVoicePreferences, mockUpdateVoicePreferences } = vi.hoisted(() => ({
   mockGetVoicePreferences: vi.fn(),
   mockUpdateVoicePreferences: vi.fn(),
@@ -17,6 +22,7 @@ vi.mock("@/lib/one-location/service", () => ({
     getState: mockGetState,
     updateNearbyCheckInPreferences: mockUpdateNearbyCheckInPreferences,
     updateAutoApprovePreference: mockUpdateAutoApprovePreference,
+    updateSosVoicePreference: mockUpdateSosVoicePreference,
   },
 }));
 
@@ -203,6 +209,42 @@ describe("VoicePreferencesPanel", () => {
         vaultOwnerToken: "vault-token",
         visible: true,
         allowConnectionRequests: true,
+      }),
+    );
+  });
+
+  it("SOS default loads as Open the screen and persists a pick through the dedicated endpoint", async () => {
+    mockGetState.mockResolvedValue({
+      recipients: [],
+      autoApprovePreference: { enabled: false, scope: null, enabledAt: null, ruleVersion: 0 },
+      nearbyCheckInPreferences: { visible: true, allowConnectionRequests: false },
+      sosVoicePreference: { defaultAction: "open" },
+    });
+    mockUpdateSosVoicePreference.mockResolvedValue({
+      defaultAction: "trigger",
+    });
+
+    render(
+      <VoicePreferencesPanel
+        userId={userId}
+        vaultOwnerToken="vault-token"
+        onOpenChangelog={() => {}}
+        onOpenExamples={() => {}}
+      />,
+    );
+
+    const combobox = await screen.findByRole("combobox", {
+      name: "In an emergency",
+    });
+    expect(combobox.textContent).toContain("Open the screen");
+
+    fireEvent.click(combobox);
+    fireEvent.click(screen.getByRole("option", { name: "Send the alert" }));
+
+    await waitFor(() =>
+      expect(mockUpdateSosVoicePreference).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        defaultAction: "trigger",
       }),
     );
   });
