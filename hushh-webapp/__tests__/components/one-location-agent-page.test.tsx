@@ -1978,7 +1978,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
 
-  it("shows a limited status when the captured point is too approximate for Nearby", async () => {
+  it("keeps the shared header status stable when the captured point is approximate", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1996,7 +1996,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
     await waitFor(() =>
-      expect(screen.getByText("Location limited")).toBeTruthy(),
+      expect(screen.getByText("Location on")).toBeTruthy(),
     );
     expect(
       screen.getByRole("switch", { name: "Turn location off" }),
@@ -2026,7 +2026,7 @@ describe("OneLocationAgentPage", () => {
         screen.getByRole("switch", { name: "Turn location off" }),
       ).toHaveAttribute("aria-checked", "true"),
     );
-    expect(screen.getByText("Finding you…")).toBeTruthy();
+    expect(screen.getByText("Finding location…")).toBeTruthy();
     expect(
       screen.getByRole("switch", { name: "Turn location off" }),
     ).not.toBeDisabled();

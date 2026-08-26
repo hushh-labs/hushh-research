@@ -35,6 +35,7 @@ import {
   MapPin,
   Pencil,
   Plus,
+  Search,
   Send,
   Check,
   ShieldCheck,
@@ -89,7 +90,6 @@ import {
   RowDescription,
   RowLabel,
   SectionLabel,
-  SectionTitle,
   TrailingValue,
 } from "@/components/app-ui/typography";
 import type {
@@ -110,7 +110,6 @@ import type {
   OneLocationRecipient,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
-import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import {
   isCircleSelectionFullySelected,
   type CircleRecipientSelection,
@@ -791,17 +790,9 @@ const LOCATION_HEADER_STATUS_ID = "one-location-header-status";
 
 /** What the header switch currently means, in words. */
 function locationHeaderStatusText(vm: LocationHubViewModel): string {
-  if (vm.locationAcquiring) return "Finding you\u2026";
-  return locationStatusLabel({
-    readiness: vm.locationBlocked
-      ? ("blocked" as const)
-      : vm.locationEnabled
-        ? ("ready" as const)
-        : ("askable" as const),
-    previewOn: vm.locationEnabled,
-    paused: vm.locationPaused,
-    accuracyLimited: vm.locationAccuracyLimited,
-  });
+  if (vm.locationAcquiring) return "Finding location\u2026";
+  if (vm.locationBlocked) return "Location blocked";
+  return vm.locationEnabled ? "Location on" : "Location off";
 }
 
 /** The header switch status sits under the switch without becoming a page subtitle. */
@@ -3226,7 +3217,7 @@ export function PeopleHub({
       <DropdownMenuContent
         align="end"
         forceMount
-        className="min-w-52 rounded-2xl border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1.5 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
+        className="w-[190px] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
       >
         <DropdownMenuItem
           data-voice-control-id="one-location-find-contacts"
@@ -3239,8 +3230,12 @@ export function PeopleHub({
             }
             vm.onSyncContacts();
           }}
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
+          className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
+          <Search
+            className="h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
+            aria-hidden="true"
+          />
           {vm.busy === "contactSync"
             ? "Finding contacts…"
             : vm.contactSyncSummary
@@ -3248,22 +3243,37 @@ export function PeopleHub({
               : "Find contacts"}
         </DropdownMenuItem>
         {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
-          <DropdownMenuItem onSelect={() => vm.onViewContactSyncResults?.()}>
+          <DropdownMenuItem
+            onSelect={() => vm.onViewContactSyncResults?.()}
+            className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
+          >
+            <UsersRound
+              className="h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
+              aria-hidden="true"
+            />
             View contact sync results
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem
           onSelect={() => onInvite()}
           data-voice-control-id="one-location-action-invite"
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
+          className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
+          <Send
+            className="h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
+            aria-hidden="true"
+          />
           Invite to One
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => onAddConnections()}
           data-voice-control-id="one-location-add-connections"
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
+          className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
+          <UsersRound
+            className="h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
+            aria-hidden="true"
+          />
           Manage connections
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -3298,12 +3308,15 @@ export function PeopleHub({
             className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:gap-x-6"
             data-testid="one-location-people-connections"
           >
-            <h2
+            <SectionLabel
+              as="div"
               id="one-location-connections-heading"
+              role="heading"
+              aria-level={2}
               className="col-start-1 row-start-1 text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]"
             >
-              Connections · {vm.recipientPageTotalCount}
-            </h2>
+              Connections
+            </SectionLabel>
 
             {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
               <button
@@ -3693,7 +3706,10 @@ const PUBLIC_LINK_DURATION_OPTIONS = [
 
 function publicLinkStatusLabel(label?: string | null): string {
   if (!label) return "Active";
-  return label.replace(/^Stops in\b/i, "Expires in");
+  const expiresLine = label.replace(/^Stops in\b/i, "Expires in");
+  return /^Expires in\b/i.test(expiresLine)
+    ? `Active \u00b7 ${expiresLine}`
+    : expiresLine;
 }
 
 /** One active-link row: tinted icon tile · title · subtitle · Copy (design). */
@@ -3790,7 +3806,9 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-4">
       <div className="px-[6px]">
-        <SectionTitle as="h2">Temporary link</SectionTitle>
+        <SectionLabel as="div" role="heading" aria-level={2}>
+          Temporary link
+        </SectionLabel>
       </div>
 
       {hasLiveLink ? (
