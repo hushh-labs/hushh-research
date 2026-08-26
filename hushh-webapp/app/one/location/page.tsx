@@ -2812,22 +2812,24 @@ export function OneLocationAgentPageContent({
     Record<string, string>
   >({});
   /**
-   * The link as it came back from the create call, this session only.
+   * The most recently created link, as it came back from the create call,
+   * this session only.
    *
-   * Kept because the server's copy arrives one refetch later: between "created"
-   * and the next `getState` there is a window where the only place the URL
-   * exists is this variable. `publicInviteUrl` below prefers the server's copy
-   * and falls back to this one.
+   * Kept because the server's copy arrives one refetch later: between
+   * "created" and the next `getState` there is a window where the only place
+   * the new invite's URL exists is this variable. `displayPublicInvites` below
+   * folds it in as an extra card alongside whatever `activePublicInvites`
+   * already holds, and drops it once the real row shows up in server state.
    *
-   * It carries its own expiry, and that is not decoration. A bare string
-   * outlived the link it named: once the invite ran out, the server stopped
-   * reporting it as active but this variable still held a URL, so the Links tab
-   * -- which hides its create control whenever a link is live -- kept showing a
-   * dead link with no way past it. The expiry here is the one the SERVER
-   * stamped, not the duration that was asked for, so the two agree.
+   * It carries its own expiry and duration, and that is not decoration. A bare
+   * string outlived the link it named: once the invite ran out, the server
+   * stopped reporting it as active but this variable still held a URL, so a
+   * dead link kept showing with no way past it. The expiry here is the one the
+   * SERVER stamped, not the duration that was asked for, so the two agree.
    */
   const [createdPublicInvite, setCreatedPublicInvite] = useState<{
     url: string;
+    durationHours: number;
     expiresAtMs: number | null;
   } | null>(null);
   /**
@@ -3738,18 +3740,18 @@ export function OneLocationAgentPageContent({
     ).length;
   }, [auth.userId, unwatchedTick, state?.receivedGrants]);
   /**
-   * Links that are live right now, by the clock as well as by the server.
+   * Every public link that is live right now, by the clock as well as by the
+   * server -- the Links tab renders one card per entry here, and the public
+   * heartbeat effect below publishes to every one of them.
    *
    * `status` alone is not enough. Expiry is written server-side only when a row
    * is READ, and nothing on this screen refetches on a timer -- so a link that
    * ran out five minutes ago is still `status: "active"` in the state this
-   * session already holds. That was harmless while the Links tab merely listed
-   * it. It is not harmless now: the tab hides its create control whenever a
-   * link is live, so a stale row left the person looking at a dead link with no
-   * way to make another until they reloaded the page.
+   * session already holds; without this filter a dead link would sit in the
+   * list as if it were still watchable.
    *
-   * `nowMs` ticks every 30s and on return from background, so the create form
-   * comes back on its own, which is exactly the promise the tab makes.
+   * `nowMs` ticks every 30s and on return from background, so an expired card
+   * drops out on its own.
    *
    * A row with no `expiresAt` is treated as live: the server sent it as active
    * and we have nothing to contradict that with.
@@ -3805,6 +3807,53 @@ export function OneLocationAgentPageContent({
     }
     return createdPublicInvite.url;
   }, [createdPublicInvite, latestActivePublicInvite, nowMs]);
+
+  /**
+   * `activePublicInvites`, with every URL rewritten to its current shape and
+   * the just-created link folded in for the one round trip before it shows up
+   * there for real.
+   *
+   * The Links tab renders one card per entry here. `publicUrl` is rewritten
+   * here rather than left raw: a row minted before the path moved still
+   * carries `/one/location/request/<token>`, and copying that verbatim would
+   * put the old shape back into circulation long after the app stopped
+   * producing it.
+   *
+   * The synthetic entry exists because, without it, a fresh link would be
+   * invisible for exactly the window between "created" and the next
+   * `getState` -- `handleCreatePublicInvite` fires `refresh()` without
+   * awaiting it -- which reads as "nothing happened" on the one control whose
+   * entire job is to confirm it did. Its id keeps it out of anything keyed on
+   * a real invite id; revoke stays disabled for it until the server's row
+   * (and its real id) lands.
+   */
+  const displayPublicInvites = useMemo(() => {
+    const normalized = activePublicInvites.map((invite) =>
+      invite.publicUrl
+        ? { ...invite, publicUrl: publicInviteUrlLabel(invite.publicUrl) }
+        : invite,
+    );
+    if (
+      !createdPublicInvite ||
+      (createdPublicInvite.expiresAtMs !== null &&
+        createdPublicInvite.expiresAtMs <= nowMs) ||
+      normalized.some((invite) => invite.publicUrl === createdPublicInvite.url)
+    ) {
+      return normalized;
+    }
+    const pendingInvite: OneLocationPublicInvite = {
+      id: `pending:${createdPublicInvite.url}`,
+      ownerUserId: auth.userId ?? "",
+      status: "active",
+      durationHours: createdPublicInvite.durationHours,
+      expiresAt:
+        createdPublicInvite.expiresAtMs !== null
+          ? new Date(createdPublicInvite.expiresAtMs).toISOString()
+          : null,
+      publicUrl: createdPublicInvite.url,
+    };
+    return [...normalized, pendingInvite];
+  }, [activePublicInvites, auth.userId, createdPublicInvite, nowMs]);
 
   const activeCircleInvites = useMemo(
     () =>
@@ -6025,12 +6074,19 @@ export function OneLocationAgentPageContent({
    * A failure is never surfaced. The window is the promise; the pin going a
    * tick stale is not something the owner can act on, and a toast once every
    * twenty seconds is worse than the staleness.
+   *
+   * Every active link is published to, not just one. An owner can have
+   * several public links out at once -- a 15-minute link to one person and an
+   * hour-long link to another -- and each has to keep showing where the owner
+   * is for as long as it stays live. `Promise.allSettled` fires them all off
+   * the same captured point: a link that 404s (revoked or expired between
+   * ticks) must not stop the rest from updating.
    */
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!vaultOwnerToken) return;
-    const inviteId = activePublicInvites[0]?.id;
-    if (!inviteId) return;
+    const inviteIds = activePublicInvites.map((invite) => invite.id);
+    if (inviteIds.length === 0) return;
     if (locationControl.paused) return;
     if (
       permission?.state === "denied" ||
@@ -6043,7 +6099,7 @@ export function OneLocationAgentPageContent({
     let cancelled = false;
     let inFlight = false;
 
-    const publishPublicLink = async () => {
+    const publishPublicLinks = async () => {
       if (cancelled || inFlight) return;
       if (
         typeof document !== "undefined" &&
@@ -6057,25 +6113,31 @@ export function OneLocationAgentPageContent({
         // Nothing measured this session. A page that says "Live" must never be
         // handed a remembered coordinate; the watch will deliver one shortly.
         if (!point || cancelled) return;
-        await OneLocationService.refreshPublicInviteLocation({
-          vaultOwnerToken,
-          inviteId,
-          locationSnapshot: point,
-        });
+        await Promise.allSettled(
+          inviteIds.map((inviteId) =>
+            OneLocationService.refreshPublicInviteLocation({
+              vaultOwnerToken,
+              inviteId,
+              locationSnapshot: point,
+            }),
+          ),
+        );
+        // Rejections (including the expected 404 from a link revoked or
+        // expired in another tab) are swallowed by design: the row is gone;
+        // the next state refresh drops it from `activePublicInvites`, and
+        // every other link's update already landed regardless.
       } catch {
-        // Includes the expected 404 from a link revoked in another tab. The
-        // row is gone; the next state refresh drops it from
-        // `activePublicInvites` and this effect tears itself down.
+        // liveHeartbeatPoint() itself failing. Same policy: nothing surfaced.
       } finally {
         inFlight = false;
       }
     };
 
     const interval = window.setInterval(
-      () => void publishPublicLink(),
+      () => void publishPublicLinks(),
       LIVE_LOCATION_UPDATE_INTERVAL_MS,
     );
-    void publishPublicLink();
+    void publishPublicLinks();
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -7371,14 +7433,18 @@ export function OneLocationAgentPageContent({
       });
       if (!readiness.ready || !readiness.point) return;
       const point = readiness.point;
+      const requestedDurationHours = publicInviteDurationHours(
+        publicLinkDurationHours,
+      );
       const response = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
-        durationHours: publicInviteDurationHours(publicLinkDurationHours),
+        durationHours: requestedDurationHours,
         locationSnapshot: point,
       });
       const url = publicInviteUrlLabel(response.publicUrl);
       setCreatedPublicInvite({
         url,
+        durationHours: response.invite?.durationHours ?? requestedDurationHours,
         expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
       });
       const copiedToClipboard = url ? await copyToClipboard(url) : false;
@@ -7389,20 +7455,13 @@ export function OneLocationAgentPageContent({
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activePublicInvites.length + 1,
       });
-      // One live link per person, so pressing this while one is already out
-      // there restarts that link's window rather than minting a second URL.
-      // Saying "created" would be a lie the person acts on: they would think
-      // the old link is dead and this one is new, when in fact everyone they
-      // sent it to is still watching through the same URL.
-      const reusedExistingLink = response.reused === true;
+      // Every press mints its own independent link -- it never touches
+      // whatever is already live -- so this is always "created", never a
+      // restart of something the person already handed out.
       toast.success(
-        reusedExistingLink
-          ? copiedToClipboard
-            ? "Your live link now runs for another window, and is copied."
-            : "Your live link now runs for another window."
-          : copiedToClipboard
-            ? "Public location link created and copied."
-            : "Public location link created.",
+        copiedToClipboard
+          ? "Public location link created and copied."
+          : "Public location link created.",
       );
       void refresh().catch(() => null);
     } catch (error) {
@@ -7430,40 +7489,51 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  const handleCopyPublicInvite = useCallback(async (): Promise<boolean> => {
-    if (!publicInviteUrl) return false;
-    try {
-      const copiedToClipboard = await copyToClipboard(publicInviteUrl);
-      if (copiedToClipboard) {
-        toast.success("Public location link copied.");
-        return true;
-      } else {
+  // Takes the URL explicitly rather than always reading `publicInviteUrl`:
+  // with several links live at once, the Links tab needs to copy whichever
+  // card's URL was pressed, not just "the" one. Callers with a single link in
+  // mind (the legacy compose flow, Share to contacts) still fall back to
+  // `publicInviteUrl`.
+  const handleCopyPublicInvite = useCallback(
+    async (url: string = publicInviteUrl): Promise<boolean> => {
+      if (!url) return false;
+      try {
+        const copiedToClipboard = await copyToClipboard(url);
+        if (copiedToClipboard) {
+          toast.success("Public location link copied.");
+          return true;
+        } else {
+          toast.error("Could not copy the public location link.");
+          return false;
+        }
+      } catch {
         toast.error("Could not copy the public location link.");
         return false;
       }
-    } catch {
-      toast.error("Could not copy the public location link.");
-      return false;
-    }
-  }, [publicInviteUrl]);
+    },
+    [publicInviteUrl],
+  );
 
-  const handleSharePublicInvite = useCallback(async () => {
-    if (!publicInviteUrl) return;
-    try {
-      const delivery = await shareOneLocationLink({
-        title: ONE_LOCATION_PUBLIC_SHARE_TITLE,
-        text: ONE_LOCATION_PUBLIC_SHARE_COPY,
-        url: publicInviteUrl,
-        dialogTitle: "Share to contacts",
-      });
-      if (delivery === "copied") {
-        toast.success("Public location link copied.");
+  const handleSharePublicInvite = useCallback(
+    async (url: string = publicInviteUrl) => {
+      if (!url) return;
+      try {
+        const delivery = await shareOneLocationLink({
+          title: ONE_LOCATION_PUBLIC_SHARE_TITLE,
+          text: ONE_LOCATION_PUBLIC_SHARE_COPY,
+          url,
+          dialogTitle: "Share to contacts",
+        });
+        if (delivery === "copied") {
+          toast.success("Public location link copied.");
+        }
+      } catch (error) {
+        if (isShareCancellationError(error)) return;
+        toast.error("Could not open the share sheet.");
       }
-    } catch (error) {
-      if (isShareCancellationError(error)) return;
-      toast.error("Could not open the share sheet.");
-    }
-  }, [publicInviteUrl]);
+    },
+    [publicInviteUrl],
+  );
 
   const handleShareContactInvite = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -7477,14 +7547,18 @@ export function OneLocationAgentPageContent({
         });
         if (!readiness.ready || !readiness.point) return;
         const point = readiness.point;
+        const requestedDurationHours = publicInviteDurationHours(
+          publicLinkDurationHours,
+        );
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
-          durationHours: publicInviteDurationHours(publicLinkDurationHours),
+          durationHours: requestedDurationHours,
           locationSnapshot: point,
         });
         url = publicInviteUrlLabel(response.publicUrl);
         setCreatedPublicInvite({
           url,
+          durationHours: response.invite?.durationHours ?? requestedDurationHours,
           expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
         });
         trackEvent("one_location_public_link_created", {
@@ -8545,6 +8619,9 @@ export function OneLocationAgentPageContent({
   const handleRevokePublicInvite = useCallback(
     async (invite: OneLocationPublicInvite) => {
       if (!vaultOwnerToken) return;
+      // The synthetic bridge card from `displayPublicInvites` has no real
+      // invite id yet -- nothing to revoke until the server's row lands.
+      if (invite.id.startsWith("pending:")) return;
       setBusy("publicRevoke");
       try {
         await OneLocationService.revokePublicInvite({
@@ -13283,7 +13360,7 @@ export function OneLocationAgentPageContent({
     receivedGrants: activeReceivedGrants,
     pendingOwnerRequests,
     requestedByMe,
-    latestActivePublicInvite,
+    activePublicInvites: displayPublicInvites,
     latestActiveCircleInvite,
     activityReceipts: (locationActivity?.events ?? []).map((event) => ({
       id: event.id,
@@ -13375,7 +13452,7 @@ export function OneLocationAgentPageContent({
     onRequestMoreTime: handleRequestMoreTime,
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: handleCopyPublicInvite,
-    onSharePublicInvite: () => void handleSharePublicInvite(),
+    onSharePublicInvite: (url) => void handleSharePublicInvite(url),
     onRevokePublicInvite: (invite) => void handleRevokePublicInvite(invite),
     onCreateCircleInvite: () => void handleCreateCircleInvite(),
     onCopyCircleInvite: () => void handleCopyCircleInvite(),

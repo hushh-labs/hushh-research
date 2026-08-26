@@ -502,6 +502,14 @@ def _hash_public_value(value: str) -> str:
 # before it posts.
 PUBLIC_INVITE_MAX_DURATION_HOURS = 1.0
 
+# Multiple public links can be live for the same owner at once -- Link A to one
+# person for 15 minutes, Link B to another for an hour, independently. Nothing
+# here rejects a second, a third, or a tenth. This cap exists only so that
+# create_public_invite can't be hammered into leaving an unbounded number of
+# rows active for one owner; it is an abuse guard, not a product limit anyone
+# is expected to reach.
+PUBLIC_INVITE_MAX_ACTIVE_PER_OWNER = 10
+
 _PUBLIC_INVITE_TOKEN_DOMAIN = b"one-location-public-invite-token:v1:"
 _PUBLIC_INVITE_CODE_VERSION = "derived-v1"
 
@@ -6787,9 +6795,8 @@ class OneLocationAgentService:
                 "A public location link can stay live for at most 1 hour.",
                 status_code=422,
             )
-        # Validated before either branch below: a malformed snapshot is a 422
-        # whether this call mints a link or refreshes the live one, and doing it
-        # here means the reuse path cannot write a half-checked point.
+        # Validated before it mints anything: a malformed snapshot is a 422,
+        # not a link created with a half-checked point.
         public_location = self._public_location_snapshot_payload(location_snapshot)
         # The name the recipient will see, stamped onto the row so a reader
         # needs no identity lookup. `resolve_public_invite` resolves it again
@@ -6798,8 +6805,8 @@ class OneLocationAgentService:
 
         # Expiry is written lazily -- `_expire_public_invite` only flips a row
         # when something reads it -- so a link whose time has passed can still
-        # be sitting at status 'active'. Settle that here first, or the reuse
-        # check below hands back a dead link instead of minting a fresh one.
+        # be sitting at status 'active'. Settle that here first, so it never
+        # counts against the simultaneous-link cap below.
         self._execute_one(
             """
             UPDATE one_location_public_invites
@@ -6811,131 +6818,35 @@ class OneLocationAgentService:
             {"owner_user_id": owner_user_id},
         )
 
-        # One live public link per person, enforced where it can actually hold.
+        # Multiple public links can be live for one owner at the same time --
+        # a 15-minute link to one person and an hour-long link to another,
+        # each independently resolvable, each revoked or expired on its own.
+        # Every call here mints its own row, its own token and its own window;
+        # nothing above is looked up or touched by it.
         #
-        # Nothing stopped a second: no unique index, no lookup, just an INSERT.
-        # A reload, a second device or a double tap therefore left two links
-        # resolvable while the screen showed one, and revoking the one on
-        # screen left the other watching. The client now hides its create
-        # control while a link is live, but a client rule is not an invariant --
-        # a stale tab defeats it.
-        #
-        # Reuse rather than reject: this is the same call the person makes when
-        # they mean "give me my link", and a 409 would be a dead end on a
-        # screen whose whole job is to hand it over. Matches
-        # `one_location_circle_service.create_invite_code`, which returns the
-        # circle's existing active code rather than minting a second.
-        existing = self._execute_one(
-            """
-            SELECT *
-            FROM one_location_public_invites
-            WHERE owner_user_id = :owner_user_id
-              AND status = 'active'
-              AND expires_at > NOW()
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            {"owner_user_id": owner_user_id},
-        )
-        if existing:
-            existing_token = _public_invite_token_if_derivable(existing)
-            if existing_token:
-                # Reuse used to hand the row back exactly as it was found, and
-                # that made this call lie twice.
-                #
-                # Expiry: the person picked a duration and pressed a control
-                # labelled "Create link". Returning a link with four minutes
-                # left on it because one was minted 56 minutes ago breaks the
-                # only promise the screen makes -- "link stays live for 1 hour"
-                # -- and nothing on screen could contradict it, because the
-                # countdown shown afterwards is read from this row, so it
-                # agreed with the wrong answer. The window is restarted from
-                # now for exactly the duration that was asked for, in both
-                # directions: shortening is equally deliberate, and only the
-                # owner can ask for it.
-                #
-                # Snapshot: the caller has just captured a fresh point (every
-                # entry point runs the readiness gate before it posts). Keeping
-                # the old one meant a reused link opened on where the owner was
-                # up to an hour ago, presented as where they are now.
-                #
-                # Label: written on every pass, so a link minted before the
-                # name was recorded -- or one whose owner has since set a
-                # display name -- stops reading "A trusted person".
-                existing_metadata = _loads_json(existing.get("metadata")) or {}
-                if not isinstance(existing_metadata, dict):
-                    existing_metadata = {}
-                refreshed_metadata = dict(existing_metadata)
-                refreshed_metadata["codeVersion"] = _PUBLIC_INVITE_CODE_VERSION
-                if public_location:
-                    refreshed_metadata["publicLocation"] = public_location
-                if owner_safe_label:
-                    refreshed_metadata["owner_safe_label"] = owner_safe_label
-                refreshed = self._execute_one(
-                    """
-                    UPDATE one_location_public_invites
-                    SET duration_hours = :duration_hours,
-                        expires_at = NOW() + (
-                          CAST(:duration_hours AS double precision) * INTERVAL '1 hour'
-                        ),
-                        metadata = CAST(:metadata_json AS JSONB),
-                        updated_at = NOW()
-                    WHERE id = CAST(:invite_id AS UUID)
-                      AND status = 'active'
-                    RETURNING *
-                    """,
-                    {
-                        "invite_id": str(existing.get("id") or ""),
-                        "duration_hours": duration,
-                        "metadata_json": _json_param_with_public_location(refreshed_metadata),
-                    },
-                )
-                # Only the row the UPDATE actually wrote. The SELECT above and
-                # this UPDATE are separate statements, so a second device -- or
-                # the `revoke_public_link` agent tool -- can revoke the invite
-                # in between; the UPDATE is guarded on `status = 'active'` and
-                # returns nothing when that happens. Falling back to the row
-                # the SELECT read would hand the owner a link whose stored
-                # status still says 'active', so `_public_invite_payload`
-                # would attach a `publicUrl` -- a link they can copy and share
-                # that 410s the first time anyone opens it. Falling through to
-                # the mint path instead gives them a link that works, which is
-                # what they asked for.
-                existing_payload = self._public_invite_payload(refreshed) if refreshed else None
-                if existing_payload:
-                    self._insert_event(
-                        owner_user_id=owner_user_id,
-                        actor_user_id=owner_user_id,
-                        event_type="location_public_invite_created",
-                        metadata={
-                            "invite_id": existing_payload["id"],
-                            "duration_hours": duration,
-                            "location_snapshot": ("attached" if public_location else "none"),
-                            "reused": True,
-                        },
-                    )
-                    return {
-                        "invite": existing_payload,
-                        "publicToken": existing_token,
-                        "publicUrl": _public_invite_url(existing_token),
-                        # The caller asked for a link and got one; it is simply
-                        # the one that was already live. Named so a client can
-                        # tell "created" from "here is the one you have" without
-                        # comparing timestamps.
-                        "reused": True,
-                    }
-            # A row minted before tokens were derivable, or one whose digest no
-            # longer verifies. Its token is genuinely unrecoverable, so leaving
-            # it active would strand the owner behind a link nothing can show.
-            # Retire it and mint a replacement rather than refuse.
+        # The only gate is a count, to keep this from being hammered into an
+        # unbounded number of rows for one owner.
+        active_count_row = (
             self._execute_one(
                 """
-                UPDATE one_location_public_invites
-                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-                WHERE id = CAST(:invite_id AS UUID)
+                SELECT COUNT(*)::int AS active_count
+                FROM one_location_public_invites
+                WHERE owner_user_id = :owner_user_id
                   AND status = 'active'
+                  AND expires_at > NOW()
                 """,
-                {"invite_id": str(existing.get("id") or "")},
+                {"owner_user_id": owner_user_id},
+            )
+            or {}
+        )
+        if int(active_count_row.get("active_count") or 0) >= PUBLIC_INVITE_MAX_ACTIVE_PER_OWNER:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_LIMIT",
+                (
+                    f"You can have at most {PUBLIC_INVITE_MAX_ACTIVE_PER_OWNER} live "
+                    "location links at once. Stop one before creating another."
+                ),
+                status_code=429,
             )
 
         # The id is chosen here rather than by the default, because the token is

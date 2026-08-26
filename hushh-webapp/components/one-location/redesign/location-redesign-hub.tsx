@@ -330,7 +330,14 @@ export type LocationHubViewModel = {
   receivedGrants: OneLocationGrant[];
   pendingOwnerRequests: OneLocationAccessRequest[];
   requestedByMe: OneLocationAccessRequest[];
-  latestActivePublicInvite: OneLocationPublicInvite | null;
+  /**
+   * Every public link currently live for this owner, not just the newest.
+   *
+   * Multiple can be live at once -- a 15-minute link to one person and an
+   * hour-long link to another -- and the Links tab renders one card per
+   * entry here rather than collapsing them into a single "latest" link.
+   */
+  activePublicInvites: OneLocationPublicInvite[];
   latestActiveCircleInvite: OneLocationCircleInvite | null;
   activityReceipts: { id: string; title: string; detail: string }[];
 
@@ -458,8 +465,8 @@ export type LocationHubViewModel = {
   onEditLiveShareDurationCancel: () => void;
   onSaveLiveShareDuration: () => void;
   onCreatePublicInvite: () => void;
-  onCopyPublicInvite: () => boolean | Promise<boolean>;
-  onSharePublicInvite: () => void;
+  onCopyPublicInvite: (url: string) => boolean | Promise<boolean>;
+  onSharePublicInvite: (url: string) => void;
   onRevokePublicInvite: (invite: OneLocationPublicInvite) => void;
   onCreateCircleInvite: () => void;
   onCopyCircleInvite: () => void;
@@ -3687,6 +3694,7 @@ export function PeopleHub({
 /* =================================================================== */
 
 const PUBLIC_LINK_DURATION_OPTIONS = [
+  { value: "0.25", label: "15 min" },
   { value: "0.5", label: "30 min" },
   { value: "1", label: "1 hour" },
 ] as const;
@@ -3747,6 +3755,17 @@ function ActiveLinkRow({
   );
 }
 
+/** "0.25" -> "15 min link", falling back to the raw hour count for anything
+ * not on the offered list (an older link minted under a different scheme). */
+function publicLinkTitle(durationHours: number): string {
+  const match = PUBLIC_LINK_DURATION_OPTIONS.find(
+    (option) => Number(option.value) === durationHours,
+  );
+  if (match) return `${match.label} link`;
+  if (durationHours < 1) return `${Math.round(durationHours * 60)} min link`;
+  return `${durationHours} hour link`;
+}
+
 /**
  * The Links tab, which is now the whole of the live-location-link flow.
  *
@@ -3760,32 +3779,14 @@ function ActiveLinkRow({
  *
  * The question is now asked here, and the answer replaces it in place.
  *
- * One live link at a time. While one is active there is no create control at
- * all: not disabled, absent. A second link is not a thing the product wants to
- * be able to make -- both stay independently resolvable, revoking the one on
- * screen leaves the other watching, and the tab can only ever show the newest.
- * The way to a different link is to end this one, which is a button already on
- * the card. The server refuses the second as well (`create_public_invite`
- * hands back the live one), because a rule that lives only in a component is
- * defeated by a stale tab.
+ * Multiple links can be live at once -- a 15-minute link to one person and an
+ * hour-long link to another, independently. The create control is therefore
+ * always on screen, never hidden behind "one is already live": every active
+ * link gets its own card below it, each with its own Copy, Share and Stop, and
+ * stopping one never touches another.
  */
 function LinksHub({ vm }: { vm: LocationHubViewModel }) {
-  const temp = vm.latestActivePublicInvite;
   const invite = vm.latestActiveCircleInvite;
-  // Two separate questions, and both have to be asked.
-  //
-  //   is a link live?      `temp` -- the server's row
-  //   can we hand it over? `vm.publicInviteUrl` -- the URL itself
-  //
-  // Neither implies the other. An invite minted before its token could be
-  // re-derived from its row is live with no recoverable URL, so Copy would
-  // hand over nothing. And for one round trip after creating, the URL is known
-  // while the row is not: `onCreatePublicInvite` fires its refresh without
-  // awaiting it. Keying the whole tab on `temp` alone put the create form back
-  // on screen during that window, which reads as "nothing happened" and
-  // invites a second press.
-  const hasLiveLink = Boolean(temp) || Boolean(vm.publicInviteUrl);
-  const hasShareableLink = Boolean(vm.publicInviteUrl);
 
   return (
     <div className="space-y-4">
@@ -3793,31 +3794,80 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
         <SectionTitle as="h2">Temporary link</SectionTitle>
       </div>
 
-      {hasLiveLink ? (
-        hasShareableLink ? (
+      <div className={cn(SUBCARD_SURFACE, "space-y-5 p-5 sm:p-6")}>
+        <p className="text-[15px] leading-5 text-muted-foreground">
+          Anyone with this link can see your location until it expires.
+        </p>
+        <div className="space-y-2.5">
+          <p className="text-[15px] font-semibold leading-5 text-foreground">
+            Duration
+          </p>
+          <div
+            className="grid grid-cols-3 gap-2"
+            role="radiogroup"
+            aria-label="Temporary link duration"
+          >
+            {PUBLIC_LINK_DURATION_OPTIONS.map((option) => {
+              const selected = vm.publicLinkDurationHours === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => vm.setPublicLinkDurationHours(option.value)}
+                  className={cn(
+                    "h-11 rounded-[14px] border text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2",
+                    selected
+                      ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                      : "border-border bg-[color:var(--app-card-surface-compact)] text-foreground hover:bg-[color:var(--app-card-surface-compact)]/80",
+                  )}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {/* The label changes while it works. This press waits on a device fix
+            before it can post anything, so on a cold start it can sit for
+            several seconds -- and it used to sit as a bare spinner with the
+            label hidden, which is why it read as "taking longer than
+            expected" rather than as "still finding you". Naming the wait is
+            the fix available here; the wait itself is a GPS acquisition. */}
+        <Button
+          onClick={vm.onCreatePublicInvite}
+          isLoading={vm.busy === "publicInvite"}
+          data-voice-control-id="one-location-action-temp-link"
+          className="h-12 min-h-12 w-full rounded-[15px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        >
+          {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
+        </Button>
+      </div>
+
+      {/* One card per active link. Each is a complete, independent unit: its
+          own duration, its own countdown, its own URL, its own Stop -- Stop on
+          one card revokes only that invite's id and leaves every other card
+          exactly as it was. */}
+      {vm.activePublicInvites.map((publicInvite) => {
+        // The synthetic bridge card for a just-created link, before the
+        // server's row (and its real id) has landed. Revoking needs that id,
+        // so the control shows itself as busy rather than pretending to
+        // work -- honest, because a refresh really is in flight.
+        const isPending = publicInvite.id.startsWith("pending:");
+        const revokeBusy = vm.busy === "publicRevoke" || isPending;
+        return publicInvite.publicUrl ? (
           <TemporaryLinkCard
-            statusLine={
-              temp
-                ? publicLinkStatusLabel(
-                    vm.expiresCountdownLabel(temp.expiresAt),
-                  )
-                : "Active"
-            }
+            key={publicInvite.id}
+            title={publicLinkTitle(publicInvite.durationHours)}
+            statusLine={publicLinkStatusLabel(
+              vm.expiresCountdownLabel(publicInvite.expiresAt),
+            )}
             description="Anyone with this link can see your location."
-            // No countdown until the row lands: inventing one from the
-            // duration that was picked would drift from the expiry the server
-            // actually stamped.
-            onCopy={vm.onCopyPublicInvite}
-            onShare={vm.onSharePublicInvite}
-            // Revoking needs the invite's id, which arrives with the row. In
-            // the moment before it does, the control shows itself as busy
-            // rather than pretending to work -- which is honest, because a
-            // refresh really is in flight. Copy and Share are unaffected: the
-            // URL is already in hand.
-            onRevoke={() => {
-              if (temp) vm.onRevokePublicInvite(temp);
-            }}
-            revokeBusy={vm.busy === "publicRevoke" || !temp}
+            onCopy={() => vm.onCopyPublicInvite(publicInvite.publicUrl ?? "")}
+            onShare={() => vm.onSharePublicInvite(publicInvite.publicUrl ?? "")}
+            onRevoke={() => vm.onRevokePublicInvite(publicInvite)}
+            revokeBusy={revokeBusy}
           />
         ) : (
           // Live, and its URL is gone: an invite from before the token could be
@@ -3825,84 +3875,28 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
           // they are not offered -- but the link is still out there watching,
           // so ending it has to stay reachable. Saying why keeps this from
           // reading as a bug the person should retry.
-          <div className={cn(SUBCARD_SURFACE, "space-y-4 p-5 sm:p-6")}>
+          <div
+            key={publicInvite.id}
+            className={cn(SUBCARD_SURFACE, "space-y-4 p-5 sm:p-6")}
+          >
             <p className="text-[15px] leading-5 text-muted-foreground">
-              Active, but the link is unavailable on this device.
+              {publicLinkTitle(publicInvite.durationHours)}: active, but the
+              link is unavailable on this device.
             </p>
             <button
               type="button"
-              onClick={() => {
-                if (temp) vm.onRevokePublicInvite(temp);
-              }}
-              disabled={vm.busy === "publicRevoke" || !temp}
+              onClick={() => vm.onRevokePublicInvite(publicInvite)}
+              disabled={revokeBusy}
               className="min-h-11 w-full text-left text-[15px] font-semibold leading-5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
             >
-              {vm.busy === "publicRevoke" || !temp ? "Stopping…" : "Stop link"}
+              {revokeBusy ? "Stopping…" : "Stop link"}
             </button>
           </div>
-        )
-      ) : (
-        // No warning banner above the picker. It said two things the screen
-        // already says better: the duration control underneath states exactly
-        // how long the link lives, and the card that replaces this whole block
-        // once a link exists carries the concise visibility line on
-        // the object it is actually about. An amber panel repeating both, on
-        // the one screen whose entire purpose is to create the link, read as a
-        // reason not to press the button rather than as information.
-        <div className={cn(SUBCARD_SURFACE, "space-y-5 p-5 sm:p-6")}>
-          <p className="text-[15px] leading-5 text-muted-foreground">
-            Anyone with this link can see your location until it expires.
-          </p>
-          <div className="space-y-2.5">
-            <p className="text-[15px] font-semibold leading-5 text-foreground">
-              Duration
-            </p>
-            <div
-              className="grid grid-cols-2 gap-2"
-              role="radiogroup"
-              aria-label="Temporary link duration"
-            >
-              {PUBLIC_LINK_DURATION_OPTIONS.map((option) => {
-                const selected = vm.publicLinkDurationHours === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => vm.setPublicLinkDurationHours(option.value)}
-                    className={cn(
-                      "h-11 rounded-[14px] border text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2",
-                      selected
-                        ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                        : "border-border bg-[color:var(--app-card-surface-compact)] text-foreground hover:bg-[color:var(--app-card-surface-compact)]/80",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {/* The label changes while it works. This press waits on a device fix
-              before it can post anything, so on a cold start it can sit for
-              several seconds -- and it used to sit as a bare spinner with the
-              label hidden, which is why it read as "taking longer than
-              expected" rather than as "still finding you". Naming the wait is
-              the fix available here; the wait itself is a GPS acquisition. */}
-          <Button
-            onClick={vm.onCreatePublicInvite}
-            isLoading={vm.busy === "publicInvite"}
-            data-voice-control-id="one-location-action-temp-link"
-            className="h-12 min-h-12 w-full rounded-[15px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-          >
-            {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
-          </Button>
-        </div>
-      )}
+        );
+      })}
 
       {/* A Circle invite is a different object on a different table with a
-          different ceiling, and it is not subject to the one-at-a-time rule
+          different ceiling, and it is not subject to the multi-link handling
           above: it admits one named person to a Circle rather than showing the
           owner to anyone holding a URL. It keeps its row. */}
       {invite ? (

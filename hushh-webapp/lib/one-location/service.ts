@@ -1056,14 +1056,6 @@ export class OneLocationService {
     invite: OneLocationPublicInvite;
     publicToken: string;
     publicUrl: string;
-    /**
-     * True when the server handed back the link that was already live rather
-     * than minting a second one. Its window is restarted for the duration that
-     * was just asked for, so the link is honestly "live for an hour" either
-     * way -- but it is the SAME URL, and anyone already holding it keeps
-     * watching. Worth saying out loud rather than reporting "link created".
-     */
-    reused?: boolean;
   }> {
     return apiJsonWithRetry(
       "/api/one/location/public-invites",
