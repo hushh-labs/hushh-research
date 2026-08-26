@@ -63,7 +63,13 @@ logger = logging.getLogger(__name__)
 #: Where the derived index lives. A tmpfs path on Cloud Run, which is correct:
 #: the index is disposable and the log is the record.
 _SQLITE_PATH_ENV = "POD_PKM_SQLITE_PATH"
-_DEFAULT_SQLITE_PATH = "/tmp/pod-pkm.sqlite3"  # noqa: S108 - tmpfs by design, see docstring
+# Both linters flag a hardcoded /tmp path, and here it is the correct one.
+# Cloud Run's /tmp is a per-instance in-memory tmpfs, not a shared
+# multi-tenant directory, so the symlink and predictable-name attacks
+# CWE-377 describes have no second party to come from. The index is derived,
+# disposable, and rebuilt from the sealed log; putting it on a durable disk
+# would be the actual defect, since it would outlive the process that sealed it.
+_DEFAULT_SQLITE_PATH = "/tmp/pod-pkm.sqlite3"  # noqa: S108  # nosec B108
 
 #: Ships dark, like every other pod capability. Off means the hub keeps pushing
 #: `pkmContext` exactly as it does today, so enabling this is a decision rather
