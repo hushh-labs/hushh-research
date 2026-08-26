@@ -16,20 +16,19 @@ const PROFILE_SOURCE = fs.readFileSync(
 );
 
 describe("One Location settings placement", () => {
-  it("keeps Settings out of the compact Now hub", () => {
+  it("keeps the old Settings entry out of the compact Now hub", () => {
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
     expect(nowSource).not.toContain('testId="one-location-settings-entry"');
-    expect(nowSource).not.toContain('title="Settings"');
     expect(nowSource).not.toContain('title="Privacy"');
   });
 
   it("offers Ask for location inside the compact Now actions", () => {
     // Request location is an action, not status or utility. The compact Now
-    // tab shows Ask, Check in, and SMS without dashboard section labels or a
-    // duplicated utility list.
+    // tab shows Ask, Check in, SMS, count-backed Activity rows, and the quiet
+    // More rows without dashboard section labels or the old active-shares row.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
@@ -42,10 +41,14 @@ describe("One Location settings placement", () => {
     const actionsIndex = nowSource.indexOf("LocationActionGrid");
     const requestIndex = nowSource.indexOf('title: "Ask for location"');
     const activityIndex = nowSource.indexOf("one-location-now-activity");
+    const moreIndex = nowSource.indexOf("one-location-now-more");
     expect(actionsIndex).toBeGreaterThan(-1);
     expect(requestIndex).toBeGreaterThan(actionsIndex);
     expect(activityIndex).toBeGreaterThan(requestIndex);
-    expect(nowSource).not.toContain("one-location-now-more");
+    expect(moreIndex).toBeGreaterThan(activityIndex);
+    expect(nowSource).toContain('title: "Map"');
+    expect(nowSource).toContain('title: "Settings"');
+    expect(nowSource).not.toContain('title: "Active shares"');
     expect(nowSource).not.toContain("LocationNowGroupLabel");
 
     // Reuses the existing ask flow rather than introducing a second one, so

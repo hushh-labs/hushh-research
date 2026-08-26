@@ -80,9 +80,17 @@ import { Switch } from "@/components/ui/switch";
 import { LocationPermissionRecoveryCard } from "@/components/one-location/location-permission-recovery-card";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
+  ButtonLabel,
+  CardTitle,
+  FormLabel,
+  MediumRowLabel,
+  PageTitle,
+  PageSubtitle,
   RowDescription,
   RowLabel,
+  SectionLabel,
   SectionTitle,
+  TrailingValue,
 } from "@/components/app-ui/typography";
 import type {
   OneLocationAccessRequest,
@@ -802,7 +810,7 @@ function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
     <span
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className="mt-1 block w-full whitespace-nowrap text-center font-[family-name:var(--font-app-body)] text-[12px] font-normal leading-4 tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
+      className="mt-1 block w-full whitespace-nowrap text-right font-[family-name:var(--font-app-body)] text-[13px] font-normal leading-[18px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
     >
       {locationHeaderStatusText(vm)}
     </span>
@@ -826,7 +834,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     <div
       role="group"
       aria-label="Location"
-      className="ml-auto flex h-[58px] w-[72px] shrink-0 flex-col items-center justify-center overflow-visible"
+      className="ml-auto flex min-h-[58px] w-[92px] shrink-0 flex-col items-end justify-center overflow-visible"
       data-testid="one-location-header-actions"
     >
       <Switch
@@ -864,6 +872,8 @@ const PEOPLE_LIST_SCROLL_CLASS =
   "space-y-5 overflow-visible md:max-h-[420px] md:space-y-3 md:overflow-y-auto md:overscroll-contain md:pr-1 md:[scrollbar-width:thin] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-black/15 dark:md:[&::-webkit-scrollbar-thumb]:bg-white/20";
 const FLOW_STEP_ONE_CLASSNAME =
   "mx-auto w-full max-w-[640px] space-y-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]";
+const FLOW_STEP_CONFIRM_CLASSNAME =
+  "mx-auto w-full max-w-[560px] space-y-5 pb-[calc(var(--app-bottom-fixed-ui,96px)+1rem)]";
 const STICKY_FLOW_ACTION_CLASSNAME =
   "sticky bottom-0 z-20 -mx-1 bg-[linear-gradient(to_bottom,transparent,rgba(242,242,247,0.92)_24%,rgba(242,242,247,0.98))] px-1 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 dark:bg-[linear-gradient(to_bottom,transparent,color-mix(in_srgb,var(--background)_92%,transparent)_24%,var(--background))]";
 
@@ -1443,9 +1453,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     <div className="space-y-4 sm:space-y-5">
       <PageHeader
         title={
-          <span className="font-[family-name:var(--font-app-display)] text-[34px] font-bold leading-[41px] tracking-[-0.02em]">
+          <PageTitle as="span">
             Location
-          </span>
+          </PageTitle>
         }
         leading={<LocationHeaderIconTile />}
         accent="location"
@@ -1485,6 +1495,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 vm.clearNamedCircleShareContext();
                 openShareFlow();
               }}
+              onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
+              onOpenSettings={vm.onOpenLocationSettings}
               onCheckIn={() =>
                 nearbyCheckInAvailable
                   ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
@@ -1527,7 +1539,13 @@ const PEOPLE_HEADER_ACTION =
 
 /** People-only grouped surface: compact geometry, shared semantic theme. */
 const PEOPLE_GROUP_SURFACE =
-  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]";
+  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none";
+
+const LOCATION_GROUP_SURFACE =
+  "overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:shadow-none";
+
+const LOCATION_INTERACTIVE_SURFACE =
+  "bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:shadow-none";
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
@@ -1546,6 +1564,8 @@ function NowHub({
   onStartShare,
   onCheckIn,
   onSos,
+  onOpenMap,
+  onOpenSettings,
   onOpenActiveShares,
   onOpenSharedWithMe,
   onOpenNeedsReview,
@@ -1555,6 +1575,8 @@ function NowHub({
   onStartShare: () => void;
   onCheckIn: () => void;
   onSos: () => void;
+  onOpenMap: () => void;
+  onOpenSettings: () => void;
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
   onOpenNeedsReview: () => void;
@@ -1580,6 +1602,24 @@ function NowHub({
       voiceActionId: "location.open_needs_review",
     },
   ].filter((row) => row.value > 0);
+  const moreRows = [
+    {
+      leading: <LocationMenuListIcon name="map" />,
+      title: "Map",
+      ariaLabel: "Map",
+      onClick: onOpenMap,
+      voiceControlId: "one-location-action-map",
+      voiceActionId: "location.open_map",
+    },
+    {
+      leading: <LocationMenuListIcon name="settings" />,
+      title: "Settings",
+      ariaLabel: "Settings",
+      onClick: onOpenSettings,
+      voiceControlId: "one-location-action-settings",
+      voiceActionId: "location.open_settings",
+    },
+  ];
 
   return (
     <div className="space-y-3" data-testid="one-location-now-hub">
@@ -1681,6 +1721,21 @@ function NowHub({
           </LocationMenuListGroup>
         </div>
       ) : null}
+      <div className="pt-1">
+        <LocationMenuListGroup testId="one-location-now-more">
+          {moreRows.map((row) => (
+            <LocationMenuListRow
+              key={row.voiceControlId}
+              leading={row.leading}
+              title={row.title}
+              ariaLabel={row.ariaLabel}
+              onClick={row.onClick}
+              voiceControlId={row.voiceControlId}
+              voiceActionId={row.voiceActionId}
+            />
+          ))}
+        </LocationMenuListGroup>
+      </div>
     </div>
   );
 }
@@ -1696,7 +1751,7 @@ function LocationMenuListGroup({
     <div
       data-ui-role="grouped-card"
       data-testid={testId}
-      className="overflow-hidden rounded-[16px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.045),0_6px_16px_rgba(0,0,0,0.035)] ring-1 ring-inset ring-black/[0.035] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
+      className={LOCATION_GROUP_SURFACE}
     >
       {children}
     </div>
@@ -1731,23 +1786,23 @@ function LocationMenuListRow({
       data-voice-label={ariaLabel}
       aria-label={ariaLabel}
       onClick={onClick}
-      className="flex min-h-14 w-full cursor-pointer items-center justify-between border-b border-[#e5e5ea]/80 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:border-[color:var(--app-separator)] dark:hover:bg-[color:var(--app-secondary-surface)]"
+      className="group flex min-h-14 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[color:var(--app-secondary-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
     >
       <span className="flex min-w-0 items-center gap-3">
         {leading}
-        <span className="min-w-0 text-[17px] font-normal leading-[22px] tracking-[-0.01em] text-[#1a1b1f] dark:text-[#f5f5f7]">
+        <RowLabel as="span" className="min-w-0">
           {title}
-        </span>
+        </RowLabel>
       </span>
       <span className="flex shrink-0 items-center gap-2">
         {typeof trailingValue === "number" ? (
-          <span className="min-w-4 text-right text-[16px] font-normal leading-[21px] tracking-[-0.01em] text-[#8e8e93] dark:text-[color:var(--app-secondary-label)]">
+          <TrailingValue as="span" className="min-w-4 text-right">
             {trailingValue}
-          </span>
+          </TrailingValue>
         ) : null}
         <ChevronRight
           aria-hidden="true"
-          className="h-5 w-5 shrink-0 text-[#c7c7cc] transition-transform group-active:translate-x-0.5 dark:text-[color:var(--app-tertiary-label)]"
+          className="h-5 w-5 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform group-active:translate-x-0.5"
         />
       </span>
     </button>
@@ -1759,17 +1814,20 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
     <section aria-label="Share location" data-testid="one-location-now-primary">
       <div
         data-testid="one-location-share-row"
-        className="grid w-full gap-4 rounded-[20px] bg-white px-5 py-5 text-left shadow-[0_1px_2px_rgba(0,0,0,0.02),0_5px_16px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/[0.025] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)] sm:grid-cols-[auto_minmax(0,1fr)_216px] sm:items-center sm:gap-6 sm:px-6 sm:py-6"
+        className={cn(
+          LOCATION_INTERACTIVE_SURFACE,
+          "grid w-full gap-4 rounded-[20px] px-5 py-5 text-left sm:grid-cols-[auto_minmax(0,1fr)_194px] sm:items-center sm:gap-5 sm:px-6 sm:py-5",
+        )}
       >
         <div className="flex min-w-0 items-center gap-4">
           <LocationSharePulseIcon />
           <span className="min-w-0 space-y-1">
-            <span className="block text-[20px] font-semibold leading-[25px] tracking-[-0.015em] text-[#1a1b1f] dark:text-[#f5f5f7]">
+            <CardTitle as="span" className="block">
               You&apos;re not sharing
-            </span>
-            <span className="block text-[15px] font-normal leading-5 tracking-[-0.01em] text-[#8e8e93] dark:text-[color:var(--app-secondary-label)]">
+            </CardTitle>
+            <PageSubtitle as="span" className="block">
               Choose a Circle or contact.
-            </span>
+            </PageSubtitle>
           </span>
         </div>
         <button
@@ -1779,9 +1837,9 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-          className="inline-flex min-h-[52px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 font-[family-name:var(--font-app-body)] text-[17px] font-semibold leading-[22px] tracking-[-0.02em] text-white transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:col-start-3"
+          className="inline-flex min-h-[47px] w-full items-center justify-center rounded-[15px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:col-start-3"
         >
-          Share location
+          <ButtonLabel as="span">Share location</ButtonLabel>
         </button>
       </div>
     </section>
@@ -1805,11 +1863,11 @@ function LocationSharePulseIcon() {
     <span
       aria-hidden="true"
       data-location-share-pulse-icon=""
-      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#eff6ff] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:bg-[color:var(--app-accent-tint)] dark:shadow-none sm:h-16 sm:w-16"
+      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:shadow-none sm:h-16 sm:w-16"
     >
-      <span className="absolute inset-[13%] rounded-full bg-[#dcecff] dark:bg-[rgba(10,132,255,0.18)]" />
-      <span className="absolute inset-[28%] rounded-full bg-[#b9d7ff] dark:bg-[rgba(10,132,255,0.28)]" />
-      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_#ffffff,0_8px_16px_rgba(0,122,255,0.22)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
+      <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
+      <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
+      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
     </span>
   );
 }
@@ -1852,7 +1910,8 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             aria-label={item.ariaLabel}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-[100px] min-w-0 flex-col items-center justify-center gap-3 rounded-[16px] bg-white px-5 py-4 text-center shadow-[0_1px_2px_rgba(0,0,0,0.018),0_2px_7px_rgba(0,0,0,0.018)] ring-1 ring-inset ring-black/[0.025] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:hover:bg-[color:var(--app-secondary-surface)] dark:ring-[color:var(--app-separator)]",
+              LOCATION_INTERACTIVE_SURFACE,
+              "group flex min-h-[96px] min-w-0 flex-col items-center justify-center gap-2.5 rounded-[16px] px-5 py-4 text-center transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]",
             )}
           >
             <span
@@ -1863,9 +1922,9 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
               {item.icon}
             </span>
             <span className="min-w-0">
-              <span className="block min-w-0 text-[17px] font-semibold leading-[22px] tracking-[-0.015em] text-[#1a1b1f] dark:text-[#f5f5f7]">
+              <ButtonLabel as="span" className="block min-w-0">
                 {item.title}
-              </span>
+              </ButtonLabel>
             </span>
           </button>
         ))}
@@ -1882,28 +1941,31 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           data-voice-label={emergencyItem.ariaLabel}
           aria-label={emergencyItem.ariaLabel}
           onClick={emergencyItem.onClick}
-          className="group mt-3 flex min-h-[68px] w-full items-center justify-between gap-4 rounded-[16px] bg-[#fff7f7] px-5 py-3 text-left ring-1 ring-inset ring-[#ff3b30]/16 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[#fff3f3] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff3b30]/40 dark:bg-[color:var(--app-destructive)]/10 dark:shadow-none dark:ring-[color:var(--app-destructive)]/30 dark:hover:bg-[color:var(--app-destructive)]/12"
+          className="group mt-3 flex min-h-[68px] w-full items-center justify-between gap-4 rounded-[16px] bg-[color:var(--app-destructive-tint)] px-5 py-3 text-left ring-1 ring-inset ring-[color:var(--app-destructive-border)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-destructive-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive-border)]"
         >
           <span className="flex min-w-0 items-center gap-4">
             <span
               aria-hidden
               data-one-location-action-icon=""
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#ff3b30] text-white transition-transform group-active:scale-95"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)] transition-transform group-active:scale-95"
             >
               {emergencyItem.icon}
             </span>
             <span className="min-w-0">
-              <span className="block min-w-0 text-[17px] font-semibold leading-[22px] tracking-[-0.015em] text-[#1a1b1f] dark:text-[#f5f5f7]">
+              <RowLabel as="span" className="block min-w-0 font-semibold">
                 {emergencyItem.title}
-              </span>
-              <span className="mt-0.5 block min-w-0 text-[13px] font-normal leading-[18px] tracking-[-0.01em] text-[#ff3b30]">
+              </RowLabel>
+              <RowDescription
+                as="span"
+                className="mt-0.5 block min-w-0 !text-[color:var(--app-destructive)]"
+              >
                 {emergencyItem.subtitle}
-              </span>
+              </RowDescription>
             </span>
           </span>
           <ChevronRight
             aria-hidden="true"
-            className="h-5 w-5 shrink-0 text-[#ff3b30]/40"
+            className="h-5 w-5 shrink-0 text-[color:var(--app-destructive)]/45"
           />
         </button>
       ) : null}
@@ -2025,7 +2087,7 @@ function LocationMenuListIcon({ name }: { name: LocationMenuGlyphName }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f2f2f7] text-[#6e6e73] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-secondary-label)]"
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]"
       data-location-menu-list-icon=""
     >
       <span className="inline-flex h-[18px] w-[18px] items-center justify-center">
@@ -2671,9 +2733,9 @@ function LocationSettingsFlow({
           <SettingsRow
             title="Emergency contacts"
             trailing={
-              <span className="text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+              <TrailingValue as="span">
                 {smsContactCount}
-              </span>
+              </TrailingValue>
             }
             onClick={onManageSmsContacts}
             chevron
@@ -2694,10 +2756,10 @@ function LocationSettingsFlow({
           showCloseButton={false}
         >
           <DialogHeader className="gap-1 text-left">
-            <DialogTitle className="text-[22px] font-semibold leading-[27px] tracking-[-0.01em] text-[color:var(--app-primary-label)]">
+            <DialogTitle className="ui-text-card-title">
               Auto-approve for
             </DialogTitle>
-            <DialogDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+            <DialogDescription className="ui-text-page-subtitle">
               Choose one.
             </DialogDescription>
           </DialogHeader>
@@ -2711,9 +2773,9 @@ function LocationSettingsFlow({
 
             {ownedCircles.length ? (
               <div className="space-y-2">
-                <p className="px-1 text-[15px] font-medium leading-5 text-[color:var(--app-secondary-label)]">
+                <SectionLabel as="p" className="px-1">
                   Circles
-                </p>
+                </SectionLabel>
                 <div className="overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] ring-1 ring-[color:var(--app-separator)]">
                   {ownedCircles.map((circle) => {
                     const scope: AutoApproveScope = {
@@ -2737,7 +2799,7 @@ function LocationSettingsFlow({
           </div>
 
           {draftScope ? (
-            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+            <p className="ui-text-helper-text">
               {draftScope.kind === "all_contacts"
                 ? "New requests from current and future contacts will be approved automatically."
                 : `New requests from current and future members of ${
@@ -2748,7 +2810,7 @@ function LocationSettingsFlow({
               Requests already waiting still need your answer.
             </p>
           ) : (
-            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+            <p className="ui-text-helper-text">
               Requests already waiting still need your answer.
             </p>
           )}
@@ -2756,19 +2818,19 @@ function LocationSettingsFlow({
           <DialogFooter className="gap-2 sm:flex-col sm:justify-start">
             <Button
               type="button"
-              className="h-12 rounded-full text-[17px] font-semibold"
+              className="h-12 rounded-full"
               disabled={!draftScope}
               onClick={commitAutoApproveScope}
             >
-              {primaryScopeAction}
+              <ButtonLabel as="span">{primaryScopeAction}</ButtonLabel>
             </Button>
             <Button
               type="button"
               variant="ghost"
-              className="h-11 rounded-full text-[17px] font-semibold"
+              className="h-11 rounded-full"
               onClick={() => setScopeSheetOpen(false)}
             >
-              Cancel
+              <ButtonLabel as="span">Cancel</ButtonLabel>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2786,9 +2848,9 @@ function LocationSettingSection({
 }) {
   return (
     <section className="w-full">
-      <p className="mb-2 px-[6px] text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+      <SectionLabel as="p" className="mb-2 px-[6px]">
         {title}
-      </p>
+      </SectionLabel>
       {children}
     </section>
   );
@@ -2822,13 +2884,13 @@ function AutoApproveScopeOption({
       )}
     >
       <span className="min-w-0">
-        <span className="block truncate text-[17px] font-medium leading-[22px] text-[color:var(--app-primary-label)]">
+        <MediumRowLabel as="span" className="block truncate">
           {title}
-        </span>
+        </MediumRowLabel>
         {description ? (
-          <span className="block truncate text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+          <RowDescription as="span" className="block truncate">
             {description}
-          </span>
+          </RowDescription>
         ) : null}
       </span>
       <span
@@ -3164,7 +3226,7 @@ export function PeopleHub({
       <DropdownMenuContent
         align="end"
         forceMount
-        className="min-w-52 rounded-2xl border border-[color:var(--app-border,rgba(255,255,255,0.1))] bg-[color:var(--app-primary-surface)] p-1.5 shadow-xl dark:border-[color:var(--app-separator)] dark:shadow-[var(--app-glass-shadow)]"
+        className="min-w-52 rounded-2xl border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1.5 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
       >
         <DropdownMenuItem
           data-voice-control-id="one-location-find-contacts"
@@ -4133,7 +4195,7 @@ function ShareFlow({
       // Share confirm step rather than the shared flow root on purpose: that
       // root also carries SmsContactsFlow, whose 680/720 desktop widths are
       // deliberate and documented, plus two map previews.
-      <div className="mx-auto w-full max-w-[560px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+2rem)]">
+      <div className="mx-auto w-full max-w-[560px] space-y-5 pb-[calc(var(--app-bottom-fixed-ui,96px)+1rem)]">
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
@@ -4161,12 +4223,12 @@ function ShareFlow({
                 8px gap under one and 10px under the other reads as a
                 mistake. */}
             <div className="space-y-2.5">
-              <label
+              <FormLabel
+                as="label"
                 htmlFor="one-location-share-note"
-                className="text-sm font-semibold text-foreground"
               >
                 Optional note
-              </label>
+              </FormLabel>
               <div className="relative">
                 <textarea
                   id="one-location-share-note"
@@ -4184,7 +4246,7 @@ function ShareFlow({
                         : undefined
                   }
                   placeholder="On my way to the meeting"
-                  className="block min-h-[92px] w-full resize-none rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-4 pb-8 pt-3.5 text-[17px] leading-[22px] text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)] aria-invalid:border-destructive aria-invalid:focus:ring-destructive/30"
+                  className="ui-text-input-value block min-h-[92px] w-full resize-none rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-4 pb-8 pt-3.5 outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)] aria-invalid:border-[color:var(--app-destructive)] aria-invalid:focus:ring-[color:var(--app-destructive-border)]"
                 />
                 {showShareNoteCount ? (
                   <span
@@ -4899,7 +4961,7 @@ function AskFlow({
 
   if (step === "details") {
     return (
-      <div className="mx-auto w-full max-w-[560px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+5rem)]">
+      <div className={FLOW_STEP_CONFIRM_CLASSNAME}>
         <TaskFlowHeader eyebrow="Step 2 of 2" title="Ready to ask?" />
 
         <SectionCard className="p-5 sm:p-6">
@@ -4924,12 +4986,12 @@ function AskFlow({
             />
             {reason === "Other" ? (
               <div className="space-y-2.5">
-                <label
+                <FormLabel
+                  as="label"
                   htmlFor="one-location-ask-other-reason"
-                  className="text-sm font-semibold text-foreground"
                 >
                   Add reason
-                </label>
+                </FormLabel>
                 <textarea
                   id="one-location-ask-other-reason"
                   value={vm.requestMessage}
@@ -4944,7 +5006,7 @@ function AskFlow({
                   rows={2}
                   maxLength={ONE_LOCATION_REQUEST_REASON_MAX_LENGTH}
                   placeholder="What should they know?"
-                  className="block min-h-[88px] w-full resize-none rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-4 pb-8 pt-3.5 text-[17px] leading-[22px] text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+                  className="ui-text-input-value block min-h-[88px] w-full resize-none rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-4 pb-8 pt-3.5 outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
                 />
               </div>
             ) : null}
@@ -5015,7 +5077,7 @@ function AskFlow({
       {justSent ? (
         <div
           role="status"
-          className="flex items-start gap-2.5 rounded-[20px] border border-[color:var(--app-success)]/25 bg-white px-4 py-4 shadow-[0_14px_34px_rgba(15,23,42,0.08)]"
+          className="flex items-start gap-2.5 rounded-[20px] border border-[color:var(--app-success)]/25 bg-[color:var(--app-primary-surface)] px-4 py-4 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
           <ShieldCheck className="mt-0.5 h-[19px] w-[19px] shrink-0 text-[color:var(--app-success)]" />
           <p className="text-[17px] font-medium leading-[22px] text-foreground">
@@ -5201,7 +5263,7 @@ function SelectedRecipientsRail({
           aria-label={ariaLabel ?? title}
           aria-roledescription="recipient summary"
           role="list"
-          className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)]"
+          className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
           <div className="flex shrink-0 -space-x-2" aria-hidden="true">
             {recipients.slice(0, 3).map((recipient) => {
@@ -5209,17 +5271,17 @@ function SelectedRecipientsRail({
               return (
                 <span
                   key={recipient.userId}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-system-fill)] text-[13px] font-semibold text-muted-foreground"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
                 >
                   {initialsFrom(label)}
                 </span>
               );
             })}
-            <span className="flex h-9 min-w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-system-fill)] px-2 text-[13px] font-semibold text-muted-foreground">
+            <span className="flex h-9 min-w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] px-2 text-[13px] font-semibold text-[color:var(--app-secondary-label)]">
               +{recipients.length - 3}
             </span>
           </div>
-          <div className="min-w-0 flex-1 text-[17px] leading-[22px] text-foreground">
+          <div className="min-w-0 flex-1 text-[17px] leading-[22px] text-[color:var(--app-label)]">
             {recipients.map((recipient) => (
               <span key={recipient.userId} className="sr-only">
                 {recipientLabel(recipient)}
@@ -5233,7 +5295,7 @@ function SelectedRecipientsRail({
           aria-label={ariaLabel ?? title}
           aria-roledescription="recipient summary"
           role="list"
-          className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
+          className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
           {recipients.map((recipient) => {
             const label = recipientLabel(recipient);
@@ -5244,7 +5306,7 @@ function SelectedRecipientsRail({
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
                 <ContactAvatar label={label} className="h-8 w-8 text-[13px]" />
-                <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
+                <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
                   <span className="min-w-0 flex-1 truncate">{label}</span>
                   {recipient.connectedFromContacts ? (
                     <ContactSourceBadge className="mt-px shrink-0" />
