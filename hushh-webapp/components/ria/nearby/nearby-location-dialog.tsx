@@ -117,7 +117,7 @@ export function NearbyLocationDialog({
                 setCountryCode(event.target.value);
                 setError(null);
               }}
-              className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="ui-text-input-value h-10 min-w-0 flex-1 rounded-[var(--app-radius-md)] border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3 text-sm text-foreground shadow-none outline-none transition-[background-color,border-color,color,box-shadow] focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="">Code</option>
               {COUNTRY_OPTIONS.map((option) => (
