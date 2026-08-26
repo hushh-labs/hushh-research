@@ -2201,6 +2201,7 @@
           "consent.chat.turn",
           "location.chat.turn",
           "route.one_agents",
+          "route.one_feed",
           "route.one_location",
           "route.one_pkm",
           "route.voice_settings"
@@ -2268,9 +2269,11 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "connect.accept_request",
           "connect.cancel_request",
           "connect.open_nearby",
           "connect.open_people",
+          "connect.reject_request",
           "connect.remove_connection",
           "connect.search_people",
           "connect.send_request",
@@ -5172,21 +5175,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "20ba6d82f27bb15c3fd65378563624b06827572cfd00a13af26dca2cceca0953",
+    "action_gateway": "e3c74efb991b0bf50ae385dd16fa5d436c959e02a4c819026e16861960d0f4ed",
     "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
     "cache_manifest": "13a2f556b7ea2ebbcf7729c5ba7dfa8875a79d8dd4a37df2b8dc2471ca544879",
     "data_plane": "f2dc018063515494e54b599fd03f64d4a2e665739056c989176a17b506b60e2e",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "87a979057fb60dfb6d7d218f3eaf30aec406b6b3ffbbdd8023dd6c5bc70e856b",
-    "route_index": "fc4622346392cbb11be2643c70edd19591768900c5ffb58fcea1227802665e98",
+    "one_specialist_tools": "351d32350df126e7dc3177b231b2962d6ec9181de526e03f31ec2b5b01de18af",
+    "route_index": "21d049ea4ba38a5233dd35ccb0d4cfd2a1be94227c4e8c1077d31a28d1445244",
     "route_layout": "178064ac4f170604e1014eb9eb87fad2aae55c1a9a7039dbd34c4b20ea51704b",
-    "surface_map": "f3e30a6e0e96624c157824212116281dfc78edb03ad465a6bc44daa15d75a3cd",
+    "surface_map": "e62142c506387beb798094e8b220572205d0ec4e349a66c26549c331d5de0f4a",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 189,
+    "actions": 192,
     "agents": 19,
     "aliases": 3,
     "decision_required": 2,
