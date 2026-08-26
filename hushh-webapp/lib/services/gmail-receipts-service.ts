@@ -171,6 +171,11 @@ interface ErrorEnvelope {
 }
 
 async function extractError(response: Response, fallback: string): Promise<string> {
+  if (response.status === 0) {
+    const err = new Error("The request was cancelled.");
+    err.name = "AbortError";
+    throw err;
+  }
   const raw = await response.text().catch(() => "");
   try {
     const payload = (raw ? JSON.parse(raw) : null) as ErrorEnvelope | null;
@@ -221,6 +226,11 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
+      if (response.status === 0) {
+        const err = new Error("The request was cancelled.");
+        err.name = "AbortError";
+        throw err;
+      }
       throw new Error(await extractError(response, "Failed to load Gmail connector status."));
     }
 
@@ -427,6 +437,11 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
+      if (response.status === 0) {
+        const err = new Error("The request was cancelled.");
+        err.name = "AbortError";
+        throw err;
+      }
       trackEvent("gmail_receipts_loaded", {
         result: "error",
       });

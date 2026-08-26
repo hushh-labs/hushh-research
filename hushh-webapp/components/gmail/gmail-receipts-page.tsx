@@ -481,6 +481,14 @@ export default function GmailReceiptsPage({
             has_more: nextHasMore,
           },
         });
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          (err.name === "AbortError" || err.message.includes("cancelled"))
+        ) {
+          return;
+        }
+        console.error("[GmailReceiptsPage] Failed to load receipts:", err);
       } finally {
         if (nextPage === 1) {
           setReceiptListReady(true);
@@ -853,17 +861,30 @@ export default function GmailReceiptsPage({
           {
             loading: "Disconnecting Gmail...",
             success: "Gmail disconnected. Saved receipts stay available here.",
-            error: (error) =>
-              sanitizeGmailUserMessage(error, {
+            error: (error) => {
+              if (
+                error instanceof Error &&
+                (error.name === "AbortError" || error.message.includes("cancelled"))
+              ) {
+                return "Disconnect request was cancelled.";
+              }
+              return sanitizeGmailUserMessage(error, {
                 fallback:
                   "We couldn't disconnect Gmail right now. Please try again in a moment.",
-              }),
+              });
+            },
             variant: "destructive",
           },
         )
         .unwrap();
       setShowDisconnectConfirm(false);
     } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "AbortError" || error.message.includes("cancelled"))
+      ) {
+        return;
+      }
       console.error("[ProfileReceiptsPage] Failed to disconnect Gmail:", error);
     } finally {
       setGmailActionBusy(null);
