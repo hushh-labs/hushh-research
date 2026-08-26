@@ -358,7 +358,7 @@ export function AnalysisSummaryView({
         : "bg-blue-500/12 text-blue-600 dark:text-blue-400 border-blue-500/30";
 
   return (
-    <div className="mx-auto w-full space-y-4 pb-safe pt-1" style={APP_MEASURE_STYLES.reading}>
+    <div className="mx-auto w-full space-y-4 pt-1" style={APP_MEASURE_STYLES.reading}>
       {!embedded ? (
         <div className="flex items-center justify-between gap-3">
           <Button type="button" variant="none" effect="fade" size="sm" onClick={onBack} disabled={!onBack}>

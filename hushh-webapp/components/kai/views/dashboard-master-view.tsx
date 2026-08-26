@@ -2272,7 +2272,7 @@ export function DashboardMasterView({
 
   if (isSourcesLoading && !displayedPortfolio) {
     return (
-      <div className="w-full min-w-0 max-w-full pb-6">
+      <div className="w-full min-w-0 max-w-full">
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2292,7 +2292,7 @@ export function DashboardMasterView({
 
   if (!displayedPortfolio) {
     return (
-      <div className="w-full min-w-0 max-w-full pb-6">
+      <div className="w-full min-w-0 max-w-full">
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2359,7 +2359,7 @@ export function DashboardMasterView({
         : "text-rose-600 dark:text-rose-400";
 
     return (
-      <div className="w-full min-w-0 max-w-full pb-6">
+      <div className="w-full min-w-0 max-w-full">
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2498,7 +2498,7 @@ export function DashboardMasterView({
   }[section];
 
   return (
-    <div className="w-full min-w-0 max-w-full pb-6">
+    <div className="w-full min-w-0 max-w-full">
       <KaiWorkspaceHeader
         workspace="portfolio"
         title={detailTitle}

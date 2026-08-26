@@ -98,7 +98,7 @@ export function KaiMarketHubPage() {
       fitContent
 
       width="reading"
-      className="relative !px-0 pb-32"
+      className="relative !px-0"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -113,14 +113,16 @@ export function KaiMarketHubPage() {
         options={FINANCE_TAB_DEFINITION.tabs}
         onSelectionChange={(value) => setVisibleTab(value as PortfolioTab)}
         onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
+        heightMode="active"
         panelInset="page"
+        viewportMinHeight="0px"
       >
-        <div className="h-full w-full">
+        <div className="w-full">
           <AppPageContentRegion>
             <KaiPreviewRouter />
           </AppPageContentRegion>
         </div>
-        <div className="h-full w-full">
+        <div className="w-full">
           <AppPageContentRegion>
             <KaiFlow
               userId={user.uid}
@@ -130,7 +132,7 @@ export function KaiMarketHubPage() {
             />
           </AppPageContentRegion>
         </div>
-        <div className="h-full w-full">
+        <div className="w-full">
           <AppPageContentRegion>
             <KaiAnalysisPageContent />
           </AppPageContentRegion>
