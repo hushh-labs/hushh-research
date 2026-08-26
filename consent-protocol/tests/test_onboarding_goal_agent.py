@@ -23,7 +23,11 @@ def test_available_action_ids_bound_matches_the_frontend_publisher():
     """
     field = OnboardingJourneyContext.model_fields["available_action_ids"]
     max_length = next(
-        (constraint.max_length for constraint in field.metadata if hasattr(constraint, "max_length")),
+        (
+            constraint.max_length
+            for constraint in field.metadata
+            if hasattr(constraint, "max_length")
+        ),
         PydanticUndefined,
     )
     assert max_length == 18
