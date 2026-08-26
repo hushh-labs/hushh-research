@@ -579,8 +579,8 @@ async function initializeWebFCM(
 
     // Check for required env var
     const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-    if (!vapidKey) {
-      console.warn("[FCM] NEXT_PUBLIC_FIREBASE_VAPID_KEY not set");
+    if (!vapidKey || vapidKey.startsWith("replace_with_")) {
+      console.warn("[FCM] NEXT_PUBLIC_FIREBASE_VAPID_KEY not configured or is placeholder");
       return { status: "push_failed", detail: "missing_vapid_key" };
     }
 

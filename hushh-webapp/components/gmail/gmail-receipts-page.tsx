@@ -481,6 +481,15 @@ export default function GmailReceiptsPage({
             has_more: nextHasMore,
           },
         });
+      } catch (err: any) {
+        const isCancelled =
+          err?.name === "AbortError" || /cancelled/i.test(err?.message || "");
+        if (!isCancelled) {
+          console.warn(
+            "[GmailReceiptsPage] Failed to load receipts:",
+            err?.message || err,
+          );
+        }
       } finally {
         if (nextPage === 1) {
           setReceiptListReady(true);

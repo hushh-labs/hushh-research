@@ -629,9 +629,17 @@ async function fetchStatusFromNetwork(params: {
         }
       }
 
-      console.error(
+      const isCancelled =
+        (error as any)?.name === "AbortError" ||
+        /cancelled/i.test((error as any)?.message || "");
+      if (isCancelled) {
+        console.warn("[gmail-connector-store] Status refresh cancelled.");
+        return entry.status;
+      }
+
+      console.warn(
         "[gmail-connector-store] Failed to refresh Gmail status:",
-        error,
+        (error as any)?.message || error,
       );
       const nextError = statusErrorMessage(
         error,

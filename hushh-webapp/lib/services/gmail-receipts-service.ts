@@ -221,7 +221,13 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to load Gmail connector status."));
+      const errorMsg = await extractError(response, "Failed to load Gmail connector status.");
+      const err = new Error(errorMsg);
+      if (response.status === 0 || /cancelled|aborted/i.test(errorMsg)) {
+        err.name = "AbortError";
+        (err as any).isCancelled = true;
+      }
+      throw err;
     }
 
     const status = (await response.json()) as GmailConnectionStatus;
@@ -430,7 +436,13 @@ export class GmailReceiptsService {
       trackEvent("gmail_receipts_loaded", {
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to load synced Gmail receipts."));
+      const errorMsg = await extractError(response, "Failed to load synced Gmail receipts.");
+      const err = new Error(errorMsg);
+      if (response.status === 0 || /cancelled|aborted/i.test(errorMsg)) {
+        err.name = "AbortError";
+        (err as any).isCancelled = true;
+      }
+      throw err;
     }
 
     trackEvent("gmail_receipts_loaded", {
