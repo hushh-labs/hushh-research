@@ -1102,8 +1102,9 @@ describe("SaveLocationModal", () => {
 
       const footer = screen.getByRole("button", { name: /Save location/ })
         .parentElement!;
+      expect(footer.className).toContain("bg-background");
       expect(footer.className).toContain(
-        "bg-[color:var(--app-card-surface-default-solid)]",
+        "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
       );
       expect(footer.className).not.toContain("/95");
       expect(footer.className).not.toContain("sticky");
