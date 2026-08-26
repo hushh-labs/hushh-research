@@ -62,17 +62,18 @@ describe("AuthStep layout contract", () => {
     expect(source).toContain("overflow-hidden");
     expect(source).toContain("data-auth-content-block");
     expect(source).toContain(
-      'className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"',
+      'className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-6"',
     );
     expect(source).not.toContain("justify-end");
     expect(source).toContain("data-auth-signin-clusters");
     expect(source).toContain("data-auth-provider-actions");
     expect(source).toContain("data-auth-supporting-content");
     expect(source).toContain(
-      'className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"',
+      'className="flex w-full flex-none flex-col items-center gap-6 text-center"',
     );
     expect(source).toContain('className="flex flex-col items-center gap-4"');
-    expect(source).toContain('className="flex flex-col items-center gap-3"');
+    expect(source).toContain("absolute inset-x-4 bottom-6");
+    expect(source).not.toContain("You choose what One can see.");
     expect(source).not.toContain("mx-auto mt-1 flex w-fit");
     // The provider buttons sit directly on the shared hero background (no
     // frosted glass card/sheet), matching the welcome ("/") page's
