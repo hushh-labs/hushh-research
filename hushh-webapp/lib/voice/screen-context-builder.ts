@@ -82,6 +82,27 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.consents",
   "route.profile_connected_systems",
 ];
+
+const RIA_ROUTE_NAV_ACTION_IDS: readonly string[] = [
+  "route.ria_profile",
+  "route.ria_clients",
+  "route.ria_picks",
+];
+
+const SCREEN_FAMILY_NAV_ACTION_IDS: Record<string, readonly string[]> = {
+  profile_regulatory: RIA_ROUTE_NAV_ACTION_IDS,
+  ria_clients: RIA_ROUTE_NAV_ACTION_IDS,
+  ria_picks: RIA_ROUTE_NAV_ACTION_IDS,
+};
+
+function isScreenFamilyNavigationAction(
+  screen: string | null,
+  actionId: string,
+): boolean {
+  return Boolean(
+    screen && SCREEN_FAMILY_NAV_ACTION_IDS[screen]?.includes(actionId),
+  );
+}
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";
 export const INVALID_ARRAY_TYPE_ERROR = "INVALID_ARRAY_TYPE";
@@ -587,6 +608,9 @@ function prioritizeAvailableActionIds(
       }
       return 4;
     }
+    if (isScreenFamilyNavigationAction(screen, actionId)) {
+      return action.execution_target.path === "route" ? 0 : 1;
+    }
     if (screen && action.reachability.screens.includes(screen)) {
       // Among the actions this screen owns, the ones that cannot be reached
       // any other way come first, and within those, the ones tied to
@@ -646,7 +670,10 @@ function prioritizeAvailableActionIds(
   ).items;
   if (!includeGlobalNavigation) return screenSegment;
   const combined = [...screenSegment];
-  for (const navId of GLOBAL_NAV_ACTION_IDS) {
+  for (const navId of [
+    ...(screen ? SCREEN_FAMILY_NAV_ACTION_IDS[screen] || [] : []),
+    ...GLOBAL_NAV_ACTION_IDS,
+  ]) {
     if (combined.length >= AVAILABLE_ACTION_IDS_CAP) break;
     if (combined.includes(navId)) continue;
     if (!getKaiActionById(navId)) continue;

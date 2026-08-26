@@ -8416,6 +8416,9 @@
       "voice_action_contract_ids": [
         "ria.clients.nearby_shortlist_record",
         "ria.clients.open_client_workspace",
+        "ria.clients.search_client",
+        "ria.clients.show_around_you",
+        "ria.clients.show_connected",
         "ria.clients.switch_to_nearby",
         "route.ria_clients"
       ],
@@ -8737,6 +8740,7 @@
         "ria.picks.open_source_my",
         "ria.picks.open_view_debate",
         "ria.picks.save_package",
+        "ria.picks.search_ticker",
         "ria.picks.start_edit_package",
         "ria.picks.upload_csv_replace_top_picks",
         "route.ria_picks"
@@ -9055,5 +9059,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "2ef0768ebc2426dc0abc74b160663f48fc9d9a8919d6c21390cd4b0407600739"
+  "content_sha256": "92ccac7b0e74e4695dbde641d59883f81e4729a89bd2921261933704ae258fb8"
 }

@@ -5861,6 +5861,9 @@
       "canonical_screen": "ria_clients",
       "voice_contract_file": "app/ria/clients/page.voice-action-contract.json",
       "action_ids": [
+        "ria.clients.search_client",
+        "ria.clients.show_around_you",
+        "ria.clients.show_connected",
         "ria.clients.switch_to_nearby",
         "route.ria_clients"
       ],
@@ -6109,6 +6112,7 @@
         "ria.picks.open_source_kai",
         "ria.picks.open_source_my",
         "ria.picks.open_view_debate",
+        "ria.picks.search_ticker",
         "route.ria_picks"
       ],
       "action_coverage": "inherited",

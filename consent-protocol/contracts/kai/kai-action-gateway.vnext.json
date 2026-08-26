@@ -14477,6 +14477,349 @@
       }
     },
     {
+      "action_id": "ria.clients.show_connected",
+      "surface_id": "ria_clients",
+      "label": "Show Connected Clients",
+      "aliases": [
+        "only connected",
+        "show connected clients",
+        "show connected investors",
+        "switch to connected",
+        "open connected roster"
+      ],
+      "search_keywords": [
+        "connected",
+        "connected clients",
+        "connected investors",
+        "client roster"
+      ],
+      "meaning": "Switches the clients screen to the connected investor roster.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria.clients.show_connected"
+      },
+      "control_ids": [
+        "ria_clients_show_connected"
+      ],
+      "state_exposure": [
+        "selected clients view"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/clients/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.clients.show_connected",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.clients.show_connected",
+            "label": "Show Connected Clients",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.clients.show_around_you",
+      "surface_id": "ria_clients",
+      "label": "Show Around You",
+      "aliases": [
+        "who is around me",
+        "show people around me",
+        "show around you",
+        "switch to around you",
+        "open nearby records",
+        "show nearby prospects"
+      ],
+      "search_keywords": [
+        "around you",
+        "around me",
+        "nearby",
+        "prospects",
+        "public records"
+      ],
+      "meaning": "Switches the clients screen to public-association records near the advisor's selected place.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria.clients.show_around_you"
+      },
+      "control_ids": [
+        "ria_clients_show_around_you"
+      ],
+      "state_exposure": [
+        "selected clients view"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/components/ria/nearby/nearby-around-you.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.clients.show_around_you",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.clients.show_around_you",
+            "label": "Show Around You",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.clients.search_client",
+      "surface_id": "ria_clients",
+      "label": "Search Connected Clients",
+      "aliases": [
+        "find client",
+        "find investor",
+        "search client",
+        "search connected clients",
+        "find john"
+      ],
+      "search_keywords": [
+        "find",
+        "search",
+        "client",
+        "investor",
+        "connected"
+      ],
+      "meaning": "Filters the connected investor roster by a spoken client name or identifier.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria.clients.search_client"
+      },
+      "control_ids": [
+        "ria_clients_search"
+      ],
+      "state_exposure": [
+        "visible connected client names",
+        "visible connected client relationship states"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/clients/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.clients.search_client",
+        "required_inputs": [
+          {
+            "name": "clientName",
+            "prompt": "Which client should I search for?",
+            "required": true,
+            "slot": "clientName",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "clientName": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Search connected clients",
+            "failure_behavior": "stop",
+            "action_id": "ria.clients.search_client",
+            "settlement_target": {
+              "route": "/ria/clients",
+              "screen": "ria_clients"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "ria.clients.nearby_shortlist_record",
       "surface_id": "ria_clients",
       "label": "Shortlist Nearby Record",
@@ -15814,6 +16157,131 @@
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/ria/picks?category=avoid",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.search_ticker",
+      "surface_id": "ria_picks",
+      "label": "Search Ticker In Picks",
+      "aliases": [
+        "find ticker",
+        "find AAPL",
+        "search ticker",
+        "search for ticker",
+        "find stock",
+        "search picks"
+      ],
+      "search_keywords": [
+        "find",
+        "search",
+        "ticker",
+        "symbol",
+        "stock",
+        "picks"
+      ],
+      "meaning": "Filters the current RIA Picks table by a spoken ticker symbol.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria.picks.search_ticker"
+      },
+      "control_ids": [
+        "ria_picks_search_ticker"
+      ],
+      "state_exposure": [
+        "visible RIA picks rows"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.search_ticker",
+        "required_inputs": [
+          {
+            "name": "ticker",
+            "prompt": "Which ticker should I search for?",
+            "required": true,
+            "slot": "ticker",
+            "resolver": "ticker_symbol"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "ticker": "ticker_symbol"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Search ticker in Picks",
+            "failure_behavior": "stop",
+            "action_id": "ria.picks.search_ticker",
+            "settlement_target": {
+              "route": "/ria/picks",
               "screen": "ria_picks"
             }
           }

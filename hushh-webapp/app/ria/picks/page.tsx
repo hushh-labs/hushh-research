@@ -55,6 +55,7 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -1398,6 +1399,7 @@ export default function RiaPicksPage() {
   const [packageSaving, setPackageSaving] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [picksSearchQuery, setPicksSearchQuery] = useState("");
   const [showIssuesOnly, setShowIssuesOnly] = useState(false);
   const [focusedIssueRowId, setFocusedIssueRowId] = useState<string | null>(null);
   const [draftPackage, setDraftPackage] = useState<DraftPickPackage | null>(null);
@@ -1465,6 +1467,27 @@ export default function RiaPicksPage() {
       });
     },
     [router, searchParams]
+  );
+  useLocalOnboardingActionHandler(
+    "ria.picks.search_ticker",
+    (slots) => {
+      const ticker = String(slots.ticker || slots.query || "").trim().toUpperCase().slice(0, 12);
+      if (!ticker) {
+        return {
+          status: "blocked",
+          summary: "Which ticker should I search for?",
+        };
+      }
+      setPicksSearchQuery(ticker);
+      setCategory("top-picks");
+      updatePicksRouteState({ category: "top-picks", view: null });
+      return {
+        status: "succeeded",
+        summary: `Searching Picks for ${ticker}.`,
+        data: { ticker },
+      };
+    },
+    { enabled: riaCapability === "switch" }
   );
 
   const picksResource = useStaleResource<{
@@ -2208,6 +2231,20 @@ export default function RiaPicksPage() {
       ],
       controls: [
         {
+          id: "ria_route_tab_profile",
+          label: "Profile",
+          type: "tab",
+          state: "available",
+          actionId: "route.ria_profile",
+        },
+        {
+          id: "ria_route_tab_clients",
+          label: "Clients",
+          type: "tab",
+          state: "available",
+          actionId: "route.ria_clients",
+        },
+        {
           id: "ria_route_tab_picks",
           label: "Picks",
           type: "tab",
@@ -2248,6 +2285,14 @@ export default function RiaPicksPage() {
           type: "tab",
           state: !isDebateView && category === "screening" ? "active" : "available",
           actionId: "ria.picks.open_category_screening",
+        },
+        {
+          id: "ria_picks_search_ticker",
+          label: "Search ticker",
+          type: "search",
+          state: picksSearchQuery ? "active" : "available",
+          actionId: "ria.picks.search_ticker",
+          voiceAliases: ["find ticker", "search ticker", "find AAPL"],
         },
         {
           id: "ria_picks_view_debate",
@@ -2313,6 +2358,7 @@ export default function RiaPicksPage() {
         editing,
         upload_open: uploadOpen,
         has_unsaved_changes: hasUnsavedChanges,
+        search_active: Boolean(picksSearchQuery.trim()),
         vault_unlocked: isVaultUnlocked,
         validation_issue_count: validationIssues.length,
         kai_top_pick_count: kaiRows.length,
@@ -2328,6 +2374,7 @@ export default function RiaPicksPage() {
       kaiRows.length,
       myTopPicks.length,
       packageSaving,
+      picksSearchQuery,
       savingToMyList,
       source,
       sourceTitle,
@@ -2738,6 +2785,8 @@ export default function RiaPicksPage() {
                     searchKey="ticker"
                     globalSearchKeys={["ticker", "company_name", "sector", "tier", "investment_thesis"]}
                     searchPlaceholder={`Search ${sourceTitle.toLowerCase()} by ticker, company, sector, or tier`}
+                    searchValue={picksSearchQuery}
+                    onSearchValueChange={setPicksSearchQuery}
                     initialPageSize={10}
                     pageSizeOptions={[10, 20, 30]}
                     density="compact"
@@ -2807,6 +2856,8 @@ export default function RiaPicksPage() {
                     searchKey="ticker"
                     globalSearchKeys={["ticker", "company_name", "sector", "category", "why_avoid", "note"]}
                     searchPlaceholder="Search avoid list by ticker, company, category, or reason"
+                    searchValue={picksSearchQuery}
+                    onSearchValueChange={setPicksSearchQuery}
                     initialPageSize={10}
                     pageSizeOptions={[10, 20, 30]}
                     density="compact"

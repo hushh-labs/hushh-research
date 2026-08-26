@@ -829,6 +829,70 @@ describe("buildStructuredScreenContext", () => {
 
   // ── Array bounds coverage added below the existing suite ─────────────────
 
+  it("keeps RIA sibling route actions in the live context on profile and crowded tabs", () => {
+    window.history.pushState({}, "", "/ria/profile");
+
+    const profileContext = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/ria/profile", "profile_regulatory"),
+      voiceContext: {},
+    });
+
+    expect(profileContext.screen_metadata.available_action_ids).toEqual(
+      expect.arrayContaining([
+        "route.ria_profile",
+        "route.ria_clients",
+        "route.ria_picks",
+      ]),
+    );
+
+    clearVoiceSurfaceMetadata("test_surface");
+    window.history.pushState({}, "", "/ria/picks");
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "ria_picks",
+      title: "RIA Picks",
+      controls: [
+        ...Array.from({ length: ACTION_ID_SCREEN_SEGMENT_CAP }, (_, index) => ({
+          id: `ria_picks_local_${index + 1}`,
+          label: `Local picks action ${index + 1}`,
+          actionId:
+            index === 0
+              ? "ria.picks.search_ticker"
+              : index === 1
+                ? "ria.picks.open_category_avoid"
+                : "ria.picks.open_source_my",
+        })),
+        {
+          id: "ria_route_tab_profile",
+          label: "Profile",
+          actionId: "route.ria_profile",
+        },
+        {
+          id: "ria_route_tab_clients",
+          label: "Clients",
+          actionId: "route.ria_clients",
+        },
+        {
+          id: "ria_route_tab_picks",
+          label: "Picks",
+          actionId: "route.ria_picks",
+        },
+      ],
+    });
+
+    const picksContext = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/ria/picks", "ria_picks"),
+      voiceContext: {},
+    });
+
+    expect(picksContext.screen_metadata.available_action_ids).toEqual(
+      expect.arrayContaining([
+        "route.ria_profile",
+        "route.ria_clients",
+        "route.ria_picks",
+      ]),
+    );
+  });
+
   it("clamps oversized voice_aliases on control definitions", () => {
     publishVoiceSurfaceMetadata("test_surface", {
       controls: [

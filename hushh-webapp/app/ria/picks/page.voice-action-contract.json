@@ -255,6 +255,89 @@
       "speaker_persona": "kai"
     },
     {
+      "action_id": "ria.picks.search_ticker",
+      "label": "Search Ticker In Picks",
+      "meaning": "Filters the current RIA Picks table by a spoken ticker symbol.",
+      "aliases": [
+        "find ticker",
+        "find AAPL",
+        "search ticker",
+        "search for ticker",
+        "find stock",
+        "search picks"
+      ],
+      "search_keywords": [
+        "find",
+        "search",
+        "ticker",
+        "symbol",
+        "stock",
+        "picks"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria.picks.search_ticker"
+      },
+      "control_ids": [
+        "ria_picks_search_ticker"
+      ],
+      "state_exposure": [
+        "visible RIA picks rows"
+      ],
+      "goal": {
+        "goal_id": "goal.ria.picks.search_ticker",
+        "slot_schema": {
+          "ticker": "ticker_symbol"
+        },
+        "required_inputs": [
+          {
+            "name": "ticker",
+            "slot": "ticker",
+            "resolver": "ticker_symbol",
+            "prompt": "Which ticker should I search for?",
+            "required": true
+          }
+        ],
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.search_ticker",
+            "label": "Search ticker in Picks",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ]
+      },
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
       "action_id": "ria.picks.open_category_screening",
       "label": "Show Screening Rules",
       "meaning": "Switches the picks route state to screening rules.",
