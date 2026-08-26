@@ -192,13 +192,45 @@ recompute; they never silently overwrite newer information.
 | Remote vault persists but local envelope fails | Report remote creation and re-enroll with the passphrase |
 | Keychain unavailable or locked | Fail closed without local envelope |
 | Source Library custody missing with existing ciphertext | Fail closed as recovery/rebuild required; never generate a replacement secret |
-| Device revoked | Block refresh, owner-capability issuance, unlock recovery, and writes |
+| Device revoked (remote) | Firebase refresh survives revoke; the server cascades owner-token revocation so capability mint, unlock recovery, and writes fail closed. The native runtime learns via the self-status poll or a 401 `TRUSTED_DEVICE_REVOKED` and then seals (see Remote Revocation and Seal). |
 | PKM compatibility validation fails | Keep the bridge locked and update client/server contract |
 
 Disconnect revokes the remote device, removes the native connector
 registration, deletes the local envelope and ciphertext replica, removes
 related Keychain entries and the local Source Library plane, and clears in-memory credentials. Hosted MCP and
 existing vault wrappers remain unchanged.
+
+### Remote Revocation and Seal
+
+Revoking a device from the browser settings surface (DELETE
+`/api/account/trusted-devices/{device_id}`) is server-authoritative but does not
+push to the device. It flips the row to `revoked`, cascades the device-bound
+`vault.owner` tokens, and stops server-side sync, so every vault call then fails
+closed. It does NOT touch the Firebase session: per-device Firebase revocation
+is impossible, so the device keeps a user-level Firebase refresh credential and
+can always learn its own fate. Security rests on the invariant that Firebase-uid
+auth alone never grants vault data or capability; every vault-touching endpoint
+still gates on the device-bound `vault.owner` token re-checked against
+`is_trusted_device_active`.
+
+The native runtime detects a remote revoke and seals its local replica:
+
+- Detector. Poll `GET /api/account/trusted-devices/{device_id}/status`
+  (Firebase-authed) on a cadence and on foreground/wake before resuming sync. It
+  returns `active` or `revoked` (200), `TRUSTED_DEVICE_UNKNOWN` (404), or 503 on
+  a DB error, never a defaulted `active`. Also branch on the device-sync 401
+  machine code: `TRUSTED_DEVICE_REVOKED` is authoritative (seal);
+  `TRUSTED_DEVICE_STATUS_UNCONFIRMED` is a transient DB outage (retry, never
+  seal). A 404 is `needs_reinit` (quarantine ciphertext, do not erase).
+- Seal (on confirmed revoke, ordered and idempotent). Stop the sync loop,
+  zeroize in-memory credentials, delete the local envelope and ciphertext
+  replica, remove Keychain entries, surface the state to the user, then
+  `POST /api/account/trusted-devices/{device_id}/seal-ack`.
+- Ack. Seal-ack is Firebase-authed with NO device signature (the P-256 key is
+  zeroized during seal, so a post-seal signature is unsatisfiable and a static
+  one would be replayable). It is advisory telemetry only: the server records
+  `sealed_at`, never gates enforcement on it, and can only stamp an
+  already-revoked row.
 
 ## UAT Verification
 

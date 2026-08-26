@@ -147,7 +147,8 @@
     "171_google_gmail_send_actions.sql",
     "172_gmail_combined_send_permission.sql",
     "173_gmail_owner_approved_delivery.sql",
-    "175_contact_sync_connection_provenance.sql"
+    "175_contact_sync_connection_provenance.sql",
+    "176_trusted_device_sync_state.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -248,7 +249,8 @@
       "165_one_referral_program.sql",
       "167_one_referral_realtime_notify.sql",
       "169_one_location_auto_approve_preferences.sql",
-      "175_contact_sync_connection_provenance.sql"
+      "175_contact_sync_connection_provenance.sql",
+      "176_trusted_device_sync_state.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
