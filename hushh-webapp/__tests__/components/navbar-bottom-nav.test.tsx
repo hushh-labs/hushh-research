@@ -81,7 +81,7 @@ describe("Navbar bottom utilities", () => {
       within(routeNav)
         .getAllByRole("radio")
         .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["One", "Connect", "Feed", "Search"]);
+    ).toEqual(["One", "Connect", "Feed", "Ask One"]);
     expect(screen.queryByRole("radio", { name: "Profile" })).toBeNull();
     unmount();
   });
@@ -129,7 +129,7 @@ describe("Navbar bottom utilities", () => {
       within(screen.getByRole("radiogroup", { name: "Route navigation" }))
         .getAllByRole("radio")
         .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["One", "Connect", "Feed", "Search"]);
+    ).toEqual(["One", "Connect", "Feed", "Ask One"]);
     expect(
       screen.queryByRole("radiogroup", { name: "Workspace navigation" }),
     ).toBeNull();

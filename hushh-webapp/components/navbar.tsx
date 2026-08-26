@@ -169,7 +169,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   search: {
     value: "search",
-    label: "Search",
+    label: "Ask One",
     icon: MagnifyingGlass,
     activeIcon: FilledMagnifyingGlassIcon,
     dataTourId: "nav-search",
