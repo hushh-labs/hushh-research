@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -65,7 +66,7 @@ describe("CircleGrowActions", () => {
 
     fireEvent.click(
       await screen.findByRole("button", {
-        name: /Asha Meena Connected on One/i,
+        name: /Select Asha Meena for Circle invitation/i,
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
@@ -81,12 +82,8 @@ describe("CircleGrowActions", () => {
     const props = growProps();
     render(<CircleGrowActions {...props} canInvite={false} />);
 
-    expect(
-      screen.queryByRole("button", { name: /Invite people/i }),
-    ).toBeNull();
-    expect(
-      screen.getByRole("button", { name: /Share code/i }),
-    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Invite people/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Share code/i })).toBeTruthy();
   });
 });
 
@@ -206,6 +203,128 @@ describe("CircleInvitePeopleSheet", () => {
     );
     await waitFor(() =>
       expect(onLoadEligibleConnections).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("keeps selected user-id rows across paged server searches", async () => {
+    const onInviteConnections = vi.fn().mockResolvedValue(undefined);
+    const onLoadEligibleConnectionsPage = vi.fn(
+      async (_circleId: string, options: { query?: string }) => ({
+        eligibleConnections: [
+          options.query
+            ? {
+                connectionId: "conn-neel",
+                userId: "neel-user",
+                displayName: "Same Name",
+              }
+            : {
+                connectionId: "conn-asha",
+                userId: "asha-user",
+                displayName: "Same Name",
+                connectedFromContacts: true,
+              },
+        ],
+        pendingInvites: [],
+        remainingCapacity: 5,
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+      }),
+    );
+
+    render(
+      <CircleInvitePeopleSheet
+        open
+        onOpenChange={vi.fn()}
+        circleId="circle-1"
+        circleName="Meena Family"
+        onLoadEligibleConnections={vi.fn()}
+        onLoadEligibleConnectionsPage={onLoadEligibleConnectionsPage}
+        onInviteConnections={onInviteConnections}
+        onCancelMemberInvite={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      within(
+        await screen.findByTestId(
+          "one-location-circle-grow-eligible-asha-user",
+        ),
+      ).getByRole("button"),
+    );
+    fireEvent.change(screen.getByLabelText("Search connections"), {
+      target: { value: "neel" },
+    });
+    await waitFor(() =>
+      expect(onLoadEligibleConnectionsPage).toHaveBeenCalledWith(
+        "circle-1",
+        expect.objectContaining({ query: "neel", limit: 50 }),
+      ),
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId("one-location-circle-grow-eligible-neel-user"),
+      ).getByRole("button"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));
+
+    await waitFor(() =>
+      expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
+        "asha-user",
+        "neel-user",
+      ]),
+    );
+  });
+
+  it("submits no more than the API's 20-person invite batch", async () => {
+    const invitees = Array.from({ length: 21 }, (_, index) => ({
+      connectionId: `connection-${index + 1}`,
+      userId: `user-${index + 1}`,
+      displayName: `Person ${String(index + 1).padStart(2, "0")}`,
+    }));
+    const onInviteConnections = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <CircleInvitePeopleSheet
+        open
+        onOpenChange={vi.fn()}
+        circleId="circle-1"
+        circleName="Meena Family"
+        onLoadEligibleConnections={vi.fn().mockResolvedValue({
+          eligibleConnections: invitees,
+          pendingInvites: [],
+          remainingCapacity: 100,
+        })}
+        onInviteConnections={onInviteConnections}
+        onCancelMemberInvite={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/Invite up to 20 people at a time/i),
+    ).toBeTruthy();
+    for (const invitee of invitees.slice(0, 20)) {
+      fireEvent.click(
+        within(
+          screen.getByTestId(
+            `one-location-circle-grow-eligible-${invitee.userId}`,
+          ),
+        ).getByRole("button"),
+      );
+    }
+    expect(
+      within(
+        screen.getByTestId("one-location-circle-grow-eligible-user-21"),
+      ).getByRole("button"),
+    ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Invite 20 people" }));
+
+    await waitFor(() =>
+      expect(onInviteConnections).toHaveBeenCalledWith(
+        "circle-1",
+        invitees.slice(0, 20).map((invitee) => invitee.userId),
+      ),
     );
   });
 });

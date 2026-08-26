@@ -32,6 +32,15 @@ def _auth_error(detail: str) -> HTTPException:
     )
 
 
+# Reasons that are themselves machine codes the trusted-device native runtime
+# branches on (authoritative revoke -> seal vs transient DB outage -> retry).
+# These are surfaced verbatim as the 401 detail; every other failure reason
+# stays the generic message so we never leak why a token failed.
+_TRUSTED_DEVICE_AUTH_CODES = frozenset(
+    {"TRUSTED_DEVICE_REVOKED", "TRUSTED_DEVICE_STATUS_UNCONFIRMED"}
+)
+
+
 def _extract_token(
     value: Optional[str] | Any,
     *,
@@ -220,6 +229,8 @@ async def require_vault_owner_token(
 
     if not valid or not token_obj:
         logger.warning("Token validation failed: %s", reason)
+        if reason in _TRUSTED_DEVICE_AUTH_CODES:
+            raise _auth_error(reason)
         raise _auth_error("Token validation failed.")
 
     return _token_data_dict(token, token_obj)
@@ -245,6 +256,8 @@ def require_consent_scope(required_scope: str | ConsentScope):
 
         if not valid or not token_obj:
             logger.warning("Scoped token validation failed for %s: %s", required_scope, reason)
+            if reason in _TRUSTED_DEVICE_AUTH_CODES:
+                raise _auth_error(reason)
             raise _auth_error("Token validation failed.")
 
         return _token_data_dict(token, token_obj)

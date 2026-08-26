@@ -1252,6 +1252,9 @@ async function authFetch(
   });
 }
 
+export const CONTACT_SYNC_CONSENT_CONTRACT_VERSION =
+  "contact_find_auto_connect_v1" as const;
+
 export class RiaService {
   private static inflight = new Map<string, Promise<unknown>>();
   private static readonly DEVICE_TTL_MS = CACHE_TTL.MEDIUM;
@@ -1481,35 +1484,58 @@ export class RiaService {
     }>(response);
   }
 
-  /**
-   * Whether someone who already holds this user's phone number may learn that
-   * the number belongs to a One account. Defaults to enabled — contact sync is
-   * only useful if the people in a user's address book are findable.
+  /** Explicit combined consent to be found and auto-connected by verified users
+   * who already hold this account's verified phone number. Defaults off.
    */
   static async getContactDiscoverability(
     idToken: string,
-  ): Promise<{ user_id: string; contact_discoverable: boolean }> {
+  ): Promise<{
+    user_id: string;
+    contact_discoverable: boolean;
+    contact_sync_consent_enabled_at?: string | null;
+    contact_sync_consent_rule_version?: number;
+    contact_sync_consent_contract_version?: string | null;
+  }> {
     const response = await authFetch("/api/iam/contact-discoverability", {
       method: "GET",
       idToken,
     });
-    return toJsonOrThrow<{ user_id: string; contact_discoverable: boolean }>(
-      response,
-    );
+    return toJsonOrThrow<{
+      user_id: string;
+      contact_discoverable: boolean;
+      contact_sync_consent_enabled_at?: string | null;
+      contact_sync_consent_rule_version?: number;
+      contact_sync_consent_contract_version?: string | null;
+    }>(response);
   }
 
   static async setContactDiscoverability(
     idToken: string,
     enabled: boolean,
-  ): Promise<{ user_id: string; contact_discoverable: boolean }> {
+  ): Promise<{
+    user_id: string;
+    contact_discoverable: boolean;
+    contact_sync_consent_enabled_at?: string | null;
+    contact_sync_consent_rule_version?: number;
+    contact_sync_consent_contract_version?: string | null;
+  }> {
     const response = await authFetch("/api/iam/contact-discoverability", {
       method: "POST",
       idToken,
-      body: { enabled },
+      body: {
+        enabled,
+        ...(enabled
+          ? { consent_version: CONTACT_SYNC_CONSENT_CONTRACT_VERSION }
+          : {}),
+      },
     });
-    return toJsonOrThrow<{ user_id: string; contact_discoverable: boolean }>(
-      response,
-    );
+    return toJsonOrThrow<{
+      user_id: string;
+      contact_discoverable: boolean;
+      contact_sync_consent_enabled_at?: string | null;
+      contact_sync_consent_rule_version?: number;
+      contact_sync_consent_contract_version?: string | null;
+    }>(response);
   }
 
   static async searchRias(params: {

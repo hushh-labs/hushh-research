@@ -17,8 +17,11 @@ import { copyToClipboard } from "@/lib/utils/clipboard";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
+  OneLocationCircleMemberPage,
+  OneLocationCircleOverview,
 } from "@/lib/one-location/types";
 
 /**
@@ -91,6 +94,23 @@ export function createConnectCircleActions({
         OneLocationService.getCircle({ vaultOwnerToken, circleId }),
       ),
 
+    loadCircleOverview: (circleId: string): Promise<OneLocationCircleOverview> =>
+      guard("Could not open that Circle.", () =>
+        OneLocationService.getCircleOverview({ vaultOwnerToken, circleId }),
+      ),
+
+    loadCircleMembersPage: (
+      circleId: string,
+      options: { page: number; limit: number; query?: string },
+    ): Promise<OneLocationCircleMemberPage> =>
+      guard("Could not load Circle members.", () =>
+        OneLocationService.listCircleMembersPage({
+          vaultOwnerToken,
+          circleId,
+          ...options,
+        }),
+      ),
+
     renameCircle: (circleId: string, name: string) =>
       guard("Could not rename the Circle.", async () => {
         const circle = await OneLocationService.updateNamedCircle({
@@ -118,6 +138,18 @@ export function createConnectCircleActions({
         OneLocationService.listNamedCircleEligibleConnections({
           vaultOwnerToken,
           circleId,
+        }),
+      ),
+
+    loadEligibleConnectionsPage: (
+      circleId: string,
+      options: { page: number; limit: number; query?: string },
+    ): Promise<OneLocationCircleEligibleConnectionsPage> =>
+      guard("Could not load your connections.", () =>
+        OneLocationService.listNamedCircleEligibleConnectionsPage({
+          vaultOwnerToken,
+          circleId,
+          ...options,
         }),
       ),
 
@@ -168,7 +200,7 @@ export function createConnectCircleActions({
       toast.error("Could not copy the Circle code.");
     },
 
-    shareCode: async (circle: OneLocationCircleDetail, code: string) => {
+    shareCode: async (circle: OneLocationCircleOverview, code: string) => {
       try {
         // Not window.location.origin: inside the installed iOS/Android build
         // that is a Capacitor scheme, and the link it produced was dead.

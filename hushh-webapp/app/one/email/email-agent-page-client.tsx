@@ -29,10 +29,14 @@ export function EmailAgentPageClient() {
   const { user, loading: authLoading } = useAuth();
   const agentPopover = useOptionalAgentPopover();
   const createHandoff = useOneConversationSession((state) => state.createHandoff);
+  const idTokenProvider = useCallback(
+    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+    [user],
+  );
   const gmail = useGmailConnectorStatus({
     userId: user?.uid || null,
     enabled: Boolean(user?.uid) && !authLoading,
-    idTokenProvider: user?.getIdToken ? () => user.getIdToken() : null,
+    idTokenProvider: user?.getIdToken ? idTokenProvider : null,
     routeHref: ROUTES.EMAIL_AGENT,
     refreshKey: user?.uid || "",
   });

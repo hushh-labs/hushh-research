@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -317,6 +318,529 @@ class _TransactionalDB:
         )
 
 
+def test_create_request_rejects_unscoped_request_for_active_pair_under_graph_gate():
+    svc = _svc()
+    notifications: list[dict] = []
+    svc._notifier = lambda **kwargs: notifications.append(kwargs)
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [],  # graph advisory lock
+            [{"id": "conn-1"}],  # active canonical pair
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        with pytest.raises(ConnectionsError) as exc:
+            svc.create_request("user-a", addressee_user_id="user-b")
+
+    assert exc.value.code == "CONNECTION_ALREADY_CONNECTED"
+    assert exc.value.status_code == 409
+    assert notifications == []
+    sql_calls = [sql for sql, _ in db.connection.calls]
+    assert "pg_advisory_xact_lock" in sql_calls[0]
+    assert "FROM connections" in sql_calls[1]
+    assert "FOR UPDATE" not in sql_calls[1]
+    assert not any("INSERT INTO connection_requests" in sql for sql in sql_calls)
+    assert events[-1][0] == "rollback"
+
+
+def test_create_request_allows_valid_scoped_review_for_active_pair():
+    svc = _svc()
+    svc._directory_visible = lambda _viewer, _target: True
+    svc._scope_catalog_for_owner = lambda _owner: [
+        {
+            "handle": "scp-ria",
+            "capabilityKey": _RIA_ACTIVE_PICKS_CAPABILITY,
+        }
+    ]
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [],  # graph advisory lock
+            [{"id": "conn-1"}],  # active canonical pair
+            [],  # no pending request
+            [{"id": "req-1"}],
+            [{"id": "proposal-1"}],
+            [{"id": "event-1"}],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request(
+            "user-a",
+            addressee_user_id="user-b",
+            requested_scope_handles=["scp-ria"],
+        )
+
+    assert result["id"] == "req-1"
+    sql_calls = [sql for sql, _ in db.connection.calls]
+    assert any("INSERT INTO connection_requests" in sql for sql in sql_calls)
+    assert any("INSERT INTO connection_scope_proposals" in sql for sql in sql_calls)
+    assert events[-1][0] == "commit"
+
+
+def test_create_request_treats_only_invalid_scope_handles_as_unscoped():
+    svc = _svc()
+    svc._directory_visible = lambda _viewer, _target: True
+    svc._scope_catalog_for_owner = lambda _owner: []
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [],  # graph advisory lock
+            [{"id": "conn-1"}],  # active canonical pair
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        with pytest.raises(ConnectionsError) as exc:
+            svc.create_request(
+                "user-a",
+                addressee_user_id="user-b",
+                requested_scope_handles=["not-a-real-scope"],
+            )
+
+    assert exc.value.code == "CONNECTION_ALREADY_CONNECTED"
+    assert not any("INSERT INTO connection_requests" in sql for sql, _ in db.connection.calls)
+
+
+def test_create_request_rechecks_connection_after_waiting_on_pending_request():
+    svc = _svc()
+    notifications: list[dict] = []
+    svc._notifier = lambda **kwargs: notifications.append(kwargs)
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [],  # graph advisory lock
+            [],  # no active pair before the concurrent accept commits
+            [],  # pending request changed to accepted while this SELECT waited
+            [{"id": "conn-accepted-concurrently"}],  # post-wait graph recheck
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        with pytest.raises(ConnectionsError) as exc:
+            svc.create_request("user-a", addressee_user_id="user-b")
+
+    assert exc.value.code == "CONNECTION_ALREADY_CONNECTED"
+    assert notifications == []
+    connection_reads = [sql for sql, _ in db.connection.calls if "FROM connections" in sql]
+    assert len(connection_reads) == 2
+    assert all("FOR UPDATE" not in sql for sql in connection_reads)
+    assert not any("INSERT INTO connection_requests" in sql for sql, _ in db.connection.calls)
+    assert events[-1][0] == "rollback"
+
+
+def test_create_request_returns_exact_same_direction_scope_retry():
+    svc = _svc()
+    svc._directory_visible = lambda _viewer, _target: True
+    svc._scope_catalog_for_owner = lambda _owner: [
+        {"handle": "scp-alpha", "capabilityKey": "alpha_feed_v1"}
+    ]
+    proposal = {
+        "id": "proposal-alpha",
+        "scope_handle": "scp-alpha",
+        "capability_key": "alpha_feed_v1",
+        "direction": "requested",
+        "owner_user_id": "user-b",
+        "receiver_user_id": "user-a",
+        "status": "pending",
+    }
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [],  # graph advisory lock
+            [],  # no active pair
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                    "message": None,
+                }
+            ],
+            [proposal],  # locked reviewable proposal set
+            [],  # no expired proposals
+            [proposal],  # response payload proposal history
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request(
+            "user-a",
+            addressee_user_id="user-b",
+            requested_scope_handles=["scp-alpha"],
+        )
+
+    assert result["id"] == "req-1"
+    assert result["scopes"][0]["scopeHandle"] == "scp-alpha"
+    connection_reads = [sql for sql, _ in db.connection.calls if "FROM connections" in sql]
+    request_reads = [sql for sql, _ in db.connection.calls if "FROM connection_requests" in sql]
+    assert all("FOR UPDATE" not in sql for sql in connection_reads)
+    assert request_reads and "FOR UPDATE" in request_reads[0]
+    assert not any("INSERT INTO connection_requests" in sql for sql, _ in db.connection.calls)
+    assert events[-1][0] == "commit"
+
+
+@pytest.mark.parametrize(
+    ("existing_requester", "existing_direction"),
+    [
+        ("user-a", "requested"),
+        ("user-b", "offered"),
+    ],
+)
+def test_create_request_rejects_different_or_reverse_pending_scope_envelope(
+    existing_requester: str,
+    existing_direction: str,
+):
+    svc = _svc()
+    svc._directory_visible = lambda _viewer, _target: True
+    svc._scope_catalog_for_owner = lambda _owner: [
+        {"handle": "scp-alpha", "capabilityKey": "alpha_feed_v1"},
+        {"handle": "scp-beta", "capabilityKey": "beta_feed_v1"},
+    ]
+    caller_handle = "scp-beta" if existing_requester == "user-a" else "scp-alpha"
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [],  # graph advisory lock
+            [],  # no active pair
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": existing_requester,
+                    "addressee_user_id": ("user-b" if existing_requester == "user-a" else "user-a"),
+                    "status": "pending",
+                    "message": None,
+                }
+            ],
+            [
+                {
+                    "id": "proposal-alpha",
+                    "scope_handle": "scp-alpha",
+                    "capability_key": "alpha_feed_v1",
+                    "direction": existing_direction,
+                    "owner_user_id": "user-b",
+                    "receiver_user_id": "user-a",
+                    "status": "pending",
+                }
+            ],
+            [],  # no expired proposals
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        with pytest.raises(ConnectionsError) as exc:
+            svc.create_request(
+                "user-a",
+                addressee_user_id="user-b",
+                requested_scope_handles=[caller_handle],
+            )
+
+    assert exc.value.code == "CONNECTION_SCOPE_REVIEW_ALREADY_PENDING"
+    assert exc.value.status_code == 409
+    assert not any("INSERT INTO connection_requests" in sql for sql, _ in db.connection.calls)
+    assert events[-1][0] == "rollback"
+
+
+def test_create_request_replaces_an_all_expired_scope_envelope_atomically():
+    svc = _svc()
+    svc._directory_visible = lambda _viewer, _target: True
+    svc._scope_catalog_for_owner = lambda _owner: [
+        {"handle": "scp-alpha", "capabilityKey": "alpha_feed_v1"}
+    ]
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [],  # graph advisory lock
+            [{"id": "conn-1"}],  # active pair; scoped review remains valid
+            [
+                {
+                    "id": "req-expired",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                    "message": None,
+                }
+            ],
+            [],  # no current reviewable proposals
+            [{"id": "proposal-expired"}],  # expired proposal transition
+            [{"id": "expired-event"}],
+            [{"id": "req-expired"}],  # cancel stale parent request
+            [{"id": "req-fresh"}],
+            [{"id": "proposal-fresh"}],
+            [{"id": "proposed-event"}],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request(
+            "user-a",
+            addressee_user_id="user-b",
+            requested_scope_handles=["scp-alpha"],
+        )
+
+    assert result["id"] == "req-fresh"
+    request_updates = [
+        (sql, params) for sql, params in db.connection.calls if "UPDATE connection_requests" in sql
+    ]
+    assert request_updates[0][1] == {"request_id": "req-expired"}
+    event_types = [
+        params["event_type"]
+        for sql, params in db.connection.calls
+        if "INSERT INTO connection_scope_proposal_events" in sql
+    ]
+    assert event_types == ["EXPIRED", "PROPOSED"]
+    assert events[-1][0] == "commit"
+
+
+def test_create_request_replaces_scope_envelope_expired_by_maintenance():
+    svc = _svc()
+    svc._directory_visible = lambda _viewer, _target: True
+    svc._scope_catalog_for_owner = lambda _owner: [
+        {"handle": "scp-alpha", "capabilityKey": "alpha_feed_v1"}
+    ]
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [],  # graph advisory lock
+            [{"id": "conn-1"}],  # active pair; capability review is valid
+            [
+                {
+                    "id": "req-pre-expired",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                    "message": None,
+                }
+            ],
+            [],  # maintenance already removed every reviewable proposal
+            [],  # this transaction has nothing left to expire
+            [{"id": "proposal-pre-expired"}],  # durable scope-envelope history
+            [{"id": "req-pre-expired"}],  # cancel stale parent request
+            [{"id": "req-fresh"}],
+            [{"id": "proposal-fresh"}],
+            [{"id": "proposed-event"}],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request(
+            "user-a",
+            addressee_user_id="user-b",
+            requested_scope_handles=["scp-alpha"],
+        )
+
+    assert result["id"] == "req-fresh"
+    history_reads = [
+        (sql, params)
+        for sql, params in db.connection.calls
+        if "FROM connection_scope_proposals" in sql
+        and "ORDER BY created_at ASC, id ASC" in sql
+        and "status = 'pending'" not in sql
+    ]
+    assert history_reads[0][1] == {"request_id": "req-pre-expired"}
+    assert not any(
+        params.get("event_type") == "EXPIRED"
+        for sql, params in db.connection.calls
+        if "INSERT INTO connection_scope_proposal_events" in sql
+    )
+    assert events[-1][0] == "commit"
+
+
+def test_expire_pending_scope_proposals_records_each_transition_once():
+    svc = _svc()
+    captured: dict[str, object] = {}
+    events: list[dict[str, object]] = []
+
+    def execute_many(sql, params=None):
+        captured["sql"] = sql
+        captured["params"] = params
+        return [{"id": "proposal-1"}, {"id": "proposal-2"}]
+
+    svc._execute_many = execute_many
+    svc._record_scope_event = lambda proposal_id, **kwargs: events.append(
+        {"proposal_id": proposal_id, **kwargs}
+    )
+
+    assert svc._expire_pending_scope_proposals("req-1") == 2
+    assert "status = 'pending'" in str(captured["sql"])
+    assert "expires_at <= NOW()" in str(captured["sql"])
+    assert captured["params"] == {"request_id": "req-1"}
+    assert [event["proposal_id"] for event in events] == ["proposal-1", "proposal-2"]
+    assert {event["event_type"] for event in events} == {"EXPIRED"}
+    assert {event["reason"] for event in events} == {"scope_review_window_expired"}
+
+
+def test_reviewable_scope_proposals_locks_only_unexpired_pending_rows():
+    svc = _svc()
+    captured: dict[str, object] = {}
+
+    def execute_many(sql, params=None):
+        captured["sql"] = sql
+        captured["params"] = params
+        return []
+
+    svc._execute_many = execute_many
+
+    assert svc._reviewable_scope_proposals("req-1") == []
+    sql = str(captured["sql"])
+    assert "status = 'pending'" in sql
+    assert "expires_at > NOW()" in sql
+    assert "FOR UPDATE" in sql
+    assert captured["params"] == {"request_id": "req-1"}
+
+
+def test_expire_due_capabilities_sweeps_pending_and_active_proposals():
+    svc = _svc()
+    calls: list[tuple[str, object]] = []
+    svc._transaction = nullcontext
+
+    def execute_many(sql, params=None):
+        calls.append((sql, params))
+        return []
+
+    svc._execute_many = execute_many
+
+    assert svc.expire_due_capabilities() == 0
+    assert "status IN ('pending', 'active')" in calls[0][0]
+    assert "expires_at <= NOW()" in calls[0][0]
+
+
+def test_accept_settles_expired_scopes_without_granting_them():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [{"id": "proposal-expired"}],
+            [{"id": "event-expired"}],
+            [],
+            [{"id": "conn-1", "user_a_id": "user-a", "user_b_id": "user-b"}],
+            [{"id": "trusted-a-b"}],
+            [{"id": "trusted-b-a"}],
+            [{"id": "req-1"}],
+        ]
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.accept_request(
+            "user-b",
+            "req-1",
+            selected_requested_scope_handles=[],
+            selected_offered_scope_handles=[],
+        )
+
+    assert result["status"] == "accepted"
+    assert result["scopeResults"] == []
+    assert any(
+        "UPDATE connection_scope_proposals" in sql and "expires_at <= NOW()" in sql
+        for sql, _ in db.calls
+    )
+    expired_events = [
+        params for sql, params in db.calls if "INSERT INTO connection_scope_proposal_events" in sql
+    ]
+    assert expired_events == [
+        {
+            "proposal_id": "proposal-expired",
+            "event_type": "EXPIRED",
+            "actor_user_id": None,
+            "reason": "scope_review_window_expired",
+        }
+    ]
+    assert not any(
+        "INSERT INTO relationship_share_grants" in sql
+        or "INSERT INTO ria_investor_relationships" in sql
+        for sql, _ in db.calls
+    )
+
+
+def test_accept_takes_graph_gate_before_locking_request_row():
+    svc = _svc()
+    svc._transaction = nullcontext
+    transaction_connection = object()
+    svc._transaction_connection = transaction_connection
+    events: list[tuple[str, object]] = []
+    request = {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "accepted",
+    }
+
+    def load_request(_request_id: str, *, for_update: bool = False):
+        events.append(("request", for_update))
+        return request
+
+    svc._load_request = load_request
+    svc._proposal_items = lambda _request_id: []
+
+    def lock_graph(connection, *, user_ids):
+        events.append(("graph", (connection, user_ids)))
+
+    with patch(
+        "hushh_mcp.services.connections_service.lock_connection_graph_users",
+        lock_graph,
+    ):
+        result = svc.accept_request("user-b", "req-1")
+
+    assert result["status"] == "accepted"
+    assert [event[0] for event in events] == ["request", "graph", "request"]
+    assert events[0] == ("request", False)
+    assert events[2] == ("request", True)
+    assert events[1][1] == (transaction_connection, {"user-a", "user-b"})
+
+
+def test_accept_rejects_participant_change_after_graph_gate():
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._transaction_connection = object()
+    responses = iter(
+        [
+            {
+                "id": "req-1",
+                "requester_user_id": "user-a",
+                "addressee_user_id": "user-b",
+                "status": "pending",
+            },
+            {
+                "id": "req-1",
+                "requester_user_id": "user-c",
+                "addressee_user_id": "user-b",
+                "status": "pending",
+            },
+        ]
+    )
+    svc._load_request = lambda _request_id, *, for_update=False: next(responses)
+
+    with (
+        patch(
+            "hushh_mcp.services.connections_service.lock_connection_graph_users",
+            lambda *_args, **_kwargs: None,
+        ),
+        pytest.raises(ConnectionsError) as exc,
+    ):
+        svc.accept_request("user-b", "req-1")
+
+    assert exc.value.code == "CONNECTION_REQUEST_CHANGED"
+    assert exc.value.status_code == 409
+
+
 def test_accept_creates_connection_and_two_trusted_edges():
     svc = _svc()
     # 1) load request row -> addressee is user-b (the acceptor)
@@ -335,6 +859,7 @@ def test_accept_creates_connection_and_two_trusted_edges():
                     "status": "pending",
                 }
             ],
+            [],  # no expired scope proposals
             [],  # proposal review -> no scopes
             [{"id": "conn-1"}],
             [{"id": "tc-1"}],
@@ -417,6 +942,7 @@ def test_accept_with_scope_proposals_requires_explicit_bilateral_selection():
                     "status": "pending",
                 }
             ],
+            [],  # no expired scope proposals
             [
                 {
                     "id": "proposal-1",
@@ -1017,7 +1543,8 @@ def test_list_requests_stringifies_a_real_driver_datetime():
 
 def test_remove_connection_revokes_connection_and_trusted_edges():
     svc = _svc()
-    # Call sequence: SELECT, revoke proposals/grants, demote stale RIA relation, trusted edges, connection.
+    # Call sequence: SELECT, revoke proposals/grants, demote stale RIA relation,
+    # trusted edges, provenance origins, connection.
     db = _RecordingDB(
         [
             [
@@ -1032,6 +1559,7 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
             [],  # explicit share grants -> none
             [],  # RIA relation projection -> none
             [{"id": "tc-1"}],  # UPDATE trusted_connections
+            [],  # UPDATE connection_origins
             [{"id": "conn-1"}],  # UPDATE connections
         ]
     )
@@ -1048,6 +1576,40 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
     assert trusted_update_indices[0] < conn_update_indices[0], (
         "UPDATE trusted_connections must precede UPDATE connections"
     )
+
+
+def test_disconnect_cancels_and_audits_pending_pair_scope_reviews():
+    svc = _svc()
+    captured: dict[str, object] = {}
+
+    def execute_many(sql, params=None):
+        captured["sql"] = sql
+        captured["params"] = params
+        return [{"id": "req-1"}]
+
+    svc._execute_many = execute_many
+
+    assert (
+        svc._cancel_pending_pair_requests(
+            user_a_id="user-a",
+            user_b_id="user-b",
+            actor_user_id="user-a",
+        )
+        == 1
+    )
+    sql = str(captured["sql"])
+    assert "FOR UPDATE" in sql
+    assert "expired_proposals AS" in sql
+    assert "declined_proposals AS" in sql
+    assert "'EXPIRED'" in sql
+    assert "'DECLINED'" in sql
+    assert "'connection_disconnected'" in sql
+    assert "UPDATE connection_requests" in sql
+    assert captured["params"] == {
+        "user_a": "user-a",
+        "user_b": "user-b",
+        "actor_user_id": "user-a",
+    }
 
 
 def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
@@ -1074,6 +1636,7 @@ def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
             [],  # explicit share grants -> none
             [],  # RIA relation projection -> none
             [{"id": "tc-1"}],  # UPDATE trusted_connections
+            [],  # UPDATE connection_origins
             [{"id": "conn-1"}],  # UPDATE connections
         ]
     )
@@ -1114,6 +1677,7 @@ def test_a_disconnect_that_changed_nothing_evicts_nobody():
             [],
             [],
             [],  # trusted edges already revoked
+            [],  # provenance origins already revoked
             [],  # UPDATE connections matched nothing
         ]
     )
@@ -1150,6 +1714,24 @@ def test_circle_cleanup_runs_after_the_connection_is_revoked():
     revoke_index = source.index("UPDATE connections")
     cleanup_index = source.index("_end_one_location_circle_memberships")
     assert revoke_index < cleanup_index
+
+
+def test_disconnect_takes_graph_gate_before_locking_the_connection_row():
+    """Disconnect and contact-sync projection must use one lock order.
+
+    Contact sync takes the per-user advisory gate before locking canonical
+    connection rows. Disconnect must do the same or the two transactions can
+    cross: projection waits on the row while disconnect waits on the gate,
+    leaving either a deadlock retry or a stale Trusted-Circle projection.
+    """
+    import inspect
+
+    from hushh_mcp.services.connections_service import ConnectionsService
+
+    source = inspect.getsource(ConnectionsService.remove_connection)
+    gate_index = source.index("lock_connection_graph_users(")
+    row_lock_index = source.index("\n                    FOR UPDATE")
+    assert gate_index < row_lock_index
 
 
 def test_remove_connection_returns_zero_when_not_member_or_missing():
@@ -1226,6 +1808,7 @@ def test_remove_connection_self_heals_when_already_revoked():
             [],  # explicit share grants -> none
             [],  # RIA relation projection -> none
             [],  # UPDATE trusted_connections -> already clean, 0 rows (no-op)
+            [],  # UPDATE connection_origins -> already clean, 0 rows (no-op)
             [],  # UPDATE connections -> status != 'active', no row returned
         ]
     )
@@ -1315,6 +1898,7 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
                 {"owner_user_id": "user-a"},
                 {"owner_user_id": "user-b"},
             ],
+            [],  # shared graph advisory gate
             [
                 {
                     "target_user_id": "user-b",
@@ -1336,14 +1920,19 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
         )
 
     assert result == {"relationship": "pending_outgoing"}
-    assert len(db.connection.calls) == 2
-    lock_sql, lock_params = db.connection.calls[0]
-    mutation_sql, mutation_params = db.connection.calls[1]
-    normalized_lock_sql = " ".join(lock_sql.split()).lower()
+    assert len(db.connection.calls) == 3
+    candidate_sql, candidate_params = db.connection.calls[0]
+    gate_sql, gate_params = db.connection.calls[1]
+    mutation_sql, mutation_params = db.connection.calls[2]
+    normalized_candidate_sql = " ".join(candidate_sql.split()).lower()
     normalized_mutation_sql = " ".join(mutation_sql.split()).lower()
-    assert "order by p.owner_user_id for update of p" in normalized_lock_sql
+    assert "order by p.owner_user_id" in normalized_candidate_sql
+    assert "for update" not in normalized_candidate_sql
+    assert "pg_advisory_xact_lock" in gate_sql
+    assert "order by p.owner_user_id for update of p" in normalized_mutation_sql
     assert "viewer.version = :requester_presence_version" in normalized_mutation_sql
     assert "target.version = :target_presence_version" in normalized_mutation_sql
+    assert "target.owner_user_id = :target_user_id" in normalized_mutation_sql
     assert "insert into connection_requests" in normalized_mutation_sql
     assert "target.allow_connection_requests" in normalized_mutation_sql
     assert "'pending', null" in normalized_mutation_sql
@@ -1357,10 +1946,12 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
         "requester_presence_version": 4,
         "target_presence_version": 7,
     }
-    assert lock_params == expected_params
-    assert mutation_params == expected_params
+    assert candidate_params == expected_params
+    assert gate_params["user_ids"] == ["user-a", "user-b"]
+    assert mutation_params == {**expected_params, "target_user_id": "user-b"}
     assert [event[0] for event in events] == [
         "begin",
+        "execute",
         "execute",
         "execute",
         "commit",
@@ -1385,6 +1976,7 @@ def test_nearby_alias_request_returns_reverse_pending_without_notification():
                 {"owner_user_id": "user-a"},
                 {"owner_user_id": "user-b"},
             ],
+            [],  # shared graph advisory gate
             [
                 {
                     "target_user_id": "user-b",
@@ -1409,6 +2001,7 @@ def test_nearby_alias_request_returns_reverse_pending_without_notification():
         "begin",
         "execute",
         "execute",
+        "execute",
         "commit",
     ]
 
@@ -1420,7 +2013,6 @@ def test_nearby_alias_request_fails_closed_without_current_eligibility():
     db = _TransactionalDB(
         [
             [{"owner_user_id": "user-a"}],
-            [],
         ],
         events,
     )
@@ -1436,7 +2028,6 @@ def test_nearby_alias_request_fails_closed_without_current_eligibility():
     assert result is None
     assert [event[0] for event in events] == [
         "begin",
-        "execute",
         "execute",
         "commit",
     ]
@@ -1535,6 +2126,29 @@ def test_resolve_scope_proposals_rejects_scope_not_in_request():
     assert events == []
 
 
+def test_resolve_scope_proposals_rolls_back_when_review_transition_is_stale():
+    svc = _svc()
+    proposal = _pending_proposal("scp-alpha", "alpha_feed_v1")
+    events: list[dict[str, object]] = []
+    svc._execute_one = lambda _sql, _params=None: None
+    svc._record_scope_event = lambda proposal_id, **kwargs: events.append(
+        {"proposal_id": proposal_id, **kwargs}
+    )
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc._resolve_scope_proposals(
+            request_id="req-1",
+            actor_user_id="investor-user",
+            selected_requested_scope_handles=["scp-alpha"],
+            selected_offered_scope_handles=[],
+            proposals=[proposal],
+        )
+
+    assert exc.value.code == "CONNECTION_SCOPE_REVIEW_STALE"
+    assert exc.value.status_code == 409
+    assert events == []
+
+
 def test_resolve_scope_proposals_declines_reserved_scope_when_activation_fails():
     """A selected RIA-reserved capability that cannot be materialized fails
     closed: the scope is declined, never granted. Authorization is not bypassed
@@ -1598,16 +2212,18 @@ def test_accept_records_the_direct_request_origin_location_needs():
     """
     svc = _svc()
     events: list = []
+    request_row = {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
     db = _TransactionalDB(
         [
-            [
-                {
-                    "id": "req-1",
-                    "requester_user_id": "user-a",
-                    "addressee_user_id": "user-b",
-                    "status": "pending",
-                }
-            ],
+            [request_row],  # unlocked participant read
+            [],  # graph advisory gate
+            [request_row],  # locked request revalidation
+            [],  # no expired scope proposals
             [],  # no scope proposals
             [{"id": "conn-1"}],
             [{"id": "tc-1"}],
@@ -1683,18 +2299,17 @@ def test_python_orders_this_pair_the_way_the_database_will_reject():
 
 
 def test_every_connections_writer_lets_the_database_order_the_pair():
-    """Ordering happens in the statement the constraint judges -- in all three.
+    """Ordering happens in the statement the constraint judges -- in all four.
 
     Reads are order-agnostic: every one matches
     `user_a_id = :id OR user_b_id = :id`, so existing rows stay findable
     whichever way round they were stored. Only the INSERTs must satisfy
     `connections_canonical_order`.
 
-    There are three, and the third is easy to miss -- `ConnectionGraphService`
-    writes the same table through its own `canonical_pair`, carrying the
-    identical Python-ordering bug. Fixing only the two in `connections_service`
-    would have left circle-invite and origin materialisation failing the same
-    way, for the same reason, with the same silent 500.
+    There are four, including the set-based contact-sync writer in
+    `ConnectionGraphService`. It uses `INSERT ... SELECT` rather than a VALUES
+    clause, but the pair still has to be ordered inside the SQL statement the
+    database constraint judges.
     """
     import inspect
     import re
@@ -1709,11 +2324,10 @@ def test_every_connections_writer_lets_the_database_order_the_pair():
             tail = source[match.end() : match.end() + 600]
             writers.append((module.__name__, tail))
 
-    assert len(writers) == 3, f"expected 3 connections writers, found {len(writers)}"
+    assert len(writers) == 4, f"expected 4 connections writers, found {len(writers)}"
 
     for module_name, tail in writers:
-        values = tail[tail.index("VALUES") :] if "VALUES" in tail else ""
-        assert "LEAST(" in values and "GREATEST(" in values, (
+        assert "LEAST(" in tail and "GREATEST(" in tail, (
             f"{module_name}: a connections INSERT orders its pair outside SQL. "
             "Python's `<` is bytewise and disagrees with the en_US.UTF8 "
             "collation the CHECK uses, which is the CheckViolation this guards."
