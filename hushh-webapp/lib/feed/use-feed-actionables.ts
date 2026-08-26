@@ -522,6 +522,29 @@ export function useFeedActionables(): UseFeedActionablesResult {
           displayTimestamp: toDisplayTimestamp(entry.issued_at),
         });
       }
+
+      // The Feed intentionally loads only the first Consent Center page. When
+      // the authoritative summary says more requests exist, keep the queue
+      // complete by ending the loaded slice with a route to the full workspace
+      // instead of silently making request 21+ unreachable from Feed.
+      const loadedConsentCount = consentItems?.length ?? 0;
+      const remainingConsentCount =
+        (pendingConsentCount ?? 0) - loadedConsentCount;
+      if (consentItems && remainingConsentCount > 0) {
+        items.push({
+          id: "consent:overflow",
+          icon: ShieldCheck,
+          iconTone: "accent",
+          title: "View all pending requests",
+          description: `${remainingConsentCount} more pending ${remainingConsentCount === 1 ? "request is" : "requests are"} waiting in Consent Center.`,
+          href: buildConsentCenterHref("pending", { from: "/one/feed" }),
+          chevron: true,
+          actions: [],
+          // Keep this navigation affordance below real actionable rows.
+          sortAt: 0,
+          displayTimestamp: null,
+        });
+      }
     }
 
     // SMS · Save My Soul emergency alerts — a share a contact started as an

@@ -111,7 +111,15 @@ vi.mock("@/lib/services/connections-service", () => ({
 }));
 
 vi.mock("@/lib/consent/consent-sheet-route", () => ({
-  buildConsentCenterHref: () => "/one/consent?surface=pending",
+  buildConsentCenterHref: (
+    view: string,
+    options?: { requestId?: string; from?: string },
+  ) => {
+    const params = new URLSearchParams({ tab: view });
+    if (options?.requestId) params.set("requestId", options.requestId);
+    if (options?.from) params.set("from", options.from);
+    return `/one/consent?${params.toString()}`;
+  },
 }));
 
 vi.mock("@/lib/consent/consent-display", () => ({
@@ -202,6 +210,34 @@ describe("useFeedActionables — connection request de-duplication", () => {
     expect(result.current.actionables).toHaveLength(1);
     expect(result.current.actionables[0].id).toBe("consent:consent-1");
     expect(result.current.actionables[0].description).toBe("your holdings");
+  });
+
+  it("links to the full Consent Center when pending requests exceed the loaded page", () => {
+    mocks.pendingCount = 21;
+    mocks.consentItems = Array.from({ length: 20 }, (_, index) => ({
+      id: `consent-${index + 1}`,
+      request_id: `consent-${index + 1}`,
+      kind: "incoming_request",
+      status: "pending",
+      action: "REQUESTED",
+      counterpart_type: "ria",
+      counterpart_label: `Advisor ${index + 1}`,
+      scope_description: "your holdings",
+    }));
+
+    const { result } = renderHook(() => useFeedActionables());
+    const overflow = result.current.actionables.find(
+      (item) => item.id === "consent:overflow",
+    );
+
+    expect(result.current.actionables).toHaveLength(21);
+    expect(overflow).toMatchObject({
+      title: "View all pending requests",
+      description: "1 more pending request is waiting in Consent Center.",
+      href: "/one/consent?tab=pending&from=%2Fone%2Ffeed",
+      chevron: true,
+      actions: [],
+    });
   });
 
   it("keeps failed background work visible with recovery and dismiss actions", () => {

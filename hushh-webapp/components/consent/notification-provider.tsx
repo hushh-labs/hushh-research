@@ -489,6 +489,41 @@ function oneLocationNotificationId(data: Record<string, string>): string {
   return base && revision && revision !== "1" ? `${base}#${revision}` : base;
 }
 
+function notificationEventDedupKey(
+  msgType: string | undefined,
+  data: Record<string, string>,
+): string | null {
+  const normalizedType = String(msgType || "unknown").trim() || "unknown";
+  const messageId = String(data.message_id || "").trim();
+  if (messageId) return `${normalizedType}:message:${messageId}`;
+
+  const revision = String(
+    data.notification_revision ||
+      data.notification_sequence ||
+      data.request_revision ||
+      "",
+  ).trim();
+  const entityId = String(
+    data.request_id ||
+      data.bundle_id ||
+      data.grant_id ||
+      data.approved_grant_id ||
+      data.submission_id ||
+      data.referral_id ||
+      data.connection_id ||
+      data.invite_id ||
+      data.transfer_id ||
+      data.notification_tag ||
+      "",
+  ).trim();
+
+  // An entity id identifies the subject, not the delivery. Repeated valid
+  // events can target the same grant/request, so only pair it with an explicit
+  // producer revision or sequence when suppressing a replay.
+  if (!revision || !entityId) return null;
+  return `${normalizedType}:entity:${entityId}:revision:${revision}`;
+}
+
 /**
  * Format an optional coordinate pair as a human-readable fallback, e.g.
  * "10.7904° N, 78.7047° E". Returns undefined unless both values are finite, so
@@ -1350,26 +1385,12 @@ export function ConsentNotificationProvider({
       if (msgType === "consent_request" && !parsedConsent) return;
       if (user?.uid) detail.accepted = true;
 
-      // Dedup: skip if we've already processed this exact message
-      const msgId =
-        data.message_id ||
-        data.request_id ||
-        data.bundle_id ||
-        data.grant_id ||
-        data.submission_id ||
-        data.referral_id ||
-        data.connection_id ||
-        data.invite_id ||
-        data.transfer_id ||
-        "";
-      const msgVersion =
-        data.notification_revision ||
-        data.notification_sequence ||
-        data.request_revision ||
-        "initial";
-      const dedupKey = `${msgType}:${msgId}:${msgVersion}`;
-      if (msgId && ingestedMessageIdsRef.current.has(dedupKey)) return;
-      if (msgId) ingestedMessageIdsRef.current.add(dedupKey);
+      // Suppress only identifiable replays. A bare grant/request id is the
+      // notification's subject, not a delivery identity, and reusing it here
+      // would swallow later valid events for that entity.
+      const dedupKey = notificationEventDedupKey(msgType, data);
+      if (dedupKey && ingestedMessageIdsRef.current.has(dedupKey)) return;
+      if (dedupKey) ingestedMessageIdsRef.current.add(dedupKey);
 
       // Push is a wake-up signal; Feed remains the only routine in-app
       // presentation surface. This also covers notification families added in
@@ -1396,8 +1417,11 @@ export function ConsentNotificationProvider({
           queuedOneLocationNotificationsRef.current = [
             ...queuedOneLocationNotificationsRef.current.filter(
               (notification) =>
-                `${notification.data.type}:${oneLocationNotificationId(notification.data)}` !==
-                dedupKey,
+                !dedupKey ||
+                notificationEventDedupKey(
+                  notification.data.type,
+                  notification.data,
+                ) !== dedupKey,
             ),
             { data: locationData, present: shouldPresent },
           ].slice(-50);

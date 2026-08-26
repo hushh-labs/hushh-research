@@ -14,6 +14,7 @@ import hashlib
 import inspect
 import logging
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import UUID
 
@@ -29,11 +30,32 @@ from hushh_mcp.services.connection_graph_service import (
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
 )
-from hushh_mcp.services.feed_service import FeedService
+from hushh_mcp.services.requester_identity import label_from_identity_row
 
 logger = logging.getLogger(__name__)
 
 _RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
+_CONNECTION_FEED_EVENT_TYPES = frozenset(
+    {"connection_accepted", "connection_rejected", "connection_revoked"}
+)
+
+
+def _iso(value: Any) -> str | None:
+    """Stringify a DB-driver datetime before it leaves this service.
+
+    FastAPI's response encoder happily serializes a raw datetime for the REST
+    routes, but the voice tool layer hands this same dict straight to
+    Gemini Live's plain json.dumps, which does not -- a raw datetime there
+    crashes the whole live session with no result ever reaching the user.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return str(value.astimezone(timezone.utc).isoformat())
+    return str(value)
+
 
 # The SQL predicate for "this RIA profile is real enough to carry a capability".
 #
@@ -218,26 +240,86 @@ class ConnectionsService:
         return result.data or []
 
     def _display_name_for(self, user_id: str) -> str | None:
-        """Best-effort full display name for a user, for feed copy only.
+        """Best-effort canonical relationship-safe label for Feed copy.
 
-        Reads the same `actor_identity_cache.display_name` the connection and
-        directory queries already surface, so this never widens what the app
-        exposes about a mutual connection. Returns None when unresolved, letting
-        the feed fall back to its safe generic line.
+        The cache can contain the raw Firebase uid in ``display_name`` for a
+        user who has not synced an identity yet. Reuse the same canonical
+        display-name/email-handle ladder as push notifications so a technical
+        identifier never becomes human-facing Feed copy.
         """
         uid = (user_id or "").strip()
         if not uid:
             return None
         try:
             row = self._execute_one(
-                "SELECT display_name FROM actor_identity_cache WHERE user_id = :uid",
+                """
+                SELECT user_id, display_name, email
+                FROM actor_identity_cache
+                WHERE user_id = :uid
+                LIMIT 1
+                """,
                 {"uid": uid},
             )
         except Exception:  # noqa: BLE001 - name is cosmetic; never break the action
             logger.exception("connections.feed_display_name_lookup_failed")
             return None
-        name = str((row or {}).get("display_name") or "").strip()
-        return name or None
+        label = label_from_identity_row(row, allow_email_handle=True)
+        return label or None
+
+    def _record_connection_feed_transition(
+        self,
+        *,
+        owner_user_id: str,
+        counterpart_user_id: str,
+        actor_user_id: str,
+        event_type: str,
+        source_row_id: str,
+    ) -> None:
+        """Persist relationship history on the owning mutation transaction.
+
+        ``_execute_one`` automatically reuses ``_transaction_connection`` in
+        production. Unlike the best-effort Feed helper, failures here must
+        propagate so an accepted/rejected/revoked relationship can never
+        commit without the two corresponding, source-idempotent Feed rows.
+        """
+
+        owner = (owner_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        actor = (actor_user_id or "").strip()
+        source_id = (source_row_id or "").strip()
+        if not owner or not counterpart or not actor or not source_id:
+            raise ValueError("Connection Feed transitions require complete identities.")
+        if event_type not in _CONNECTION_FEED_EVENT_TYPES:
+            raise ValueError(f"Unsupported connection Feed event type: {event_type}")
+
+        counterpart_label = self._display_name_for(counterpart)
+        self._execute_one(
+            """
+            INSERT INTO feed_events (
+              user_id, source_domain, event_type, metadata, source_row_id
+            )
+            VALUES (
+              :owner_user_id,
+              'connections',
+              :event_type,
+              jsonb_strip_nulls(jsonb_build_object(
+                'actor_is_self', :actor_is_self,
+                'counterpart_label',
+                  NULLIF(LEFT(BTRIM(:counterpart_label), 160), '')
+              )),
+              :source_row_id
+            )
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            """,
+            {
+                "owner_user_id": owner,
+                "event_type": event_type,
+                "actor_is_self": owner == actor,
+                "counterpart_label": counterpart_label,
+                "source_row_id": source_id,
+            },
+        )
 
     @staticmethod
     def _row_mapping(row: Any) -> dict[str, Any]:
@@ -608,9 +690,9 @@ class ConnectionsService:
                 "label": _capability_label(row.get("capability_key")),
                 "description": _capability_description(row.get("capability_key")),
                 "status": str(row.get("status") or "pending"),
-                "createdAt": row.get("created_at"),
-                "expiresAt": row.get("expires_at"),
-                "resolvedAt": row.get("resolved_at"),
+                "createdAt": _iso(row.get("created_at")),
+                "expiresAt": _iso(row.get("expires_at")),
+                "resolvedAt": _iso(row.get("resolved_at")),
             }
             for row in rows
         ]
@@ -824,7 +906,7 @@ class ConnectionsService:
                 {
                     "type": str(row.get("event_type") or ""),
                     "reason": row.get("reason"),
-                    "createdAt": row.get("created_at"),
+                    "createdAt": _iso(row.get("created_at")),
                 }
             )
         return {
@@ -2232,26 +2314,15 @@ class ConnectionsService:
                 {"id": req.get("id")},
             )
             connection_id = (connection or {}).get("id")
-
-        # Feed is a best-effort, post-commit projection. It must not cause a
-        # caller to retry an already-authorized connection transition.
-        for owner, counterpart in ((user_id, requester), (requester, user_id)):
-            try:
-                counterpart_metadata: dict[str, Any] = {
-                    "counterpart_user_id": counterpart,
-                    "actor_is_self": owner == user_id,
-                }
-                counterpart_name = self._display_name_for(counterpart)
-                if counterpart_name:
-                    counterpart_metadata["counterpart_label"] = counterpart_name
-                FeedService().record_event(
-                    user_id=owner,
-                    source_domain="connections",
+            source_request_id = str(req.get("id") or "")
+            for owner, counterpart in ((user_id, requester), (requester, user_id)):
+                self._record_connection_feed_transition(
+                    owner_user_id=owner,
+                    counterpart_user_id=counterpart,
+                    actor_user_id=user_id,
                     event_type="connection_accepted",
-                    metadata=counterpart_metadata,
+                    source_row_id=source_request_id,
                 )
-            except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
-                logger.exception("connections.accepted_feed_projection_failed")
 
         # Accepting a connection grants nothing on its own. Location sharing is
         # opt-in and one-directional: it starts only when a person explicitly
@@ -2327,7 +2398,16 @@ class ConnectionsService:
                 raise ConnectionsError(
                     "CONNECTION_NOT_ADDRESSEE", "Only the addressee can reject.", status_code=403
                 )
-            self._execute_one(
+            request_status = str(req.get("status") or "")
+            if request_status == "rejected":
+                return {"status": "rejected", "requestId": req.get("id")}
+            if request_status != "pending":
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
+            updated_request = self._execute_one(
                 """
                 UPDATE connection_requests
                 SET status = 'rejected', responded_at = NOW(), updated_at = NOW()
@@ -2336,6 +2416,12 @@ class ConnectionsService:
                 """,
                 {"id": req.get("id")},
             )
+            if not updated_request:
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
             self._resolve_pending_scope_proposals(
                 str(req.get("id") or ""),
                 status="declined",
@@ -2343,23 +2429,15 @@ class ConnectionsService:
                 reason="connection_rejected",
             )
             requester = str(req.get("requester_user_id"))
-        for owner, counterpart in ((requester, user_id), (user_id, requester)):
-            try:
-                rejected_metadata: dict[str, Any] = {
-                    "counterpart_user_id": counterpart,
-                    "actor_is_self": owner == user_id,
-                }
-                rejected_name = self._display_name_for(counterpart)
-                if rejected_name:
-                    rejected_metadata["counterpart_label"] = rejected_name
-                FeedService().record_event(
-                    user_id=owner,
-                    source_domain="connections",
+            source_request_id = str(req.get("id") or "")
+            for owner, counterpart in ((requester, user_id), (user_id, requester)):
+                self._record_connection_feed_transition(
+                    owner_user_id=owner,
+                    counterpart_user_id=counterpart,
+                    actor_user_id=user_id,
                     event_type="connection_rejected",
-                    metadata=rejected_metadata,
+                    source_row_id=source_request_id,
                 )
-            except Exception:  # noqa: BLE001 - projection cannot roll back rejection
-                logger.exception("connections.rejected_feed_projection_failed")
         return {"status": "rejected", "requestId": req.get("id")}
 
     def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
@@ -2476,7 +2554,7 @@ class ConnectionsService:
                 "addresseeUserId": str(r.get("addressee_user_id") or ""),
                 "status": str(r.get("status") or ""),
                 "message": r.get("message"),
-                "createdAt": r.get("created_at"),
+                "createdAt": _iso(r.get("created_at")),
                 "counterpartUserId": str(r.get("counterpart_user_id") or ""),
                 "counterpartDisplayName": r.get("counterpart_display_name"),
                 "scopes": self._proposal_items(str(r.get("id") or "")),
@@ -2755,6 +2833,111 @@ class ConnectionsService:
             "audience": audience,
         }
 
+    @staticmethod
+    def _voice_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
+        updated_at = (row or {}).get("updated_at")
+        return {
+            "shareScopesFromLastRequest": bool(
+                (row or {}).get("share_scopes_from_last_request", False)
+            ),
+            "updatedAt": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+        }
+
+    def get_last_request_scope_handles(
+        self, *, requester_user_id: str, addressee_user_id: str
+    ) -> dict[str, list[str]]:
+        """Scope handles from this requester's most recent request to this
+        exact recipient, split by direction. Empty for a first-time
+        recipient -- there is deliberately no wider "usual scopes" fallback,
+        so a repeat request can only ever offer what this specific person was
+        already asked before, never a guess extrapolated from someone else.
+        """
+        latest_request = self._execute_one(
+            """
+            SELECT id
+            FROM connection_requests
+            WHERE requester_user_id = :requester_user_id
+              AND addressee_user_id = :addressee_user_id
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {
+                "requester_user_id": requester_user_id,
+                "addressee_user_id": addressee_user_id,
+            },
+        )
+        if not latest_request:
+            return {"requestedScopeHandles": [], "offeredScopeHandles": []}
+        proposals = self._execute_many(
+            """
+            SELECT scope_handle, direction
+            FROM connection_scope_proposals
+            WHERE connection_request_id = CAST(:request_id AS UUID)
+            """,
+            {"request_id": str(latest_request.get("id") or "")},
+        )
+        return {
+            "requestedScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "requested" and row.get("scope_handle")
+            ],
+            "offeredScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "offered" and row.get("scope_handle")
+            ],
+        }
+
+    def get_voice_preferences(self, *, user_id: str) -> dict[str, Any]:
+        """Return the standing default for voice-initiated connection requests.
+
+        A missing row means the person has never set a preference: reusing
+        scopes from a recipient's last request defaults off, matching
+        `connect.send_request`'s own current always-empty behavior. It never
+        grants access by itself -- the recipient still approves every
+        request -- so no lock or audit event is needed here.
+        """
+        row = self._execute_one(
+            """
+            SELECT share_scopes_from_last_request, updated_at
+            FROM connection_voice_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return self._voice_preferences_payload(row)
+
+    def update_voice_preferences(
+        self, *, user_id: str, share_scopes_from_last_request: bool
+    ) -> dict[str, Any]:
+        """Write the person's standing voice-request scope-sharing default."""
+        row = self._execute_one(
+            """
+            INSERT INTO connection_voice_preferences (
+              user_id, share_scopes_from_last_request, created_at, updated_at
+            ) VALUES (
+              :user_id, :share_scopes_from_last_request, NOW(), NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+              share_scopes_from_last_request = EXCLUDED.share_scopes_from_last_request,
+              updated_at = NOW()
+            RETURNING share_scopes_from_last_request, updated_at
+            """,
+            {
+                "user_id": user_id,
+                "share_scopes_from_last_request": share_scopes_from_last_request,
+            },
+        )
+        if not row:
+            raise ConnectionsError(
+                "CONNECTION_VOICE_PREFERENCES_UPDATE_FAILED",
+                "Could not update voice preferences.",
+                status_code=500,
+            )
+        return self._voice_preferences_payload(row)
+
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
         rows = self._execute_many(
@@ -2793,7 +2976,7 @@ class ConnectionsService:
                 "userId": str(r.get("user_id") or ""),
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
-                "createdAt": r.get("created_at"),
+                "createdAt": _iso(r.get("created_at")),
                 "isRia": str(r.get("user_id") or "") in ria_user_ids,
                 "connectedFromContacts": bool(r.get("connected_from_contacts")),
             }
@@ -3452,7 +3635,7 @@ class ConnectionsService:
                 UPDATE connections
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE id = :id AND status = 'active'
-                RETURNING id
+                RETURNING id, revoked_at
                 """,
                 {"id": (connection_id or "").strip()},
             )
@@ -3461,33 +3644,21 @@ class ConnectionsService:
                     user_a_id=str(user_a or ""),
                     user_b_id=str(user_b or ""),
                 )
-        if conn:
-            user_a_id = str(user_a or "")
-            user_b_id = str(user_b or "")
-            user_a_name = self._display_name_for(user_a_id)
-            user_b_name = self._display_name_for(user_b_id)
-            a_metadata: dict[str, Any] = {
-                "counterpart_user_id": user_b_id,
-                "actor_is_self": user_a_id == user_id,
-            }
-            if user_b_name:
-                a_metadata["counterpart_label"] = user_b_name
-            b_metadata: dict[str, Any] = {
-                "counterpart_user_id": user_a_id,
-                "actor_is_self": user_b_id == user_id,
-            }
-            if user_a_name:
-                b_metadata["counterpart_label"] = user_a_name
-            FeedService().record_event(
-                user_id=user_a_id,
-                source_domain="connections",
-                event_type="connection_revoked",
-                metadata=a_metadata,
-            )
-            FeedService().record_event(
-                user_id=user_b_id,
-                source_domain="connections",
-                event_type="connection_revoked",
-                metadata=b_metadata,
-            )
+                user_a_id = str(user_a or "")
+                user_b_id = str(user_b or "")
+                connection_source_id = str(conn.get("id") or connection_id)
+                revoked_at = conn.get("revoked_at")
+                if revoked_at:
+                    connection_source_id = f"{connection_source_id}:{revoked_at}"
+                for owner, counterpart in (
+                    (user_a_id, user_b_id),
+                    (user_b_id, user_a_id),
+                ):
+                    self._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id=counterpart,
+                        actor_user_id=user_id,
+                        event_type="connection_revoked",
+                        source_row_id=connection_source_id,
+                    )
         return {"removed": 1 if conn else 0}

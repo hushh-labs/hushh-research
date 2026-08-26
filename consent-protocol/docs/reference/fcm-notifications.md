@@ -25,14 +25,15 @@ Kai, and forward-compatible types—follow one lifecycle policy:
 | App state | Presentation | State behavior |
 | --------- | ------------ | -------------- |
 | Active/visible | No routine Sonner toast and no browser/native foreground banner or sound; badge may update | Always refresh Feed; also refresh recognized consent, connection, and One Location state |
-| Background, inactive, or no visible web client | One operating-system notification | Durable Feed remains authoritative |
+| Background/terminated native app, or no visible web client | One operating-system notification | Durable Feed remains authoritative |
 | External notification body tap | Open `/one/feed` | The Feed row owns later detail navigation/action |
 
-Explicit consent action buttons still open their review/confirmation flow and
-never approve or deny directly. The service worker elects one visible client
-to acknowledge foreground ownership; hidden tabs cannot suppress the system
-fallback or replay stale popup UI. Historical hydration and One Location state
-reconciliation are state-repair paths only and never presentation sources.
+Registered iOS consent action buttons still open their review/confirmation flow
+and never approve or deny directly; Android does not register equivalent native
+action buttons. The service worker elects one visible client to acknowledge
+foreground ownership; hidden tabs cannot suppress the system fallback or replay
+stale popup UI. Historical hydration and One Location state reconciliation are
+state-repair paths only and never presentation sources.
 
 Every shared push carries an explicit
 `notification_presentation=alert|silent` data field. A silent event (for
@@ -92,8 +93,8 @@ still receives emergency presentation.
 | Visible web app | Assertive red emergency card, three-pulse Web Audio alarm, supported-device vibration, and a 30-second presentation window |
 | Background web / PWA | Persistent browser notification with emergency vibration metadata; body tap enters Feed |
 | Android | Dedicated `one_location_sms_emergency_v1` high-importance channel using the device alarm sound, red notification light, and emergency vibration pattern |
-| iOS background | `ONE_LOCATION_SMS_EMERGENCY` category, custom `one_location_sms_alarm.wav` sound generated in the app's `Library/Sounds`, badge, and an Open live location action |
-| iOS foreground | Shared red in-app emergency card and alarm; the native delegate keeps only the badge to prevent a duplicate banner and duplicate sound |
+| iOS background/terminated | `ONE_LOCATION_SMS_EMERGENCY` category, custom `one_location_sms_alarm.wav` sound generated in the app's `Library/Sounds`, badge, and an Open live location action |
+| iOS foreground | Shared red in-app emergency card and alarm; Capacitor's Firebase Messaging router presents only the badge to prevent a duplicate banner and duplicate sound |
 
 The explicit iOS **Open live location** safety action is the only notification
 action that bypasses Feed and opens the validated One Location target. A normal
@@ -124,7 +125,7 @@ There is no midpoint reminder and no repeated reminder loop once a request has b
 4. consent_listener.py receives event
 5. Enriches FCM payload: { request_id, scope, agent_id, scope_description }
 6. Sends FCM message to user's registered tokens
-7. Client receives push → refreshes Feed/domain state; OS presents only when inactive
+7. Client receives push → refreshes Feed/domain state; OS presents when the native app is backgrounded/terminated or no visible web client claims the push
 8. No polling and no production SSE requirement for notification data
 ```
 

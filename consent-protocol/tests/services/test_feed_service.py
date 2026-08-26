@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from hushh_mcp.services.feed_service import FeedService
+from hushh_mcp.services.feed_service import POSTGRES_BIGINT_MAX, FeedService
 
 
 class _Db:
@@ -93,8 +93,8 @@ def test_source_backed_feed_event_uses_idempotent_projection_insert() -> None:
 
     assert len(db.raw_calls) == 1
     sql, params = db.raw_calls[0]
-    assert "ON CONFLICT" in sql
-    assert "WHERE source_row_id IS NOT NULL DO NOTHING" in sql
+    assert "ON CONFLICT DO NOTHING" in sql
+    assert "ON CONFLICT (" not in sql
     assert params["source_row_id"] == "circle_code:invite-1:user-2"
     assert params["metadata_json"] == '{"circle_id": "circle-1"}'
     assert db.inserted == []
@@ -141,6 +141,11 @@ def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> No
     assert result["next_cursor"] == "9"
     assert result["unread_count"] == 41
     assert ("eq", ("user_id", "user-1"), {}) in list_query.calls
+    assert (
+        "select",
+        ("id,source_domain,event_type,actor_label,metadata,read_at,created_at",),
+        {},
+    ) in list_query.calls
     assert ("lt", ("id", 11), {}) in list_query.calls
     assert ("order", ("id",), {"desc": True}) in list_query.calls
     assert ("limit", (3,), {}) in list_query.calls
@@ -153,13 +158,13 @@ def test_mark_read_is_tenant_scoped_and_never_unbounded() -> None:
     service = FeedService()
     service._db = _QueuedDb(update_query)
 
-    assert service.mark_read("user-1", up_to_id=900719925474099312345) == {"status": "ok"}
+    assert service.mark_read("user-1", up_to_id=POSTGRES_BIGINT_MAX) == {"status": "ok"}
 
     assert ("eq", ("user_id", "user-1"), {}) in update_query.calls
     assert ("is", ("read_at", None), {}) in update_query.calls
     assert (
         "lte",
-        ("id", 900719925474099312345),
+        ("id", POSTGRES_BIGINT_MAX),
         {},
     ) in update_query.calls
 

@@ -38,6 +38,8 @@ _SOURCE_DOMAINS = frozenset(
 _MAX_ACTOR_LABEL_LENGTH = 160
 _MAX_METADATA_STRING_LENGTH = 256
 _MAX_METADATA_NUMBER = 1_000_000_000_000
+POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
+_FEED_SELECT_COLUMNS = "id,source_domain,event_type,actor_label,metadata,read_at,created_at"
 
 # Feed is a plaintext presentation projection. Only keys consumed by the
 # client renderers may cross this boundary; domain rows can contain richer
@@ -146,9 +148,7 @@ class FeedService:
                       :user_id, :source_domain, :event_type, :actor_label,
                       CAST(:metadata_json AS JSONB), :source_row_id
                     )
-                    ON CONFLICT (
-                      user_id, source_domain, event_type, source_row_id
-                    ) WHERE source_row_id IS NOT NULL DO NOTHING
+                    ON CONFLICT DO NOTHING
                     """,
                     {
                         "user_id": user_id,
@@ -189,7 +189,7 @@ class FeedService:
         """
         bounded_limit = max(1, min(limit, _MAX_LIMIT))
         db = self._get_db()
-        query = db.table("feed_events").select("*").eq("user_id", user_id)
+        query = db.table("feed_events").select(_FEED_SELECT_COLUMNS).eq("user_id", user_id)
         if cursor is not None:
             query = query.lt("id", cursor)
         rows = query.order("id", desc=True).limit(bounded_limit + 1).execute().data or []

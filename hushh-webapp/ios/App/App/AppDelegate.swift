@@ -15,7 +15,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private static let consentDenyAction = "CONSENT_DENY"
     private static let emergencySmsNotificationCategory = "ONE_LOCATION_SMS_EMERGENCY"
     private static let emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"
-    private static let emergencySmsProfile = "one_location_sms_emergency"
     private static let emergencySmsSound = "one_location_sms_alarm.wav"
 
     var window: UIWindow?
@@ -39,9 +38,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
 
-        // Configure the delegate so notification presentation and tap handling work
-        // after the app explicitly requests permission from the notification init flow.
-        UNUserNotificationCenter.current().delegate = self
         prepareEmergencySmsSound()
         registerNotificationCategories()
         Messaging.messaging().delegate = self
@@ -127,56 +123,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
-}
-
-// MARK: - UNUserNotificationCenterDelegate
-extension AppDelegate: UNUserNotificationCenterDelegate {
-    // Handle foreground notifications (app is open)
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                willPresent notification: UNNotification,
-                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        print(
-            "📬 [AppDelegate] Foreground notification received while appState=\(UIApplication.shared.applicationState.debugLabel)"
-        )
-        let appState = UIApplication.shared.applicationState
-        let profile = String(
-            describing: notification.request.content.userInfo["notification_profile"] ?? ""
-        ).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if appState != .active {
-            // `.inactive` covers interruptions and foreground/background
-            // transitions where the shared WebView alarm/feed UI cannot be
-            // trusted to present. The operating system owns those moments.
-            completionHandler([.banner, .list, .sound, .badge])
-            return
-        }
-        if profile == Self.emergencySmsProfile {
-            // The shared Capacitor UI renders the assertive red emergency card and
-            // plays its three-pulse alarm. Suppress the duplicate iOS foreground
-            // banner/sound while retaining the badge. Inactive/background delivery
-            // uses the OS branch above plus the APNs category and custom sound.
-            completionHandler([.badge])
-            return
-        }
-        // Routine activity is visible in the in-app Feed. Keep only the badge
-        // while foregrounded so iOS does not stack banners over app controls.
-        // Background/inactive delivery still uses the APNs alert and sound.
-        completionHandler([.badge])
-    }
-    
-    // Handle notification taps
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                didReceive response: UNNotificationResponse,
-                                withCompletionHandler completionHandler: @escaping () -> Void) {
-        print("👆 [AppDelegate] Notification action performed: \(response.actionIdentifier)")
-
-        print("📦 [AppDelegate] Notification response received")
-        logNotificationSettings(context: "didReceiveNotificationResponse")
-        
-        // The Capacitor FCM plugin will handle the navigation
-        // via the notificationActionPerformed listener
-        
-        completionHandler()
-    }
 }
 
 // MARK: - MessagingDelegate

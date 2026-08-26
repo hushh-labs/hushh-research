@@ -61,6 +61,10 @@ from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
     OneLocationCircleService,
 )
+from hushh_mcp.services.one_location_nearby_presence_service import (
+    NearbyPresenceError,
+    OneLocationNearbyPresenceService,
+)
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
@@ -299,6 +303,7 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
         "connect.remove_connection",
         "connect.cancel_request",
         "connect.send_request",
+        "location.checkout_nearby",
     }
 )
 
@@ -340,7 +345,12 @@ def _is_backend_direct(clean_id: str, clean_slots: dict[str, Any]) -> bool:
 
 # Backend-direct errors that carry a spoken-safe .message, across the three
 # service modules these actions mutate through.
-_BackendDirectError = (OneLocationCircleError, OneLocationAgentError, ConnectionsError)
+_BackendDirectError = (
+    OneLocationCircleError,
+    OneLocationAgentError,
+    ConnectionsError,
+    NearbyPresenceError,
+)
 
 
 class _BackendDirectConfirmationNeeded(Exception):  # noqa: N818 - control-flow signal, not a failure
@@ -432,7 +442,7 @@ async def _run_backend_direct_action(
         return {"status": "blocked", "message": reason}
 
     try:
-        result_message = await _execute_backend_direct_mutation(
+        result_message, result_subject = await _execute_backend_direct_mutation(
             clean_id, clean_slots, user_id, tool_context
         )
     except _BackendDirectConfirmationNeeded as exc:
@@ -457,7 +467,11 @@ async def _run_backend_direct_action(
     record_completed_action(session_id, clean_id, fingerprint)
     logger.info("one_adk_action_decision action=%s status=completed backend_direct=true", clean_id)
     _park_action_result_directive(
-        tool_context, clean_id, status="completed", message=result_message
+        tool_context,
+        clean_id,
+        status="completed",
+        message=result_message,
+        subject=result_subject,
     )
     return {
         "status": "completed",
@@ -471,6 +485,7 @@ def _park_action_result_directive(
     *,
     status: Literal["completed", "failed"],
     message: str,
+    subject: dict[str, str] | None = None,
 ) -> None:
     """Give a backend-direct mutation the same on-screen visibility any other
     action already gets, without a browser round trip.
@@ -484,10 +499,19 @@ def _park_action_result_directive(
     to a local handler. adk_live.py's settlement-tracking/GC bookkeeping
     must treat this kind as never awaiting a settlement -- there is nothing
     for the browser to report back.
+
+    ``subject`` names who the action was about (a resolved person's display
+    name, already joined for speech the same way the spoken message was) so
+    the action-result card can show a name, not just the message text.
+    ``None`` for actions that never named a specific person -- the card
+    still renders, just without a name line.
     """
+    payload: dict[str, Any] = {"actionId": action_id, "status": status, "message": message}
+    if subject is not None:
+        payload["subject"] = subject
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{action_id}:result"] = {
         "kind": "action_result",
-        "payload": {"actionId": action_id, "status": status, "message": message},
+        "payload": payload,
     }
 
 
@@ -583,6 +607,20 @@ def _unresolved_people_note(
     return " Could not do this for: " + "; ".join(parts) + "."
 
 
+def _partial_failure_note(failed_names: list[str]) -> str:
+    """One trailing sentence naming who a resolved mutation failed for.
+
+    Distinct from _unresolved_people_note: those people never had a real
+    target to act on. These did -- the attempt itself failed partway (a
+    transient service error, a stale key, a race with something else that
+    changed their state) -- so they need a different sentence, one that
+    says try again rather than one that reads like they were never found.
+    """
+    if not failed_names:
+        return ""
+    return f" Could not complete this for {join_names_for_speech(failed_names)} -- try again."
+
+
 def _parse_positive_hours(value: Any, *, default: float) -> float:
     """A spoken/slot duration, or a safe default when absent or nonsense.
 
@@ -601,13 +639,15 @@ def _parse_positive_hours(value: Any, *, default: float) -> float:
 
 async def _execute_backend_direct_mutation(
     action_id: str, slots: dict[str, Any], user_id: str, tool_context: ToolContext
-) -> str:
+) -> tuple[str, dict[str, str] | None]:
     """Resolve slots and call the real service function. Raises on failure.
 
     Returns the sentence the model should say -- computed here, server-side,
     rather than left generic, for the same reason ``_proposal_summary`` in
     the Calendar service composes its own sentence: this is the one place
-    that knows exactly what happened.
+    that knows exactly what happened -- alongside an optional subject naming
+    who the action was about, for the browser's action-result card. ``None``
+    for the three circle-only branches, which name a circle, not a person.
 
     ``tool_context`` is only used by location.share_selected, to park the
     ``publish_location_envelopes`` directive alongside the mutation -- every
@@ -621,9 +661,9 @@ async def _execute_backend_direct_mutation(
         circle_id = str(matched.get("id") or "")
         if action_id == "location.leave_circle":
             circle_service.leave_circle(user_id=user_id, circle_id=circle_id)
-            return f"Left {circle_name}."
+            return f"Left {circle_name}.", None
         circle_service.delete_circle(owner_user_id=user_id, circle_id=circle_id)
-        return f"Deleted {circle_name}."
+        return f"Deleted {circle_name}.", None
 
     if action_id == "location.create_circle":
         circle_service = OneLocationCircleService()
@@ -644,10 +684,13 @@ async def _execute_backend_direct_mutation(
             None,
         )
         if duplicate is not None:
-            return f"You already have a circle called {duplicate.get('name') or spoken_name}."
+            return (
+                f"You already have a circle called {duplicate.get('name') or spoken_name}.",
+                None,
+            )
         created = circle_service.create_circle(owner_user_id=user_id, name=spoken_name, kind=kind)
         created_name = str(created.get("name") or spoken_name)
-        return f"Created the circle {created_name}. Nobody is in it yet -- say who to add."
+        return f"Created the circle {created_name}. Nobody is in it yet -- say who to add.", None
 
     if action_id == "location.rename_circle":
         circle_service = OneLocationCircleService()
@@ -657,7 +700,7 @@ async def _execute_backend_direct_mutation(
         circle_id = str(matched.get("id") or "")
         old_name = str(matched.get("name") or "this circle")
         if normalize_spoken_name(old_name) == normalize_spoken_name(spoken_name):
-            return f"{old_name} is already called that."
+            return f"{old_name} is already called that.", None
         existing = circle_service.list_circles(user_id=user_id)
         duplicate = next(
             (
@@ -678,7 +721,7 @@ async def _execute_backend_direct_mutation(
         renamed = circle_service.update_circle(
             owner_user_id=user_id, circle_id=circle_id, name=spoken_name
         )
-        return f"Renamed {old_name} to {renamed.get('name') or spoken_name}."
+        return f"Renamed {old_name} to {renamed.get('name') or spoken_name}.", None
 
     if action_id == "location.add_to_circle":
         circle_service = OneLocationCircleService()
@@ -722,7 +765,10 @@ async def _execute_backend_direct_mutation(
         ]
         if not added_names:
             added_names = [str(c.get("displayName") or "") for c in resolution.resolved]
-        return f"Added {join_names_for_speech(added_names)} to {circle_name}."
+        return (
+            f"Added {join_names_for_speech(added_names)} to {circle_name}.",
+            {"name": join_names_for_speech(added_names)},
+        )
 
     if action_id in ("location.stop_share", "location.approve_request", "location.decline_request"):
         agent_service = OneLocationAgentService()
@@ -745,14 +791,32 @@ async def _execute_backend_direct_mutation(
                     "Nobody currently has your location shared with that name.",
                 )
             stopped_names: list[str] = []
+            failed_names: list[str] = []
             for grant in resolution.resolved:
-                stopped_names.append(str(grant.get("recipientDisplayName") or "them"))
-                agent_service.revoke_grant(
-                    owner_user_id=user_id, grant_id=str(grant.get("id") or "")
+                grant_name = str(grant.get("recipientDisplayName") or "them")
+                try:
+                    agent_service.revoke_grant(
+                        owner_user_id=user_id, grant_id=str(grant.get("id") or "")
+                    )
+                except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                    logger.exception(
+                        "one_adk_backend_direct_partial_failure action=%s", action_id
+                    )
+                    failed_names.append(grant_name)
+                    continue
+                stopped_names.append(grant_name)
+            if not stopped_names:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_STOP_FAILED",
+                    f"Could not stop sharing with {join_names_for_speech(failed_names)}. "
+                    "Try again in a moment.",
                 )
-            note = _unresolved_people_note(resolution.unresolved, name_of, "active share")
+            note = _unresolved_people_note(
+                resolution.unresolved, name_of, "active share"
+            ) + _partial_failure_note(failed_names)
             return (
-                f"Stopped sharing your location with {join_names_for_speech(stopped_names)}.{note}"
+                f"Stopped sharing your location with {join_names_for_speech(stopped_names)}.{note}",
+                {"name": join_names_for_speech(stopped_names)},
             )
 
         candidates = agent_service.list_pending_owner_requests(owner_user_id=user_id)
@@ -771,22 +835,40 @@ async def _execute_backend_direct_mutation(
                 "LOCATION_REQUEST_NOT_FOUND", "Nobody is waiting on your decision with that name."
             )
         settled_names: list[str] = []
+        failed_names = []
         for request in resolution.resolved:
-            settled_names.append(str(request.get("requesterDisplayName") or "their"))
+            request_name = str(request.get("requesterDisplayName") or "their")
             request_id = str(request.get("id") or "")
-            if action_id == "location.approve_request":
-                agent_service.approve_request(
-                    owner_user_id=user_id,
-                    request_id=request_id,
-                    approval_mode="manual",
-                    duration_hours=None,
-                    duration_mode=None,
-                )
-            else:
-                agent_service.deny_request(owner_user_id=user_id, request_id=request_id)
-        note = _unresolved_people_note(resolution.unresolved, name_of, "request")
+            try:
+                if action_id == "location.approve_request":
+                    agent_service.approve_request(
+                        owner_user_id=user_id,
+                        request_id=request_id,
+                        approval_mode="manual",
+                        duration_hours=None,
+                        duration_mode=None,
+                    )
+                else:
+                    agent_service.deny_request(owner_user_id=user_id, request_id=request_id)
+            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                failed_names.append(request_name)
+                continue
+            settled_names.append(request_name)
         verb = "Approved" if action_id == "location.approve_request" else "Declined"
-        return f"{verb} {join_names_for_speech(settled_names)}'s request.{note}"
+        if not settled_names:
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_SETTLE_FAILED",
+                f"Could not settle {join_names_for_speech(failed_names)}'s request. "
+                "Try again in a moment.",
+            )
+        note = _unresolved_people_note(
+            resolution.unresolved, name_of, "request"
+        ) + _partial_failure_note(failed_names)
+        return (
+            f"{verb} {join_names_for_speech(settled_names)}'s request.{note}",
+            {"name": join_names_for_speech(settled_names)},
+        )
 
     if action_id == "location.share_selected":
         agent_service = OneLocationAgentService()
@@ -810,16 +892,28 @@ async def _execute_backend_direct_mutation(
         duration_hours, duration_mode = _parse_share_duration(slots.get("duration_hours"))
         shared_names: list[str] = []
         shares: list[dict[str, str]] = []
+        failed_names = []
         for recipient in resolution.resolved:
             recipient_name = str(recipient.get("displayName") or "them")
-            grant = agent_service.create_grant(
-                owner_user_id=user_id,
-                recipient_user_id=str(recipient.get("userId") or ""),
-                recipient_key_id=(str(recipient.get("keyId") or "") or None),
-                duration_hours=duration_hours,
-                duration_mode=duration_mode,
-                enforce_connection=True,
-            )
+            try:
+                grant = agent_service.create_grant(
+                    owner_user_id=user_id,
+                    recipient_user_id=str(recipient.get("userId") or ""),
+                    recipient_key_id=(str(recipient.get("keyId") or "") or None),
+                    duration_hours=duration_hours,
+                    duration_mode=duration_mode,
+                    enforce_connection=True,
+                )
+            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                # A recipient refused mid-batch (a stale key, a transient DB
+                # error, ...) must never cost the recipients before them
+                # their already-created grant, and must never leave a grant
+                # that DID get created here without its publish directive --
+                # both loop bodies below run only over what actually
+                # succeeded, never over the raw resolved list.
+                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                failed_names.append(recipient_name)
+                continue
             shared_names.append(recipient_name)
             # No public key in this payload -- runLocationDirective re-reads
             # it from server state itself rather than trusting a directive a
@@ -834,14 +928,30 @@ async def _execute_backend_direct_mutation(
                     "label": recipient_name,
                 }
             )
+        if not shared_names:
+            raise OneLocationAgentError(
+                "LOCATION_SHARE_FAILED",
+                f"Could not share your location with {join_names_for_speech(failed_names)}. "
+                "Try again in a moment.",
+            )
+        # Fires for whatever grants DID get created, even when a later
+        # recipient in the same batch failed -- an already-created grant
+        # with no publish directive is a recipient permanently stuck on
+        # "waiting for location," which is worse than the grant not
+        # existing at all.
         _park_publish_location_envelopes_directive(tool_context, shares)
-        note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
+        note = _unresolved_people_note(
+            resolution.unresolved, name_of, "connection"
+        ) + _partial_failure_note(failed_names)
         # Reports success as soon as the grant exists -- the client-side
         # encrypt-and-publish step this directive triggers is real async work
         # a backend-direct call cannot await. If it later fails, the grant
         # still exists (recipient sees "waiting for location"), which is
         # already today's product state for that gap, not a new one.
-        return f"Shared your location with {join_names_for_speech(shared_names)}.{note}"
+        return (
+            f"Shared your location with {join_names_for_speech(shared_names)}.{note}",
+            {"name": join_names_for_speech(shared_names)},
+        )
 
     if action_id == "location.send_request":
         agent_service = OneLocationAgentService()
@@ -868,16 +978,34 @@ async def _execute_backend_direct_mutation(
             )
         duration_hours = _parse_positive_hours(slots.get("duration_hours"), default=1.0)
         asked_names: list[str] = []
+        failed_names = []
         for target in resolution.resolved:
-            asked_names.append(str(target.get("displayName") or "them"))
-            agent_service.request_access(
-                requester_user_id=user_id,
-                owner_user_id=str(target.get("userId") or ""),
-                requested_duration_hours=duration_hours,
-                requested_duration_mode="timed",
+            target_name = str(target.get("displayName") or "them")
+            try:
+                agent_service.request_access(
+                    requester_user_id=user_id,
+                    owner_user_id=str(target.get("userId") or ""),
+                    requested_duration_hours=duration_hours,
+                    requested_duration_mode="timed",
+                )
+            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                failed_names.append(target_name)
+                continue
+            asked_names.append(target_name)
+        if not asked_names:
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_SEND_FAILED",
+                f"Could not ask {join_names_for_speech(failed_names)} for their location. "
+                "Try again in a moment.",
             )
-        note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
-        return f"Asked {join_names_for_speech(asked_names)} for their location.{note}"
+        note = _unresolved_people_note(
+            resolution.unresolved, name_of, "connection"
+        ) + _partial_failure_note(failed_names)
+        return (
+            f"Asked {join_names_for_speech(asked_names)} for their location.{note}",
+            {"name": join_names_for_speech(asked_names)},
+        )
 
     if action_id in ("connect.remove_connection", "connect.cancel_request", "connect.send_request"):
         connections_service = ConnectionsService()
@@ -890,6 +1018,26 @@ async def _execute_backend_direct_mutation(
 
             def _directory_name(c: dict[str, Any]) -> str:
                 return str(c.get("displayName") or "")
+
+            # Voice never chose scopes for a request before -- the tap flow's
+            # own dialog is where that choice normally lives, and skipping it
+            # must never be silent. This is the one opt-in exception: reuse
+            # exactly what THIS recipient was already asked/offered last time,
+            # never a guess extrapolated from someone else or a first request.
+            # Read lazily, once, only if a request actually reaches the point
+            # of being created -- every earlier outcome (ambiguous, not
+            # found, already connected) never needs this preference at all.
+            reuse_last_scopes: bool | None = None
+
+            def _reuse_last_scopes() -> bool:
+                nonlocal reuse_last_scopes
+                if reuse_last_scopes is None:
+                    reuse_last_scopes = bool(
+                        connections_service.get_voice_preferences(user_id=user_id).get(
+                            "shareScopesFromLastRequest"
+                        )
+                    )
+                return reuse_last_scopes
 
             sent_names: list[str] = []
             already_connected_names: list[str] = []
@@ -934,9 +1082,33 @@ async def _execute_backend_direct_mutation(
                 elif relationship != "none":
                     blocked_notes.append(f"a new request isn't available for {display_name}")
                 else:
-                    connections_service.create_request(
-                        user_id, addressee_user_id=str(person.get("userId") or "")
-                    )
+                    addressee_user_id = str(person.get("userId") or "")
+                    requested_scope_handles: list[str] | None = None
+                    offered_scope_handles: list[str] | None = None
+                    if _reuse_last_scopes():
+                        last_scopes = connections_service.get_last_request_scope_handles(
+                            requester_user_id=user_id,
+                            addressee_user_id=addressee_user_id,
+                        )
+                        requested_scope_handles = last_scopes["requestedScopeHandles"] or None
+                        offered_scope_handles = last_scopes["offeredScopeHandles"] or None
+                    try:
+                        connections_service.create_request(
+                            user_id,
+                            addressee_user_id=addressee_user_id,
+                            requested_scope_handles=requested_scope_handles,
+                            offered_scope_handles=offered_scope_handles,
+                        )
+                    except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                        # A transient failure sending to person 2 of 3 must
+                        # never abort the loop and lose whatever already
+                        # sent to person 1 -- the same reasoning every other
+                        # multi-person branch in this function follows.
+                        logger.exception(
+                            "one_adk_backend_direct_partial_failure action=%s", action_id
+                        )
+                        blocked_notes.append(f"could not send to {display_name}, try again")
+                        continue
                     sent_names.append(display_name)
 
             if not sent_names and not already_connected_names:
@@ -974,7 +1146,10 @@ async def _execute_backend_direct_mutation(
                 extra.append(f'more than one match for "{spoken_name}" ({names})')
             if extra:
                 parts.append("Also: " + "; ".join(extra) + ".")
-            return " ".join(parts)
+            # sent_names/already_connected_names cannot both be empty here --
+            # the earlier guard already raised if neither had anything in it.
+            subject_names = sent_names + already_connected_names
+            return " ".join(parts), {"name": join_names_for_speech(subject_names)}
 
         if action_id == "connect.remove_connection":
             connections = connections_service.list_connections(user_id=user_id)
@@ -1003,14 +1178,34 @@ async def _execute_backend_direct_mutation(
                     f"{join_names_for_speech(display_names)}? Only call this action again with "
                     "confirmed set to true after they say yes -- do not assume, and do not ask twice."
                 )
+            removed_names: list[str] = []
+            failed_names = []
             for connection in resolution.resolved:
-                connections_service.remove_connection(
-                    user_id=user_id, connection_id=str(connection.get("connectionId") or "")
+                connection_name = str(connection.get("displayName") or "this person")
+                try:
+                    connections_service.remove_connection(
+                        user_id=user_id, connection_id=str(connection.get("connectionId") or "")
+                    )
+                except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                    logger.exception(
+                        "one_adk_backend_direct_partial_failure action=%s", action_id
+                    )
+                    failed_names.append(connection_name)
+                    continue
+                removed_names.append(connection_name)
+            if not removed_names:
+                raise ConnectionsError(
+                    "CONNECTION_REMOVE_FAILED",
+                    f"Could not remove {join_names_for_speech(failed_names)}. "
+                    "Try again in a moment.",
                 )
-            note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
+            note = _unresolved_people_note(
+                resolution.unresolved, name_of, "connection"
+            ) + _partial_failure_note(failed_names)
             return (
-                f"Removed {join_names_for_speech(display_names)}. They can no longer be picked "
-                f"for location sharing.{note}"
+                f"Removed {join_names_for_speech(removed_names)}. They can no longer be picked "
+                f"for location sharing.{note}",
+                {"name": join_names_for_speech(removed_names)},
             )
 
         # cancel_request's real target is the pending CONNECTION REQUEST, not
@@ -1036,17 +1231,67 @@ async def _execute_backend_direct_mutation(
                 f"You have no pending request to {raw_people or 'that person'}.",
             )
         cancelled_names: list[str] = []
+        failed_names = []
         for request in resolution.resolved:
-            cancelled_names.append(str(request.get("counterpartDisplayName") or "that person"))
-            connections_service.cancel_request(
-                user_id=user_id, request_id=str(request.get("id") or "")
+            request_name = str(request.get("counterpartDisplayName") or "that person")
+            try:
+                connections_service.cancel_request(
+                    user_id=user_id, request_id=str(request.get("id") or "")
+                )
+            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                failed_names.append(request_name)
+                continue
+            cancelled_names.append(request_name)
+        if not cancelled_names:
+            raise ConnectionsError(
+                "CONNECTION_REQUEST_CANCEL_FAILED",
+                f"Could not cancel your request to {join_names_for_speech(failed_names)}. "
+                "Try again in a moment.",
             )
-        note = _unresolved_people_note(resolution.unresolved, name_of, "pending request")
+        note = _unresolved_people_note(
+            resolution.unresolved, name_of, "pending request"
+        ) + _partial_failure_note(failed_names)
         return (
-            f"Cancelled your connection request to {join_names_for_speech(cancelled_names)}.{note}"
+            f"Cancelled your connection request to {join_names_for_speech(cancelled_names)}.{note}",
+            {"name": join_names_for_speech(cancelled_names)},
         )
 
+    if action_id == "location.checkout_nearby":
+        # No coordinates, no place, nothing client-only -- checking out only
+        # ever clears the caller's own presence row. No subject: this action
+        # never names a person or a place.
+        OneLocationNearbyPresenceService().checkout(user_id=user_id)
+        return "Checked you out. You're no longer visible to people nearby.", None
+
     raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
+
+
+async def _read_tool_result(label: str, key: str, call: Callable[[], Any]) -> dict[str, Any]:
+    """Run a read tool's service call and shape the result the same way every
+    read tool already does: ``{"status": "ok", <key>: <value>}`` on success,
+    or the same clean failed-status dict ``_run_backend_direct_action``
+    already gives every mutation, on a raised error.
+
+    A DB hiccup (or any other unexpected exception) escaping a tool call
+    crashes the whole live session outright -- Gemini Live's tool-response
+    serialization has no error boundary of its own around a raised Python
+    exception, so one escaping here is indistinguishable, from the model's
+    side, from the process dying mid-turn. ``call`` is a zero-arg wrapper
+    around the actual (synchronous) service call.
+    """
+    try:
+        value = call()
+    except _BackendDirectError as exc:
+        logger.info("one_adk_read_tool_failed label=%s reason=%s", label, exc.code)
+        return {"status": "failed", "message": exc.message}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_read_tool_failed label=%s reason=unexpected", label)
+        return {
+            "status": "failed",
+            "message": f"Could not check {label} right now. Try again in a moment.",
+        }
+    return {"status": "ok", key: value}
 
 
 async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dict[str, Any] | None]:
@@ -1072,8 +1317,11 @@ async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
         return blocked
-    circles = OneLocationCircleService().list_circles(user_id=user_id)
-    return {"status": "ok", "circles": circles}
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    return await _read_tool_result(
+        "your circles", "circles", lambda: OneLocationCircleService().list_circles(user_id=user_id)
+    )
 
 
 async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
@@ -1083,8 +1331,11 @@ async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    shares = OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id)
-    return {"status": "ok", "shares": shares}
+    return await _read_tool_result(
+        "your location shares",
+        "shares",
+        lambda: OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id),
+    )
 
 
 async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
@@ -1094,8 +1345,11 @@ async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, A
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    shares = OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id)
-    return {"status": "ok", "shares": shares}
+    return await _read_tool_result(
+        "who's sharing with you",
+        "shares",
+        lambda: OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id),
+    )
 
 
 async def list_pending_location_requests(tool_context: ToolContext) -> dict[str, Any]:
@@ -1105,8 +1359,11 @@ async def list_pending_location_requests(tool_context: ToolContext) -> dict[str,
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    requests = OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id)
-    return {"status": "ok", "requests": requests}
+    return await _read_tool_result(
+        "your pending location requests",
+        "requests",
+        lambda: OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id),
+    )
 
 
 async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
@@ -1116,8 +1373,9 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    connections = ConnectionsService().list_connections(user_id=user_id)
-    return {"status": "ok", "connections": connections}
+    return await _read_tool_result(
+        "your connections", "connections", lambda: ConnectionsService().list_connections(user_id=user_id)
+    )
 
 
 async def list_pending_connection_requests(
@@ -1131,8 +1389,73 @@ async def list_pending_connection_requests(
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    requests = ConnectionsService().list_requests(user_id=user_id, direction=direction)
-    return {"status": "ok", "requests": requests}
+    return await _read_tool_result(
+        "your pending connection requests",
+        "requests",
+        lambda: ConnectionsService().list_requests(user_id=user_id, direction=direction),
+    )
+
+
+async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List this person's own asks for someone else's location still waiting
+    on that person's approve/decline -- the mirror of
+    list_pending_location_requests, which is the incoming direction."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    return await _read_tool_result(
+        "your outgoing location requests",
+        "requests",
+        lambda: OneLocationAgentService().list_pending_requester_requests(requester_user_id=user_id),
+    )
+
+
+async def get_location_circle_members(circle: str, tool_context: ToolContext) -> dict[str, Any]:
+    """List who is actually in a named Location circle, by name and role.
+
+    list_my_location_circles only returns a member COUNT per circle, not who
+    they are -- this is the tool for "who's in Family" once the circle is
+    named. Resolves 'circle' the same way every backend-direct circle action
+    does (_resolve_named_circle): exact, then word-boundary, then substring,
+    refusing to guess on ambiguity.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    circle_service = OneLocationCircleService()
+    try:
+        resolved = _resolve_named_circle(circle_service, user_id, circle)
+        detail = circle_service.get_circle(user_id=user_id, circle_id=str(resolved.get("id") or ""))
+    except OneLocationCircleError as exc:
+        return {"status": "not_found", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_read_tool_failed label=%s reason=unexpected", "circle members")
+        return {
+            "status": "failed",
+            "message": "Could not check who's in that circle right now. Try again in a moment.",
+        }
+    # Deliberately not the raw member payload: that also carries each
+    # member's public recipient key (keyId/publicKeyJwk/keyAlgorithm), which
+    # has no business flowing through a voice transcript even though it is
+    # cryptographically "public" -- the browser needs it to render a share
+    # picker, a spoken roster does not.
+    members = [
+        {
+            "displayName": str(member.get("displayName") or "Circle member"),
+            "role": str(member.get("role") or "member"),
+            "relationship": str(member.get("relationship") or "none"),
+        }
+        for member in (detail.get("members") or [])
+    ]
+    return {
+        "status": "ok",
+        "circle": {"name": str(detail.get("name") or ""), "kind": str(detail.get("kind") or "")},
+        "members": members,
+    }
 
 
 async def run_app_action(

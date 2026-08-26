@@ -39,24 +39,25 @@ describe("One Location emergency SMS native notification contract", () => {
       'emergencySmsNotificationCategory = "ONE_LOCATION_SMS_EMERGENCY"',
     );
     expect(iosAppDelegate).toContain(
-      'emergencySmsProfile = "one_location_sms_emergency"',
-    );
-    expect(iosAppDelegate).toContain(
       'emergencySmsSound = "one_location_sms_alarm.wav"',
     );
     expect(iosAppDelegate).toContain("prepareEmergencySmsSound()");
-    expect(iosAppDelegate).toContain("completionHandler([.badge])");
+    expect(iosAppDelegate).toContain(
+      'emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"',
+    );
   });
 
-  it("keeps routine iOS foreground delivery badge-only", () => {
-    expect(iosAppDelegate).toContain("if appState != .active");
-    expect(iosAppDelegate).toContain(
-      "completionHandler([.banner, .list, .sound, .badge])",
-    );
+  it("keeps Capacitor as the iOS notification delegate with badge-only foreground presentation", () => {
+    expect(capacitorConfig).toContain("handleApplicationNotifications: true");
     expect(capacitorConfig).toContain('presentationOptions: ["badge"]');
-    expect(iosAppDelegate.indexOf("if appState != .active")).toBeLessThan(
-      iosAppDelegate.indexOf("if profile == Self.emergencySmsProfile"),
+    expect(iosAppDelegate).not.toContain(
+      "UNUserNotificationCenter.current().delegate = self",
     );
+    expect(iosAppDelegate).not.toContain(
+      "extension AppDelegate: UNUserNotificationCenterDelegate",
+    );
+    expect(iosAppDelegate).not.toContain("willPresent notification");
+    expect(iosAppDelegate).not.toContain("emergencySmsProfile");
   });
 
   it("keeps the explicit emergency action routed to live location", () => {

@@ -469,6 +469,71 @@ def test_auto_approve_preference_uses_server_time_version_and_audit(
     assert preference["ruleVersion"] == 4
 
 
+def test_nearby_check_in_preferences_default_visible_true_requests_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Db:
+        def execute_raw(self, _sql: str, _params: dict):
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().get_nearby_check_in_defaults(user_id="user_a")
+
+    assert preference == {
+        "visible": True,
+        "allowConnectionRequests": False,
+        "updatedAt": None,
+    }
+
+
+def test_nearby_check_in_preferences_update_upserts_and_returns_stored_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    updated_at = datetime.now(timezone.utc)
+
+    class Db:
+        def execute_raw(self, sql: str, params: dict):
+            calls.append((sql, dict(params)))
+            if "INSERT INTO one_location_nearby_check_in_preferences" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "visible": False,
+                            "allow_connection_requests": True,
+                            "updated_at": updated_at,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().update_nearby_check_in_defaults(
+        user_id="user_a",
+        visible=False,
+        allow_connection_requests=True,
+    )
+
+    upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "INSERT INTO one_location_nearby_check_in_preferences" in sql
+    )
+    assert "ON CONFLICT (user_id) DO UPDATE SET" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user_a",
+        "visible": False,
+        "allow_connection_requests": True,
+    }
+    assert preference == {
+        "visible": False,
+        "allowConnectionRequests": True,
+        "updatedAt": updated_at.isoformat(),
+    }
+
+
 def test_auto_approve_preference_rejects_a_circle_the_owner_did_not_create(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1387,6 +1452,12 @@ class FourUserMemoryService(OneLocationAgentService):
     ):
         yield
 
+    @contextmanager
+    def _event_bound_writer(self):
+        """The in-memory double applies each transition synchronously."""
+
+        yield
+
     def _active_key(self, user_id: str, key_id: str | None = None) -> dict | None:
         matches = [
             key
@@ -1894,9 +1965,13 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "pg_advisory_xact_lock" in sql:
+            return {"locked": None}
         if "FROM one_location_auto_approve_preferences" in sql:
             row = self.auto_approve_preferences.get(str(params.get("user_id") or ""))
             return dict(row) if row else None
+        if "FROM one_location_nearby_check_in_preferences" in sql:
+            return None
         if "AS active_connection" in sql and "AS eligible_circle_id" in sql:
             owner = str(params.get("owner_user_id") or "")
             other = str(params.get("other_user_id") or "")
@@ -2129,6 +2204,17 @@ class FourUserMemoryService(OneLocationAgentService):
                 "deleted_public_submissions": deleted_public_submissions,
                 "deleted_events": deleted_events,
             }
+        if "FROM one_location_events" in sql and "client_operation_id" in sql:
+            for event in self.events.values():
+                if (
+                    event.get("grant_id") == params.get("grant_id")
+                    and event.get("actor_user_id") == params.get("actor_user_id")
+                    and str(event.get("event_type") or "") in sql
+                    and (event.get("metadata") or {}).get("client_operation_id")
+                    == params.get("client_operation_id")
+                ):
+                    return {"id": event["id"]}
+            return None
         if "INSERT INTO one_location_events" in sql:
             event_id = str(uuid.uuid4())
             self.events[event_id] = {
@@ -2397,6 +2483,22 @@ class FourUserMemoryService(OneLocationAgentService):
             ):
                 return grant
             return None
+        if "FROM one_location_referrals" in sql:
+            for referral in sorted(
+                self.referrals.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if (
+                    referral["grant_id"] == params["grant_id"]
+                    and referral["owner_user_id"] == params["owner_user_id"]
+                    and referral["referring_user_id"] == params["referring_user_id"]
+                    and referral["referred_user_id"] == params["referred_user_id"]
+                    and referral["request_id"] == params["request_id"]
+                    and referral["status"] == "pending_owner_approval"
+                ):
+                    return referral
+            return None
         if "INSERT INTO one_location_referrals" in sql:
             referral_id = str(uuid.uuid4())
             row = {
@@ -2440,11 +2542,14 @@ class FourUserMemoryService(OneLocationAgentService):
             and "expires_at > NOW()" in sql
             and "invite_id" in params
         ):
-            # The owner's heartbeat lookup: their own still-live link.
+            # A still-live link, optionally owner-scoped for the heartbeat.
             invite = self.public_invites.get(params["invite_id"])
             if (
                 invite
-                and invite["owner_user_id"] == params["owner_user_id"]
+                and (
+                    "owner_user_id" not in params
+                    or invite["owner_user_id"] == params["owner_user_id"]
+                )
                 and invite["status"] == "active"
                 and invite["expires_at"] > datetime.now(timezone.utc)
             ):
@@ -3550,6 +3655,12 @@ def test_four_user_location_workflow_contract() -> None:
         )
     assert unverified_share.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
 
+    request_event_count = sum(
+        event["event_type"] == "location_access_request" for event in service.events.values()
+    )
+    request_notification_count = sum(
+        item["notification_type"] == "location_access_request" for item in service.notifications
+    )
     direct_request_c = service.request_access(
         requester_user_id=user_c,
         owner_user_id=user_a,
@@ -3562,6 +3673,16 @@ def test_four_user_location_workflow_contract() -> None:
     )
     assert duplicate_request_c["id"] == direct_request_c["id"]
     assert duplicate_request_c["message"] == "Can you share where you are now?"
+    assert (
+        sum(event["event_type"] == "location_access_request" for event in service.events.values())
+        == request_event_count + 1
+    )
+    assert (
+        sum(
+            item["notification_type"] == "location_access_request" for item in service.notifications
+        )
+        == request_notification_count + 1
+    )
 
     approved_c = service.approve_request(
         owner_user_id=user_a,
@@ -3594,6 +3715,30 @@ def test_four_user_location_workflow_contract() -> None:
     )
     assert referral_response["referral"]["status"] == "pending_owner_approval"
     assert referral_response["request"]["status"] == "pending"
+    referral_event_count = sum(
+        event["event_type"] == "location_referral_invite" for event in service.events.values()
+    )
+    referral_notification_count = sum(
+        item["notification_type"] == "location_referral_invite" for item in service.notifications
+    )
+    retried_referral = service.refer_recipient(
+        referring_user_id=user_b,
+        grant_id=grant_b["id"],
+        referred_user_id=user_d,
+    )
+    assert retried_referral["referral"]["id"] == referral_response["referral"]["id"]
+    assert retried_referral["request"]["id"] == referral_response["request"]["id"]
+    assert (
+        sum(event["event_type"] == "location_referral_invite" for event in service.events.values())
+        == referral_event_count
+    )
+    assert (
+        sum(
+            item["notification_type"] == "location_referral_invite"
+            for item in service.notifications
+        )
+        == referral_notification_count
+    )
 
     with pytest.raises(OneLocationAgentError):
         service.view_latest_envelope(recipient_user_id=user_d, grant_id=grant_b["id"])
@@ -3677,6 +3822,74 @@ def test_location_grant_recipient_can_mark_share_revoked() -> None:
     assert already_revoked["status"] == "revoked"
 
 
+def test_event_failure_rolls_back_location_transition_and_suppresses_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = {
+        "id": "00000000-0000-0000-0000-000000000101",
+        "owner_user_id": "user_a",
+        "requester_user_id": "user_b",
+        "status": "pending",
+        "requested_duration_hours": 1,
+        "requested_duration_mode": "timed",
+        "extends_grant_id": None,
+    }
+
+    class _Result:
+        returns_rows = True
+
+        def __init__(self, row: dict | None) -> None:
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.row
+
+    class _Connection:
+        def execute(self, statement, params):
+            sql = str(statement)
+            if "SET status = 'denied'" in sql:
+                request["status"] = "denied"
+                return _Result(dict(request))
+            if "INSERT INTO one_location_events" in sql:
+                raise RuntimeError("feed projection failed")
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+    class _Engine:
+        @contextmanager
+        def begin(self):
+            previous_status = request["status"]
+            try:
+                yield _Connection()
+            except Exception:
+                request["status"] = previous_status
+                raise
+
+    service = OneLocationAgentService()
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(engine=_Engine()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_identity_row",
+        lambda user_id: {"user_id": user_id, "display_name": user_id},
+    )
+    monkeypatch.setattr(
+        service, "_send_metadata_notification", lambda **kwargs: sent.append(kwargs)
+    )
+
+    with pytest.raises(RuntimeError, match="feed projection failed"):
+        service.deny_request(owner_user_id="user_a", request_id=request["id"])
+
+    assert request["status"] == "pending"
+    assert sent == []
+
+
 def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
     service = FourUserMemoryService()
     for user_id in ("user_a", "user_b", "user_c"):
@@ -3750,6 +3963,33 @@ def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
     assert service.grants[grant["id"]]["expires_at"] == original_expires_at
 
 
+def test_shorten_grant_reuses_a_client_operation_without_duplicate_event_or_push() -> None:
+    service, grant = _duration_service_with_grant(20)
+    operation_id = "shorten-operation-0001"
+
+    first = service.shorten_grant(
+        caller_user_id="user_b",
+        grant_id=grant["id"],
+        duration_hours=1,
+        client_operation_id=operation_id,
+    )
+    first_expiry = service.grants[grant["id"]]["expires_at"]
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+
+    replay = service.shorten_grant(
+        caller_user_id="user_b",
+        grant_id=grant["id"],
+        duration_hours=1,
+        client_operation_id=operation_id,
+    )
+
+    assert replay["id"] == first["id"]
+    assert service.grants[grant["id"]]["expires_at"] == first_expiry
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
+
+
 def _duration_service_with_grant(duration_hours: float = 0.5):
     """A live user_a -> user_b share, and the service holding it."""
     service = FourUserMemoryService()
@@ -3786,6 +4026,33 @@ def test_owner_may_lengthen_their_own_running_share() -> None:
     assert extended["status"] == "active"
     assert service.grants[grant["id"]]["expires_at"] > original_expires_at
     assert service.grants[grant["id"]]["duration_hours"] == 2
+
+
+def test_set_duration_reuses_a_client_operation_without_resetting_the_clock() -> None:
+    service, grant = _duration_service_with_grant(0.5)
+    operation_id = "duration-operation-0001"
+
+    first = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+        client_operation_id=operation_id,
+    )
+    first_expiry = service.grants[grant["id"]]["expires_at"]
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+
+    replay = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+        client_operation_id=operation_id,
+    )
+
+    assert replay["id"] == first["id"]
+    assert service.grants[grant["id"]]["expires_at"] == first_expiry
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
 
 
 def test_changing_the_duration_keeps_the_same_grant() -> None:
@@ -4561,6 +4828,12 @@ def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.Mon
         return {}
 
     monkeypatch.setattr(svc, "_execute_one", fake_execute_one)
+
+    @contextmanager
+    def fake_event_bound_writer():
+        yield
+
+    monkeypatch.setattr(svc, "_event_bound_writer", fake_event_bound_writer)
 
     result = svc.claim_circle_invite(invite_token="tok", claimant_user_id="claimant-uid")  # noqa: S106
 
@@ -6608,6 +6881,15 @@ def test_state_never_reports_auto_approve_off_when_its_authority_read_fails() ->
             raise RuntimeError(f"preference unavailable for {user_id}")
 
     with pytest.raises(RuntimeError, match="preference unavailable"):
+        UnavailablePreferenceService().list_state(user_id="user_a")
+
+
+def test_state_never_reports_nearby_check_in_defaults_when_its_authority_read_fails() -> None:
+    class UnavailablePreferenceService(FourUserMemoryService):
+        def get_nearby_check_in_defaults(self, *, user_id: str) -> dict:
+            raise RuntimeError(f"nearby check-in preference unavailable for {user_id}")
+
+    with pytest.raises(RuntimeError, match="nearby check-in preference unavailable"):
         UnavailablePreferenceService().list_state(user_id="user_a")
 
 

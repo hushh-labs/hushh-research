@@ -1105,7 +1105,7 @@ export function KaiAnalysisPageContent() {
     <>
       {showWorkspace ? (
         <div
-          className="w-full min-w-0 max-w-full h-full overflow-hidden"
+          className="w-full min-w-0 max-w-full"
           data-testid={liveIntentReady ? "kai-analysis-active-run" : "kai-analysis-primary"}
         >
           <NativeTestBeacon
@@ -1306,7 +1306,7 @@ export function KaiAnalysisPageContent() {
           </AppPageContentRegion>
         </div>
       ) : !resolvingEntry ? (
-        <div className="w-full min-w-0 max-w-full h-full overflow-hidden" data-testid="kai-analysis-primary">
+        <div className="w-full min-w-0 max-w-full" data-testid="kai-analysis-primary">
           <NativeTestBeacon
             routeId={ROUTES.KAI_ANALYSIS}
             marker="native-route-kai-analysis"

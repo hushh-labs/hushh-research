@@ -242,6 +242,40 @@ describe("ConnectionsService", () => {
     });
   });
 
+  it("getVoicePreferences GETs the standing scope-sharing default", async () => {
+    mockApiFetch.mockResolvedValue(
+      jsonResponse({
+        preferences: { shareScopesFromLastRequest: false, updatedAt: null },
+      }),
+    );
+    const out = await ConnectionsService.getVoicePreferences({ idToken: "tok" });
+    const [path, opts] = mockApiFetch.mock.calls[0];
+    expect(path).toBe("/api/one/connect/voice-preferences");
+    expect(opts.method).toBe("GET");
+    expect(out).toEqual({ shareScopesFromLastRequest: false, updatedAt: null });
+  });
+
+  it("updateVoicePreferences PATCHes the scope-sharing default", async () => {
+    mockApiFetch.mockResolvedValue(
+      jsonResponse({
+        preferences: {
+          shareScopesFromLastRequest: true,
+          updatedAt: "2026-08-26T09:00:00.000Z",
+        },
+      }),
+    );
+    await ConnectionsService.updateVoicePreferences({
+      idToken: "tok",
+      shareScopesFromLastRequest: true,
+    });
+    const [path, opts] = mockApiFetch.mock.calls[0];
+    expect(path).toBe("/api/one/connect/voice-preferences");
+    expect(opts.method).toBe("PATCH");
+    expect(JSON.parse(opts.body as string)).toEqual({
+      share_scopes_from_last_request: true,
+    });
+  });
+
   it("accept POSTs to the accept endpoint", async () => {
     mockApiFetch.mockResolvedValue(jsonResponse({ result: { status: "accepted" } }));
     await ConnectionsService.accept({ idToken: "tok", requestId: "r1" });

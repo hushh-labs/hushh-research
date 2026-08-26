@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import uuid
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
@@ -19,7 +20,9 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from sqlalchemy import text
 
+from db.connection import get_pool
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.integrations.alpaca import (
     AlpacaApiError,
@@ -306,6 +309,105 @@ class BrokerFundingService:
         if self._db is None:
             self._db = get_db()
         return self._db
+
+    def _execute_transfer_sql(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Execute transfer-ledger SQL on the active transaction when present."""
+
+        active_connection = getattr(self, "_transfer_transaction_connection", None)
+        if active_connection is None:
+            result = self.db.execute_raw(sql, params or {})
+            return result.data or []
+
+        result = active_connection.execute(text(sql), params or {})
+        if not getattr(result, "returns_rows", False):
+            return []
+        return [dict(getattr(row, "_mapping", row)) for row in result.fetchall()]
+
+    @staticmethod
+    def _funding_create_lock_key(*, user_id: str, idempotency_key: str) -> int:
+        digest = hashlib.sha256(
+            f"kai_funding_create:{user_id}:{idempotency_key}".encode("utf-8")
+        ).digest()
+        unsigned = int.from_bytes(digest[:8], byteorder="big", signed=False)
+        return unsigned if unsigned < 2**63 else unsigned - 2**64
+
+    @asynccontextmanager
+    async def _funding_create_reservation(self, *, user_id: str, idempotency_key: str):
+        """Reserve one cross-instance provider create before its Alpaca POST.
+
+        The reservation is a Postgres session advisory lock because Postgres is
+        the current shared tier. A later Redis implementation can replace this
+        seam with an owner-token lease without changing ``create_transfer``.
+        Fail fast instead of waiting so duplicate requests never hold request
+        workers while the first money movement is in flight.
+        """
+
+        lock_key = self._funding_create_lock_key(
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+        pool = await get_pool()
+        async with pool.acquire() as connection:
+            acquired = bool(
+                await connection.fetchval(
+                    "SELECT pg_try_advisory_lock($1)",
+                    lock_key,
+                )
+            )
+            if not acquired:
+                raise FundingOrchestrationError(
+                    "A funding transfer with this idempotency key is already in progress.",
+                    code="FUNDING_TRANSFER_CREATION_IN_PROGRESS",
+                    status_code=409,
+                )
+            try:
+                yield
+            finally:
+                released = bool(
+                    await connection.fetchval(
+                        "SELECT pg_advisory_unlock($1)",
+                        lock_key,
+                    )
+                )
+                if not released:
+                    logger.error(
+                        "funding.transfer_create_advisory_unlock_missing user_id=%s",
+                        user_id,
+                    )
+
+    @contextmanager
+    def _transfer_transaction(self):
+        """Commit a local transfer status mutation and its event as one unit.
+
+        ``DatabaseClient.execute_raw`` commits each statement independently, so
+        provider status transitions that feed user-visible history use one
+        explicit engine transaction. Provider creation uses the recovery-first
+        sequence documented in ``create_transfer`` because Alpaca cannot join a
+        Postgres transaction.
+        """
+
+        if getattr(self, "_transfer_transaction_connection", None) is not None:
+            yield
+            return
+
+        engine = getattr(self.db, "engine", None)
+        if engine is None:
+            raise FundingOrchestrationError(
+                "Funding transfer persistence is temporarily unavailable.",
+                code="FUNDING_TRANSFER_TRANSACTION_UNAVAILABLE",
+                status_code=503,
+            )
+
+        with engine.begin() as connection:
+            self._transfer_transaction_connection = connection
+            try:
+                yield
+            finally:
+                self._transfer_transaction_connection = None
 
     @property
     def plaid_config(self) -> PlaidRuntimeConfig:
@@ -1614,8 +1716,15 @@ class BrokerFundingService:
         reason_code: str | None,
         reason_message: str | None,
         payload: dict[str, Any],
-    ) -> None:
-        self.db.execute_raw(
+    ) -> bool:
+        normalized_event_type = _clean_text(event_type)
+        normalized_event_status = _clean_text(event_status).lower()
+        event_identity = f"{normalized_event_type}:{transfer_id}"
+        if normalized_event_type != "transfer_created":
+            event_identity = f"{event_identity}:{normalized_event_status or 'unknown'}"
+        event_id = f"transfer_event_{hashlib.sha256(event_identity.encode('utf-8')).hexdigest()}"
+
+        rows = self._execute_transfer_sql(
             """
             INSERT INTO kai_funding_transfer_events (
                 event_id,
@@ -1643,9 +1752,11 @@ class BrokerFundingService:
                 NOW(),
                 NOW()
             )
+            ON CONFLICT DO NOTHING
+            RETURNING event_id
             """,
             {
-                "event_id": f"transfer_event_{uuid.uuid4().hex}",
+                "event_id": event_id,
                 "transfer_id": transfer_id,
                 "user_id": user_id,
                 "event_source": event_source,
@@ -1656,22 +1767,88 @@ class BrokerFundingService:
                 "payload_json": json.dumps(payload),
             },
         )
+        return bool(rows)
 
-    def _fetch_transfer_row(self, *, user_id: str, transfer_id: str) -> dict[str, Any] | None:
-        result = self.db.execute_raw(
-            """
+    def _record_transfer_creation_event_from_row(
+        self,
+        row: dict[str, Any],
+        *,
+        event_source: str,
+    ) -> bool:
+        """Insert or repair the deterministic provider-success event.
+
+        Provider transfer creation cannot share a transaction with Postgres.
+        Once Alpaca returns a transfer ID, the transfer row is the recovery
+        anchor and must survive an event/Feed trigger failure. A retry finds
+        that row by idempotency key and safely repairs this event without
+        issuing another money-movement request.
+        """
+
+        transfer_id = _clean_text(row.get("transfer_id"))
+        user_id = _clean_text(row.get("user_id"))
+        if not transfer_id or not user_id:
+            raise FundingOrchestrationError(
+                "Stored funding transfer recovery information is incomplete.",
+                code="FUNDING_TRANSFER_RECOVERY_INVALID",
+                status_code=500,
+            )
+        return self._record_transfer_event(
+            user_id=user_id,
+            transfer_id=transfer_id,
+            event_source=event_source,
+            event_type="transfer_created",
+            event_status=_clean_text(row.get("status")) or None,
+            reason_code=_clean_text(row.get("failure_reason_code")) or None,
+            reason_message=_clean_text(row.get("failure_reason_message")) or None,
+            payload={
+                "request": _json_load(row.get("request_payload_json"), fallback={}),
+                "response": _json_load(row.get("response_payload_json"), fallback={}),
+            },
+        )
+
+    def _queue_creation_notification_if_inserted(
+        self,
+        row: dict[str, Any],
+        *,
+        event_inserted: bool,
+    ) -> None:
+        if not event_inserted:
+            return
+        self._queue_transfer_status_notification_if_needed(
+            user_id=_clean_text(row.get("user_id")),
+            transfer_id=_clean_text(row.get("transfer_id")),
+            previous_status=None,
+            current_status=_clean_text(row.get("status")),
+            amount_text=_clean_text(str(row.get("amount")))
+            if row.get("amount") is not None
+            else None,
+            direction=_clean_text(row.get("direction")) or None,
+            failure_reason=_clean_text(row.get("failure_reason_message")) or None,
+        )
+
+    def _fetch_transfer_row(
+        self,
+        *,
+        user_id: str,
+        transfer_id: str,
+        for_update: bool = False,
+    ) -> dict[str, Any] | None:
+        lock_clause = "FOR UPDATE" if for_update else ""
+        rows = self._execute_transfer_sql(
+            f"""
             SELECT *
             FROM kai_funding_transfers
             WHERE user_id = :user_id
               AND transfer_id = :transfer_id
             LIMIT 1
+            {lock_clause}
             """,
             {
                 "user_id": user_id,
                 "transfer_id": transfer_id,
             },
         )
-        return result.data[0] if result.data else None
+        return rows[0] if rows else None
 
     def _fetch_transfer_row_by_idempotency(
         self,
@@ -2000,7 +2177,7 @@ class BrokerFundingService:
         reason_message: str | None,
         completed_at: str | None = None,
     ) -> None:
-        self.db.execute_raw(
+        self._execute_transfer_sql(
             """
             INSERT INTO kai_funding_transfers (
                 transfer_id,
@@ -3606,6 +3783,30 @@ class BrokerFundingService:
                 status_code=422,
             )
 
+        cleaned_idempotency_key = (
+            _clean_text(idempotency_key) or f"funding_transfer_{uuid.uuid4().hex}"
+        )
+        dedupe = self._fetch_transfer_row_by_idempotency(
+            user_id=user_id,
+            idempotency_key=cleaned_idempotency_key,
+        )
+        if dedupe is not None:
+            creation_event_inserted = self._record_transfer_creation_event_from_row(
+                dedupe,
+                event_source="kai_retry",
+            )
+            self._queue_creation_notification_if_inserted(
+                dedupe,
+                event_inserted=creation_event_inserted,
+            )
+            existing = await self.get_transfer(
+                user_id=user_id,
+                transfer_id=_clean_text(dedupe.get("transfer_id")),
+            )
+            existing["deduped"] = True
+            existing["idempotency_key"] = cleaned_idempotency_key
+            return existing
+
         item_row = self._fetch_funding_item_row(user_id=user_id, item_id=funding_item_id)
         if item_row is None:
             raise FundingOrchestrationError(
@@ -3673,22 +3874,6 @@ class BrokerFundingService:
         alpaca_direction = _direction_to_alpaca(direction)
         self._validate_amount_limit(direction=alpaca_direction, amount_text=amount_text)
 
-        cleaned_idempotency_key = (
-            _clean_text(idempotency_key) or f"funding_transfer_{uuid.uuid4().hex}"
-        )
-        dedupe = self._fetch_transfer_row_by_idempotency(
-            user_id=user_id,
-            idempotency_key=cleaned_idempotency_key,
-        )
-        if dedupe is not None:
-            existing = await self.get_transfer(
-                user_id=user_id,
-                transfer_id=_clean_text(dedupe.get("transfer_id")),
-            )
-            existing["deduped"] = True
-            existing["idempotency_key"] = cleaned_idempotency_key
-            return existing
-
         request_payload = {
             "relationship_id": _clean_text(relationship.get("relationship_id")),
             "transfer_type": "ach",
@@ -3699,81 +3884,104 @@ class BrokerFundingService:
         if cleaned_description:
             request_payload["description"] = cleaned_description
 
-        response = await self._alpaca_post(
-            f"/v1/accounts/{alpaca_account_id}/transfers",
-            request_payload,
-        )
-        transfer_payload = self._parse_transfer_payload(
-            response if isinstance(response, dict) else {}
-        )
-        transfer_id = _clean_text(transfer_payload.get("transfer_id"))
-        if not transfer_id:
-            raise FundingOrchestrationError(
-                "Alpaca transfer response did not include a transfer ID.",
-                code="ALPACA_TRANSFER_ID_MISSING",
-                status_code=502,
-            )
-        transfer_status = _clean_text(transfer_payload.get("status"), default="PENDING").upper()
-        completed_at = (
-            _utcnow_iso() if _user_facing_transfer_status(transfer_status) == "completed" else None
-        )
-
-        self._store_transfer(
+        async with self._funding_create_reservation(
             user_id=user_id,
-            transfer_id=transfer_id,
-            alpaca_account_id=alpaca_account_id,
-            relationship_id=_clean_text(relationship.get("relationship_id")),
-            item_id=funding_item_id,
-            account_id=funding_account_id,
-            direction=alpaca_direction,
-            amount=amount_text,
-            currency=_clean_text(transfer_payload.get("currency"), default="USD"),
-            status=transfer_status,
             idempotency_key=cleaned_idempotency_key,
-            request_payload=request_payload,
-            response_payload=transfer_payload.get("raw")
-            if isinstance(transfer_payload.get("raw"), dict)
-            else {},
-            reason_code=_clean_text(transfer_payload.get("failure_reason_code")) or None,
-            reason_message=_clean_text(transfer_payload.get("failure_reason_message")) or None,
-            completed_at=completed_at,
-        )
+        ):
+            # Close the lookup-to-lock race across Cloud Run instances before
+            # the irreversible provider call.
+            reserved_dedupe = self._fetch_transfer_row_by_idempotency(
+                user_id=user_id,
+                idempotency_key=cleaned_idempotency_key,
+            )
+            if reserved_dedupe is not None:
+                creation_event_inserted = self._record_transfer_creation_event_from_row(
+                    reserved_dedupe,
+                    event_source="kai_retry",
+                )
+                self._queue_creation_notification_if_inserted(
+                    reserved_dedupe,
+                    event_inserted=creation_event_inserted,
+                )
+                existing = await self.get_transfer(
+                    user_id=user_id,
+                    transfer_id=_clean_text(reserved_dedupe.get("transfer_id")),
+                )
+                existing["deduped"] = True
+                existing["idempotency_key"] = cleaned_idempotency_key
+                return existing
 
-        self._record_transfer_event(
-            user_id=user_id,
-            transfer_id=transfer_id,
-            event_source="alpaca_api",
-            event_type="transfer_created",
-            event_status=transfer_status,
-            reason_code=_clean_text(transfer_payload.get("failure_reason_code")) or None,
-            reason_message=_clean_text(transfer_payload.get("failure_reason_message")) or None,
-            payload={
-                "request": request_payload,
-                "response": transfer_payload.get("raw")
+            response = await self._alpaca_post(
+                f"/v1/accounts/{alpaca_account_id}/transfers",
+                request_payload,
+            )
+            transfer_payload = self._parse_transfer_payload(
+                response if isinstance(response, dict) else {}
+            )
+            transfer_id = _clean_text(transfer_payload.get("transfer_id"))
+            if not transfer_id:
+                raise FundingOrchestrationError(
+                    "Alpaca transfer response did not include a transfer ID.",
+                    code="ALPACA_TRANSFER_ID_MISSING",
+                    status_code=502,
+                )
+            transfer_status = _clean_text(transfer_payload.get("status"), default="PENDING").upper()
+            completed_at = (
+                _utcnow_iso()
+                if _user_facing_transfer_status(transfer_status) == "completed"
+                else None
+            )
+
+            # Alpaca has already accepted the external money movement. Commit
+            # its authoritative local recovery row first; rolling this row back
+            # because the derived event/Feed insert failed would make a retry
+            # call Alpaca again with no provider-supported idempotency proof.
+            self._store_transfer(
+                user_id=user_id,
+                transfer_id=transfer_id,
+                alpaca_account_id=alpaca_account_id,
+                relationship_id=_clean_text(relationship.get("relationship_id")),
+                item_id=funding_item_id,
+                account_id=funding_account_id,
+                direction=alpaca_direction,
+                amount=amount_text,
+                currency=_clean_text(transfer_payload.get("currency"), default="USD"),
+                status=transfer_status,
+                idempotency_key=cleaned_idempotency_key,
+                request_payload=request_payload,
+                response_payload=transfer_payload.get("raw")
                 if isinstance(transfer_payload.get("raw"), dict)
                 else {},
-            },
-        )
-        self._queue_transfer_status_notification_if_needed(
-            user_id=user_id,
-            transfer_id=transfer_id,
-            previous_status=None,
-            current_status=transfer_status,
-            amount_text=amount_text,
-            direction=alpaca_direction,
-            failure_reason=_clean_text(transfer_payload.get("failure_reason_message")) or None,
-        )
+                reason_code=_clean_text(transfer_payload.get("failure_reason_code")) or None,
+                reason_message=_clean_text(transfer_payload.get("failure_reason_message")) or None,
+                completed_at=completed_at,
+            )
+            persisted_transfer = self._fetch_transfer_row(user_id=user_id, transfer_id=transfer_id)
+            if persisted_transfer is None:
+                raise FundingOrchestrationError(
+                    "Failed to recover the provider-created funding transfer.",
+                    code="FUNDING_TRANSFER_RECOVERY_FAILED",
+                    status_code=500,
+                )
+            creation_event_inserted = self._record_transfer_creation_event_from_row(
+                persisted_transfer,
+                event_source="alpaca_api",
+            )
+            self._queue_creation_notification_if_inserted(
+                persisted_transfer,
+                event_inserted=creation_event_inserted,
+            )
 
-        return {
-            "approved": True,
-            "decision": "accepted",
-            "idempotency_key": cleaned_idempotency_key,
-            "transfer": transfer_payload,
-            "relationship": {
-                "relationship_id": _clean_text(relationship.get("relationship_id")) or None,
-                "status": _clean_text(relationship.get("status")) or None,
-            },
-        }
+            return {
+                "approved": True,
+                "decision": "accepted",
+                "idempotency_key": cleaned_idempotency_key,
+                "transfer": transfer_payload,
+                "relationship": {
+                    "relationship_id": _clean_text(relationship.get("relationship_id")) or None,
+                    "status": _clean_text(relationship.get("status")) or None,
+                },
+            }
 
     async def create_funded_trade_intent(
         self,
@@ -4048,6 +4256,7 @@ class BrokerFundingService:
         )
 
         prior_status = _clean_text(row.get("status")).upper()
+        transition_event_inserted = False
         if remote_transfer is not None:
             status = _clean_text(
                 remote_transfer.get("status"), default=prior_status or "PENDING"
@@ -4057,44 +4266,61 @@ class BrokerFundingService:
                 if _user_facing_transfer_status(status) == "completed"
                 else _clean_text(row.get("completed_at")) or None
             )
-            self._store_transfer(
-                user_id=user_id,
-                transfer_id=transfer_id,
-                alpaca_account_id=alpaca_account_id,
-                relationship_id=_clean_text(row.get("relationship_id")),
-                item_id=_clean_text(row.get("item_id")),
-                account_id=_clean_text(row.get("account_id")),
-                direction=_clean_text(row.get("direction"), default=_FUNDS_DIRECTION_INCOMING),
-                amount=_clean_text(str(row.get("amount"))),
-                currency=_clean_text(
-                    remote_transfer.get("currency"),
-                    default=_clean_text(row.get("currency"), default="USD"),
-                ),
-                status=status,
-                idempotency_key=_clean_text(row.get("idempotency_key")),
-                request_payload=_json_load(row.get("request_payload_json"), fallback={}),
-                response_payload=remote_transfer.get("raw")
-                if isinstance(remote_transfer.get("raw"), dict)
-                else {},
-                reason_code=_clean_text(remote_transfer.get("failure_reason_code")) or None,
-                reason_message=_clean_text(remote_transfer.get("failure_reason_message")) or None,
-                completed_at=completed_at,
-            )
-
-            if status != prior_status:
-                self._record_transfer_event(
+            with self._transfer_transaction():
+                locked_row = self._fetch_transfer_row(
                     user_id=user_id,
                     transfer_id=transfer_id,
-                    event_source="alpaca_poll",
-                    event_type="transfer_status_updated",
-                    event_status=status,
+                    for_update=True,
+                )
+                if locked_row is None:
+                    raise FundingOrchestrationError(
+                        "Transfer disappeared while refreshing status.",
+                        code="TRANSFER_REFRESH_FAILED",
+                        status_code=500,
+                    )
+                prior_status = _clean_text(locked_row.get("status")).upper()
+
+                self._store_transfer(
+                    user_id=user_id,
+                    transfer_id=transfer_id,
+                    alpaca_account_id=alpaca_account_id,
+                    relationship_id=_clean_text(locked_row.get("relationship_id")),
+                    item_id=_clean_text(locked_row.get("item_id")),
+                    account_id=_clean_text(locked_row.get("account_id")),
+                    direction=_clean_text(
+                        locked_row.get("direction"), default=_FUNDS_DIRECTION_INCOMING
+                    ),
+                    amount=_clean_text(str(locked_row.get("amount"))),
+                    currency=_clean_text(
+                        remote_transfer.get("currency"),
+                        default=_clean_text(locked_row.get("currency"), default="USD"),
+                    ),
+                    status=status,
+                    idempotency_key=_clean_text(locked_row.get("idempotency_key")),
+                    request_payload=_json_load(locked_row.get("request_payload_json"), fallback={}),
+                    response_payload=remote_transfer.get("raw")
+                    if isinstance(remote_transfer.get("raw"), dict)
+                    else {},
                     reason_code=_clean_text(remote_transfer.get("failure_reason_code")) or None,
                     reason_message=_clean_text(remote_transfer.get("failure_reason_message"))
                     or None,
-                    payload=remote_transfer.get("raw")
-                    if isinstance(remote_transfer.get("raw"), dict)
-                    else {},
+                    completed_at=completed_at,
                 )
+
+                if status != prior_status:
+                    transition_event_inserted = self._record_transfer_event(
+                        user_id=user_id,
+                        transfer_id=transfer_id,
+                        event_source="alpaca_poll",
+                        event_type="transfer_status_updated",
+                        event_status=status,
+                        reason_code=_clean_text(remote_transfer.get("failure_reason_code")) or None,
+                        reason_message=_clean_text(remote_transfer.get("failure_reason_message"))
+                        or None,
+                        payload=remote_transfer.get("raw")
+                        if isinstance(remote_transfer.get("raw"), dict)
+                        else {},
+                    )
 
         refreshed_row = self._fetch_transfer_row(user_id=user_id, transfer_id=transfer_id)
         if refreshed_row is None:
@@ -4119,17 +4345,18 @@ class BrokerFundingService:
             "raw": _json_load(refreshed_row.get("response_payload_json"), fallback={}),
         }
         refreshed_status = _clean_text(refreshed_row.get("status")).upper()
-        self._queue_transfer_status_notification_if_needed(
-            user_id=user_id,
-            transfer_id=transfer_id,
-            previous_status=prior_status,
-            current_status=refreshed_status,
-            amount_text=_clean_text(str(refreshed_row.get("amount")))
-            if refreshed_row.get("amount") is not None
-            else None,
-            direction=_clean_text(refreshed_row.get("direction")) or None,
-            failure_reason=_clean_text(refreshed_row.get("failure_reason_message")) or None,
-        )
+        if transition_event_inserted:
+            self._queue_transfer_status_notification_if_needed(
+                user_id=user_id,
+                transfer_id=transfer_id,
+                previous_status=prior_status,
+                current_status=refreshed_status,
+                amount_text=_clean_text(str(refreshed_row.get("amount")))
+                if refreshed_row.get("amount") is not None
+                else None,
+                direction=_clean_text(refreshed_row.get("direction")) or None,
+                failure_reason=_clean_text(refreshed_row.get("failure_reason_message")) or None,
+            )
 
         await self._process_trade_intents_for_transfer(
             user_id=user_id,

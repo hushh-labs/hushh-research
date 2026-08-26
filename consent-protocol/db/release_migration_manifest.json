@@ -149,7 +149,10 @@
     "173_gmail_owner_approved_delivery.sql",
     "175_contact_sync_connection_provenance.sql",
     "176_trusted_device_sync_state.sql",
-    "177_feed_notification_projection_coverage.sql"
+    "177_one_location_nearby_check_in_preferences.sql",
+    "178_connection_voice_preferences.sql",
+    "179_feed_notification_projection_coverage.sql",
+    "180_one_location_circle_feed_durability.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -252,7 +255,10 @@
       "169_one_location_auto_approve_preferences.sql",
       "175_contact_sync_connection_provenance.sql",
       "176_trusted_device_sync_state.sql",
-      "177_feed_notification_projection_coverage.sql"
+      "177_one_location_nearby_check_in_preferences.sql",
+      "178_connection_voice_preferences.sql",
+      "179_feed_notification_projection_coverage.sql",
+      "180_one_location_circle_feed_durability.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

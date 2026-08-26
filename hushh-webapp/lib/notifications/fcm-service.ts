@@ -29,8 +29,6 @@ const CONSENT_NOTIFICATION_ACTION_REVIEW = "CONSENT_REVIEW";
 const CONSENT_NOTIFICATION_ACTION_APPROVE = "CONSENT_APPROVE";
 const CONSENT_NOTIFICATION_ACTION_DENY = "CONSENT_DENY";
 const ONE_LOCATION_SMS_OPEN_ACTION = "ONE_LOCATION_SMS_OPEN";
-const CONNECTION_REQUEST_NOTIFICATION_FALLBACK =
-  `${ROUTES.CONSENTS}?tab=connections`;
 const IOS_DEFAULT_NOTIFICATION_ACTION =
   "com.apple.UNNotificationDefaultActionIdentifier";
 
@@ -76,38 +74,6 @@ export interface FCMInitResult {
 export type FCMInitOptions = {
   requestPermission?: boolean;
 };
-
-export function resolveNativeConnectionRequestNotificationHref(
-  data: Record<string, unknown> | undefined,
-): string {
-  const explicitHref =
-    (typeof data?.request_url === "string" && data.request_url) ||
-    (typeof data?.deep_link === "string" && data.deep_link) ||
-    CONNECTION_REQUEST_NOTIFICATION_FALLBACK;
-  // Carry the request id into the resolved href, the way the consent branch does
-  // via buildNativeConsentActionTarget. The Consent Center opens the incoming
-  // review sheet only from `?requestId`; without this a tap resolves to a tab
-  // and the addressee has to hunt for the request in a list.
-  //
-  // The id has to be re-set on the RESOLVED href, not merely passed as an
-  // option: resolveConsentRequestHref only consults `options.requestId` when the
-  // incoming href is unusable, so an href that is already internal would drop
-  // it. Re-setting also means a device still receiving the old bare
-  // `?tab=connections` deep link from an un-upgraded backend routes correctly.
-  const requestId = String(
-    (typeof data?.request_id === "string" && data.request_id) || "",
-  ).trim();
-  const target = resolveConsentNavigationTarget(explicitHref, "pending", {
-    requestId: requestId || undefined,
-  });
-  if (target.kind !== "internal") return CONNECTION_REQUEST_NOTIFICATION_FALLBACK;
-  if (!requestId) return target.href;
-
-  const nextUrl = new URL(target.href, "https://hushh.local");
-  nextUrl.searchParams.set("requestId", requestId);
-  nextUrl.searchParams.set("notificationAction", "review");
-  return `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
-}
 
 let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;

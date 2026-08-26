@@ -48,6 +48,9 @@ const config: CapacitorConfig = {
 
   // iOS-specific configuration
   ios: {
+    // Capacitor's notification router must remain the sole UNUserNotificationCenter
+    // delegate so Firebase Messaging can emit receipt and action events to JS.
+    handleApplicationNotifications: true,
     // SystemBars immersive mode: let app/CSS safe-area handling own spacing.
     contentInset: "never",
     allowsLinkPreview: true,
@@ -92,8 +95,8 @@ const config: CapacitorConfig = {
       providers: ["google.com", "phone"],
     },
     FirebaseMessaging: {
-      // Routine foreground activity belongs in Feed; AppDelegate keeps the
-      // same badge-only policy and handles emergency SMS in the shared alarm UI.
+      // Foreground notification content belongs in Feed or the shared emergency
+      // UI. Keep only the badge so iOS does not duplicate banners or sounds.
       presentationOptions: ["badge"],
     },
     HushhVault: {

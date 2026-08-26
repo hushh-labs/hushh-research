@@ -260,6 +260,116 @@ jobs:
             npx playwright install --with-deps chromium
           )
 
+      - name: Verify One Location read-only rollout prerequisites
+        id: one_location_read_only_rollout
+        shell: bash
+        env:
+          ONE_LOCATION_READ_ONLY_STATE_REQUESTED: ${{ vars.ONE_LOCATION_READ_ONLY_STATE_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+
+          requested="${ONE_LOCATION_READ_ONLY_STATE_REQUESTED}"
+          requested="${requested#"${requested%%[![:space:]]*}"}"
+          requested="${requested%"${requested##*[![:space:]]}"}"
+          requested="${requested,,}"
+          case "${requested}" in
+            1|true|yes|on)
+              normalized_requested="true"
+              ;;
+            ""|0|false|no|off)
+              normalized_requested="false"
+              ;;
+            *)
+              echo "Refusing UAT deployment: ONE_LOCATION_READ_ONLY_STATE_ENABLED must be a recognized boolean."
+              exit 1
+              ;;
+          esac
+          echo "enabled=${normalized_requested}" >> "${GITHUB_OUTPUT}"
+
+          if [[ "${normalized_requested}" != "true" ]]; then
+            echo "One Location read-only state remains disabled for this UAT rollout."
+            exit 0
+          fi
+
+          scheduler_job="one-location-retention-purge-uat"
+          expected_target="/api/one/location/retention/purge?older_than_hours=12"
+          expected_uri="${CONSENT_API_RUNTIME_ORIGIN%/}${expected_target}"
+          if ! scheduler_evidence="$(
+            gcloud scheduler jobs describe "${scheduler_job}" \
+              --project="${GCP_PROJECT_ID}" \
+              --location="${GCP_REGION}" \
+              --format=json 2>/dev/null \
+            | "${PROTOCOL_PYTHON}" -c '
+          import json
+          import sys
+
+          payload = json.load(sys.stdin)
+          target = payload.get("httpTarget") or {}
+          headers = target.get("headers") or {}
+          auth_present = any(
+              str(key).strip().lower() == "x-hushh-maintenance-token"
+              and bool(str(value).strip())
+              for key, value in headers.items()
+          )
+          print("\t".join((
+              str(payload.get("state") or ""),
+              str(target.get("uri") or ""),
+              str(target.get("httpMethod") or ""),
+              "true" if auth_present else "false",
+          )))
+          '
+          )"; then
+            echo "Refusing to enable One Location read-only state: the canonical UAT retention scheduler is missing."
+            exit 1
+          fi
+
+          IFS=$'\t' read -r scheduler_state scheduler_uri scheduler_method scheduler_auth_present \
+            <<<"${scheduler_evidence}"
+          if [[ "${scheduler_state}" != "ENABLED" ]]; then
+            echo "Refusing to enable One Location read-only state: the canonical UAT retention scheduler is not ENABLED."
+            exit 1
+          fi
+          if [[ "${scheduler_method^^}" != "POST" ]]; then
+            echo "Refusing to enable One Location read-only state: the canonical UAT retention scheduler is not configured for POST."
+            exit 1
+          fi
+          if [[ "${scheduler_auth_present}" != "true" ]]; then
+            echo "Refusing to enable One Location read-only state: the canonical UAT retention scheduler has no maintenance-auth header."
+            exit 1
+          fi
+
+          scheduler_target="$("${PROTOCOL_PYTHON}" - "${scheduler_uri}" <<'PY'
+          import sys
+          from urllib.parse import urlsplit
+
+          target = urlsplit(sys.argv[1])
+          if (
+              target.scheme != "https"
+              or not target.netloc
+              or target.username
+              or target.password
+              or target.fragment
+          ):
+              raise SystemExit(1)
+          suffix = target.path
+          if target.query:
+              suffix = f"{suffix}?{target.query}"
+          print(suffix)
+          PY
+          )" || {
+            echo "Refusing to enable One Location read-only state: the scheduler target is not a canonical HTTPS endpoint."
+            exit 1
+          }
+
+          if [[ "${scheduler_target}" != "${expected_target}" || "${scheduler_uri}" != "${expected_uri}" ]]; then
+            echo "Refusing to enable One Location read-only state: the scheduler does not target the canonical UAT retention endpoint."
+            exit 1
+          fi
+
+          # Deliberately report only the job identity. Header values remain in
+          # the private gcloud-to-Python pipe and are reduced to a boolean.
+          echo "Verified ENABLED One Location retention scheduler: ${scheduler_job}."
+
       - name: Sync canonical hosted runtime secrets
         shell: bash
         run: |
@@ -286,7 +396,7 @@ jobs:
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
-            --one-location-read-only-state-enabled "${{ vars.ONE_LOCATION_READ_ONLY_STATE_ENABLED || 'true' }}" \
+            --one-location-read-only-state-enabled "${{ steps.one_location_read_only_rollout.outputs.enabled }}" \
             --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
             --db-bulk-batching-enabled "${{ vars.DB_BULK_BATCHING_ENABLED || 'false' }}" \
             --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \

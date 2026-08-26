@@ -32,6 +32,14 @@ def _isolate_list_state_dependencies(monkeypatch):
         },
     )
     monkeypatch.setattr(
+        OneLocationAgentService,
+        "get_nearby_check_in_defaults",
+        lambda self, *, user_id: {  # noqa: ARG005
+            "durationMinutes": 120,
+            "savedAt": None,
+        },
+    )
+    monkeypatch.setattr(
         OneLocationCircleService,
         "list_circles",
         lambda self, *, user_id: [],  # noqa: ARG005

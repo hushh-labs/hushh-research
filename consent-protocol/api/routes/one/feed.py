@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
-from hushh_mcp.services.feed_service import FeedService
+from hushh_mcp.services.feed_service import POSTGRES_BIGINT_MAX, FeedService
 
 router = APIRouter(prefix="/api/one", tags=["Feed"])
 
@@ -16,7 +16,7 @@ def _service() -> FeedService:
 class MarkReadBody(BaseModel):
     # A required snapshot watermark prevents a concurrent new row from being
     # marked read merely because it arrived before an unbounded update ran.
-    up_to_id: int = Field(gt=0)
+    up_to_id: int = Field(gt=0, le=POSTGRES_BIGINT_MAX)
 
 
 def _handle_feed_error(exc: Exception) -> HTTPException:
@@ -42,7 +42,7 @@ def _handle_feed_error(exc: Exception) -> HTTPException:
 
 @router.get("/feed")
 def list_feed(
-    cursor: int | None = Query(default=None, ge=1),
+    cursor: int | None = Query(default=None, ge=1, le=POSTGRES_BIGINT_MAX),
     limit: int = Query(default=20, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
 ):

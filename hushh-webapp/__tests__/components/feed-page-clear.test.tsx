@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => {
     routerPush: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
+    feedRowRender: vi.fn(),
   };
 });
 
@@ -95,7 +96,10 @@ vi.mock("@/lib/feed/use-feed-actionables", () => ({
 }));
 
 vi.mock("@/components/feed/feed-row", () => ({
-  FeedRow: ({ item }: { item: { id: string } }) => <div>row-{item.id}</div>,
+  FeedRow: ({ item }: { item: { id: string } }) => {
+    mocks.feedRowRender(item.id);
+    return <div>row-{item.id}</div>;
+  },
 }));
 
 vi.mock("@/components/feed/feed-actionable-row", () => ({
@@ -185,17 +189,42 @@ describe("Feed Clear transaction", () => {
     );
   });
 
+  it("never renders cached history before hydrating a persisted clear watermark", async () => {
+    window.localStorage.setItem(
+      "hushh:feed-cleared-through-id:feed-user",
+      "5",
+    );
+
+    render(<FeedPage />);
+
+    expect(mocks.feedRowRender).not.toHaveBeenCalled();
+    expect(screen.queryByText("row-5")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByText("No notifications yet.")).toBeInTheDocument(),
+    );
+  });
+
   it("requires confirmation, commits the read first, and keeps a later id visible despite an older timestamp", async () => {
     const view = await renderAfterAutomaticRead();
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear feed notifications" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Clear feed notifications on this device",
+      }),
+    );
     expect(mocks.markRead).not.toHaveBeenCalled();
     expect(mocks.clearSmsEmergencies).not.toHaveBeenCalled();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Confirm clear feed notifications" }),
+      screen.getByRole("button", {
+        name: "Confirm clear feed notifications on this device",
+      }),
     );
-    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Feed cleared"));
+    await waitFor(() =>
+      expect(mocks.toastSuccess).toHaveBeenCalledWith(
+        "Feed cleared on this device",
+      ),
+    );
 
     expect(mocks.markRead).toHaveBeenCalledWith({
       idToken: "firebase-token",
@@ -227,9 +256,15 @@ describe("Feed Clear transaction", () => {
     await renderAfterAutomaticRead();
     mocks.markRead.mockRejectedValueOnce(new Error("backend unavailable"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear feed notifications" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Confirm clear feed notifications" }),
+      screen.getByRole("button", {
+        name: "Clear feed notifications on this device",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Confirm clear feed notifications on this device",
+      }),
     );
 
     await waitFor(() =>

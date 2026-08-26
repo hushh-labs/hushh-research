@@ -14,8 +14,15 @@ import type {
   FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
 
-function ActionButton({ action }: { action: FeedActionButton }) {
-  const [busy, setBusy] = useState(false);
+function ActionButton({
+  action,
+  runningActionKey,
+  runAction,
+}: {
+  action: FeedActionButton;
+  runningActionKey: string | null;
+  runAction: (action: FeedActionButton) => Promise<void>;
+}) {
   // Irreversible actions (Deny / Decline / Cancel) require a confirming second
   // tap: the first tap arms the button ("Sure?") and auto-disarms after a few
   // seconds, so a stray tap can't reject a request or abort a running analysis.
@@ -28,25 +35,26 @@ function ActionButton({ action }: { action: FeedActionButton }) {
     };
   }, []);
 
-  const runNow = async () => {
+  const runNow = () => {
     setArmed(false);
     if (disarmTimer.current) clearTimeout(disarmTimer.current);
-    setBusy(true);
-    try {
-      await action.run();
-    } catch {
-      toast.error("That didn't go through. Try again.");
-    } finally {
-      setBusy(false);
-    }
+    void runAction(action);
   };
 
   const showConfirm = action.confirm && armed;
+  const actionsLocked = runningActionKey !== null;
+  const isRunning = runningActionKey === action.key;
+
+  useEffect(() => {
+    if (!actionsLocked || isRunning) return;
+    setArmed(false);
+    if (disarmTimer.current) clearTimeout(disarmTimer.current);
+  }, [actionsLocked, isRunning]);
 
   return (
     <button
       type="button"
-      disabled={action.disabled || busy}
+      disabled={action.disabled || actionsLocked}
       aria-label={
         showConfirm
           ? `Confirm ${action.label}`
@@ -58,14 +66,14 @@ function ActionButton({ action }: { action: FeedActionButton }) {
         // The row itself may be a link/button; never let an action bubble into it.
         event.stopPropagation();
         event.preventDefault();
-        if (busy) return;
+        if (actionsLocked) return;
         if (action.confirm && !armed) {
           setArmed(true);
           if (disarmTimer.current) clearTimeout(disarmTimer.current);
           disarmTimer.current = setTimeout(() => setArmed(false), 3500);
           return;
         }
-        void runNow();
+        runNow();
       }}
       className={cn(
         "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
@@ -79,18 +87,44 @@ function ActionButton({ action }: { action: FeedActionButton }) {
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
       )}
     >
-      {busy ? <Icon icon={Loader2} size="xs" className="animate-spin" /> : null}
+      {isRunning ? (
+        <Icon icon={Loader2} size="xs" className="animate-spin" />
+      ) : null}
       {showConfirm ? "Sure?" : action.label}
     </button>
   );
 }
 
 function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
+  const runningRef = useRef(false);
+  const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
+
+  const runAction = async (action: FeedActionButton) => {
+    // State does not update until React renders again. The ref closes the
+    // same-tick window in which two sibling buttons could both start work.
+    if (runningRef.current) return;
+    runningRef.current = true;
+    setRunningActionKey(action.key);
+    try {
+      await action.run();
+    } catch {
+      toast.error("That didn't go through. Try again.");
+    } finally {
+      runningRef.current = false;
+      setRunningActionKey(null);
+    }
+  };
+
   if (!actions.length) return null;
   return (
     <span className="flex shrink-0 items-center gap-2">
       {actions.map((action) => (
-        <ActionButton key={action.key} action={action} />
+        <ActionButton
+          key={action.key}
+          action={action}
+          runningActionKey={runningActionKey}
+          runAction={runAction}
+        />
       ))}
     </span>
   );

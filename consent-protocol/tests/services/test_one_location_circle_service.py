@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import hushh_mcp.services.feed_service as feed_service_module
 import hushh_mcp.services.one_location_circle_service as circle_service_module
 import hushh_mcp.services.push_notifications as push_notifications_module
 from hushh_mcp.services.one_location_circle_service import (
@@ -19,16 +18,6 @@ from hushh_mcp.services.push_notifications import (
     send_circle_member_added_push,
     send_circle_member_invite_push,
 )
-
-
-@pytest.fixture(autouse=True)
-def _stub_best_effort_circle_feed(monkeypatch: pytest.MonkeyPatch):
-    """Unit tests stay DB-isolated; projection-specific cases override this."""
-    monkeypatch.setattr(
-        feed_service_module,
-        "FeedService",
-        lambda: SimpleNamespace(record_event=lambda **_kwargs: None),
-    )
 
 
 def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None:
@@ -611,7 +600,7 @@ def test_join_is_idempotent_before_capacity_is_consumed(
     assert circle_lock_index < code_lock_index < membership_lock_index
 
 
-def test_first_code_join_records_one_inviter_feed_event(
+def test_first_code_join_records_one_atomic_inviter_feed_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -620,9 +609,12 @@ def test_first_code_join_records_one_inviter_feed_event(
         {"id": invite_id, "circle_id": circle_id},
         {
             "id": circle_id,
+            "name": "Family",
             "owner_user_id": "owner-user",
             "member_limit": 20,
             "status": "active",
+            "user_id": "member-user",
+            "display_name": "Member User",
         },
         {"user_id": "member-user"},
         {
@@ -661,13 +653,7 @@ def test_first_code_join_records_one_inviter_feed_event(
             ],
         },
     )
-    feed_calls: list[dict] = []
     push_calls: list[dict] = []
-    monkeypatch.setattr(
-        feed_service_module,
-        "FeedService",
-        lambda: SimpleNamespace(record_event=lambda **kwargs: feed_calls.append(kwargs)),
-    )
     monkeypatch.setattr(
         push_notifications_module,
         "send_circle_code_joined_push",
@@ -677,21 +663,17 @@ def test_first_code_join_records_one_inviter_feed_event(
     result = service.join_circle(user_id="member-user", code="2345-6789-ABCD")
 
     assert result["joined"] is True
-    assert feed_calls == [
-        {
-            "user_id": "owner-user",
-            "source_domain": "location",
-            "event_type": "location_circle_code_joined",
-            "actor_label": "Member User",
-            "metadata": {
-                "circle_id": circle_id,
-                "circle_name": "Family",
-                "joiner_user_id": "member-user",
-                "counterpart_label": "Member User",
-            },
-            "source_row_id": f"circle_code:{invite_id}:member-user",
-        }
-    ]
+    event_index = next(
+        index for index, sql in enumerate(conn.sql) if "INSERT INTO one_location_events" in sql
+    )
+    event_params = conn.params[event_index]
+    assert event_params["owner_user_id"] == "owner-user"
+    assert event_params["actor_user_id"] == "member-user"
+    assert event_params["event_type"] == "location_circle_code_joined"
+    assert event_params["metadata"] == (
+        f'{{"invite_id":"{invite_id}","circle_id":"{circle_id}",'
+        '"circle_name":"Family","counterpart_label":"Member User"}'
+    )
     assert len(push_calls) == 1
 
 
@@ -1098,12 +1080,6 @@ def test_targeted_invite_accept_notifies_inviter(
         lambda **_kwargs: {"id": circle_id, "name": "Family"},
     )
     push_calls: list[dict] = []
-    feed_calls: list[dict] = []
-    monkeypatch.setattr(
-        feed_service_module,
-        "FeedService",
-        lambda: SimpleNamespace(record_event=lambda **kwargs: feed_calls.append(kwargs)),
-    )
     monkeypatch.setattr(
         push_notifications_module,
         "send_circle_member_invite_accepted_push",
@@ -1116,22 +1092,17 @@ def test_targeted_invite_accept_notifies_inviter(
     )
 
     assert result["accepted"] is True
-    assert feed_calls == [
-        {
-            "user_id": "inviter-member",
-            "source_domain": "location",
-            "event_type": "location_circle_member_invite_accepted",
-            "actor_label": "Member User",
-            "metadata": {
-                "invite_id": invite_id,
-                "circle_id": circle_id,
-                "circle_name": "Family",
-                "invitee_user_id": "member-user",
-                "counterpart_label": "Member User",
-            },
-            "source_row_id": f"circle_invite:{invite_id}:accepted",
-        }
-    ]
+    event_index = next(
+        index for index, sql in enumerate(conn.sql) if "INSERT INTO one_location_events" in sql
+    )
+    event_params = conn.params[event_index]
+    assert event_params["owner_user_id"] == "inviter-member"
+    assert event_params["actor_user_id"] == "member-user"
+    assert event_params["event_type"] == "location_circle_member_invite_accepted"
+    assert event_params["metadata"] == (
+        f'{{"invite_id":"{invite_id}","circle_id":"{circle_id}",'
+        '"circle_name":"Family","counterpart_label":"Member User"}'
+    )
     assert push_calls == [
         {
             "inviter_user_id": "inviter-member",
@@ -1535,13 +1506,6 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
         "_lookup_display_name",
         lambda user_id: "Owner" if user_id == "owner-user" else "",
     )
-    feed_calls: list[dict] = []
-    monkeypatch.setattr(
-        feed_service_module,
-        "FeedService",
-        lambda: SimpleNamespace(record_event=lambda **kwargs: feed_calls.append(kwargs)),
-    )
-
     result = service.create_member_invites(
         actor_user_id="owner-user",
         circle_id=circle_id,
@@ -1568,11 +1532,18 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
     assert [call["member_user_id"] for call in push_calls] == ["friend-one", "friend-two"]
     assert all(call["added_by_display_name"] == "Owner" for call in push_calls)
     assert all(call["circle_name"] == "Family" for call in push_calls)
-    assert [call["event_type"] for call in feed_calls] == [
-        "circle_member_added",
-        "circle_member_added",
+    event_params = [
+        params
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "INSERT INTO one_location_events" in sql
     ]
-    assert all(call["actor_label"] == "Owner" for call in feed_calls)
+    assert [params["owner_user_id"] for params in event_params] == [
+        "friend-one",
+        "friend-two",
+    ]
+    assert all(params["actor_user_id"] == "owner-user" for params in event_params)
+    assert all(params["event_type"] == "circle_member_added" for params in event_params)
+    assert all('"added_by_label":"Owner"' in params["metadata"] for params in event_params)
 
     # The invitation friend-one already had is resolved, not left dangling.
     assert any(
@@ -2432,12 +2403,6 @@ def test_the_sms_circle_still_introduces_nobody_and_costs_nobody_a_circle(
         lambda **kwargs: push_calls.append(kwargs) or 1,
     )
     monkeypatch.setattr(push_notifications_module, "_lookup_display_name", lambda _u: "Owner")
-    monkeypatch.setattr(
-        feed_service_module,
-        "FeedService",
-        lambda: SimpleNamespace(record_event=lambda **kwargs: None),
-    )
-
     result = service.create_member_invites(
         actor_user_id="owner-user",
         circle_id=circle_id,

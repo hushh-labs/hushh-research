@@ -90,6 +90,12 @@ describe("navigation journeys", () => {
       "location.delete_circle",
       "location.delete_saved_location",
       "location.leave_circle",
+      // The nearby check-in resolve step: finds nearby places from wherever
+      // the person is and navigates to Check-In to show them, the same shape
+      // as select_share_recipient. confirm_nearby_check_in is deliberately
+      // absent for the same reason share_selected is: arriving and checking
+      // in unattended is the thing that must not happen.
+      "location.nearby_check_in",
       "location.pause_updates",
       "location.remove_emergency_contact",
       "location.remove_from_circle",

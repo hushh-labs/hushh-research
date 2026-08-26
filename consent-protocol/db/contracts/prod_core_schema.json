@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 177,
+  "expected_migration_version": 180,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -746,6 +746,13 @@
       "created_at",
       "updated_at"
     ],
+    "one_location_nearby_check_in_preferences": [
+      "user_id",
+      "visible",
+      "allow_connection_requests",
+      "created_at",
+      "updated_at"
+    ],
     "one_location_circle_invites": [
       "id",
       "owner_user_id",
@@ -1251,6 +1258,12 @@
       "created_at",
       "updated_at",
       "revoked_at"
+    ],
+    "connection_voice_preferences": [
+      "user_id",
+      "share_scopes_from_last_request",
+      "created_at",
+      "updated_at"
     ],
     "connection_origins": [
       "id",

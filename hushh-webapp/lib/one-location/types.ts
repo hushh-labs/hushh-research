@@ -19,6 +19,12 @@ export type OneLocationAutoApprovePreference = {
   updatedAt?: string | null;
 };
 
+export type OneLocationNearbyCheckInPreference = {
+  visible: boolean;
+  allowConnectionRequests: boolean;
+  updatedAt?: string | null;
+};
+
 export type OneLocationRecommendationTier =
   | "needs_action"
   | "trusted_circle"
@@ -508,6 +514,8 @@ export type OneLocationState = {
   circles?: OneLocationCircleSummary[];
   /** Server-owned, cross-device standing approval rule. */
   autoApprovePreference?: OneLocationAutoApprovePreference;
+  /** Server-owned Nearby Check-In visibility and connection-request defaults. */
+  nearbyCheckInPreferences?: OneLocationNearbyCheckInPreference;
   /** Pending targeted invitations for this user to join a named Circle. */
   circleMemberInvites?: OneLocationCircleMemberInvite[];
   myRecipientKey?: OneLocationMyRecipientKey | null;

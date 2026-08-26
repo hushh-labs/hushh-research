@@ -207,6 +207,7 @@ describe("global One Location Feed-first notification policy", () => {
     await renderReady();
     const data = {
       type: "location_share_created",
+      message_id: "message-live-1",
       grant_id: "grant-live-1",
       owner_display_label: "Alex",
       share_kind: "check_in",
@@ -225,6 +226,22 @@ describe("global One Location Feed-first notification policy", () => {
       }),
     );
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+  });
+
+  it("records repeated duration changes for the same grant without a replay identity", async () => {
+    await renderReady();
+    const data = {
+      type: "location_share_duration_changed",
+      grant_id: "grant-duration-repeat-1",
+      owner_display_label: "Alex",
+      notification_title: "Location activity",
+      notification_body: "Location sharing duration changed.",
+    };
+
+    dispatchLocation(data);
+    dispatchLocation(data);
+
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledTimes(2);
   });
 
   it("queues native location delivery during auth hydration and drains it for the addressed account", async () => {

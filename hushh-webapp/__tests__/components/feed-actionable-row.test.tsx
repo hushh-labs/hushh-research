@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MapPin, Siren } from "lucide-react";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
@@ -133,6 +133,64 @@ describe("FeedActionableRow", () => {
     expect(
       screen.getByRole("button", { name: "Confirm Decline" }),
     ).toHaveTextContent("Sure?");
+  });
+
+  it("locks sibling actions synchronously while one action is in flight", async () => {
+    let resolveApprove: (() => void) | undefined;
+    const approve = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveApprove = resolve;
+        }),
+    );
+    const deny = vi.fn().mockResolvedValue(undefined);
+    render(
+      <FeedActionableRow
+        item={actionable({
+          actions: [
+            {
+              key: "approve",
+              label: "Approve",
+              tone: "primary",
+              run: approve,
+            },
+            {
+              key: "deny",
+              label: "Deny",
+              tone: "danger",
+              confirm: true,
+              run: deny,
+            },
+          ],
+        })}
+      />,
+    );
+    const approveButton = screen.getByRole("button", { name: "Approve" });
+    const denyButton = screen.getByRole("button", {
+      name: "Deny (tap again to confirm)",
+    });
+
+    fireEvent.click(denyButton);
+    expect(denyButton).toHaveTextContent("Sure?");
+
+    act(() => {
+      approveButton.click();
+      denyButton.click();
+    });
+
+    expect(approve).toHaveBeenCalledOnce();
+    expect(deny).not.toHaveBeenCalled();
+    expect(approveButton).toBeDisabled();
+    expect(denyButton).toBeDisabled();
+    expect(denyButton).toHaveTextContent("Deny");
+
+    await act(async () => {
+      resolveApprove?.();
+      await Promise.resolve();
+    });
+
+    expect(approveButton).not.toBeDisabled();
+    expect(denyButton).not.toBeDisabled();
   });
 
   it("renders a revoked SOS card as a plain row (no frame) but keeps the Siren/red icon signal", () => {

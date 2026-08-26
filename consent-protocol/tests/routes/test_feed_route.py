@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from api.middleware import require_firebase_auth
 from api.routes.one.feed import router
 from db.db_client import DatabaseExecutionError
+from hushh_mcp.services.feed_service import POSTGRES_BIGINT_MAX
 
 
 def _client(user_id: str = "user-a") -> TestClient:
@@ -35,6 +36,7 @@ def test_feed_rejects_malformed_or_non_positive_cursors() -> None:
 
     assert client.get("/api/one/feed?cursor=not-a-number").status_code == 422
     assert client.get("/api/one/feed?cursor=0").status_code == 422
+    assert client.get(f"/api/one/feed?cursor={POSTGRES_BIGINT_MAX + 1}").status_code == 422
 
 
 def test_mark_read_requires_a_positive_snapshot_watermark() -> None:
@@ -49,11 +51,19 @@ def test_mark_read_requires_a_positive_snapshot_watermark() -> None:
     with patch("api.routes.one.feed._service", return_value=service):
         response = client.post(
             "/api/one/feed/read",
-            json={"up_to_id": "900719925474099312345"},
+            json={"up_to_id": str(POSTGRES_BIGINT_MAX)},
         )
 
     assert response.status_code == 200
-    service.mark_read.assert_called_once_with("user-a", up_to_id=900719925474099312345)
+    service.mark_read.assert_called_once_with("user-a", up_to_id=POSTGRES_BIGINT_MAX)
+
+    assert (
+        client.post(
+            "/api/one/feed/read",
+            json={"up_to_id": POSTGRES_BIGINT_MAX + 1},
+        ).status_code
+        == 422
+    )
 
 
 def test_feed_preserves_retryable_database_unavailable_semantics() -> None:

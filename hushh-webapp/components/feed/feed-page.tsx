@@ -118,6 +118,7 @@ function FeedPageSession({
   // to an id: a row appended later may carry an equal/older timestamp. Showing
   // old history once is safer than silently losing a genuinely new alert.
   const [clearedThroughId, setClearedThroughId] = useState<string | null>(null);
+  const [clearWatermarkHydrated, setClearWatermarkHydrated] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearArmed, setClearArmed] = useState(false);
 
@@ -132,12 +133,17 @@ function FeedPageSession({
   // an effect (not the initializer) avoids any SSR/hydration mismatch, since the
   // feed only renders meaningfully after auth resolves client-side.
   useEffect(() => {
-    if (!clearedIdStorageKey || !legacyClearedStorageKey) return;
+    if (!clearedIdStorageKey || !legacyClearedStorageKey) {
+      setClearWatermarkHydrated(true);
+      return;
+    }
     try {
       setClearedThroughId(window.localStorage.getItem(clearedIdStorageKey));
       window.localStorage.removeItem(legacyClearedStorageKey);
     } catch {
       // Storage can be disabled; fall back to no persisted clear.
+    } finally {
+      setClearWatermarkHydrated(true);
     }
   }, [clearedIdStorageKey, legacyClearedStorageKey]);
 
@@ -263,6 +269,10 @@ function FeedPageSession({
   }, [data?.items, markSeen]);
 
   const items = useMemo(() => {
+    // useStaleResource can synchronously expose a warm first page. Do not let
+    // that cached history render for one frame before the device-local clear
+    // watermark has been read.
+    if (!clearWatermarkHydrated) return [];
     // The cached first page can revalidate and shift after "load more" has
     // appended later pages; de-dupe by id so a boundary item never renders
     // twice (duplicate React keys) if it reappears across the seam.
@@ -284,7 +294,12 @@ function FeedPageSession({
       merged.push(item);
     }
     return merged;
-  }, [data, pagination.additionalItems, clearedThroughId]);
+  }, [
+    data,
+    pagination.additionalItems,
+    clearedThroughId,
+    clearWatermarkHydrated,
+  ]);
 
   const retryFeed = useCallback(async () => {
     await Promise.all([refresh({ force: true }), retryActionables()]);
@@ -358,7 +373,7 @@ function FeedPageSession({
       // only after the durable read mutation succeeds, so a backend failure is
       // a true no-op instead of reporting failure after partially clearing UI.
       if (hasClearableSmsEmergencies) clearSmsEmergencies();
-      toast.success("Feed cleared");
+      toast.success("Feed cleared on this device");
     } catch {
       toast.error("Couldn't clear your feed.");
     } finally {
@@ -403,7 +418,8 @@ function FeedPageSession({
   // Once cleared this session, the loaded history rows are hidden even though
   // `items` still holds them (no backend delete yet), so the empty state shows.
   const hasHistory = items.length > 0;
-  const contentLoading = loading || actionablesLoading;
+  const contentLoading =
+    !clearWatermarkHydrated || loading || actionablesLoading;
   const hasRefreshError = Boolean(resourceError || actionablesError);
   const showEmpty =
     !contentLoading && !hasActionables && !hasHistory && !hasRefreshError;
@@ -538,8 +554,8 @@ function FeedPageSession({
                 disabled={clearing}
                 aria-label={
                   clearArmed
-                    ? "Confirm clear feed notifications"
-                    : "Clear feed notifications"
+                    ? "Confirm clear feed notifications on this device"
+                    : "Clear feed notifications on this device"
                 }
                 className="rounded-full bg-destructive/10 px-3 py-1.5 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 disabled:opacity-60"
               >
@@ -547,7 +563,7 @@ function FeedPageSession({
                   ? "Clearing…"
                   : clearArmed
                     ? "Confirm clear"
-                    : "Clear"}
+                    : "Clear on this device"}
               </button>
             </div>
           ) : null}
