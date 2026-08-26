@@ -4615,7 +4615,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/setup/cloud",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4631,9 +4631,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/setup/connected-systems",
@@ -6026,5 +6024,5 @@
       ]
     }
   ],
-  "content_sha256": "2bbc04463fb0d3a02826c7bb02f0ab53e52ff759827817a35727f2ae223207a4"
+  "content_sha256": "035f8993836384e33d2868dabea9f3b751f321b5f252231cecf94caecb76eae2"
 }
