@@ -15,7 +15,9 @@ export type SegmentedPillOption = {
   icon?: SegmentedPillIcon;
   /** Optional selected-state counterpart for libraries with filled icons. */
   activeIcon?: SegmentedPillIcon;
-  badge?: number;
+  /** A count when sets are exactly countable, or a dot for attention unions
+   * whose sources may overlap. */
+  badge?: number | "dot";
   tone?: "default" | "accent";
   disabled?: boolean;
   dataTourId?: string;
@@ -162,6 +164,12 @@ export const SegmentedPill = React.forwardRef<
           const needsWrapper = hitArea === "content" || hitArea === "segment";
           const OptionIcon =
             isActive && option.activeIcon ? option.activeIcon : option.icon;
+          const numericBadge =
+            typeof option.badge === "number" ? option.badge : null;
+          const hasNumericBadge = numericBadge !== null && numericBadge > 0;
+          const numericBadgeText =
+            numericBadge !== null && numericBadge > 9 ? "9+" : numericBadge;
+          const hasDotBadge = option.badge === "dot";
           const button = (
             <button
               key={option.value}
@@ -192,8 +200,7 @@ export const SegmentedPill = React.forwardRef<
                 isDisabled && "opacity-45",
               )}
             >
-              {OptionIcon ||
-              (typeof option.badge === "number" && option.badge > 0) ? (
+              {OptionIcon || hasNumericBadge || hasDotBadge ? (
                 <span className="relative flex shrink-0 items-center justify-center">
                   {OptionIcon ? (
                     <OptionIcon
@@ -206,10 +213,19 @@ export const SegmentedPill = React.forwardRef<
                       aria-hidden
                     />
                   ) : null}
-                  {typeof option.badge === "number" && option.badge > 0 ? (
+                  {hasNumericBadge ? (
                     <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-background bg-red-500 px-1 text-[11px] font-bold leading-none text-white">
-                      {option.badge > 9 ? "9+" : option.badge}
+                      {numericBadgeText}
                     </span>
+                  ) : null}
+                  {hasDotBadge ? (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-background bg-red-500"
+                      />
+                      <span className="sr-only">New activity</span>
+                    </>
                   ) : null}
                 </span>
               ) : null}

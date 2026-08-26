@@ -184,19 +184,18 @@ const BOTTOM_NAV_OPTION_META: Record<
 
 function navOptionForKey(
   key: AppBottomNavKey,
-  pendingConsents: number,
-  feedUnreadCount: number,
+  pendingConsents: number | null,
+  feedUnreadCount: number | null,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
   // Feed is the single notification home in the persistent navigation. Its
-  // live "Needs you" section includes pending consent requests, while its
-  // chronological section owns unread Feed events. Consent is not currently a
-  // feed_events writer, so these are disjoint counts.
-  let badge: number | undefined;
+  // "Needs you" requests and unread feed_events overlap for several domains
+  // but not all of them. Counts alone cannot calculate that union exactly, so
+  // use an honest attention dot instead of double-counting or hiding activity.
+  let badge: "dot" | undefined;
   if (key === "feed") {
-    const feedNotificationCount = pendingConsents + feedUnreadCount;
-    if (feedNotificationCount > 0) {
-      badge = feedNotificationCount;
+    if ((pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0) {
+      badge = "dot";
     }
   }
   return { ...option, badge };
@@ -282,7 +281,7 @@ export const Navbar = ({
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
     const keys = resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope);
     return keys.map((key) =>
-      navOptionForKey(key, pendingConsents ?? 0, feedUnreadCount ?? 0),
+      navOptionForKey(key, pendingConsents, feedUnreadCount),
     );
   }, [normalizedPathname, bottomNavScope, pendingConsents, feedUnreadCount]);
 
@@ -304,7 +303,7 @@ export const Navbar = ({
     };
 
     // When the bottom nav is genuinely gone for this context (unauthenticated,
-    // onboarding chrome, no nav options, or explicitly hidden by the shell), 
+    // onboarding chrome, no nav options, or explicitly hidden by the shell),
     // collapse the reserved height to 0.
     if (
       !isAuthenticated ||

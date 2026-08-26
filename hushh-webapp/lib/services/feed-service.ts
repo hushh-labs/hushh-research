@@ -1,13 +1,12 @@
 import { ApiService } from "@/lib/services/api-service";
-import { CACHE_KEYS, CACHE_TTL, CacheService } from "@/lib/services/cache-service";
+import {
+  CACHE_KEYS,
+  CACHE_TTL,
+  CacheService,
+} from "@/lib/services/cache-service";
 
 export type FeedSourceDomain =
-  | "consent"
-  | "location"
-  | "kai"
-  | "kyc"
-  | "connected_systems"
-  | "connections";
+  "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections";
 
 export type FeedEventType =
   | "consent_requested"
@@ -16,10 +15,20 @@ export type FeedEventType =
   | "location_share_created"
   | "location_share_revoked"
   | "location_share_shortened"
+  | "location_share_duration_changed"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_approved"
   | "location_access_denied"
+  | "location_access_request_withdrawn"
+  | "location_referral_invite"
+  | "location_public_invite_submitted"
+  | "location_one_network_joined"
+  | "location_circle_code_joined"
+  | "location_circle_member_invite_accepted"
+  | "circle_member_invited"
+  | "circle_member_added"
+  | "funding_transfer_status"
   | "kai_analysis_completed"
   | "kyc_status_changed"
   | "connected_systems_approved"
@@ -46,7 +55,21 @@ export type FeedListResponse = {
   unread_count: number;
 };
 
-type ErrorPayload = { detail?: string; error?: string };
+type ErrorPayload = {
+  detail?: string | { message?: unknown; code?: unknown };
+  error?: string;
+};
+
+function feedRequestError(payload: ErrorPayload, status: number): Error {
+  const detail = payload.detail;
+  const message =
+    typeof detail === "string"
+      ? detail
+      : detail && typeof detail.message === "string"
+        ? detail.message
+        : payload.error;
+  return new Error(message || `Request failed: ${status}`);
+}
 
 async function authHeader(idToken: string): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${idToken}` };
@@ -67,8 +90,10 @@ export class FeedService {
     force?: boolean;
   }): Promise<FeedListResponse> {
     const isFirstPage = !options.cursor;
-    const cacheKey =
-      isFirstPage && options.userId ? CACHE_KEYS.FEED_LIST(options.userId) : null;
+    const firstPageUserId = isFirstPage ? options.userId : undefined;
+    const cacheKey = firstPageUserId
+      ? CACHE_KEYS.FEED_LIST(firstPageUserId)
+      : null;
     const cache = CacheService.getInstance();
     if (cacheKey && !options.force) {
       const cached = cache.get<FeedListResponse>(cacheKey);
@@ -90,10 +115,18 @@ export class FeedService {
       .json()
       .catch(() => ({}))) as FeedListResponse & ErrorPayload;
     if (!response.ok) {
-      throw new Error(payload.detail || payload.error || `Request failed: ${response.status}`);
+      throw feedRequestError(payload, response.status);
     }
-    if (cacheKey) {
+    if (cacheKey && firstPageUserId) {
       cache.set(cacheKey, payload, CACHE_TTL.SHORT);
+      // The list response and bottom-nav badge describe the same snapshot.
+      // Seed both keyed projections together so opening Feed does not launch a
+      // redundant count request or briefly display an older badge.
+      cache.set(
+        CACHE_KEYS.FEED_UNREAD_COUNT(firstPageUserId),
+        payload.unread_count,
+        CACHE_TTL.SHORT,
+      );
     }
     return payload;
   }
@@ -113,18 +146,21 @@ export class FeedService {
       method: "GET",
       headers: await authHeader(options.idToken),
     });
-    const payload = (await response
-      .json()
-      .catch(() => ({}))) as { unread_count?: number } & ErrorPayload;
+    const payload = (await response.json().catch(() => ({}))) as {
+      unread_count?: number;
+    } & ErrorPayload;
     if (!response.ok) {
-      throw new Error(payload.detail || payload.error || `Request failed: ${response.status}`);
+      throw feedRequestError(payload, response.status);
     }
     const count = payload.unread_count ?? 0;
     cache.set(cacheKey, count, CACHE_TTL.SHORT);
     return count;
   }
 
-  static async markRead(options: { idToken: string; upToId?: string | null; userId?: string }): Promise<void> {
+  static async markRead(options: {
+    idToken: string;
+    upToId: string;
+  }): Promise<void> {
     const response = await ApiService.apiFetch("/api/one/feed/read", {
       method: "POST",
       headers: {
@@ -132,16 +168,14 @@ export class FeedService {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        up_to_id: options.upToId ? Number(options.upToId) : null,
+        // Keep bigint identifiers as decimal strings in JavaScript. Pydantic
+        // validates/coerces the request without crossing Number's 53-bit limit.
+        up_to_id: options.upToId,
       }),
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as ErrorPayload;
-      throw new Error(payload.detail || payload.error || `Request failed: ${response.status}`);
-    }
-    if (options.userId) {
-      CacheService.getInstance().invalidate(CACHE_KEYS.FEED_LIST(options.userId));
-      CacheService.getInstance().invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(options.userId));
+      throw feedRequestError(payload, response.status);
     }
   }
 }

@@ -1403,6 +1403,7 @@
         "consent.chat.turn",
         "location.chat.turn",
         "route.one_agents",
+        "route.one_feed",
         "route.one_location",
         "route.one_pkm",
         "route.voice_settings"
@@ -1496,9 +1497,11 @@
       "canonical_screen": "connect",
       "voice_contract_file": "app/one/connect/page.voice-action-contract.json",
       "action_ids": [
+        "connect.accept_request",
         "connect.cancel_request",
         "connect.open_nearby",
         "connect.open_people",
+        "connect.reject_request",
         "connect.remove_connection",
         "connect.search_people",
         "connect.send_request",

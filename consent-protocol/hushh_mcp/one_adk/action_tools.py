@@ -303,6 +303,8 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
         "connect.remove_connection",
         "connect.cancel_request",
         "connect.send_request",
+        "connect.accept_request",
+        "connect.reject_request",
         "location.checkout_nearby",
     }
 )
@@ -1007,7 +1009,13 @@ async def _execute_backend_direct_mutation(
             {"name": join_names_for_speech(asked_names)},
         )
 
-    if action_id in ("connect.remove_connection", "connect.cancel_request", "connect.send_request"):
+    if action_id in (
+        "connect.remove_connection",
+        "connect.cancel_request",
+        "connect.send_request",
+        "connect.accept_request",
+        "connect.reject_request",
+    ):
         connections_service = ConnectionsService()
         raw_people = str(slots.get("person") or "").strip()
         if action_id == "connect.send_request":
@@ -1077,7 +1085,8 @@ async def _execute_backend_direct_mutation(
                     blocked_notes.append(f"already asked {display_name}, waiting on them")
                 elif relationship == "pending_incoming":
                     blocked_notes.append(
-                        f"{display_name} already asked you -- accept theirs instead"
+                        f"{display_name} already asked you -- call connect.accept_request "
+                        "for them instead, once the person confirms"
                     )
                 elif relationship != "none":
                     blocked_notes.append(f"a new request isn't available for {display_name}")
@@ -1208,15 +1217,70 @@ async def _execute_backend_direct_mutation(
                 {"name": join_names_for_speech(removed_names)},
             )
 
-        # cancel_request's real target is the pending CONNECTION REQUEST, not
-        # the connection graph -- but ConnectionsService.cancel_request()
-        # already accepts the counterpart's user id as a fallback when no
-        # request id resolves, so matching against connections here would
-        # silently answer the wrong question (only settled connections, never
-        # pending outgoing asks). List outgoing requests instead.
-        outgoing = connections_service.list_requests(user_id=user_id, direction="outgoing")
+        if action_id == "connect.cancel_request":
+            # cancel_request's real target is the pending CONNECTION REQUEST,
+            # not the connection graph -- but ConnectionsService.cancel_request()
+            # already accepts the counterpart's user id as a fallback when no
+            # request id resolves, so matching against connections here would
+            # silently answer the wrong question (only settled connections,
+            # never pending outgoing asks). List outgoing requests instead.
+            outgoing = connections_service.list_requests(user_id=user_id, direction="outgoing")
+            name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(outgoing, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next(
+                    (u for u in resolution.unresolved if u.kind == "ambiguous"), None
+                )
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_AMBIGUOUS",
+                        f'More than one pending request matches "{ambiguous.spoken_text}": '
+                        f"{names}. Say which one.",
+                    )
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND",
+                    f"You have no pending request to {raw_people or 'that person'}.",
+                )
+            cancelled_names: list[str] = []
+            failed_names = []
+            for request in resolution.resolved:
+                request_name = str(request.get("counterpartDisplayName") or "that person")
+                try:
+                    connections_service.cancel_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
+                except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                    logger.exception(
+                        "one_adk_backend_direct_partial_failure action=%s", action_id
+                    )
+                    failed_names.append(request_name)
+                    continue
+                cancelled_names.append(request_name)
+            if not cancelled_names:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_CANCEL_FAILED",
+                    f"Could not cancel your request to {join_names_for_speech(failed_names)}. "
+                    "Try again in a moment.",
+                )
+            note = _unresolved_people_note(
+                resolution.unresolved, name_of, "pending request"
+            ) + _partial_failure_note(failed_names)
+            return (
+                f"Cancelled your connection request to "
+                f"{join_names_for_speech(cancelled_names)}.{note}",
+                {"name": join_names_for_speech(cancelled_names)},
+            )
+
+        # connect.accept_request / connect.reject_request: the pending
+        # request lives in the INCOMING direction from this user's side --
+        # the same reasoning as cancel_request's own comment above applies
+        # here too, matching against settled connections would silently
+        # answer the wrong question for a request that has not been
+        # accepted yet.
+        incoming = connections_service.list_requests(user_id=user_id, direction="incoming")
         name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
-        resolution = resolve_spoken_names(outgoing, raw_people, name_of)
+        resolution = resolve_spoken_names(incoming, raw_people, name_of)
         if not resolution.resolved:
             ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
             if ambiguous is not None:
@@ -1228,34 +1292,50 @@ async def _execute_backend_direct_mutation(
                 )
             raise ConnectionsError(
                 "CONNECTION_REQUEST_NOT_FOUND",
-                f"You have no pending request to {raw_people or 'that person'}.",
+                f"You have no pending request from {raw_people or 'that person'}.",
             )
-        cancelled_names: list[str] = []
+        settled_names = []
         failed_names = []
         for request in resolution.resolved:
             request_name = str(request.get("counterpartDisplayName") or "that person")
             try:
-                connections_service.cancel_request(
-                    user_id=user_id, request_id=str(request.get("id") or "")
-                )
+                if action_id == "connect.accept_request":
+                    # No scope selection here -- voice never chose one, the
+                    # same reasoning send_request's own scope-reuse toggle
+                    # documents. accept_request already accepts None for
+                    # both and settles with none selected either way.
+                    connections_service.accept_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
+                else:
+                    connections_service.reject_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
             except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
                 logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                 failed_names.append(request_name)
                 continue
-            cancelled_names.append(request_name)
-        if not cancelled_names:
+            settled_names.append(request_name)
+        if not settled_names:
+            verb = "accept" if action_id == "connect.accept_request" else "decline"
             raise ConnectionsError(
-                "CONNECTION_REQUEST_CANCEL_FAILED",
-                f"Could not cancel your request to {join_names_for_speech(failed_names)}. "
+                "CONNECTION_REQUEST_RESOLVE_FAILED",
+                f"Could not {verb} the request from {join_names_for_speech(failed_names)}. "
                 "Try again in a moment.",
             )
         note = _unresolved_people_note(
             resolution.unresolved, name_of, "pending request"
         ) + _partial_failure_note(failed_names)
-        return (
-            f"Cancelled your connection request to {join_names_for_speech(cancelled_names)}.{note}",
-            {"name": join_names_for_speech(cancelled_names)},
-        )
+        if action_id == "connect.accept_request":
+            message = (
+                f"Accepted {join_names_for_speech(settled_names)}'s connection request. "
+                f"You're connected now.{note}"
+            )
+        else:
+            message = (
+                f"Declined {join_names_for_speech(settled_names)}'s connection request.{note}"
+            )
+        return message, {"name": join_names_for_speech(settled_names)}
 
     if action_id == "location.checkout_nearby":
         # No coordinates, no place, nothing client-only -- checking out only

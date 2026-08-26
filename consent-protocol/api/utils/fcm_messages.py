@@ -66,6 +66,14 @@ def build_push_message(
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
     is_sms_emergency = _is_one_location_sms_emergency(data)
+    # Presentation is part of the transport contract, not something a client
+    # should infer from missing title/body fields. In particular, consent
+    # bookkeeping events are intentionally data-only and must never be turned
+    # into a generic browser notification by a background service worker.
+    message_data = {
+        **data,
+        "notification_presentation": "alert" if show_alert else "silent",
+    }
     notification = messaging.Notification(title=title, body=body) if show_alert else None
 
     webpush = None
@@ -87,18 +95,20 @@ def build_push_message(
         )
 
     android = None
-    if normalized_platform == "android" and show_alert and is_sms_emergency:
+    if normalized_platform == "android" and show_alert:
         android = messaging.AndroidConfig(
             priority="high",
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
-                channel_id=ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL,
+                channel_id=(
+                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL if is_sms_emergency else None
+                ),
                 tag=notification_tag,
-                ticker="Emergency SMS alert",
-                priority="max",
-                visibility="public",
-                vibrate_timings_millis=[0, 240, 120, 240, 120, 520],
+                ticker="Emergency SMS alert" if is_sms_emergency else None,
+                priority="max" if is_sms_emergency else None,
+                visibility="public" if is_sms_emergency else None,
+                vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
             ),
         )
 
@@ -125,7 +135,7 @@ def build_push_message(
                     ),
                     thread_id=notification_tag,
                 ),
-                custom_data=data,
+                **message_data,
             ),
         )
     elif normalized_platform == "ios":
@@ -139,13 +149,13 @@ def build_push_message(
                     content_available=True,
                     thread_id=notification_tag,
                 ),
-                custom_data=data,
+                **message_data,
             ),
         )
 
     return messaging.Message(
         token=token,
-        data=data,
+        data=message_data,
         notification=notification,
         webpush=webpush,
         apns=apns,

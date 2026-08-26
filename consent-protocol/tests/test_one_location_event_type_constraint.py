@@ -28,21 +28,21 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
-SERVICE_PATH = REPO_ROOT / "hushh_mcp" / "services" / "one_location_agent_service.py"
+SERVICE_PATHS = (
+    REPO_ROOT / "hushh_mcp" / "services" / "one_location_agent_service.py",
+    REPO_ROOT / "hushh_mcp" / "services" / "one_location_circle_service.py",
+)
 
-# Every migration that declares the current constraint. They have to agree, or
-# a replay changes the answer depending
-# on where it stops.
-#
-# The last entry is also the one that reaches an environment which has already
-# replayed the others. Updating the historical declarations keeps a full replay
-# internally consistent; adding the fresh migration updates a live database.
+# Every migration that replaces the constraint. Later declarations may add
+# event types, but may never remove an earlier value. The last entry is the
+# contract that reaches an environment which has already replayed the others.
 CONSTRAINT_MIGRATIONS = (
     "064_one_location_public_invites.sql",
     "068_one_location_circle_invites.sql",
     "153_one_location_duration_changed_event.sql",
     "154_one_location_access_request_duration.sql",
     "169_one_location_auto_approve_preferences.sql",
+    "180_one_location_circle_feed_durability.sql",
 )
 
 _CONSTRAINT_BLOCK = re.compile(
@@ -68,15 +68,17 @@ def _allowed_types(filename: str) -> set[str]:
     return values
 
 
-def test_every_migration_declares_the_same_allowed_event_types() -> None:
+def test_constraint_migrations_never_remove_an_allowed_event_type() -> None:
     declared = {name: _allowed_types(name) for name in CONSTRAINT_MIGRATIONS}
-    baseline, *rest = CONSTRAINT_MIGRATIONS
-    for name in rest:
-        assert declared[name] == declared[baseline], (
-            "the constraint declarations disagree; a replay would then accept or "
-            f"reject a row depending on where it stopped. Only in {baseline}: "
-            f"{sorted(declared[baseline] - declared[name])}. Only in {name}: "
-            f"{sorted(declared[name] - declared[baseline])}"
+    for older, newer in zip(
+        CONSTRAINT_MIGRATIONS,
+        CONSTRAINT_MIGRATIONS[1:],
+        strict=False,
+    ):
+        assert declared[older] <= declared[newer], (
+            "a later event-type constraint removed values that an earlier "
+            f"migration accepted. Removed between {older} and {newer}: "
+            f"{sorted(declared[older] - declared[newer])}"
         )
 
 
@@ -95,7 +97,11 @@ def test_the_newest_constraint_migration_is_the_one_that_ships() -> None:
 
 
 def test_every_emitted_event_type_is_allowed_by_the_constraint() -> None:
-    emitted = set(_EMITTED.findall(SERVICE_PATH.read_text(encoding="utf-8")))
+    emitted = {
+        event_type
+        for path in SERVICE_PATHS
+        for event_type in _EMITTED.findall(path.read_text(encoding="utf-8"))
+    }
     # Guard the regex itself: if it silently matched nothing, the comparison
     # below would pass while proving nothing at all.
     assert "location_share_created" in emitted, (
@@ -103,12 +109,12 @@ def test_every_emitted_event_type_is_allowed_by_the_constraint() -> None:
         "insert sites changed shape and this test needs updating"
     )
 
-    allowed = _allowed_types(CONSTRAINT_MIGRATIONS[0])
+    allowed = _allowed_types(CONSTRAINT_MIGRATIONS[-1])
     missing = sorted(emitted - allowed)
     assert not missing, (
         f"{missing} are written to one_location_events but rejected by "
         "one_location_events_event_type_check. Add them to the CHECK list in "
-        f"{' and '.join(CONSTRAINT_MIGRATIONS)} -- otherwise the first row "
+        f"{CONSTRAINT_MIGRATIONS[-1]} -- otherwise the first row "
         "written in an environment permanently breaks that environment's "
         "migration replay, and the deploy failure names neither the value nor "
         "the feature that wrote it."

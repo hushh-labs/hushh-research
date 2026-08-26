@@ -256,6 +256,36 @@ describe("OneLocationService", () => {
     expect(mockApiJson.mock.calls[0]?.[0]).not.toContain("/location/shared");
   });
 
+  it("carries stable operation ids on repeatable duration mutations", async () => {
+    mockApiJson
+      .mockResolvedValueOnce({ grant: { id: "grant_1" } })
+      .mockResolvedValueOnce({ grant: { id: "grant_1" } });
+
+    await OneLocationService.shortenGrant({
+      vaultOwnerToken: "vault-token",
+      grantId: "grant_1",
+      durationHours: 1,
+      clientOperationId: "shorten-operation-0001",
+    });
+    await OneLocationService.setGrantDuration({
+      vaultOwnerToken: "vault-token",
+      grantId: "grant_1",
+      durationHours: 2,
+      durationMode: "timed",
+      clientOperationId: "duration-operation-0001",
+    });
+
+    expect(JSON.parse(String(mockApiJson.mock.calls[0]?.[1]?.body))).toEqual({
+      durationHours: 1,
+      clientOperationId: "shorten-operation-0001",
+    });
+    expect(JSON.parse(String(mockApiJson.mock.calls[1]?.[1]?.body))).toEqual({
+      durationHours: 2,
+      durationMode: "timed",
+      clientOperationId: "duration-operation-0001",
+    });
+  });
+
   it("keeps the grant id escaped ahead of the allow_empty query", async () => {
     // The grant id is path data and the flag is query data; a grant id that
     // contains a delimiter must not be able to smuggle in extra parameters.

@@ -24,6 +24,20 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
       "Choose in Voice Settings whether a bare emergency phrase like \"save me\" or \"SOS\" opens the SOS screen or goes straight to sending the alert. Either way, sending still needs an explicit confirmation -- this only changes how fast you get there.",
   },
   {
+    version: "1.6",
+    date: "2026-08-26",
+    title: "Accept or decline a connection request, hands-free",
+    description:
+      "Say \"accept their connection request\" or \"decline their request\" for a request waiting in your Feed -- no need to open it and tap. Asking to connect with someone who already asked you now points you straight to this instead of trying to send a second request.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-26",
+    title: "Fixed: Nearby Check-In said no places were found when the real problem was something else",
+    description:
+      "If location access was off or the search itself failed, Nearby Check-In said \"no plausible places nearby\" either way. It now says what actually went wrong, so it's clear whether to check permissions or just search for the place yourself.",
+  },
+  {
     version: "1.5",
     date: "2026-08-26",
     title: "Your own defaults for what voice can do",

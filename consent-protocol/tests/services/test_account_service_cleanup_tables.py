@@ -67,6 +67,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["connection_origins"] is True
     assert result["details"]["contact_sync_lookup_budgets"] is True
+    assert result["details"]["feed_events"] is True
 
     first_sql = str(conn.execute.call_args_list[0].args[0])
     assert "pg_advisory_xact_lock" in first_sql
@@ -130,6 +131,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_location_share_grants",
         "DELETE FROM one_location_recipient_keys",
         "DELETE FROM one_wallet_cards",
+        "DELETE FROM feed_events",
         "DELETE FROM actor_verified_email_aliases",
         "DELETE FROM actor_identity_cache",
         "DELETE FROM runtime_persona_state",
@@ -188,6 +190,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert executed_sql.index("DELETE FROM one_wallet_cards") < executed_sql.index(
         "DELETE FROM actor_profiles"
     )
+    assert executed_sql.index("DELETE FROM one_location_recipient_keys") < (
+        executed_sql.index("DELETE FROM feed_events")
+    )
+    assert executed_sql.index("DELETE FROM feed_events") < executed_sql.index(
+        "DELETE FROM actor_profiles"
+    )
 
 
 def test_fetch_optional_many_rows_returns_empty_when_table_missing(monkeypatch):
@@ -241,6 +249,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["one_location_auto_approve_preferences"] is True
     assert result["details"]["connection_origins"] is True
+    assert result["details"]["feed_events"] is True
 
     first_sql = str(conn.execute.call_args_list[0].args[0])
     assert "pg_advisory_xact_lock" in first_sql
@@ -272,9 +281,15 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM connection_requests",
         "DELETE FROM connections",
         "DELETE FROM one_wallet_cards",
+        "DELETE FROM feed_events",
     ]
     for fragment in cleared_fragments:
         assert fragment in executed_sql
+
+    assert executed_sql.index("DELETE FROM one_location_recipient_keys") < (
+        executed_sql.index("DELETE FROM feed_events")
+    )
+    assert "WHERE user_id = :user_id" in str(service._delete_by_user_queries["feed_events"])
 
     # The account spine survives a reset: no DELETE touches identity or vault.
     spine_fragments = [

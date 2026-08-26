@@ -224,6 +224,13 @@ class ResolveAccessRequest(_CamelModel):
 
 class ShortenGrantRequest(_CamelModel):
     duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+    client_operation_id: str | None = Field(
+        default=None,
+        alias="clientOperationId",
+        min_length=8,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
+    )
 
 
 class SetGrantDurationRequest(_CamelModel):
@@ -238,6 +245,13 @@ class SetGrantDurationRequest(_CamelModel):
         default="timed",
         alias="durationMode",
         pattern="^(timed|until_stopped)$",
+    )
+    client_operation_id: str | None = Field(
+        default=None,
+        alias="clientOperationId",
+        min_length=8,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
     )
 
 
@@ -683,9 +697,7 @@ def get_location_nearby_check_in_preferences(
     """
     try:
         return {
-            "preferences": _service().get_nearby_check_in_defaults(
-                user_id=_user_id(token_data)
-            )
+            "preferences": _service().get_nearby_check_in_defaults(user_id=_user_id(token_data))
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1855,6 +1867,7 @@ def shorten_location_grant(
                 caller_user_id=_user_id(token_data),
                 grant_id=grant_id,
                 duration_hours=payload.duration_hours,
+                client_operation_id=payload.client_operation_id,
             )
         }
     except Exception as exc:
@@ -1880,6 +1893,7 @@ def set_location_grant_duration(
                 grant_id=grant_id,
                 duration_hours=payload.duration_hours,
                 duration_mode=payload.duration_mode,
+                client_operation_id=payload.client_operation_id,
             )
         }
     except Exception as exc:

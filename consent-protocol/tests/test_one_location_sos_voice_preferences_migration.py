@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "179_one_location_sos_voice_preferences.sql"
-ROLLBACK_NAME = "179_one_location_sos_voice_preferences.rollback.sql"
+MIGRATION_NAME = "181_one_location_sos_voice_preferences.sql"
+ROLLBACK_NAME = "181_one_location_sos_voice_preferences.rollback.sql"
 TABLE = "one_location_sos_voice_preferences"
 REQUIRED_COLUMNS = {
     "user_id",
@@ -31,7 +31,7 @@ def test_sos_voice_preferences_migration_is_release_governed_and_reversible() ->
         "CHECK (default_action IN ('open', 'trigger'))" in migration
     )
     assert f"DROP TABLE IF EXISTS {TABLE}" in rollback
-    assert "migration_179_rollback_refused_nonempty_table" in rollback
+    assert "migration_181_rollback_refused_nonempty_table" in rollback
     assert MIGRATION_NAME in manifest["ordered_migrations"]
     assert MIGRATION_NAME in manifest["groups"]["iam"]
 

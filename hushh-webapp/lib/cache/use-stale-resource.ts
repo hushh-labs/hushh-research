@@ -50,6 +50,10 @@ export function useStaleResource<T>({
     () => cache.peek<T>(cacheKey),
     [cache, cacheKey],
   );
+  // State below is populated asynchronously. Tag it with the cache key that
+  // produced it so a user/resource switch can never render the previous key's
+  // value for one frame while the reset effect is still pending.
+  const [renderedCacheKey, setRenderedCacheKey] = useState(cacheKey);
   const [data, setData] = useState<T | null>(initialSnapshot?.data ?? null);
   const dataRef = useRef<T | null>(initialSnapshot?.data ?? null);
   const [snapshot, setSnapshot] = useState<CacheSnapshot<T> | null>(
@@ -65,6 +69,22 @@ export function useStaleResource<T>({
   const activeRefreshIdRef = useRef<number | null>(null);
   const [invalidated, setInvalidated] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A request may settle after its hook has been re-keyed (most importantly,
+  // after an account switch). Suppress every state write from that obsolete
+  // request. The generation also covers A -> B -> A and enabled toggles, where
+  // comparing only the cache-key string would accept an older session's work.
+  const activeResourceRef = useRef({ cacheKey, enabled, generation: 0 });
+  if (
+    activeResourceRef.current.cacheKey !== cacheKey ||
+    activeResourceRef.current.enabled !== enabled
+  ) {
+    activeResourceRef.current = {
+      cacheKey,
+      enabled,
+      generation: activeResourceRef.current.generation + 1,
+    };
+  }
+  const resourceGeneration = activeResourceRef.current.generation;
 
   useEffect(() => {
     loadRef.current = load;
@@ -72,6 +92,12 @@ export function useStaleResource<T>({
 
   useEffect(() => {
     return cache.subscribe((event) => {
+      if (
+        activeResourceRef.current.cacheKey !== cacheKey ||
+        activeResourceRef.current.generation !== resourceGeneration
+      ) {
+        return;
+      }
       if (event.type === "set" && event.key === cacheKey) {
         const nextSnapshot = cache.peek<T>(cacheKey);
         dataRef.current = nextSnapshot?.data ?? null;
@@ -119,11 +145,13 @@ export function useStaleResource<T>({
         });
       }
     });
-  }, [cache, cacheKey, retainOnInvalidate]);
+  }, [cache, cacheKey, resourceGeneration, retainOnInvalidate]);
 
   useEffect(() => {
     const nextSnapshot = cache.peek<T>(cacheKey);
+    activeRefreshIdRef.current = null;
     dataRef.current = nextSnapshot?.data ?? null;
+    setRenderedCacheKey(cacheKey);
     setSnapshot(nextSnapshot);
     startTransition(() => {
       setData(nextSnapshot?.data ?? null);
@@ -136,7 +164,11 @@ export function useStaleResource<T>({
 
   const refresh = useCallback(
     async (options?: { force?: boolean }) => {
-      if (!enabled) return null;
+      const isCurrentResource = () =>
+        activeResourceRef.current.cacheKey === cacheKey &&
+        activeResourceRef.current.enabled === enabled &&
+        activeResourceRef.current.generation === resourceGeneration;
+      if (!enabled || !isCurrentResource()) return null;
 
       const cachedSnapshot = cache.peek<T>(cacheKey);
       const hasRetainedData = dataRef.current !== null;
@@ -183,6 +215,9 @@ export function useStaleResource<T>({
         }
         try {
           const sharedResult = await existingRequest;
+          if (!isCurrentResource()) {
+            return null;
+          }
           const nextSnapshot = cache.peek<T>(cacheKey);
           setSnapshot(nextSnapshot);
           startTransition(() => {
@@ -192,6 +227,9 @@ export function useStaleResource<T>({
           setInvalidated(false);
           return sharedResult ?? nextSnapshot?.data ?? null;
         } catch (loadError) {
+          if (!isCurrentResource()) {
+            return null;
+          }
           setError(
             loadError instanceof Error
               ? loadError.message
@@ -199,11 +237,11 @@ export function useStaleResource<T>({
           );
           return cachedSnapshot?.data ?? null;
         } finally {
-          if (activeRefreshIdRef.current === refreshId) {
+          if (isCurrentResource() && activeRefreshIdRef.current === refreshId) {
             activeRefreshIdRef.current = null;
+            setLoading(false);
+            setRefreshing(false);
           }
-          setLoading(false);
-          setRefreshing(false);
         }
       }
 
@@ -221,6 +259,9 @@ export function useStaleResource<T>({
         const request = Promise.resolve(loadRef.current(options));
         inflightRequests.set(cacheKey, request);
         const next = await request;
+        if (!isCurrentResource()) {
+          return null;
+        }
         const nextSnapshot = cache.peek<T>(cacheKey);
         dataRef.current = nextSnapshot?.data ?? next;
         setSnapshot(nextSnapshot);
@@ -231,6 +272,9 @@ export function useStaleResource<T>({
         setInvalidated(false);
         return next;
       } catch (loadError) {
+        if (!isCurrentResource()) {
+          return null;
+        }
         setError(
           loadError instanceof Error
             ? loadError.message
@@ -238,18 +282,18 @@ export function useStaleResource<T>({
         );
         return cachedSnapshot?.data ?? null;
       } finally {
-        if (activeRefreshIdRef.current === refreshId) {
+        if (isCurrentResource() && activeRefreshIdRef.current === refreshId) {
           activeRefreshIdRef.current = null;
+          setLoading(false);
+          setRefreshing(false);
         }
         const existing = inflightRequests.get(cacheKey);
         if (existing) {
           inflightRequests.delete(cacheKey);
         }
-        setLoading(false);
-        setRefreshing(false);
       }
     },
-    [cache, cacheKey, enabled, label],
+    [cache, cacheKey, enabled, label, resourceGeneration],
   );
 
   // Keep the latest refresh in a ref so the auto-load effect below can run it
@@ -271,13 +315,15 @@ export function useStaleResource<T>({
     void refreshRef.current();
   }, [enabled, cacheKey, refreshKey]);
 
+  const stateMatchesCacheKey = renderedCacheKey === cacheKey;
+
   return {
-    data,
-    snapshot,
-    loading,
-    refreshing,
-    invalidated,
-    error,
+    data: stateMatchesCacheKey ? data : (initialSnapshot?.data ?? null),
+    snapshot: stateMatchesCacheKey ? snapshot : initialSnapshot,
+    loading: stateMatchesCacheKey ? loading : enabled && !initialSnapshot,
+    refreshing: stateMatchesCacheKey ? refreshing : false,
+    invalidated: stateMatchesCacheKey ? invalidated : false,
+    error: stateMatchesCacheKey ? error : null,
     refresh,
   };
 }

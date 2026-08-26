@@ -2419,6 +2419,153 @@ class TestBackendDirectConnectionActions:
         assert called_request_ids == {"req1", "req2"}
 
     @pytest.mark.asyncio
+    async def test_accept_request_accepts_the_matched_incoming_request(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_requests",
+                autospec=True,
+                return_value=[{"id": "req1", "counterpartDisplayName": "Sarah Chen"}],
+            ),
+            patch.object(ConnectionsService, "accept_request", autospec=True) as accept_mock,
+        ):
+            result = await run_app_action(
+                "connect.accept_request", {"person": "sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "connected" in result["message"].lower()
+        assert accept_mock.call_args.kwargs == {"user_id": "user_1", "request_id": "req1"}
+
+    @pytest.mark.asyncio
+    async def test_accept_request_names_no_pending_request_when_unmatched(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(ConnectionsService, "list_requests", autospec=True, return_value=[]),
+        ):
+            result = await run_app_action(
+                "connect.accept_request", {"person": "nobody"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "no pending request" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_reject_request_declines_the_matched_incoming_request(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_requests",
+                autospec=True,
+                return_value=[{"id": "req1", "counterpartDisplayName": "Sarah Chen"}],
+            ),
+            patch.object(ConnectionsService, "reject_request", autospec=True) as reject_mock,
+        ):
+            result = await run_app_action(
+                "connect.reject_request", {"person": "sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "declined" in result["message"].lower()
+        assert reject_mock.call_args.kwargs == {"user_id": "user_1", "request_id": "req1"}
+
+    @pytest.mark.asyncio
+    async def test_accept_request_handles_multiple_people_in_one_turn(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_requests",
+                autospec=True,
+                return_value=[
+                    {"id": "req1", "counterpartDisplayName": "Sarah Chen"},
+                    {"id": "req2", "counterpartDisplayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(ConnectionsService, "accept_request", autospec=True) as accept_mock,
+        ):
+            result = await run_app_action(
+                "connect.accept_request",
+                {"person": "Sarah Chen and Abdul"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert accept_mock.call_count == 2
+        called_request_ids = {c.kwargs["request_id"] for c in accept_mock.call_args_list}
+        assert called_request_ids == {"req1", "req2"}
+
+    @pytest.mark.asyncio
+    async def test_accept_request_reports_who_succeeded_when_one_of_two_fails(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_requests",
+                autospec=True,
+                return_value=[
+                    {"id": "req1", "counterpartDisplayName": "Sarah Chen"},
+                    {"id": "req2", "counterpartDisplayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(
+                ConnectionsService,
+                "accept_request",
+                autospec=True,
+                side_effect=[None, RuntimeError("connection pool exhausted")],
+            ),
+        ):
+            result = await run_app_action(
+                "connect.accept_request",
+                {"person": "Sarah Chen and Abdul"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Abdul Gaffar" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_send_request_names_the_accept_action_when_already_asked(self):
+        # The exact bug a real session hit: the message told the person to
+        # "accept theirs instead" with no action for the model to call for
+        # it. Pin that the message now names the real action id.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={
+                    "items": [
+                        {
+                            "userId": "u1",
+                            "displayName": "Sarah Chen",
+                            "relationship": "pending_incoming",
+                        }
+                    ],
+                    "hasMore": False,
+                },
+            ),
+            patch.object(
+                ConnectionsService,
+                "get_voice_preferences",
+                autospec=True,
+                return_value={"shareScopesFromLastRequest": False, "updatedAt": None},
+            ),
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "connect.accept_request" in result["message"]
+
+    @pytest.mark.asyncio
     async def test_send_request_resolves_via_directory_search_and_sends(self):
         state = self._authorized_state()
         with (

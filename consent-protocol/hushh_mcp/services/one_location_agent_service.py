@@ -12,7 +12,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterator, cast
+from typing import Any, Iterator, TypedDict, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -70,6 +70,17 @@ _NOTIFICATION_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(1, int(os.getenv("ONE_LOCATION_NOTIFICATION_WORKERS", "2"))),
     thread_name_prefix="one-location-notify",
 )
+
+
+class _MetadataNotification(TypedDict):
+    user_id: str
+    notification_type: str
+    title: str
+    body: str
+    notification_tag: str
+    request_url: str
+    data: dict[str, str | None]
+
 
 COORDINATE_METADATA_KEYS = {
     "lat",
@@ -1194,6 +1205,49 @@ class OneLocationAgentService:
                     del self._key_writer_connection
                 else:
                     self._key_writer_connection = previous_connection
+
+    @contextmanager
+    def _event_bound_writer(self) -> Iterator[None]:
+        """Bind a mutation and its user-visible event to one transaction.
+
+        Existing key-bound writers reuse their already-locked connection.
+        Runtime databases otherwise expose ``engine.begin``; the no-engine
+        fallback exists only for lightweight unit doubles. Event insertion is
+        still required in that fallback, so failures are never swallowed.
+        """
+
+        bound_connection = getattr(self, "_key_writer_connection", None)
+        if bound_connection is not None:
+            yield
+            return
+
+        # A service double may replace either SQL executor with an in-memory
+        # adapter. In that case the adapter owns its transaction semantics and
+        # opening the process-wide Postgres engine here would both escape the
+        # adapter boundary and make isolated reads depend on a live database.
+        # Runtime instances use the two concrete executors above, so every real
+        # mutation still enters the database transaction below.
+        execute_one = self._execute_one
+        execute_many = self._execute_many
+        if (
+            getattr(execute_one, "__func__", None) is not OneLocationAgentService._execute_one
+            or getattr(execute_many, "__func__", None) is not OneLocationAgentService._execute_many
+        ):
+            yield
+            return
+
+        database = get_db()
+        engine = getattr(database, "engine", None)
+        if engine is None:
+            yield
+            return
+
+        with engine.begin() as connection:
+            self._key_writer_connection = connection
+            try:
+                yield
+            finally:
+                del self._key_writer_connection
 
     def _ensure_recipient_encrypted_private_column(self) -> None:
         """Idempotently add `one_location_recipient_keys.encrypted_private_key_jwk`.
@@ -3119,65 +3173,74 @@ class OneLocationAgentService:
 
     def _expire_stale_grants(self, user_id: str | None) -> None:
         retention_cutoff = _utcnow() - timedelta(hours=LOCATION_TERMINAL_RETENTION_HOURS)
-        expired = self._execute_many(
-            """
-            WITH stale AS (
-              SELECT id
-              FROM one_location_share_grants
-              WHERE status = 'active'
-                AND expires_at <= NOW()
-                AND (
-                  :user_id IS NULL
-                  OR owner_user_id = :user_id
-                  OR recipient_user_id = :user_id
+        notifications: list[dict[str, Any]] = []
+        with self._event_bound_writer():
+            expired = self._execute_many(
+                """
+                WITH stale AS (
+                  SELECT id
+                  FROM one_location_share_grants
+                  WHERE status = 'active'
+                    AND expires_at <= NOW()
+                    AND (
+                      :user_id IS NULL
+                      OR owner_user_id = :user_id
+                      OR recipient_user_id = :user_id
+                    )
+                  ORDER BY expires_at
+                  LIMIT 500
+                  FOR UPDATE SKIP LOCKED
                 )
-              ORDER BY expires_at
-              LIMIT 500
-              FOR UPDATE SKIP LOCKED
-            )
-            UPDATE one_location_share_grants AS target_grant
-            SET status = 'expired', updated_at = NOW()
-            FROM stale
-            WHERE target_grant.id = stale.id
-            RETURNING
+                UPDATE one_location_share_grants AS target_grant
+                SET status = 'expired', updated_at = NOW()
+                FROM stale
+                WHERE target_grant.id = stale.id
+                RETURNING
               target_grant.id,
               target_grant.owner_user_id,
               target_grant.recipient_user_id,
               target_grant.expires_at
-            """,
-            {"user_id": user_id},
-        )
-        for row in expired:
-            grant_id = str(row.get("id") or "") or None
-            owner_user_id = str(row.get("owner_user_id") or "")
-            recipient_user_id = str(row.get("recipient_user_id") or "")
-            expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
-            if expires_at <= retention_cutoff:
-                continue
-            owner_label = _identity_notification_label(self._identity_row(owner_user_id))
-            recipient_label = _identity_notification_label(self._identity_row(recipient_user_id))
-            self._insert_event(
-                owner_user_id=owner_user_id,
-                actor_user_id=None,
-                recipient_user_id=recipient_user_id or None,
-                grant_id=grant_id,
-                event_type="location_share_expired",
-                metadata={"reason": "expires_at", "counterpart_label": recipient_label},
+                """,
+                {"user_id": user_id},
             )
-            if grant_id and recipient_user_id:
-                self._send_metadata_notification(
-                    user_id=recipient_user_id,
-                    notification_type="location_share_expired",
-                    title="Location access expired",
-                    body="A location share reached its expiry time.",
-                    notification_tag=f"one-location-expired:{grant_id}",
-                    request_url=_one_location_url(grantId=grant_id, section="shared"),
-                    data={
-                        "grant_id": grant_id,
-                        "owner_user_id": owner_user_id,
-                        "owner_display_label": owner_label,
-                    },
+            for row in expired:
+                grant_id = str(row.get("id") or "") or None
+                owner_user_id = str(row.get("owner_user_id") or "")
+                recipient_user_id = str(row.get("recipient_user_id") or "")
+                expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
+                if expires_at <= retention_cutoff:
+                    continue
+                owner_label = _identity_notification_label(self._identity_row(owner_user_id))
+                recipient_label = _identity_notification_label(
+                    self._identity_row(recipient_user_id)
                 )
+                self._insert_event(
+                    owner_user_id=owner_user_id,
+                    actor_user_id=None,
+                    recipient_user_id=recipient_user_id or None,
+                    grant_id=grant_id,
+                    event_type="location_share_expired",
+                    metadata={"reason": "expires_at", "counterpart_label": recipient_label},
+                    required=True,
+                )
+                if grant_id and recipient_user_id:
+                    notifications.append(
+                        {
+                            "user_id": recipient_user_id,
+                            "notification_type": "location_share_expired",
+                            "title": "Location access expired",
+                            "body": "A location share reached its expiry time.",
+                            "notification_tag": f"one-location-expired:{grant_id}",
+                            "request_url": _one_location_url(grantId=grant_id, section="shared"),
+                            "data": {
+                                "grant_id": grant_id,
+                                "owner_user_id": owner_user_id,
+                                "owner_display_label": owner_label,
+                            },
+                        }
+                    )
+        for notification in notifications:
+            self._send_metadata_notification(**notification)
 
     def _purge_terminal_work(
         self,
@@ -5313,6 +5376,7 @@ class OneLocationAgentService:
                     # happening. Same rule the notification below applies.
                     "reason": reason or "",
                 },
+                required=True,
             )
         # Request approval has its own richer notification immediately after
         # this call. Sending share-created as well produces two alerts for one
@@ -6034,6 +6098,7 @@ class OneLocationAgentService:
                 "source_platform": stored_envelope["sourcePlatform"],
                 "recipient_key_id": recipient_key_id,
             },
+            required=True,
         )
         grant_metadata = _loads_json(grant_row.get("metadata"))
         if not isinstance(grant_metadata, dict):
@@ -7169,13 +7234,6 @@ class OneLocationAgentService:
         message: str | None = None,
         submitter_fingerprint_hash: str | None = None,
     ) -> dict[str, Any]:
-        invite_row = self._public_invite_row_for_token(public_token=public_token)
-        invite = self._public_invite_payload(invite_row) or {}
-        invite_metadata = _loads_json(invite_row.get("metadata")) or {}
-        public_location = (
-            invite_metadata.get("publicLocation") if isinstance(invite_metadata, dict) else None
-        )
-        has_public_location = isinstance(public_location, dict)
         display_name = str(visitor_display_name or "").strip()
         if len(display_name) < 2:
             raise OneLocationAgentError(
@@ -7191,89 +7249,132 @@ class OneLocationAgentService:
                 status_code=422,
             )
         visitor_phone_hash = _hash_public_value(phone_digits)
-        self._check_public_submission_limits(
-            invite_id=str(invite_row.get("id") or ""),
-            visitor_phone_hash=visitor_phone_hash,
-            submitter_fingerprint_hash=submitter_fingerprint_hash,
-        )
         message_value = (message or "").strip()[:500] or None
-        owner_user_id = invite["ownerUserId"]
-        matched_identity = self._identity_row_by_phone_digits(phone_digits)
-        matched_user_id = str(matched_identity.get("user_id") or "") if matched_identity else None
-        status_value = "approved" if has_public_location else "pending_identity"
-        request: dict[str, Any] | None = None
-        if matched_user_id == owner_user_id:
-            matched_user_id = None
-        if matched_user_id and not has_public_location:
-            try:
-                request = self.request_access(
-                    requester_user_id=matched_user_id,
-                    owner_user_id=owner_user_id,
-                    message=message_value or f"Public request from {display_name}",
-                    notify_owner=False,
-                    require_requester_key_material=True,
+        with self._event_bound_writer():
+            invite_row = self._public_invite_row_for_token(public_token=public_token)
+            invite_id = str(invite_row.get("id") or "")
+            # The token-wide and phone-wide limits are predicates over rows,
+            # not a database constraint. Serialize the check with the insert
+            # so concurrent submissions cannot both pass it.
+            self._execute_one(
+                """
+                SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0)) AS locked
+                """,
+                {"lock_key": f"one-location-public-submit:{invite_id}"},
+            )
+            locked_invite_row = self._execute_one(
+                """
+                SELECT *
+                FROM one_location_public_invites
+                WHERE id = CAST(:invite_id AS UUID)
+                  AND status = 'active'
+                  AND expires_at > NOW()
+                LIMIT 1
+                FOR UPDATE
+                """,
+                {"invite_id": invite_id},
+            )
+            if not locked_invite_row:
+                raise OneLocationAgentError(
+                    "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                    "This live location link is no longer active.",
+                    status_code=410,
                 )
-                status_value = "matched_request_pending"
-            except OneLocationAgentError as exc:
-                if exc.code != "LOCATION_RECIPIENT_UNAVAILABLE":
-                    raise
-                status_value = "identity_pending_key"
-        row = self._execute_one(
-            """
-            INSERT INTO one_location_public_invite_submissions (
-              invite_id, owner_user_id, visitor_display_name, visitor_phone_hash,
-              visitor_phone_last4, matched_user_id, request_id, status, message,
-              submitted_at, metadata
+            invite_row = locked_invite_row
+            invite = self._public_invite_payload(invite_row) or {}
+            invite_metadata = _loads_json(invite_row.get("metadata")) or {}
+            public_location = (
+                invite_metadata.get("publicLocation") if isinstance(invite_metadata, dict) else None
             )
-            VALUES (
-              CAST(:invite_id AS UUID), :owner_user_id, :visitor_display_name,
-              :visitor_phone_hash, :visitor_phone_last4, :matched_user_id,
-              CAST(:request_id AS UUID), :status, :message, NOW(),
-              CAST(:metadata_json AS JSONB)
+            has_public_location = isinstance(public_location, dict)
+            self._check_public_submission_limits(
+                invite_id=invite_id,
+                visitor_phone_hash=visitor_phone_hash,
+                submitter_fingerprint_hash=submitter_fingerprint_hash,
             )
-            RETURNING *
-            """,
-            {
-                "invite_id": invite["id"],
-                "owner_user_id": owner_user_id,
-                "visitor_display_name": display_name[:120],
-                "visitor_phone_hash": visitor_phone_hash,
-                "visitor_phone_last4": phone_digits[-4:],
-                "matched_user_id": matched_user_id,
-                "request_id": request["id"] if request else None,
-                "status": status_value,
-                "message": message_value,
-                "metadata_json": _json_param(
-                    {
-                        "intake_only": not has_public_location,
-                        "public_location_view": has_public_location,
-                        "submitter_fingerprint_hash": submitter_fingerprint_hash,
-                    }
-                ),
-            },
-        )
-        submission = self._public_submission_payload(row)
-        if not submission:
-            raise OneLocationAgentError(
-                "LOCATION_PUBLIC_SUBMISSION_FAILED",
-                "Could not send the public location request.",
-                status_code=500,
+            owner_user_id = invite["ownerUserId"]
+            matched_identity = self._identity_row_by_phone_digits(phone_digits)
+            matched_user_id = (
+                str(matched_identity.get("user_id") or "") if matched_identity else None
             )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=matched_user_id,
-            recipient_user_id=matched_user_id,
-            request_id=request["id"] if request else None,
-            event_type="location_public_invite_submitted",
-            metadata={
-                "invite_id": invite["id"],
-                "submission_id": submission["id"],
-                "matched": bool(matched_user_id),
-                "request_created": bool(request),
-                "intake_only": not has_public_location,
-                "public_location_view": has_public_location,
-            },
-        )
+            status_value = "approved" if has_public_location else "pending_identity"
+            request: dict[str, Any] | None = None
+            if matched_user_id == owner_user_id:
+                matched_user_id = None
+            if matched_user_id and not has_public_location:
+                try:
+                    request = self.request_access(
+                        requester_user_id=matched_user_id,
+                        owner_user_id=owner_user_id,
+                        message=message_value or f"Public request from {display_name}",
+                        notify_owner=False,
+                        require_requester_key_material=True,
+                    )
+                    status_value = "matched_request_pending"
+                except OneLocationAgentError as exc:
+                    if exc.code != "LOCATION_RECIPIENT_UNAVAILABLE":
+                        raise
+                    status_value = "identity_pending_key"
+            row = self._execute_one(
+                """
+                INSERT INTO one_location_public_invite_submissions (
+                  invite_id, owner_user_id, visitor_display_name, visitor_phone_hash,
+                  visitor_phone_last4, matched_user_id, request_id, status, message,
+                  submitted_at, metadata
+                )
+                VALUES (
+                  CAST(:invite_id AS UUID), :owner_user_id, :visitor_display_name,
+                  :visitor_phone_hash, :visitor_phone_last4, :matched_user_id,
+                  CAST(:request_id AS UUID), :status, :message, NOW(),
+                  CAST(:metadata_json AS JSONB)
+                )
+                RETURNING *
+                """,
+                {
+                    "invite_id": invite["id"],
+                    "owner_user_id": owner_user_id,
+                    "visitor_display_name": display_name[:120],
+                    "visitor_phone_hash": visitor_phone_hash,
+                    "visitor_phone_last4": phone_digits[-4:],
+                    "matched_user_id": matched_user_id,
+                    "request_id": request["id"] if request else None,
+                    "status": status_value,
+                    "message": message_value,
+                    "metadata_json": _json_param(
+                        {
+                            "intake_only": not has_public_location,
+                            "public_location_view": has_public_location,
+                            "submitter_fingerprint_hash": submitter_fingerprint_hash,
+                        }
+                    ),
+                },
+            )
+            submission = self._public_submission_payload(row)
+            if not submission:
+                raise OneLocationAgentError(
+                    "LOCATION_PUBLIC_SUBMISSION_FAILED",
+                    "Could not send the public location request.",
+                    status_code=500,
+                )
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=matched_user_id,
+                recipient_user_id=matched_user_id,
+                request_id=request["id"] if request else None,
+                event_type="location_public_invite_submitted",
+                metadata={
+                    "invite_id": invite["id"],
+                    "submission_id": submission["id"],
+                    "request_id": request["id"] if request else None,
+                    "matched": bool(matched_user_id),
+                    "request_created": bool(request),
+                    "intake_only": not has_public_location,
+                    "public_location_view": has_public_location,
+                    "counterpart_label": display_name[:80],
+                    "visitor_label": display_name[:80],
+                },
+                required=True,
+            )
         self._send_metadata_notification(
             user_id=owner_user_id,
             notification_type="location_public_invite_submitted",
@@ -7454,95 +7555,106 @@ class OneLocationAgentService:
                 status_code=409,
             )
         owner_identity = self._identity_row(owner_user_id)
-        # Claim the invite atomically BEFORE writing the trusted edge so that a
-        # second claimant on an already-claimed invite is rejected without any
-        # spurious trusted_connections row being inserted.
-        row = self._execute_one(
-            """
-            UPDATE one_location_circle_invites
-            SET status = 'claimed',
-                claimed_by_user_id = :claimant_user_id,
-                claimed_at = NOW(),
-                updated_at = NOW()
-            WHERE id = CAST(:invite_id AS UUID)
-              AND owner_user_id = :owner_user_id
-              AND status = 'active'
-            RETURNING *
-            """,
-            {
+        with self._event_bound_writer():
+            # The invite, trusted edge, audit rows, and Feed projection are one
+            # transition. A failed event insert therefore leaves the invite
+            # active and retryable instead of half-claimed.
+            row = self._execute_one(
+                """
+                UPDATE one_location_circle_invites
+                SET status = 'claimed',
+                    claimed_by_user_id = :claimant_user_id,
+                    claimed_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = CAST(:invite_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'active'
+                RETURNING *
+                """,
+                {
+                    "invite_id": invite_id,
+                    "owner_user_id": owner_user_id,
+                    "claimant_user_id": claimant_user_id,
+                },
+            )
+            if not row:
+                raise OneLocationAgentError(
+                    "LOCATION_CIRCLE_INVITE_NOT_ACTIVE",
+                    "This Invite to One link is no longer active.",
+                    status_code=410,
+                )
+            invite = self._circle_invite_payload(row) or {}
+            connection_row = self._execute_one(
+                """
+                INSERT INTO trusted_connections (
+                  owner_user_id, trusted_user_id, status, source, resolved_via,
+                  created_at, updated_at, metadata
+                )
+                VALUES (
+                  :owner_user_id, :trusted_user_id, 'active', 'circle_invite', 'user_id',
+                  NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                )
+                ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
+                  status = 'active',
+                  updated_at = NOW(),
+                  revoked_at = NULL,
+                  source = 'circle_invite'
+                RETURNING id, owner_user_id, trusted_user_id, status,
+                          created_at, updated_at, revoked_at
+                """,
+                {
+                    "owner_user_id": claimant_user_id,
+                    "trusted_user_id": owner_user_id,
+                    "metadata_json": _json_param(
+                        {"source": "invite_to_one", "invite_id": invite_id}
+                    ),
+                },
+            )
+            if not connection_row:
+                raise OneLocationAgentError(
+                    "LOCATION_NETWORK_CONNECTION_FAILED",
+                    "Could not connect this One Network invite.",
+                    status_code=500,
+                )
+            connection: dict[str, Any] = {
+                "id": str(connection_row.get("id") or ""),
+                "userAId": owner_user_id,
+                "userBId": claimant_user_id,
+                "inviterUserId": owner_user_id,
+                "inviteeUserId": claimant_user_id,
+                "inviteId": invite_id,
+                "status": str(connection_row.get("status") or "active"),
+                "connectedAt": _iso(connection_row.get("created_at")),
+                "createdAt": _iso(connection_row.get("created_at")),
+                "updatedAt": _iso(connection_row.get("updated_at")),
+                "revokedAt": _iso(connection_row.get("revoked_at")),
+            }
+            claimant_label = _identity_notification_label(claimant_identity, fallback="Someone")
+            owner_label = _identity_notification_label(owner_identity)
+            event_metadata = {
                 "invite_id": invite_id,
-                "owner_user_id": owner_user_id,
-                "claimant_user_id": claimant_user_id,
-            },
-        )
-        if not row:
-            raise OneLocationAgentError(
-                "LOCATION_CIRCLE_INVITE_NOT_ACTIVE",
-                "This Invite to One link is no longer active.",
-                status_code=410,
+                "connection_id": connection["id"],
+                "counterpart_label": claimant_label,
+                "invitee_display_label": claimant_label,
+                "owner_label": owner_label,
+                "inviter_display_label": owner_label,
+            }
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=claimant_user_id,
+                recipient_user_id=claimant_user_id,
+                event_type="location_circle_invite_claimed",
+                metadata=event_metadata,
+                required=True,
             )
-        invite = self._circle_invite_payload(row) or {}
-        connection_row = self._execute_one(
-            """
-            INSERT INTO trusted_connections (
-              owner_user_id, trusted_user_id, status, source, resolved_via,
-              created_at, updated_at, metadata
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=claimant_user_id,
+                recipient_user_id=claimant_user_id,
+                event_type="location_one_network_joined",
+                metadata=event_metadata,
+                required=True,
             )
-            VALUES (
-              :owner_user_id, :trusted_user_id, 'active', 'circle_invite', 'user_id',
-              NOW(), NOW(), CAST(:metadata_json AS JSONB)
-            )
-            ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
-              status = 'active',
-              updated_at = NOW(),
-              revoked_at = NULL,
-              source = 'circle_invite'
-            RETURNING id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
-            """,
-            {
-                "owner_user_id": claimant_user_id,
-                "trusted_user_id": owner_user_id,
-                "metadata_json": _json_param({"source": "invite_to_one", "invite_id": invite_id}),
-            },
-        )
-        if not connection_row:
-            raise OneLocationAgentError(
-                "LOCATION_NETWORK_CONNECTION_FAILED",
-                "Could not connect this One Network invite.",
-                status_code=500,
-            )
-        # Build the response payload with correct inviter/invitee semantics:
-        # inviterUserId = invite owner (who created the invite),
-        # inviteeUserId = claimant (who accepted it).
-        connection: dict[str, Any] = {
-            "id": str(connection_row.get("id") or ""),
-            "userAId": owner_user_id,
-            "userBId": claimant_user_id,
-            "inviterUserId": owner_user_id,
-            "inviteeUserId": claimant_user_id,
-            "inviteId": invite_id,
-            "status": str(connection_row.get("status") or "active"),
-            "connectedAt": _iso(connection_row.get("created_at")),
-            "createdAt": _iso(connection_row.get("created_at")),
-            "updatedAt": _iso(connection_row.get("updated_at")),
-            "revokedAt": _iso(connection_row.get("revoked_at")),
-        }
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=claimant_user_id,
-            recipient_user_id=claimant_user_id,
-            event_type="location_circle_invite_claimed",
-            metadata={"invite_id": invite_id, "connection_id": connection["id"]},
-        )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=claimant_user_id,
-            recipient_user_id=claimant_user_id,
-            event_type="location_one_network_joined",
-            metadata={"invite_id": invite_id, "connection_id": connection["id"]},
-        )
-        claimant_label = _identity_notification_label(claimant_identity, fallback="Someone")
-        owner_label = _identity_notification_label(owner_identity)
         self._send_metadata_notification(
             user_id=owner_user_id,
             notification_type="location_one_network_joined",
@@ -7610,8 +7722,12 @@ class OneLocationAgentService:
         # `_safe_many` call gave it before, while running the 10 independent
         # reads concurrently instead of one cross-continent round trip at a
         # time -- this loop used to be most of why this endpoint was slow.
+        # GET state is read-only by default. Expiry settlement and its push
+        # fan-out belong to the bounded retention maintenance path, not an app
+        # foreground/resume read. Explicit false remains a temporary rollback
+        # valve for environments that have not installed the scheduler yet.
         read_only_state = str(
-            os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or ""
+            os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true"
         ).strip().lower() in {"1", "true", "yes", "on"}
         if not read_only_state:
             try:
@@ -8073,7 +8189,7 @@ class OneLocationAgentService:
         )
         return [payload for row in rows if (payload := self._request_payload(row))]
 
-    def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
+    def _revoke_grant_transition(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
         row = self._execute_one(
             """
             UPDATE one_location_share_grants
@@ -8097,7 +8213,7 @@ class OneLocationAgentService:
                 {"owner_user_id": owner_user_id, "grant_id": grant_id},
             )
             if existing_row:
-                return self._grant_payload(existing_row) or {}
+                return {"changed": False, "row": existing_row}
             raise OneLocationAgentError(
                 "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
             )
@@ -8124,7 +8240,34 @@ class OneLocationAgentService:
                 "counterpart_label": recipient_label,
                 "share_kind": revoked_share_kind or "standard",
             },
+            required=True,
         )
+        return {
+            "changed": True,
+            "row": row,
+            "actor_is_owner": actor_is_owner,
+            "recipient_user_id": recipient_user_id,
+            "owner_label": owner_label,
+            "recipient_label": recipient_label,
+            "revoked_share_kind": revoked_share_kind,
+            "revoked_via_sms": revoked_via_sms,
+        }
+
+    def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
+        with self._event_bound_writer():
+            transition = self._revoke_grant_transition(
+                owner_user_id=owner_user_id,
+                grant_id=grant_id,
+            )
+        row = transition["row"]
+        if not transition["changed"]:
+            return self._grant_payload(row) or {}
+        actor_is_owner = bool(transition["actor_is_owner"])
+        recipient_user_id = str(transition["recipient_user_id"] or "") or None
+        owner_label = str(transition["owner_label"] or "")
+        recipient_label = str(transition["recipient_label"] or "")
+        revoked_share_kind = str(row.get("share_kind") or transition["revoked_share_kind"] or "")
+        revoked_via_sms = bool(transition["revoked_via_sms"])
         notification_user_id = str(
             (recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")) or ""
         )
@@ -8169,7 +8312,12 @@ class OneLocationAgentService:
         return self._grant_payload(row) or {}
 
     def shorten_grant(
-        self, *, caller_user_id: str, grant_id: str, duration_hours: float
+        self,
+        *,
+        caller_user_id: str,
+        grant_id: str,
+        duration_hours: float,
+        client_operation_id: str | None = None,
     ) -> dict[str, Any]:
         """Bring a grant's expiry earlier. Either side may do this; neither may extend.
 
@@ -8183,23 +8331,6 @@ class OneLocationAgentService:
         through request_access instead, and the owner approves it like any
         other request.
         """
-        row = self._execute_one(
-            """
-            SELECT id, owner_user_id, recipient_user_id, expires_at, status
-            FROM one_location_share_grants
-            WHERE id = CAST(:grant_id AS UUID)
-              AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
-            LIMIT 1
-            """,
-            {"grant_id": grant_id, "owner_user_id": caller_user_id},
-        )
-        if not row:
-            raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
-            )
-        if str(row.get("status") or "") != "active":
-            return self._grant_payload(row) or {}
-
         try:
             duration = normalize_duration_hours(duration_hours)
         except ValueError as exc:
@@ -8208,67 +8339,107 @@ class OneLocationAgentService:
                 str(exc),
                 status_code=422,
             ) from exc
-        candidate_expires_at = datetime.now(timezone.utc) + timedelta(hours=duration)
-        current_expires_at = row.get("expires_at")
-        if current_expires_at is not None:
-            if current_expires_at.tzinfo is None:
-                current_expires_at = current_expires_at.replace(tzinfo=timezone.utc)
-            if candidate_expires_at >= current_expires_at:
-                raise OneLocationAgentError(
-                    "LOCATION_GRANT_SHORTEN_ONLY",
-                    "This can only make a share end sooner, not later.",
-                    status_code=422,
-                )
-
-        updated = self._execute_one(
-            """
-            UPDATE one_location_share_grants
-            SET duration_mode = 'timed',
-                duration_hours = :duration_hours,
-                expires_at = :new_expires_at,
-                updated_at = NOW()
-            WHERE id = CAST(:grant_id AS UUID)
-              AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
-              AND status = 'active'
-            RETURNING *
-            """,
-            {
-                "grant_id": grant_id,
-                "owner_user_id": caller_user_id,
-                "duration_hours": duration,
-                "new_expires_at": candidate_expires_at,
-            },
-        )
-        if not updated:
-            # Revoked between the read above and this write -- report the
-            # grant as it now stands rather than raising on a race.
-            existing_row = self._execute_one(
+        operation_id = str(client_operation_id or "").strip()[:160] or None
+        with self._event_bound_writer():
+            row = self._execute_one(
                 """
-                SELECT * FROM one_location_share_grants
+                SELECT *
+                FROM one_location_share_grants
                 WHERE id = CAST(:grant_id AS UUID)
+                  AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
+                LIMIT 1
+                FOR UPDATE
+                """,
+                {"grant_id": grant_id, "owner_user_id": caller_user_id},
+            )
+            if not row:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_NOT_FOUND",
+                    "Location share was not found.",
+                    status_code=404,
+                )
+            if str(row.get("status") or "") != "active":
+                return self._grant_payload(row) or {}
+            if operation_id and self._execute_one(
+                """
+                SELECT id
+                FROM one_location_events
+                WHERE grant_id = CAST(:grant_id AS UUID)
+                  AND actor_user_id = :actor_user_id
+                  AND event_type = 'location_share_shortened'
+                  AND metadata->>'client_operation_id' = :client_operation_id
                 LIMIT 1
                 """,
-                {"grant_id": grant_id},
-            )
-            return self._grant_payload(existing_row) or {}
+                {
+                    "grant_id": grant_id,
+                    "actor_user_id": caller_user_id,
+                    "client_operation_id": operation_id,
+                },
+            ):
+                return self._grant_payload(row) or {}
 
-        actor_is_owner = str(row.get("owner_user_id") or "") == caller_user_id
-        recipient_user_id = str(row.get("recipient_user_id") or "") or None
-        owner_identity = self._identity_row(str(row.get("owner_user_id") or caller_user_id))
-        owner_label = _identity_notification_label(owner_identity)
-        recipient_identity = self._identity_row(recipient_user_id or "")
-        recipient_label = _identity_notification_label(recipient_identity)
-        self._insert_event(
-            owner_user_id=str(row.get("owner_user_id") or caller_user_id),
-            actor_user_id=caller_user_id,
-            recipient_user_id=recipient_user_id,
-            grant_id=grant_id,
-            event_type="location_share_shortened",
-            metadata={
-                "reason": "owner_shorten" if actor_is_owner else "recipient_shorten",
-                "counterpart_label": recipient_label,
-            },
-        )
+            candidate_expires_at = _utcnow() + timedelta(hours=duration)
+            current_expires_at = row.get("expires_at")
+            if current_expires_at is not None:
+                if current_expires_at.tzinfo is None:
+                    current_expires_at = current_expires_at.replace(tzinfo=timezone.utc)
+                if candidate_expires_at >= current_expires_at:
+                    raise OneLocationAgentError(
+                        "LOCATION_GRANT_SHORTEN_ONLY",
+                        "This can only make a share end sooner, not later.",
+                        status_code=422,
+                    )
+
+            updated = self._execute_one(
+                """
+                UPDATE one_location_share_grants
+                SET duration_mode = 'timed',
+                    duration_hours = :duration_hours,
+                    expires_at = :new_expires_at,
+                    updated_at = NOW()
+                WHERE id = CAST(:grant_id AS UUID)
+                  AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
+                  AND status = 'active'
+                RETURNING *
+                """,
+                {
+                    "grant_id": grant_id,
+                    "owner_user_id": caller_user_id,
+                    "duration_hours": duration,
+                    "new_expires_at": candidate_expires_at,
+                },
+            )
+            if not updated:
+                existing_row = self._execute_one(
+                    """
+                    SELECT * FROM one_location_share_grants
+                    WHERE id = CAST(:grant_id AS UUID)
+                    LIMIT 1
+                    """,
+                    {"grant_id": grant_id},
+                )
+                return self._grant_payload(existing_row) or {}
+
+            actor_is_owner = str(row.get("owner_user_id") or "") == caller_user_id
+            recipient_user_id = str(row.get("recipient_user_id") or "") or None
+            owner_identity = self._identity_row(str(row.get("owner_user_id") or caller_user_id))
+            owner_label = _identity_notification_label(owner_identity)
+            recipient_identity = self._identity_row(recipient_user_id or "")
+            recipient_label = _identity_notification_label(recipient_identity)
+            self._insert_event(
+                owner_user_id=str(row.get("owner_user_id") or caller_user_id),
+                actor_user_id=caller_user_id,
+                recipient_user_id=recipient_user_id,
+                grant_id=grant_id,
+                event_type="location_share_shortened",
+                metadata={
+                    "reason": "owner_shorten" if actor_is_owner else "recipient_shorten",
+                    "counterpart_label": recipient_label,
+                    "owner_label": owner_label,
+                    "client_operation_id": operation_id,
+                },
+                required=True,
+            )
         notification_user_id = str(
             (recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")) or ""
         )
@@ -8343,6 +8514,7 @@ class OneLocationAgentService:
         grant_id: str,
         duration_hours: float | None,
         duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
+        client_operation_id: str | None = None,
     ) -> dict[str, Any]:
         """Set a new end time on a share that is already running. Owner only.
 
@@ -8363,101 +8535,117 @@ class OneLocationAgentService:
         blanks the recipient's map and sends them a share-ended alert for a
         share that never ended.
         """
-        row = self._execute_one(
-            """
-            SELECT id, owner_user_id, recipient_user_id, expires_at, status, metadata
-            FROM one_location_share_grants
-            WHERE id = CAST(:grant_id AS UUID)
-              AND owner_user_id = :owner_user_id
-            LIMIT 1
-            """,
-            {"grant_id": grant_id, "owner_user_id": owner_user_id},
-        )
-        if not row:
-            raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
-            )
-        if str(row.get("status") or "") != "active":
-            return self._grant_payload(row) or {}
-
-        metadata = row.get("metadata")
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except (TypeError, ValueError):
-                metadata = {}
-        share_kind = str((metadata or {}).get("share_kind") or "") or "trusted"
-        # Reuses the create path's rules verbatim: the same 15-minute floor and
-        # 24-hour ceiling, and the same refusal to put an SOS or a check-in
-        # share on "until I stop". A share must not become, by editing, a shape
-        # it could never have been created in.
-        duration, expires_at, resolved_mode = _resolve_share_duration(
-            duration_hours=duration_hours,
-            duration_mode=duration_mode,
-            share_kind=share_kind,
-            now=_utcnow(),
-        )
-        # Read before the write, not after. Which way the owner moved the end
-        # time is a comparison against the expiry that is about to be replaced,
-        # and holding the row is not the same as holding its value.
-        previous_expires_at = row.get("expires_at")
-
-        updated = self._execute_one(
-            """
-            UPDATE one_location_share_grants
-            SET duration_mode = :duration_mode,
-                duration_hours = :duration_hours,
-                expires_at = :new_expires_at,
-                updated_at = NOW()
-            WHERE id = CAST(:grant_id AS UUID)
-              AND owner_user_id = :owner_user_id
-              AND status = 'active'
-            RETURNING *
-            """,
-            {
-                "grant_id": grant_id,
-                "owner_user_id": owner_user_id,
-                "duration_mode": resolved_mode,
-                "duration_hours": duration,
-                "new_expires_at": expires_at,
-            },
-        )
-        if not updated:
-            # Stopped between the read above and this write -- report the grant
-            # as it now stands rather than raising on a race.
-            existing_row = self._execute_one(
+        operation_id = str(client_operation_id or "").strip()[:160] or None
+        with self._event_bound_writer():
+            row = self._execute_one(
                 """
-                SELECT * FROM one_location_share_grants
+                SELECT id, owner_user_id, recipient_user_id, expires_at, status,
+                       duration_mode, duration_hours, metadata
+                FROM one_location_share_grants
                 WHERE id = CAST(:grant_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                LIMIT 1
+                FOR UPDATE
+                """,
+                {"grant_id": grant_id, "owner_user_id": owner_user_id},
+            )
+            if not row:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_NOT_FOUND",
+                    "Location share was not found.",
+                    status_code=404,
+                )
+            if str(row.get("status") or "") != "active":
+                return self._grant_payload(row) or {}
+            if operation_id and self._execute_one(
+                """
+                SELECT id
+                FROM one_location_events
+                WHERE grant_id = CAST(:grant_id AS UUID)
+                  AND actor_user_id = :actor_user_id
+                  AND event_type = 'location_share_duration_changed'
+                  AND metadata->>'client_operation_id' = :client_operation_id
                 LIMIT 1
                 """,
-                {"grant_id": grant_id},
-            )
-            return self._grant_payload(existing_row) or {}
+                {
+                    "grant_id": grant_id,
+                    "actor_user_id": owner_user_id,
+                    "client_operation_id": operation_id,
+                },
+            ):
+                return self._grant_payload(row) or {}
 
-        direction = _share_duration_change_direction(
-            previous_expires_at=previous_expires_at,
-            new_expires_at=expires_at,
-            new_mode=resolved_mode,
-        )
-        recipient_user_id = str(row.get("recipient_user_id") or "") or None
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
-        recipient_identity = self._identity_row(recipient_user_id or "")
-        recipient_label = _identity_notification_label(recipient_identity)
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            grant_id=grant_id,
-            event_type="location_share_duration_changed",
-            metadata={
-                "direction": direction,
-                "duration_hours": _duration_metadata_value(duration),
-                "duration_mode": resolved_mode,
-                "counterpart_label": recipient_label,
-            },
-        )
+            metadata = row.get("metadata")
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except (TypeError, ValueError):
+                    metadata = {}
+            share_kind = str((metadata or {}).get("share_kind") or "") or "trusted"
+            duration, expires_at, resolved_mode = _resolve_share_duration(
+                duration_hours=duration_hours,
+                duration_mode=duration_mode,
+                share_kind=share_kind,
+                now=_utcnow(),
+            )
+            previous_expires_at = row.get("expires_at")
+            updated = self._execute_one(
+                """
+                UPDATE one_location_share_grants
+                SET duration_mode = :duration_mode,
+                    duration_hours = :duration_hours,
+                    expires_at = :new_expires_at,
+                    updated_at = NOW()
+                WHERE id = CAST(:grant_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'active'
+                RETURNING *
+                """,
+                {
+                    "grant_id": grant_id,
+                    "owner_user_id": owner_user_id,
+                    "duration_mode": resolved_mode,
+                    "duration_hours": duration,
+                    "new_expires_at": expires_at,
+                },
+            )
+            if not updated:
+                existing_row = self._execute_one(
+                    """
+                    SELECT * FROM one_location_share_grants
+                    WHERE id = CAST(:grant_id AS UUID)
+                    LIMIT 1
+                    """,
+                    {"grant_id": grant_id},
+                )
+                return self._grant_payload(existing_row) or {}
+
+            direction = _share_duration_change_direction(
+                previous_expires_at=previous_expires_at,
+                new_expires_at=expires_at,
+                new_mode=resolved_mode,
+            )
+            recipient_user_id = str(row.get("recipient_user_id") or "") or None
+            owner_identity = self._identity_row(owner_user_id)
+            owner_label = _identity_notification_label(owner_identity)
+            recipient_identity = self._identity_row(recipient_user_id or "")
+            recipient_label = _identity_notification_label(recipient_identity)
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                grant_id=grant_id,
+                event_type="location_share_duration_changed",
+                metadata={
+                    "direction": direction,
+                    "duration_hours": _duration_metadata_value(duration),
+                    "duration_mode": resolved_mode,
+                    "counterpart_label": recipient_label,
+                    "owner_label": owner_label,
+                    "client_operation_id": operation_id,
+                },
+                required=True,
+            )
         self._send_metadata_notification(
             user_id=recipient_user_id or "",
             notification_type="location_share_duration_changed",
@@ -8493,6 +8681,7 @@ class OneLocationAgentService:
         requested_duration_hours: float | None = None,
         requested_duration_mode: str | None = None,
         extends_grant_id: str | None = None,
+        _notification_outbox: list[_MetadataNotification] | None = None,
     ) -> dict[str, Any]:
         """Ask an owner for location access -- optionally for a named duration.
 
@@ -8554,149 +8743,172 @@ class OneLocationAgentService:
         remaining_label = _remaining_label(active_grant.get("expires_at")) if active_grant else ""
         is_extension = bool(extends_grant_value)
 
-        row = self._execute_one(
-            """
-            SELECT *
-            FROM one_location_access_requests
-            WHERE owner_user_id = :owner_user_id
-              AND requester_user_id = :requester_user_id
-              AND status = 'pending'
-              AND referred_by_user_id IS NOT DISTINCT FROM :referred_by_user_id
-            ORDER BY requested_at DESC
-            LIMIT 1
-            """,
-            {
-                "owner_user_id": owner_user_id,
-                "requester_user_id": requester_user_id,
-                "referred_by_user_id": referred_by_user_id,
-            },
-        )
-        if not row:
+        transitioned = False
+        requester_label = ""
+        owner_label_for_feed = ""
+        ask_summary = ""
+        with self._event_bound_writer():
+            # Serialize this logical request even when no pending row exists
+            # yet. A row lock cannot protect an absent row, so without this
+            # transaction-scoped lock two simultaneous taps can both insert a
+            # request and each fan out a separate Feed item.
+            self._execute_one(
+                """
+                SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0)) AS locked
+                """,
+                {
+                    "lock_key": (
+                        f"one-location-access-request:{owner_user_id}:"
+                        f"{requester_user_id}:{referred_by_user_id or '-'}"
+                    )
+                },
+            )
             row = self._execute_one(
                 """
-                INSERT INTO one_location_access_requests (
-                  owner_user_id, requester_user_id, referred_by_user_id, status,
-                  message, requested_at, metadata,
-                  requested_duration_hours, requested_duration_mode, extends_grant_id,
-                  request_revision
-                )
-                VALUES (
-                  :owner_user_id, :requester_user_id, :referred_by_user_id, 'pending',
-                  :message, NOW(), '{}'::jsonb,
-                  :requested_duration_hours, :requested_duration_mode,
-                  CAST(:extends_grant_id AS UUID), 1
-                )
-                RETURNING *
+                SELECT *
+                FROM one_location_access_requests
+                WHERE owner_user_id = :owner_user_id
+                  AND requester_user_id = :requester_user_id
+                  AND status = 'pending'
+                  AND referred_by_user_id IS NOT DISTINCT FROM :referred_by_user_id
+                ORDER BY requested_at DESC
+                LIMIT 1
+                FOR UPDATE
                 """,
                 {
                     "owner_user_id": owner_user_id,
                     "requester_user_id": requester_user_id,
                     "referred_by_user_id": referred_by_user_id,
-                    "message": message_value,
-                    "requested_duration_hours": duration_hours_value,
-                    "requested_duration_mode": duration_mode_value,
-                    "extends_grant_id": extends_grant_value,
                 },
             )
-        else:
-            # A pending ask already exists. Asking again for a DIFFERENT amount
-            # is a new question, not a duplicate: the row is updated in place
-            # (one pending ask per pair stays the invariant) and its revision is
-            # bumped so the owner's client treats the re-ask as a fresh event
-            # instead of de-duplicating it against the number it already showed.
-            existing_hours = (
-                float(row["requested_duration_hours"])
-                if row.get("requested_duration_hours") is not None
-                else None
-            )
-            existing_mode = str(row.get("requested_duration_mode") or "") or None
-            existing_grant = str(row.get("extends_grant_id") or "") or None
-            existing_message = str(row.get("message") or "") or None
-            ask_changed = (
-                existing_hours != duration_hours_value
-                or existing_mode != duration_mode_value
-                or existing_grant != extends_grant_value
-            )
-            message_changed = bool(message_value) and existing_message != message_value
-            if ask_changed or message_changed:
-                refreshed = self._execute_one(
+            if not row:
+                row = self._execute_one(
                     """
-                    UPDATE one_location_access_requests
-                    SET message = COALESCE(:message, message),
-                        requested_duration_hours = :requested_duration_hours,
-                        requested_duration_mode = :requested_duration_mode,
-                        extends_grant_id = CAST(:extends_grant_id AS UUID),
-                        request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
-                        requested_at = CASE WHEN :ask_changed THEN NOW() ELSE requested_at END
-                    WHERE id = CAST(:request_id AS UUID)
-                      AND status = 'pending'
+                    INSERT INTO one_location_access_requests (
+                      owner_user_id, requester_user_id, referred_by_user_id, status,
+                      message, requested_at, metadata,
+                      requested_duration_hours, requested_duration_mode, extends_grant_id,
+                      request_revision
+                    )
+                    VALUES (
+                      :owner_user_id, :requester_user_id, :referred_by_user_id, 'pending',
+                      :message, NOW(), '{}'::jsonb,
+                      :requested_duration_hours, :requested_duration_mode,
+                      CAST(:extends_grant_id AS UUID), 1
+                    )
                     RETURNING *
                     """,
                     {
-                        "request_id": str(row.get("id") or ""),
+                        "owner_user_id": owner_user_id,
+                        "requester_user_id": requester_user_id,
+                        "referred_by_user_id": referred_by_user_id,
                         "message": message_value,
                         "requested_duration_hours": duration_hours_value,
                         "requested_duration_mode": duration_mode_value,
                         "extends_grant_id": extends_grant_value,
-                        "ask_changed": ask_changed,
                     },
                 )
-                row = refreshed or row
-        request = self._request_payload(row)
-        if not request:
-            raise OneLocationAgentError(
-                "LOCATION_REQUEST_CREATE_FAILED",
-                "Could not create the access request.",
-                status_code=500,
-            )
-        # The joined column is absent on INSERT/UPDATE RETURNING, so fill the
-        # live share's expiry from the grant we already read. Surfaces render
-        # "3 more hours on top of the 45 minutes left" straight off the created
-        # request, without waiting for the next state refresh.
-        if is_extension and active_grant is not None:
-            request["extendsGrantExpiresAt"] = _iso(active_grant.get("expires_at"))
-        requester_identity = self._identity_row(requester_user_id)
-        requester_label = _identity_notification_label(requester_identity, fallback="Someone")
-        owner_label_for_feed = _identity_notification_label(self._identity_row(owner_user_id))
-        ask_summary = _access_ask_summary(
-            requested_duration_hours=request["requestedDurationHours"],
-            requested_duration_mode=request["requestedDurationMode"],
-            is_extension=is_extension,
-            remaining_label=remaining_label,
-        )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=requester_user_id,
-            recipient_user_id=requester_user_id,
-            request_id=request["id"],
-            event_type="location_access_request",
-            metadata={
-                "referred": bool(referred_by_user_id),
-                "counterpart_label": requester_label,
-                # The feed fan-out writes this row to BOTH parties and swaps
-                # counterpart_label for the requester's copy, so neither side
-                # reads its own name back as the other person.
-                "owner_label": owner_label_for_feed,
-                # The feed reads these to say "Asked for 3 hours more" instead
-                # of a subjectless "Requested your location".
-                "requested_duration_hours": request["requestedDurationHours"],
-                "requested_duration_mode": request["requestedDurationMode"],
-                "is_extension": is_extension,
-                "extends_grant_id": extends_grant_value,
-                "request_revision": request["requestRevision"],
-            },
-        )
-        if notify_owner:
-            self._send_metadata_notification(
-                user_id=owner_user_id,
-                notification_type="location_access_request",
-                title=(
+                transitioned = row is not None
+            else:
+                # A pending ask already exists. Asking again for a DIFFERENT
+                # amount is a new visible transition; an exact retry or a
+                # message-only edit is not. This keeps the single pending row,
+                # Feed item, and system notification aligned.
+                existing_hours = (
+                    float(row["requested_duration_hours"])
+                    if row.get("requested_duration_hours") is not None
+                    else None
+                )
+                existing_mode = str(row.get("requested_duration_mode") or "") or None
+                existing_grant = str(row.get("extends_grant_id") or "") or None
+                existing_message = str(row.get("message") or "") or None
+                ask_changed = (
+                    existing_hours != duration_hours_value
+                    or existing_mode != duration_mode_value
+                    or existing_grant != extends_grant_value
+                )
+                message_changed = bool(message_value) and existing_message != message_value
+                if ask_changed or message_changed:
+                    refreshed = self._execute_one(
+                        """
+                        UPDATE one_location_access_requests
+                        SET message = COALESCE(:message, message),
+                            requested_duration_hours = :requested_duration_hours,
+                            requested_duration_mode = :requested_duration_mode,
+                            extends_grant_id = CAST(:extends_grant_id AS UUID),
+                            request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
+                            requested_at = CASE WHEN :ask_changed THEN NOW() ELSE requested_at END
+                        WHERE id = CAST(:request_id AS UUID)
+                          AND status = 'pending'
+                        RETURNING *
+                        """,
+                        {
+                            "request_id": str(row.get("id") or ""),
+                            "message": message_value,
+                            "requested_duration_hours": duration_hours_value,
+                            "requested_duration_mode": duration_mode_value,
+                            "extends_grant_id": extends_grant_value,
+                            "ask_changed": ask_changed,
+                        },
+                    )
+                    if refreshed:
+                        row = refreshed
+                        transitioned = ask_changed
+            request = self._request_payload(row)
+            if not request:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_CREATE_FAILED",
+                    "Could not create the access request.",
+                    status_code=500,
+                )
+            # The joined column is absent on INSERT/UPDATE RETURNING, so fill
+            # the live share's expiry from the grant we already read.
+            if is_extension and active_grant is not None:
+                request["extendsGrantExpiresAt"] = _iso(active_grant.get("expires_at"))
+            if transitioned:
+                requester_identity = self._identity_row(requester_user_id)
+                requester_label = _identity_notification_label(
+                    requester_identity, fallback="Someone"
+                )
+                owner_label_for_feed = _identity_notification_label(
+                    self._identity_row(owner_user_id)
+                )
+                ask_summary = _access_ask_summary(
+                    requested_duration_hours=request["requestedDurationHours"],
+                    requested_duration_mode=request["requestedDurationMode"],
+                    is_extension=is_extension,
+                    remaining_label=remaining_label,
+                )
+                self._insert_event(
+                    owner_user_id=owner_user_id,
+                    actor_user_id=requester_user_id,
+                    recipient_user_id=requester_user_id,
+                    request_id=request["id"],
+                    event_type="location_access_request",
+                    metadata={
+                        "referred": bool(referred_by_user_id),
+                        "counterpart_label": requester_label,
+                        "owner_label": owner_label_for_feed,
+                        "requested_duration_hours": request["requestedDurationHours"],
+                        "requested_duration_mode": request["requestedDurationMode"],
+                        "is_extension": is_extension,
+                        "extends_grant_id": extends_grant_value,
+                        "request_revision": request["requestRevision"],
+                    },
+                    required=True,
+                )
+
+        if transitioned and notify_owner:
+            notification: _MetadataNotification = {
+                "user_id": owner_user_id,
+                "notification_type": "location_access_request",
+                "title": (
                     "More location time requested" if is_extension else "Location access request"
                 ),
-                body=f"{requester_label} {ask_summary}",
-                notification_tag=f"one-location-request:{request['id']}",
-                request_url=_one_location_url(requestId=request["id"], section="approvals"),
-                data={
+                "body": f"{requester_label} {ask_summary}",
+                "notification_tag": f"one-location-request:{request['id']}",
+                "request_url": _one_location_url(requestId=request["id"], section="approvals"),
+                "data": {
                     "request_id": request["id"],
                     "requester_user_id": requester_user_id,
                     "requester_display_label": requester_label,
@@ -8706,12 +8918,13 @@ class OneLocationAgentService:
                     "is_extension": "true" if is_extension else None,
                     "extends_grant_id": extends_grant_value,
                     "extends_grant_expires_at": request.get("extendsGrantExpiresAt"),
-                    # Distinguishes a re-ask from the ask the client already
-                    # showed, so a raised number is never swallowed by the
-                    # client's per-request notification de-dup.
                     "notification_revision": str(request["requestRevision"]),
                 },
-            )
+            }
+            if _notification_outbox is not None:
+                _notification_outbox.append(notification)
+            else:
+                self._send_metadata_notification(**notification)
         return request
 
     def approve_request(
@@ -9031,49 +9244,50 @@ class OneLocationAgentService:
         }
 
     def deny_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
-        row = self._execute_one(
-            """
-            UPDATE one_location_access_requests
-            SET status = 'denied', resolved_at = NOW()
-            WHERE id = CAST(:request_id AS UUID)
-              AND owner_user_id = :owner_user_id
-              AND status = 'pending'
-            RETURNING *
-            """,
-            {"owner_user_id": owner_user_id, "request_id": request_id},
-        )
-        if not row:
-            raise OneLocationAgentError(
-                "LOCATION_REQUEST_NOT_FOUND",
-                "Pending location access request was not found.",
-                status_code=404,
+        with self._event_bound_writer():
+            row = self._execute_one(
+                """
+                UPDATE one_location_access_requests
+                SET status = 'denied', resolved_at = NOW()
+                WHERE id = CAST(:request_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'pending'
+                RETURNING *
+                """,
+                {"owner_user_id": owner_user_id, "request_id": request_id},
             )
-        requester_user_id = str(row.get("requester_user_id") or "") or None
-        requester_label = _identity_notification_label(self._identity_row(requester_user_id or ""))
-        # Which ask was refused. Someone who asked for an hour, then for four,
-        # and is refused, is otherwise told only "denied" -- with no way to know
-        # whether they still hold the time they already had.
-        denied_hours, denied_mode = _normalized_requested_duration(
-            duration_hours=row.get("requested_duration_hours"),
-            duration_mode=row.get("requested_duration_mode"),
-        )
-        was_extension = bool(str(row.get("extends_grant_id") or "").strip())
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=owner_user_id,
-            recipient_user_id=requester_user_id,
-            request_id=request_id,
-            event_type="location_access_denied",
-            metadata={
-                "counterpart_label": requester_label,
-                "owner_label": owner_label,
-                "requested_duration_hours": denied_hours,
-                "requested_duration_mode": denied_mode,
-                "is_extension": was_extension,
-            },
-        )
+            if not row:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_NOT_FOUND",
+                    "Pending location access request was not found.",
+                    status_code=404,
+                )
+            requester_user_id = str(row.get("requester_user_id") or "") or None
+            requester_label = _identity_notification_label(
+                self._identity_row(requester_user_id or "")
+            )
+            denied_hours, denied_mode = _normalized_requested_duration(
+                duration_hours=row.get("requested_duration_hours"),
+                duration_mode=row.get("requested_duration_mode"),
+            )
+            was_extension = bool(str(row.get("extends_grant_id") or "").strip())
+            owner_identity = self._identity_row(owner_user_id)
+            owner_label = _identity_notification_label(owner_identity)
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=owner_user_id,
+                recipient_user_id=requester_user_id,
+                request_id=request_id,
+                event_type="location_access_denied",
+                metadata={
+                    "counterpart_label": requester_label,
+                    "owner_label": owner_label,
+                    "requested_duration_hours": denied_hours,
+                    "requested_duration_mode": denied_mode,
+                    "is_extension": was_extension,
+                },
+                required=True,
+            )
         self._send_metadata_notification(
             user_id=str(row.get("requester_user_id") or ""),
             notification_type="location_access_denied",
@@ -9113,35 +9327,41 @@ class OneLocationAgentService:
         already denied or already withdrawn has nothing left to end, so a
         second call is a 404 rather than a silent success.
         """
-        row = self._execute_one(
-            """
-            UPDATE one_location_access_requests
-            SET status = 'cancelled', resolved_at = NOW()
-            WHERE id = CAST(:request_id AS UUID)
-              AND requester_user_id = :requester_user_id
-              AND status = 'pending'
-            RETURNING *
-            """,
-            {"requester_user_id": requester_user_id, "request_id": request_id},
-        )
-        if not row:
-            raise OneLocationAgentError(
-                "LOCATION_REQUEST_NOT_FOUND",
-                "Pending location access request was not found.",
-                status_code=404,
+        with self._event_bound_writer():
+            row = self._execute_one(
+                """
+                UPDATE one_location_access_requests
+                SET status = 'cancelled', resolved_at = NOW()
+                WHERE id = CAST(:request_id AS UUID)
+                  AND requester_user_id = :requester_user_id
+                  AND status = 'pending'
+                RETURNING *
+                """,
+                {"requester_user_id": requester_user_id, "request_id": request_id},
             )
-        owner_user_id = str(row.get("owner_user_id") or "")
-        requester_label = _identity_notification_label(
-            self._identity_row(requester_user_id), fallback="Someone"
-        )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=requester_user_id,
-            recipient_user_id=requester_user_id,
-            request_id=request_id,
-            event_type="location_access_request_withdrawn",
-            metadata={"counterpart_label": requester_label},
-        )
+            if not row:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_NOT_FOUND",
+                    "Pending location access request was not found.",
+                    status_code=404,
+                )
+            owner_user_id = str(row.get("owner_user_id") or "")
+            owner_label = _identity_notification_label(self._identity_row(owner_user_id))
+            requester_label = _identity_notification_label(
+                self._identity_row(requester_user_id), fallback="Someone"
+            )
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=requester_user_id,
+                recipient_user_id=requester_user_id,
+                request_id=request_id,
+                event_type="location_access_request_withdrawn",
+                metadata={
+                    "counterpart_label": requester_label,
+                    "owner_label": owner_label,
+                },
+                required=True,
+            )
         # Same notification tag as the original ask, so on the owner's device
         # this REPLACES "X is asking to view your location" instead of stacking
         # a second card under it. Leaving the first one in the tray is how
@@ -9169,88 +9389,166 @@ class OneLocationAgentService:
         referred_user_id: str,
         message: str | None = None,
     ) -> dict[str, Any]:
-        grant = self._execute_one(
-            """
-            SELECT *
-            FROM one_location_share_grants
-            WHERE id = CAST(:grant_id AS UUID)
-              AND recipient_user_id = :referring_user_id
-              AND status = 'active'
-              AND (expires_at IS NULL OR expires_at > NOW())
-            LIMIT 1
-            """,
-            {"grant_id": grant_id, "referring_user_id": referring_user_id},
-        )
-        if not grant:
-            raise OneLocationAgentError(
-                "LOCATION_REFERRAL_NOT_ALLOWED",
-                "Only an active approved recipient can refer another verified user.",
-                status_code=403,
-            )
-        owner_user_id = str(grant.get("owner_user_id") or "")
-        request = self.request_access(
-            requester_user_id=referred_user_id,
-            owner_user_id=owner_user_id,
-            message=message,
-            referred_by_user_id=referring_user_id,
-        )
-        referral = self._execute_one(
-            """
-            INSERT INTO one_location_referrals (
-              grant_id, owner_user_id, referring_user_id, referred_user_id,
-              request_id, status, created_at, metadata
-            )
-            VALUES (
-              CAST(:grant_id AS UUID), :owner_user_id, :referring_user_id,
-              :referred_user_id, CAST(:request_id AS UUID),
-              'pending_owner_approval', NOW(), '{}'::jsonb
-            )
-            RETURNING *
-            """,
-            {
-                "grant_id": grant_id,
-                "owner_user_id": owner_user_id,
-                "referring_user_id": referring_user_id,
-                "referred_user_id": referred_user_id,
-                "request_id": request["id"],
-            },
-        )
-        referral_payload = self._referral_payload(referral)
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=referring_user_id,
-            recipient_user_id=referred_user_id,
-            grant_id=grant_id,
-            request_id=request["id"],
-            referral_id=referral_payload["id"] if referral_payload else None,
-            event_type="location_referral_invite",
-            metadata={"creates_access": False},
-        )
-        owner_label = _identity_notification_label(self._identity_row(owner_user_id))
-        referring_identity = self._identity_row(referring_user_id)
-        referring_label = _identity_notification_label(referring_identity)
-        if referral_payload:
-            self._send_metadata_notification(
-                user_id=referred_user_id,
-                notification_type="location_referral_invite",
-                title="Location referral pending",
-                body=f"{referring_label} referred you into a location request.",
-                notification_tag=f"one-location-referral:{referral_payload['id']}",
-                request_url=_one_location_url(
-                    requestId=request["id"],
-                    referralId=referral_payload["id"],
-                    section="my_requests",
-                ),
-                data={
-                    "request_id": request["id"],
-                    "referral_id": referral_payload["id"],
-                    "grant_id": grant_id,
-                    "owner_user_id": owner_user_id,
-                    "owner_display_label": owner_label,
-                    "referring_user_id": referring_user_id,
-                    "referring_display_label": referring_label,
+        notifications: list[_MetadataNotification] = []
+        referral_created = False
+        with self._event_bound_writer():
+            self._execute_one(
+                """
+                SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0)) AS locked
+                """,
+                {
+                    "lock_key": (
+                        f"one-location-referral:{grant_id}:{referring_user_id}:{referred_user_id}"
+                    )
                 },
             )
+            grant = self._execute_one(
+                """
+                SELECT *
+                FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                  AND recipient_user_id = :referring_user_id
+                  AND status = 'active'
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                LIMIT 1
+                """,
+                {"grant_id": grant_id, "referring_user_id": referring_user_id},
+            )
+            if not grant:
+                raise OneLocationAgentError(
+                    "LOCATION_REFERRAL_NOT_ALLOWED",
+                    "Only an active approved recipient can refer another verified user.",
+                    status_code=403,
+                )
+            owner_user_id = str(grant.get("owner_user_id") or "")
+            request = self.request_access(
+                requester_user_id=referred_user_id,
+                owner_user_id=owner_user_id,
+                message=message,
+                referred_by_user_id=referring_user_id,
+                _notification_outbox=notifications,
+            )
+            # Keep the global request -> grant lock order used by approval.
+            # If the grant ended after the first eligibility read, this second
+            # read fails inside the same transaction and rolls the request back.
+            grant = self._execute_one(
+                """
+                SELECT *
+                FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                  AND recipient_user_id = :referring_user_id
+                  AND status = 'active'
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                LIMIT 1
+                FOR UPDATE
+                """,
+                {"grant_id": grant_id, "referring_user_id": referring_user_id},
+            )
+            if not grant:
+                raise OneLocationAgentError(
+                    "LOCATION_REFERRAL_NOT_ALLOWED",
+                    "Only an active approved recipient can refer another verified user.",
+                    status_code=403,
+                )
+            referral = self._execute_one(
+                """
+                SELECT *
+                FROM one_location_referrals
+                WHERE grant_id = CAST(:grant_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND referring_user_id = :referring_user_id
+                  AND referred_user_id = :referred_user_id
+                  AND request_id = CAST(:request_id AS UUID)
+                  AND status = 'pending_owner_approval'
+                ORDER BY created_at DESC
+                LIMIT 1
+                FOR UPDATE
+                """,
+                {
+                    "grant_id": grant_id,
+                    "owner_user_id": owner_user_id,
+                    "referring_user_id": referring_user_id,
+                    "referred_user_id": referred_user_id,
+                    "request_id": request["id"],
+                },
+            )
+            if not referral:
+                referral = self._execute_one(
+                    """
+                    INSERT INTO one_location_referrals (
+                      grant_id, owner_user_id, referring_user_id, referred_user_id,
+                      request_id, status, created_at, metadata
+                    )
+                    VALUES (
+                      CAST(:grant_id AS UUID), :owner_user_id, :referring_user_id,
+                      :referred_user_id, CAST(:request_id AS UUID),
+                      'pending_owner_approval', NOW(), '{}'::jsonb
+                    )
+                    RETURNING *
+                    """,
+                    {
+                        "grant_id": grant_id,
+                        "owner_user_id": owner_user_id,
+                        "referring_user_id": referring_user_id,
+                        "referred_user_id": referred_user_id,
+                        "request_id": request["id"],
+                    },
+                )
+                referral_created = referral is not None
+            referral_payload = self._referral_payload(referral)
+            if not referral_payload:
+                raise OneLocationAgentError(
+                    "LOCATION_REFERRAL_CREATE_FAILED",
+                    "Could not create the location referral.",
+                    status_code=500,
+                )
+            owner_label = _identity_notification_label(self._identity_row(owner_user_id))
+            referring_identity = self._identity_row(referring_user_id)
+            referring_label = _identity_notification_label(referring_identity)
+            if referral_created:
+                self._insert_event(
+                    owner_user_id=owner_user_id,
+                    actor_user_id=referring_user_id,
+                    recipient_user_id=referred_user_id,
+                    grant_id=grant_id,
+                    request_id=request["id"],
+                    referral_id=referral_payload["id"],
+                    event_type="location_referral_invite",
+                    metadata={
+                        "creates_access": False,
+                        "request_id": request["id"],
+                        "referral_id": referral_payload["id"],
+                        "grant_id": grant_id,
+                        "owner_label": owner_label,
+                        "referring_label": referring_label,
+                    },
+                    required=True,
+                )
+                notifications.append(
+                    {
+                        "user_id": referred_user_id,
+                        "notification_type": "location_referral_invite",
+                        "title": "Location referral pending",
+                        "body": f"{referring_label} referred you into a location request.",
+                        "notification_tag": f"one-location-referral:{referral_payload['id']}",
+                        "request_url": _one_location_url(
+                            requestId=request["id"],
+                            referralId=referral_payload["id"],
+                            section="my_requests",
+                        ),
+                        "data": {
+                            "request_id": request["id"],
+                            "referral_id": referral_payload["id"],
+                            "grant_id": grant_id,
+                            "owner_user_id": owner_user_id,
+                            "owner_display_label": owner_label,
+                            "referring_user_id": referring_user_id,
+                            "referring_display_label": referring_label,
+                        },
+                    }
+                )
+        for notification in notifications:
+            self._send_metadata_notification(**notification)
         return {"referral": referral_payload, "request": request}
 
 

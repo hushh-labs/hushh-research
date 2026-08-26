@@ -49,8 +49,14 @@ class _FakeRequest:
         return self._disconnected
 
 
+class _NoopFeedService:
+    def record_event(self, **_kwargs: Any) -> None:
+        return None
+
+
 def test_run_manager_start_conflict_and_cancel() -> None:
     run_manager_module = _load_run_manager_module()
+    run_manager_module.FeedService = _NoopFeedService
     KaiAnalyzeRunManager = run_manager_module.KaiAnalyzeRunManager
 
     async def _scenario() -> None:
@@ -118,6 +124,7 @@ def test_run_manager_start_conflict_and_cancel() -> None:
 
 def test_run_manager_stream_resume_replays_and_continues() -> None:
     run_manager_module = _load_run_manager_module()
+    run_manager_module.FeedService = _NoopFeedService
     KaiAnalyzeRunManager = run_manager_module.KaiAnalyzeRunManager
 
     async def _scenario() -> None:
@@ -175,3 +182,49 @@ def test_run_manager_stream_resume_replays_and_continues() -> None:
         assert any(frame.get("event") == "decision" for frame in replay_from_cursor)
 
     asyncio.run(_scenario())
+
+
+def test_kai_completion_feed_projection_is_source_idempotent_and_terminal_is_immutable() -> None:
+    run_manager_module = _load_run_manager_module()
+    feed_calls: list[dict[str, Any]] = []
+
+    class _FeedRecorder:
+        def record_event(self, **kwargs: Any) -> None:
+            feed_calls.append(kwargs)
+
+    run_manager_module.FeedService = _FeedRecorder
+    manager = run_manager_module.KaiAnalyzeRunManager(retention_seconds=300, store=False)
+    run = run_manager_module.AnalyzeRunRecord(
+        run_id="run_stable",
+        user_id="user_feed",
+        debate_session_id="session_feed",
+        ticker="AAPL",
+        risk_profile="balanced",
+        context={},
+        consent_token=f"consent_{uuid.uuid4().hex}",
+    )
+
+    async def _scenario() -> None:
+        decision = {"ticker": "AAPL", "decision": "hold", "confidence": 0.7}
+        await manager._append_frame(run, _frame(1, "decision", decision, terminal=True))
+        await manager._append_frame(run, _frame(2, "decision", decision, terminal=True))
+        await manager._append_frame(
+            run,
+            _frame(3, "error", {"code": "LATE_ERROR"}, terminal=True),
+        )
+
+    asyncio.run(_scenario())
+
+    assert run.status == "completed"
+    assert run.terminal_event == "decision"
+    assert run.terminal_payload is not None
+    assert run.terminal_payload["decision"] == "hold"
+    assert len(feed_calls) == 1
+    assert feed_calls[0] == {
+        "user_id": "user_feed",
+        "source_domain": "kai",
+        "event_type": "kai_analysis_completed",
+        "actor_label": "Kai",
+        "metadata": {"ticker": "AAPL"},
+        "source_row_id": "run_stable",
+    }

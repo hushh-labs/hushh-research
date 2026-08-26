@@ -24,6 +24,25 @@ def _db_returning(rows):
     return lambda: db
 
 
+def test_feed_identity_label_uses_canonical_name_then_email_handle() -> None:
+    svc = _svc()
+    opaque_uid = "RPNmQAmVdlNz84GVfXxta50wnYx1"
+    svc._execute_one = lambda _sql, _params=None: {
+        "user_id": opaque_uid,
+        "display_name": opaque_uid,
+        "email": "alice@example.com",
+    }
+
+    assert svc._display_name_for(opaque_uid) == "alice"
+
+    svc._execute_one = lambda _sql, _params=None: {
+        "user_id": opaque_uid,
+        "display_name": opaque_uid,
+        "email": f"{opaque_uid}@example.com",
+    }
+    assert svc._display_name_for(opaque_uid) is None
+
+
 def test_create_request_inserts_pending_with_explicit_id():
     svc = _svc()
     responses = iter(
@@ -867,6 +886,7 @@ def test_accept_creates_connection_and_two_trusted_edges():
             [{"id": "req-1"}],
         ]
     )
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.accept_request("user-b", "req-1")
     assert out["status"] == "accepted"
@@ -883,6 +903,12 @@ def test_accept_creates_connection_and_two_trusted_edges():
     # explicit OneLocationAccessRequest.
     assert not any("one_location_share_grants" in c[0] for c in db.calls)
     assert not any("one_location_map_preferences" in c[0] for c in db.calls)
+    feed_inserts = [(sql, params) for sql, params in db.calls if "INSERT INTO feed_events" in sql]
+    assert len(feed_inserts) == 2
+    assert {params["owner_user_id"] for _, params in feed_inserts} == {"user-a", "user-b"}
+    assert {params["source_row_id"] for _, params in feed_inserts} == {"req-1"}
+    assert {params["counterpart_label"] for _, params in feed_inserts} == {"Alice", "Bob"}
+    assert all("counterpart_user_id" not in params for _, params in feed_inserts)
 
 
 def test_accept_request_never_imports_or_calls_location_service():
@@ -1088,6 +1114,188 @@ def test_reject_rejected_when_not_addressee():
         with pytest.raises(ConnectionsError) as exc:
             svc.reject_request("user-c", "req-1")
     assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("terminal_status", ["accepted", "cancelled"])
+def test_reject_refuses_non_pending_terminal_requests(terminal_status: str) -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": terminal_status,
+    }
+    svc._execute_one = lambda *_args, **_kwargs: pytest.fail(
+        "a terminal request must not be mutated or projected"
+    )
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc.reject_request("user-b", "req-1")
+
+    assert exc.value.code == "CONNECTION_NOT_PENDING"
+    assert exc.value.status_code == 409
+
+
+def test_reject_retry_is_idempotent_without_duplicate_projection() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "rejected",
+    }
+    svc._execute_one = lambda *_args, **_kwargs: pytest.fail(
+        "an already-rejected request must not be mutated or projected"
+    )
+
+    assert svc.reject_request("user-b", "req-1") == {
+        "status": "rejected",
+        "requestId": "req-1",
+    }
+
+
+def test_reject_projects_only_after_the_guarded_update_succeeds() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    svc._execute_one = lambda _sql, _params=None: None
+    svc._resolve_pending_scope_proposals = lambda *_args, **_kwargs: pytest.fail(
+        "a lost pending transition must not resolve proposals"
+    )
+    svc._record_connection_feed_transition = lambda **_kwargs: pytest.fail(
+        "a lost pending transition must not create Feed history"
+    )
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc.reject_request("user-b", "req-1")
+
+    assert exc.value.code == "CONNECTION_NOT_PENDING"
+    assert exc.value.status_code == 409
+
+
+def test_reject_feed_projection_is_idempotent_and_omits_user_ids() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    calls: list[tuple[str, dict]] = []
+
+    def execute_one(sql, params=None):
+        calls.append((sql, params or {}))
+        return {"id": "req-1"}
+
+    svc._execute_one = execute_one
+    svc._resolve_pending_scope_proposals = lambda *_args, **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+    assert svc.reject_request("user-b", "req-1") == {
+        "status": "rejected",
+        "requestId": "req-1",
+    }
+
+    feed_inserts = [(sql, params) for sql, params in calls if "INSERT INTO feed_events" in sql]
+    assert len(feed_inserts) == 2
+    assert {params["source_row_id"] for _, params in feed_inserts} == {"req-1"}
+    assert all("counterpart_user_id" not in params for _, params in feed_inserts)
+
+
+def test_reject_feed_failure_rolls_back_the_relationship_transition() -> None:
+    """A durable relationship state may not commit without its Feed history."""
+
+    svc = _svc()
+    request_row = {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    events: list[tuple[str, object]] = []
+    db = _TransactionalDB(
+        [
+            [request_row],
+            [{"id": "req-1"}],
+        ],
+        events,
+    )
+    original_execute = db.connection.execute
+
+    def fail_feed_insert(statement, params=None):
+        sql = str(statement)
+        if "INSERT INTO feed_events" in sql:
+            db.connection.calls.append((sql, params or {}))
+            events.append(("execute", sql))
+            raise RuntimeError("simulated Feed write failure")
+        return original_execute(statement, params)
+
+    db.connection.execute = fail_feed_insert
+    svc._resolve_pending_scope_proposals = lambda *_args, **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        pytest.raises(RuntimeError, match="Feed write failure"),
+    ):
+        svc.reject_request("user-b", "req-1")
+
+    assert events[-1] == ("rollback", None)
+    update_index = next(
+        index
+        for index, (_kind, sql) in enumerate(events)
+        if isinstance(sql, str) and "UPDATE connection_requests" in sql
+    )
+    feed_index = next(
+        index
+        for index, (_kind, sql) in enumerate(events)
+        if isinstance(sql, str) and "INSERT INTO feed_events" in sql
+    )
+    assert update_index < feed_index
+
+
+def test_remove_connection_feed_projection_uses_connection_id() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    rows = iter(
+        [
+            {
+                "id": "conn-1",
+                "user_a_id": "user-a",
+                "user_b_id": "user-b",
+                "status": "active",
+            },
+            {"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"},
+        ]
+    )
+    calls: list[tuple[str, dict]] = []
+
+    def execute_one(sql, params=None):
+        calls.append((sql, params or {}))
+        if "INSERT INTO feed_events" in sql:
+            return None
+        return next(rows)
+
+    svc._execute_one = execute_one
+    svc._execute_many = lambda _sql, _params=None: []
+    svc._revoke_pair_capabilities = lambda **_kwargs: None
+    svc._end_one_location_circle_memberships = lambda **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+    assert svc.remove_connection("user-a", "conn-1") == {"removed": 1}
+
+    feed_inserts = [(sql, params) for sql, params in calls if "INSERT INTO feed_events" in sql]
+    assert len(feed_inserts) == 2
+    assert {params["source_row_id"] for _, params in feed_inserts} == {
+        "conn-1:2026-08-26T12:00:00+00:00"
+    }
+    assert all("counterpart_user_id" not in params for _, params in feed_inserts)
 
 
 def test_search_directory_reuses_ready_people_and_annotates_relationship():

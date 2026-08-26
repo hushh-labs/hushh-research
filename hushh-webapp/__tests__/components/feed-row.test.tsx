@@ -41,7 +41,9 @@ describe("FeedRow", () => {
   it("shows the absolute day/time label next to the description", () => {
     render(<FeedRow item={feedItem()} onOpen={() => {}} />);
 
-    expect(screen.getByText(/^Today - \d{2}:\d{2}\s?[AP]M$/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Today - \d{2}:\d{2}\s?[AP]M$/i),
+    ).toBeInTheDocument();
     expect(screen.getByText("A routine location share.")).toBeInTheDocument();
   });
 
@@ -55,13 +57,13 @@ describe("FeedRow", () => {
   it("shows the unread dot when the item is unread", () => {
     render(<FeedRow item={feedItem({ read: false })} onOpen={() => {}} />);
 
-    expect(screen.getByLabelText("Unread")).toBeInTheDocument();
+    expect(screen.getByText("Unread:")).toHaveClass("sr-only");
   });
 
   it("does not show the unread dot when the item is read", () => {
     render(<FeedRow item={feedItem({ read: true })} onOpen={() => {}} />);
 
-    expect(screen.queryByLabelText("Unread")).toBeNull();
+    expect(screen.queryByText("Unread:")).toBeNull();
   });
 
   it("shows a chevron and opens the item when a href is present", () => {
@@ -73,7 +75,10 @@ describe("FeedRow", () => {
       />,
     );
 
-    screen.getByText("Someone shared their location").closest("button")?.click();
+    screen
+      .getByText("Someone shared their location")
+      .closest("button")
+      ?.click();
     expect(onOpen).toHaveBeenCalledOnce();
   });
 });
