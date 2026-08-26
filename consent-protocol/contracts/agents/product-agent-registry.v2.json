@@ -956,7 +956,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Trusted-people live location workflow under One, consent, recipient encryption, revocation, and audit.",
+      "description": "Fallback under One for Location capabilities with no generated action -- public links, viewing an incoming share, device permission, and referral.",
       "evaluations": [],
       "failure_states": [],
       "icon": null,
@@ -970,8 +970,6 @@
       "native_requirements": [],
       "optional_scopes": [
         "cap.location.live.view",
-        "cap.location.live.request",
-        "cap.location.live.revoke",
         "cap.location.live.refer_request"
       ],
       "outputs": [],
@@ -1019,51 +1017,9 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "61fe62b269c02c1c33dd555e2195cd228a91784f95f27618391ba9feac91f478",
+      "system_instruction_sha256": "6dcd8bb23614c9099f8074779fc2b90f38c0300ae332eb1ad1985b7ab4f8f5fb",
       "telemetry_namespace": "agent.unclassified",
       "tools": [
-        {
-          "description": "List verified recipients eligible for recipient-encrypted location sharing.",
-          "name": "list_location_recipients",
-          "py_func": "hushh_mcp.agents.location.tools.list_location_recipients",
-          "required_scope": "cap.location.live.share"
-        },
-        {
-          "description": "Create a recipient-bound live-location grant with bounded duration.",
-          "name": "create_location_share",
-          "py_func": "hushh_mcp.agents.location.tools.create_location_share",
-          "required_scope": "cap.location.live.share"
-        },
-        {
-          "description": "List the owner's active coordinate-free location grant metadata.",
-          "name": "list_active_location_shares",
-          "py_func": "hushh_mcp.agents.location.tools.list_active_location_shares",
-          "required_scope": "cap.location.live.share"
-        },
-        {
-          "description": "Revoke an active live-location grant owned by the current user.",
-          "name": "revoke_location_share",
-          "py_func": "hushh_mcp.agents.location.tools.revoke_location_share",
-          "required_scope": "cap.location.live.revoke"
-        },
-        {
-          "description": "Ask an owner for live-location access without granting access.",
-          "name": "request_location_access",
-          "py_func": "hushh_mcp.agents.location.tools.request_location_access",
-          "required_scope": "cap.location.live.request"
-        },
-        {
-          "description": "Approve a pending request and create a new recipient-scoped grant.",
-          "name": "approve_location_request",
-          "py_func": "hushh_mcp.agents.location.tools.approve_location_request",
-          "required_scope": "cap.location.live.share"
-        },
-        {
-          "description": "Deny a pending request without creating access.",
-          "name": "deny_location_request",
-          "py_func": "hushh_mcp.agents.location.tools.deny_location_request",
-          "required_scope": "cap.location.live.request"
-        },
         {
           "description": "Refer a verified user into an owner approval request, never direct access.",
           "name": "refer_location_recipient",
@@ -1101,46 +1057,10 @@
           "required_scope": "cap.location.live.share"
         },
         {
-          "description": "Propose a Save My Soul alert to the user's selected, ready SMS contacts; the browser creates grants, encrypts, and publishes.",
-          "name": "propose_sos_panic",
-          "py_func": "hushh_mcp.agents.location.tools.propose_sos_panic",
-          "required_scope": "cap.location.live.share"
-        },
-        {
-          "description": "Propose a bounded check-in share to the user's ready trusted contacts (browser encrypts/publishes).",
-          "name": "propose_check_in",
-          "py_func": "hushh_mcp.agents.location.tools.propose_check_in",
-          "required_scope": "cap.location.live.share"
-        },
-        {
           "description": "Ask the client to request device location permission.",
           "name": "request_device_location_permission",
           "py_func": "hushh_mcp.agents.location.tools.request_device_location_permission",
           "required_scope": "cap.location.live.share"
-        },
-        {
-          "description": "Ask the user to choose an exact matching recipient.",
-          "name": "request_recipient_choice",
-          "py_func": "hushh_mcp.agents.location.tools.request_recipient_choice",
-          "required_scope": "cap.location.live.share"
-        },
-        {
-          "description": "Ask the user to choose an active share before revocation.",
-          "name": "request_active_share_choice",
-          "py_func": "hushh_mcp.agents.location.tools.request_active_share_choice",
-          "required_scope": "cap.location.live.revoke"
-        },
-        {
-          "description": "Ask the user to choose a bounded share duration.",
-          "name": "request_duration_choice",
-          "py_func": "hushh_mcp.agents.location.tools.request_duration_choice",
-          "required_scope": "cap.location.live.share"
-        },
-        {
-          "description": "Ask the owner to choose a pending location request.",
-          "name": "request_request_choice",
-          "py_func": "hushh_mcp.agents.location.tools.request_request_choice",
-          "required_scope": "cap.location.live.request"
         },
         {
           "description": "Ask the recipient to choose an incoming location share.",
@@ -1149,7 +1069,7 @@
           "required_scope": "cap.location.live.view"
         },
         {
-          "description": "Require explicit confirmation for a sensitive or bulk action.",
+          "description": "Require explicit confirmation for an irreversible action.",
           "name": "request_confirmation",
           "py_func": "hushh_mcp.agents.location.tools.request_confirmation",
           "required_scope": "cap.location.live.share"
@@ -1855,7 +1775,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "de7568182f00cbda27a88a59ca334065a80fca1af981e2fd884af6c0d62e27b4",
+      "system_instruction_sha256": "a2b0351622f9b900559ee22a426593e4c659b0b2852ba8c5e8409809901494c2",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",
