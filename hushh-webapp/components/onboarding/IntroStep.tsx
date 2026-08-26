@@ -18,6 +18,10 @@ import styles from "./IntroStep.module.css";
  * text that happens to be clickable.
  * ──────────────────────────────────────────────────────────── */
 
+// One's four motions, shown as a quiet typographic rhythm — never as chips,
+// never labeled "framework". Matches docs/vision/agent-ontology.md.
+const MOTIONS = ["Listens", "Remembers", "Decides", "Acts"];
+
 export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   // Pointer-following highlight inside the glass pill. Written straight to
   // the DOM (not React state) since it must track every pointermove without
@@ -133,6 +137,10 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
 
         {/* ── Typography-led hero. No cards, no fake metrics. ── */}
         <div className={styles.hero}>
+          <span className={styles.eyebrow}>
+            Your private agent
+          </span>
+
           <span
             aria-hidden="true"
             className={styles.emoji}
@@ -156,6 +164,20 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           <p className={styles.tagline}>
             Your agents. Yours to own.
           </p>
+
+          {/* Quiet rhythm line: the four motions, typographic not chip-like. */}
+          <div className={styles.motions}>
+            {MOTIONS.map((motion, i) => (
+              <span key={motion} className={styles.motionItem}>
+                {i > 0 && (
+                  <span aria-hidden className={styles.motionDot}>
+                    &middot;
+                  </span>
+                )}
+                <span>{motion}</span>
+              </span>
+            ))}
+          </div>
         </div>
 
         {/* ── CTA: Morphy Button, ink surface, gradient ripple. Sits in the

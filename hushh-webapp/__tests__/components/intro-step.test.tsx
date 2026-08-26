@@ -55,12 +55,16 @@ describe("IntroStep voice contract", () => {
     });
   });
 
-  it("uses the standardized root quiet mark directly ahead of One", () => {
+  it("uses the standardized root quiet mark between the private-agent line and One", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
+    const privateAgent = screen.getByText("Your private agent");
     const quietMark = screen.getByText("🤫");
     const one = screen.getByRole("heading", { name: "One" });
 
+    expect(privateAgent.compareDocumentPosition(quietMark)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(quietMark.compareDocumentPosition(one)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
