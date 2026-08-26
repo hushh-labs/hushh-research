@@ -789,9 +789,7 @@ async def _execute_backend_direct_mutation(
                         owner_user_id=user_id, grant_id=str(grant.get("id") or "")
                     )
                 except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                    logger.exception(
-                        "one_adk_backend_direct_partial_failure action=%s", action_id
-                    )
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                     failed_names.append(grant_name)
                     continue
                 stopped_names.append(grant_name)
@@ -1144,9 +1142,7 @@ async def _execute_backend_direct_mutation(
                         user_id=user_id, connection_id=str(connection.get("connectionId") or "")
                     )
                 except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                    logger.exception(
-                        "one_adk_backend_direct_partial_failure action=%s", action_id
-                    )
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                     failed_names.append(connection_name)
                     continue
                 removed_names.append(connection_name)
@@ -1324,7 +1320,9 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     return await _read_tool_result(
-        "your connections", "connections", lambda: ConnectionsService().list_connections(user_id=user_id)
+        "your connections",
+        "connections",
+        lambda: ConnectionsService().list_connections(user_id=user_id),
     )
 
 
@@ -1358,7 +1356,9 @@ async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[
     return await _read_tool_result(
         "your outgoing location requests",
         "requests",
-        lambda: OneLocationAgentService().list_pending_requester_requests(requester_user_id=user_id),
+        lambda: OneLocationAgentService().list_pending_requester_requests(
+            requester_user_id=user_id
+        ),
     )
 
 

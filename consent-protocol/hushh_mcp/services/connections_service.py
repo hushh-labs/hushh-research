@@ -53,6 +53,7 @@ def _iso(value: Any) -> str | None:
         return str(value.astimezone(timezone.utc).isoformat())
     return str(value)
 
+
 # The SQL predicate for "this RIA profile is real enough to carry a capability".
 #
 # One string, interpolated into every statement that asks the question, because

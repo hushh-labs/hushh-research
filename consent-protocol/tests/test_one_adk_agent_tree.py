@@ -2557,7 +2557,9 @@ class TestBackendDirectActionResultSubject:
             ),
             patch.object(OneLocationCircleService, "leave_circle", autospec=True),
         ):
-            await run_app_action("location.leave_circle", {"circle": "family"}, _tool_context(state))
+            await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
         assert self._parked_subject(state, "location.leave_circle") is None
 
     @pytest.mark.asyncio
@@ -2643,9 +2645,7 @@ class TestBackendDirectActionResultSubject:
             ),
             patch.object(ConnectionsService, "create_request", autospec=True),
         ):
-            await run_app_action(
-                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
-            )
+            await run_app_action("connect.send_request", {"person": "Sarah"}, _tool_context(state))
         assert self._parked_subject(state, "connect.send_request") == {"name": "Sarah Chen"}
 
     @pytest.mark.asyncio
@@ -3101,7 +3101,9 @@ class TestBackendDirectLocationReadTools:
                 OneLocationAgentService,
                 "list_active_owner_grants",
                 autospec=True,
-                side_effect=OneLocationAgentError("LOCATION_STATE_UNAVAILABLE", "Try again shortly."),
+                side_effect=OneLocationAgentError(
+                    "LOCATION_STATE_UNAVAILABLE", "Try again shortly."
+                ),
             ),
         ):
             result = await list_my_location_shares(_tool_context(state))
