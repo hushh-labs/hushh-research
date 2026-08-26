@@ -24,6 +24,9 @@
   position: absolute;
   inset: 0;
   color: var(--app-accent-deep);
+  /* Toned down a further half-step on top of each mote's own opacity — the
+     drifting specks are quiet texture, not something to visually track. */
+  opacity: 0.55;
 }
 
 .mote {
@@ -39,7 +42,7 @@
 .grain {
   position: absolute;
   inset: 0;
-  opacity: 0.05;
+  opacity: 0.02;
   background-image: radial-gradient(
     color-mix(in oklab, var(--foreground) 72%, transparent) 0.5px,
     transparent 0.7px

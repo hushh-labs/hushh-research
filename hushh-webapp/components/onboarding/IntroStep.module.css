@@ -9,13 +9,6 @@
     BlinkMacSystemFont, var(--font-app-display);
   --landing-text: "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont,
     var(--font-app-body);
-  /* A readable-but-secondary ink for the motions row: legible against the
-     canvas without competing with the tagline's full --foundation-ink. */
-  --landing-secondary-ink: color-mix(
-    in oklab,
-    var(--foundation-ink) 55%,
-    var(--foundation-dim) 45%
-  );
   font-family: var(--landing-text);
   /* A wash above the shared decorative canvas (unchanged) so its grain and
      drifting motes read as a quiet texture rather than visual noise
@@ -41,6 +34,29 @@
   width: 100%;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* A near-invisible blue/cyan light field behind the upper half of the page —
+   not a background of its own, just something for the glass pill's blur to
+   actually refract. Two soft radial pools, faded out well before halfway
+   down so it never reads as a colored section. */
+.shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      55% 38% at 42% 0%,
+      color-mix(in oklab, var(--app-accent) 10%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      45% 32% at 68% 4%,
+      color-mix(in oklab, #22d3ee 8%, transparent),
+      transparent 70%
+    );
 }
 
 .stage {
@@ -71,11 +87,13 @@
       pill sized to its own content (not the full column width) so the
       wordmark and the links read as one intentionally-grouped mark rather
       than two things pinned to opposite edges of an otherwise empty bar.
-      The glass recipe layers three things real frosted glass has and a flat
-      tinted rectangle doesn't: a translucent tint (not a solid fill), a
-      brighter hairline along the top where light would catch a physical
-      edge, and a soft cast shadow for depth — on top of the blur itself. ── */
+      The glass recipe layers what real frosted glass has and a flat tinted
+      rectangle doesn't: a translucent tint (not a solid fill) faint enough
+      that the canvas shows through, a brighter hairline and inset highlight
+      along the top where light would catch a physical edge, and a soft cast
+      shadow for depth underneath the blur itself. ── */
 .brand {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -85,18 +103,55 @@
   margin: 0 auto;
   padding: clamp(1px, 0.3vh, 3px) clamp(9px, 2.4vw, 14px);
   border-radius: 999px;
-  background: color-mix(in oklab, var(--app-glass-surface) 44%, transparent);
+  --pointer-x: 50%;
+  --pointer-y: 0%;
+  background:
+    radial-gradient(
+      140% 100% at 30% -20%,
+      color-mix(in oklab, var(--app-accent) 5%, transparent),
+      transparent 60%
+    ),
+    color-mix(in oklab, var(--app-glass-surface) 36%, transparent);
   border: 0.5px solid
-    color-mix(in oklab, var(--app-glass-border) 40%, transparent);
+    color-mix(in oklab, var(--app-glass-border) 38%, transparent);
   box-shadow:
-    0 1px 0 color-mix(in oklab, white 30%, transparent) inset,
-    0 1px 1px color-mix(in oklab, white 20%, transparent) inset,
-    0 8px 24px -16px color-mix(in oklab, var(--foundation-ink) 24%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(130%);
-  backdrop-filter: blur(16px) saturate(130%);
+    0 1px 0 color-mix(in oklab, white 32%, transparent) inset,
+    0 1px 1px color-mix(in oklab, white 18%, transparent) inset,
+    0 10px 28px -18px color-mix(in oklab, var(--foundation-ink) 26%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
   transform: translate3d(0, 0, 0);
   will-change: transform;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+}
+
+/* Pointer-following highlight — position tracked from IntroStep.tsx via the
+   --pointer-x/--pointer-y custom properties (mouse only; untouched, centered
+   defaults on touch where no pointermove ever fires). Visibility is a pure
+   CSS :hover, so there is nothing to wire up beyond the position itself. */
+.brand::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    160px circle at var(--pointer-x) var(--pointer-y),
+    color-mix(in oklab, white 45%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 260ms ease-out;
+  pointer-events: none;
+}
+
+.brand:hover::after {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand::after {
+    transition: none;
+  }
 }
 
 .wordmark {
@@ -113,6 +168,7 @@
 }
 
 .link {
+  position: relative;
   display: inline-flex;
   /* Tap target stays 44px tall regardless of how compact the label reads. */
   min-height: 44px;
@@ -128,8 +184,31 @@
     var(--motion-ease-standard, ease-out);
 }
 
-.link:hover {
+/* Tiny hover "lens": a soft circular tint behind the label, not a filled
+   chip — it should read as light catching the glass, not a button state. */
+.link::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in oklab, var(--app-accent) 14%, transparent),
+    transparent 72%
+  );
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+
+.link:hover,
+.link:focus-visible {
   color: var(--foundation-ink);
+}
+
+.link:hover::before,
+.link:focus-visible::before {
+  opacity: 1;
 }
 
 .hero {
@@ -143,27 +222,18 @@
   align-items: center;
 }
 
-.eyebrow {
-  margin: 0;
-  color: var(--foundation-dim);
-  font-size: clamp(8px, 1.3vh, 12px);
-  font-weight: 600;
-  letter-spacing: 0.2em;
-  line-height: 1;
-  text-transform: uppercase;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 220ms both;
-}
-
 .emoji {
-  margin-top: clamp(6px, 2.4vh, 26px);
-  font-size: clamp(14px, 3.9vh, 46px);
+  margin-top: clamp(6px, 2.2vh, 22px);
+  /* 22–26px at rest; the floor only matters on the shortest landscape
+     heights PR1's contract covers. */
+  font-size: clamp(15px, 3vh, 26px);
   line-height: 1;
-  filter: drop-shadow(0 8px 18px rgba(109, 67, 26, 0.16));
+  filter: drop-shadow(0 4px 10px rgba(109, 67, 26, 0.14));
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both;
 }
 
 .title {
-  margin: clamp(2px, 0.8vh, 10px) 0 0;
+  margin: clamp(1px, 0.4vh, 6px) 0 0;
   font-family: var(--landing-display);
   line-height: 1;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
@@ -173,18 +243,6 @@
   display: inline-block;
   margin: -0.05em -0.04em;
   padding: 0.06em 0.08em;
-  /* Hero foil gradient follows the app accent (iOS Blue default, Molten
-     Gold under html[data-accent="gold"]) via the shared hero stops. */
-  background-image: linear-gradient(
-    98deg,
-    var(--app-accent-hero-from) 0%,
-    var(--app-accent-hero-mid) 40%,
-    var(--app-accent-hero-to) 50%,
-    var(--app-accent-hero-mid) 60%,
-    var(--app-accent-hero-from) 100%
-  );
-  background-size: 300% 100%;
-  background-position: 30% 50%;
   background-clip: text;
   color: transparent;
   font-family: var(--landing-display);
@@ -200,16 +258,65 @@
   line-height: 1.04;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  /* Restrained two-stop optical gradient (deep blue into iOS blue, no
+     shimmer band) as the resting state, with one light sweep layered on top
+     that crosses via background-position on first paint and then settles —
+     it never loops. Follows the app accent (Molten Gold under
+     html[data-accent="gold"]) via the shared hero stops. */
+  background-image:
+    linear-gradient(
+      100deg,
+      transparent 40%,
+      color-mix(in oklab, white 75%, transparent) 50%,
+      transparent 60%
+    ),
+    linear-gradient(
+      160deg,
+      var(--app-accent-hero-from) 0%,
+      var(--app-accent-hero-to) 100%
+    );
+  background-size:
+    220% 100%,
+    100% 100%;
+  background-position:
+    160% 0,
+    0 0;
+  /* Starts once .title (the parent) has finished fading in — its own
+     reveal already covers this element's entrance, so this is only the
+     sweep, not a second independent fade. */
+  animation: molten-sweep 950ms ease-out 420ms both;
+}
+
+@keyframes molten-sweep {
+  from {
+    background-position:
+      160% 0,
+      0 0;
+  }
+  to {
+    background-position:
+      -60% 0,
+      0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .molten {
+    animation: none;
+    background-position:
+      -60% 0,
+      0 0;
+  }
 }
 
 .divider {
-  width: min(88px, 28%);
+  width: min(64px, 22%);
   height: 1px;
-  margin: clamp(6px, 2.4vh, 28px) auto 0;
+  margin: clamp(6px, 2.2vh, 24px) auto 0;
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in oklab, var(--foundation-gold-deep) 20%, transparent),
+    color-mix(in oklab, var(--foundation-gold-deep) 18%, transparent),
     transparent
   );
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 370ms both;
@@ -217,7 +324,7 @@
 
 .tagline {
   max-width: 22rem;
-  margin: clamp(6px, 2.4vh, 28px) auto 0;
+  margin: clamp(6px, 2.2vh, 24px) auto 0;
   color: var(--foundation-ink);
   font-family: var(--landing-display);
   font-size: clamp(11px, 2.3vh, 20px);
@@ -227,33 +334,6 @@
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 420ms both;
 }
 
-.motions {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-top: clamp(4px, 1.8vh, 22px);
-  color: var(--landing-secondary-ink);
-  font-size: clamp(8px, 1.35vh, 12.5px);
-  font-weight: 600;
-  letter-spacing: 0.13em;
-  line-height: 1.2;
-  text-transform: uppercase;
-  white-space: nowrap;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 500ms both;
-}
-
-.motionItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.motionDot {
-  opacity: 0.42;
-}
-
 .footer {
   align-self: end;
   display: flex;
@@ -261,8 +341,8 @@
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
-  padding-top: clamp(14px, 3.4vh, 34px);
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
+  padding-top: clamp(16px, 4vh, 40px);
+  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 500ms both;
 }
 
 .cta {
@@ -274,14 +354,15 @@
      visual weight as the fixed voice bar directly beneath it. Falling short
      of that width is what makes this one read as the deliberate primary
      action instead of another edge-to-edge bar. */
-  width: 83%;
+  width: 76%;
   align-items: center;
   justify-content: center;
   gap: 10px;
   border: 0;
   border-radius: 999px;
   /* Accent morphy: flat accent fill that follows the accent preference
-     (iOS Blue default, Molten Gold opt-in). No gradient, no shadow. */
+     (iOS Blue default, Molten Gold opt-in). No gradient, no glow, no glass —
+     the one solid, fully-opaque surface on the screen, deliberately. */
   background: var(--app-accent);
   color: var(--app-accent-fg);
   font-family: var(--landing-text);
@@ -322,4 +403,14 @@
     transform: translate3d(0, 0, 0);
     filter: blur(0);
   }
+}
+
+/* Quiets the persistent voice bar specifically while this screen is mounted,
+   via the data-attribute this component puts on its own <main> — matched
+   through :has() rather than any change to the bar's own component or a
+   global stylesheet rule, so no other route is affected. The CTA above is
+   meant to read as the one obvious action; a second full-width bar at equal
+   visual weight competes with that. */
+:global(body:has([data-screen="welcome"])) :global([data-agent-bar-shell]) {
+  opacity: 0.86;
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -11,17 +12,41 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import styles from "./IntroStep.module.css";
 
 /* ────────────────────────────────────────────────────────────
- * Welcome ("/"). A restrained, Foundation-warm canvas carries one brand row,
- * one "One" moment, and one clear next action. The public destinations sit
- * beside the wordmark as a real navigation group with equal targets, not
- * footer text that happens to be clickable.
+ * Welcome ("/"). One brand row, one "One" moment, one clear next action —
+ * nothing else competing for attention. The public destinations sit beside
+ * the wordmark as a real navigation group with equal targets, not footer
+ * text that happens to be clickable.
  * ──────────────────────────────────────────────────────────── */
 
-// One's four motions, shown as a quiet typographic rhythm — never as chips,
-// never labeled "framework". Matches docs/vision/agent-ontology.md.
-const MOTIONS = ["Listens", "Remembers", "Decides", "Acts"];
-
 export function IntroStep({ onLogin }: { onLogin?: () => void }) {
+  // Pointer-following highlight inside the glass pill. Written straight to
+  // the DOM (not React state) since it must track every pointermove without
+  // re-rendering the tree; the underlying custom properties default to
+  // centered so nothing moves on touch, where no pointermove ever fires.
+  const brandRef = useRef<HTMLDivElement>(null);
+  const handleBrandPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const el = brandRef.current;
+      if (!el || event.pointerType !== "mouse") return;
+      const rect = el.getBoundingClientRect();
+      el.style.setProperty(
+        "--pointer-x",
+        `${(((event.clientX - rect.left) / rect.width) * 100).toFixed(1)}%`,
+      );
+      el.style.setProperty(
+        "--pointer-y",
+        `${(((event.clientY - rect.top) / rect.height) * 100).toFixed(1)}%`,
+      );
+    },
+    [],
+  );
+  const handleBrandPointerLeave = useCallback(() => {
+    const el = brandRef.current;
+    if (!el) return;
+    el.style.setProperty("--pointer-x", "50%");
+    el.style.setProperty("--pointer-y", "0%");
+  }, []);
+
   const claimOne = useCallback(() => {
     if (!onLogin) {
       return {
@@ -79,13 +104,18 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   });
 
   return (
-    <main className={styles.shell}>
+    <main className={styles.shell} data-screen="welcome">
       <OnboardingHeroBackground />
 
       <div className={styles.stage}>
         {/* Brand row: wordmark plus the public destinations, one nav group
             instead of a header logo and a separate footer link row. */}
-        <div className={styles.brand}>
+        <div
+          ref={brandRef}
+          className={styles.brand}
+          onPointerMove={handleBrandPointerMove}
+          onPointerLeave={handleBrandPointerLeave}
+        >
           <HushhWordmark className={styles.wordmark} />
 
           <nav aria-label="Explore Hussh" className={styles.links}>
@@ -103,10 +133,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
 
         {/* ── Typography-led hero. No cards, no fake metrics. ── */}
         <div className={styles.hero}>
-          <span className={styles.eyebrow}>
-            Your private agent
-          </span>
-
           <span
             aria-hidden="true"
             className={styles.emoji}
@@ -130,20 +156,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           <p className={styles.tagline}>
             Your agents. Yours to own.
           </p>
-
-          {/* Quiet rhythm line: the four motions, typographic not chip-like. */}
-          <div className={styles.motions}>
-            {MOTIONS.map((motion, i) => (
-              <span key={motion} className={styles.motionItem}>
-                {i > 0 && (
-                  <span aria-hidden className={styles.motionDot}>
-                    &middot;
-                  </span>
-                )}
-                <span>{motion}</span>
-              </span>
-            ))}
-          </div>
         </div>
 
         {/* ── CTA: Morphy Button, ink surface, gradient ripple. Sits in the
