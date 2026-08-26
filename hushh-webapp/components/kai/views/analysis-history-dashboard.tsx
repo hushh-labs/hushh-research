@@ -14,6 +14,13 @@ import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   Popover,
   PopoverAnchor,
   PopoverContent,
@@ -1191,27 +1198,12 @@ export function AnalysisHistoryDashboard({
           </SheetContent>
         </Sheet>
       ) : (
-        <Popover open={versionsOpen} onOpenChange={(open) => !open && closeVersions()} modal>
-          {versionsAnchor ? (
-            <PopoverAnchor asChild>
-              <span
-                aria-hidden="true"
-                className="pointer-events-none fixed h-px w-px"
-                style={{ left: versionsAnchor.left, top: versionsAnchor.top }}
-              />
-            </PopoverAnchor>
-          ) : null}
-          <PopoverContent
-            align="center"
-            side="bottom"
-            sideOffset={8}
-            className="w-[min(28rem,calc(100vw-1.5rem))] p-0"
-            withBackdrop
-          >
-            <PopoverHeader className="border-b border-border/60 px-4 py-3">
-              <PopoverTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</PopoverTitle>
-              <PopoverDescription>Choose a saved version to review.</PopoverDescription>
-            </PopoverHeader>
+        <Dialog open={versionsOpen} onOpenChange={(open) => !open && closeVersions()}>
+          <DialogContent className="w-[min(28rem,calc(100vw-1.5rem))] p-0 sm:max-w-md">
+            <DialogHeader className="border-b border-border/60 px-4 py-3 text-left">
+              <DialogTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</DialogTitle>
+              <DialogDescription>Choose a saved version to review.</DialogDescription>
+            </DialogHeader>
             <div className="max-h-[min(28rem,calc(100vh-10rem))] overflow-y-auto p-3">
               <VersionOptions
                 entries={versionsForTicker}
@@ -1222,8 +1214,8 @@ export function AnalysisHistoryDashboard({
                 onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
               />
             </div>
-          </PopoverContent>
-        </Popover>
+          </DialogContent>
+        </Dialog>
       )}
 
       <AlertDialog
