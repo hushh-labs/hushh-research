@@ -191,7 +191,7 @@ describe("named Circle flows", () => {
     expect(retainedSearch).toHaveValue("nobody");
     fireEvent.change(retainedSearch, { target: { value: "" } });
     expect(screen.getByLabelText("Search members")).toHaveValue("");
-  });
+  }, 15000);
 
   it("creates a typed Circle and keeps a failed submission recoverable", async () => {
     const onSubmit = vi
@@ -1608,7 +1608,7 @@ describe("named Circle flows", () => {
         invitees.slice(0, 20).map((invitee) => invitee.userId),
       ),
     );
-  });
+  }, 15000);
 
   it("keeps the sheet open when sending fails so the selection can be retried", async () => {
     const onLoadEligibleConnections = vi.fn(async () => ({

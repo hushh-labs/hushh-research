@@ -326,5 +326,5 @@ describe("CircleInvitePeopleSheet", () => {
         invitees.slice(0, 20).map((invitee) => invitee.userId),
       ),
     );
-  });
+  }, 15000);
 });

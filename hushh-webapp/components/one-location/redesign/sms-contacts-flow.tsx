@@ -380,7 +380,7 @@ export function SmsContactsFlow({
             the tested one -- and only wider viewports re-centre it. */}
         <AlertDialogContent
           size="sm"
-          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-xl"
+          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-[var(--app-card-shadow-standard)] dark:md:!shadow-none"
         >
           <AlertDialogHeader className="!place-items-center !text-center sm:!place-items-center sm:!text-center">
             {/* The person being removed, not a warning about them. A solid
@@ -427,7 +427,7 @@ export function SmsContactsFlow({
             <AlertDialogCancel
               variant="secondary"
               disabled={removing}
-              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-foreground hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
+              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-[color:var(--app-label)] hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
             >
               Cancel
             </AlertDialogCancel>

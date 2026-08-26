@@ -300,7 +300,7 @@ export function CirclesSection({
           <DropdownMenuContent
             align="end"
             sideOffset={8}
-            className="w-[186px] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 shadow-[0_12px_28px_rgba(0,0,0,0.12)] dark:shadow-[var(--app-glass-shadow)]"
+            className="w-[186px] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
           >
             <DropdownMenuItem
               onSelect={onCreate}

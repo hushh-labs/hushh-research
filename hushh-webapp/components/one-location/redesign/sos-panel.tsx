@@ -22,6 +22,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  HelperText,
+  PageSubtitle,
+  RowDescription,
+  RowLabel,
+  StatusText,
+} from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 import type {
@@ -341,7 +348,7 @@ export function SosPanel({
         : "Hold 2 seconds";
 
   const quickPill =
-    "press-scale flex h-11 flex-1 items-center justify-center rounded-xl border text-[15px] font-medium leading-5 transition-colors";
+    "ui-text-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
 
   const callControl =
     emergencyStatus === "resolved" && emergency ? (
@@ -351,14 +358,14 @@ export function SosPanel({
           onClick={handleWindowsEmergencyCopy}
           data-testid="sos-emergency-actions"
           aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
-          className="press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[17px] font-semibold leading-[22px] text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5"
+          className="ui-text-button-label press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5"
         >
           <Phone className="h-4 w-4" aria-hidden />
           <span className="min-w-0 flex-1 truncate">
             Call {emergency.number} · {emergency.countryName}
           </span>
           <ChevronRight
-            className="h-4 w-4 shrink-0 text-muted-foreground"
+            className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]"
             aria-hidden
           />
         </button>
@@ -367,14 +374,14 @@ export function SosPanel({
           href={`tel:${emergency.number}`}
           data-testid="sos-emergency-actions"
           aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-          className="press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[17px] font-semibold leading-[22px] text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5"
+          className="ui-text-button-label press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5"
         >
           <Phone className="h-4 w-4" aria-hidden />
           <span className="min-w-0 flex-1 truncate">
             Call {emergency.number} · {emergency.countryName}
           </span>
           <ChevronRight
-            className="h-4 w-4 shrink-0 text-muted-foreground"
+            className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]"
             aria-hidden
           />
         </a>
@@ -392,7 +399,7 @@ export function SosPanel({
               ? "Finding local emergency number"
               : "Find local emergency number"
         }
-        className="press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[17px] font-semibold leading-[22px] text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5 disabled:cursor-wait disabled:opacity-70"
+        className="ui-text-button-label press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5 disabled:cursor-wait disabled:opacity-70"
       >
         <Phone className="h-4 w-4" aria-hidden />
         <span className="min-w-0 flex-1 truncate">
@@ -408,7 +415,7 @@ export function SosPanel({
           <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
         ) : (
           <ChevronRight
-            className="h-4 w-4 shrink-0 text-muted-foreground"
+            className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]"
             aria-hidden
           />
         )}
@@ -421,27 +428,27 @@ export function SosPanel({
       className="mx-auto flex w-full max-w-[560px] flex-col px-4 pb-6 pt-8 sm:px-0"
     >
       <header className="space-y-2">
-        <h1 className="text-[34px] font-bold leading-[41px] tracking-[-0.02em] text-foreground">
+        <h1 className="ui-text-page-title">
           Save My Soul
         </h1>
         {active ? (
-          <p className="text-[15px] leading-5 text-muted-foreground">
+          <PageSubtitle>
             {alertedSummary}
-          </p>
+          </PageSubtitle>
         ) : noReadyRecipients ? (
-          <p className="text-[15px] leading-5 text-muted-foreground">
+          <PageSubtitle>
             No emergency contacts
-          </p>
+          </PageSubtitle>
         ) : (
           <div className="flex items-center gap-3">
-            <p className="min-w-0 flex-1 truncate text-[15px] leading-5 text-muted-foreground">
+            <PageSubtitle className="min-w-0 flex-1 truncate">
               {recipientCountLabel} · Live location
-            </p>
+            </PageSubtitle>
             <button
               type="button"
               onClick={onEditContacts}
               aria-label="Edit emergency contacts"
-              className="press-scale -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]"
+              className="ui-text-button-label press-scale -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)]"
             >
               Edit
             </button>
@@ -454,7 +461,7 @@ export function SosPanel({
           <button
             type="button"
             onClick={onEditContacts}
-            className="press-scale flex h-[52px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 text-[17px] font-semibold leading-[22px] text-white"
+            className="ui-text-button-label press-scale flex h-[52px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)]"
           >
             Add emergency contacts
           </button>
@@ -468,20 +475,21 @@ export function SosPanel({
             </span>
             <p
               data-testid="sos-status-label"
-              className="mt-4 text-[17px] font-semibold leading-[22px] text-foreground"
+              className="ui-text-medium-row-label mt-4"
             >
               Alert active
             </p>
-            <p className="mt-1 text-[15px] leading-5 text-muted-foreground">
+            <RowDescription className="mt-1">
               {alertedSummary}
-            </p>
+            </RowDescription>
             {sentMessage ? (
-              <p
+              <RowLabel
+                as="p"
                 data-testid="sos-sent-message"
-                className="mt-4 max-w-full rounded-[14px] bg-[color:var(--sos-control-surface)] px-4 py-3 text-[15px] leading-5 text-foreground"
+                className="mt-4 max-w-full rounded-[14px] bg-[color:var(--sos-control-surface)] px-4 py-3"
               >
                 {sentMessage}
-              </p>
+              </RowLabel>
             ) : null}
             <span data-testid="sos-sent-face" className="sr-only">
               SENT
@@ -496,7 +504,7 @@ export function SosPanel({
             disabled={stopBusy}
             aria-label="Stop Save My Soul alert"
             data-testid="sos-cancel-alert"
-            className="press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-[16px] bg-[color:var(--sos-control-surface)] px-5 text-[17px] font-semibold leading-[22px] text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60"
+            className="ui-text-button-label press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-[16px] bg-[color:var(--sos-control-surface)] px-5 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60"
           >
             {stopBusy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -554,37 +562,39 @@ export function SosPanel({
                 onFocus={() => setMessageFocused(true)}
                 onBlur={() => setMessageFocused(false)}
                 placeholder="Add message..."
-                className="h-full min-w-0 flex-1 rounded-[14px] bg-transparent px-4 pr-12 text-[16px] leading-[22px] text-foreground outline-none placeholder:text-[color:var(--sos-placeholder)]"
+                className="ui-text-input-value h-full min-w-0 flex-1 rounded-[14px] bg-transparent px-4 pr-12 text-[color:var(--app-label)] outline-none placeholder:text-[color:var(--sos-placeholder)]"
               />
               <ChevronRight
-                className="pointer-events-none absolute right-4 h-4 w-4 text-muted-foreground"
+                className="pointer-events-none absolute right-4 h-4 w-4 text-[color:var(--app-tertiary-label)]"
                 aria-hidden
               />
             </div>
             <div className="mt-1 flex min-h-5 items-baseline justify-between gap-3">
               {customMessageLimitExceeded ? (
-                <p
+                <HelperText
                   id="sos-short-message-error"
+                  as="p"
                   role="alert"
-                  className="text-[12px] text-[color:var(--app-destructive)]"
+                  className="text-[color:var(--app-destructive)]"
                 >
                   Message is too long
-                </p>
+                </HelperText>
               ) : (
                 <span />
               )}
               {showMessageCount ? (
-                <div
+                <HelperText
+                  as="div"
                   id="sos-short-message-count"
                   className={cn(
-                    "text-right text-[12px]",
+                    "text-right",
                     customMessageLimitExceeded
                       ? "text-[color:var(--app-destructive)]"
                       : "text-[color:var(--sos-label)]",
                   )}
                 >
                   {customMessageLength}/{ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}
-                </div>
+                </HelperText>
               ) : null}
             </div>
           </div>
@@ -641,18 +651,19 @@ export function SosPanel({
                   disabled && "cursor-not-allowed opacity-65",
                 )}
               >
-                <span className="text-[42px] font-semibold tracking-[1px]">
+                <span className="font-[family-name:var(--font-app-body)] text-[42px] font-semibold leading-none tracking-normal">
                   SMS
                 </span>
               </button>
             </div>
 
-            <p
+            <StatusText
+              as="p"
               data-testid="sos-status-label"
-              className="mt-3 text-center text-[15px] font-medium leading-5 text-[color:var(--sos-label)]"
+              className="mt-3 text-center text-[color:var(--sos-label)]"
             >
               {statusLabel}
-            </p>
+            </StatusText>
           </div>
 
           <div className="mt-6">{callControl}</div>
