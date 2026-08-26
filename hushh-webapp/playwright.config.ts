@@ -62,8 +62,13 @@ export default defineConfig({
       // it measures is the surface an iPhone's home indicator sits under. The
       // fixture is self-contained -- no app shell, so neither of the two
       // known WebKit failures above can reach it.
+      // `one-location-flow-action-footer.layout` is opted in because what it
+      // measures IS a WebKit behaviour: `--kb-height` is published only when a
+      // real on-screen keyboard opens, which happens in the WKWebView the app
+      // ships in. Its fixture builds its own shell, so the two known failures
+      // above cannot reach it either.
       testMatch:
-        /(circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
