@@ -702,8 +702,18 @@ async function initializeWebFCM(
         typeof primaryError === "object" && primaryError && "code" in primaryError
           ? String((primaryError as { code?: unknown }).code ?? "")
           : "";
-      if (primaryErrorCode !== "messaging/token-subscribe-failed") {
-        throw primaryError;
+      const isInvalidKey =
+        primaryError instanceof Error &&
+        (primaryError.name === "InvalidAccessError" ||
+          primaryError.message.includes("applicationServerKey") ||
+          primaryError.message.includes("VAPID"));
+
+      if (primaryErrorCode !== "messaging/token-subscribe-failed" && !isInvalidKey) {
+        console.warn("[FCM] Web push token resolution failed:", primaryError);
+        return {
+          status: "push_failed",
+          detail: primaryError instanceof Error ? primaryError.message : "push_failed",
+        };
       }
 
       console.warn(
