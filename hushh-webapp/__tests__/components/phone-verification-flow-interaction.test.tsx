@@ -10,9 +10,16 @@ import { describe, expect, it, vi } from "vitest";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { ApiService } from "@/lib/services/api-service";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/register-phone",
+}));
+
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: {
+    notifyAuthMail: vi.fn().mockResolvedValue(true),
+  },
 }));
 
 function renderPhoneVerificationFlow(options?: {
@@ -321,6 +328,59 @@ describe("PhoneVerificationFlow country selector", () => {
     });
 
     expect(result).toMatchObject({ status: "failed" });
+  });
+
+  it("surfaces the duplicate-phone conflict and keeps the account unverified", async () => {
+    const confirmVerification = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(
+          new Error(
+            "This phone number is already connected to another account. Please sign in to that account or use a different number.",
+          ),
+          { code: "PHONE_ALREADY_CLAIMED" },
+        ),
+      );
+    const onCompleted = vi.fn();
+    const startVerification = vi
+      .fn()
+      .mockResolvedValue({ autoVerified: false });
+
+    render(
+      <PhoneVerificationFlow
+        mode="link"
+        startVerification={startVerification}
+        confirmVerification={confirmVerification}
+        onCompleted={onCompleted}
+      />,
+    );
+
+    const phoneInput = screen.getByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phoneInput, { target: { value: "6505550101" } });
+    fireEvent.submit(phoneInput.closest("form")!);
+
+    const codeInput = await screen.findByRole("textbox", {
+      name: "One-time code",
+    });
+    fireEvent.change(codeInput, { target: { value: "123456" } });
+    fireEvent.submit(codeInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(confirmVerification).toHaveBeenCalledWith("123456");
+    });
+    await waitFor(() => {
+      expect(ApiService.notifyAuthMail).toHaveBeenCalledWith(
+        "phone_conflict",
+        { phoneNumber: "+16505550101" },
+      );
+    });
+
+    // The second account must never be marked verified on a rejected claim.
+    expect(onCompleted).not.toHaveBeenCalled();
+    // Stays on the OTP screen (not bounced back to the phone-entry step).
+    expect(
+      screen.getByRole("textbox", { name: "One-time code" }),
+    ).toBeTruthy();
   });
 
   it("keeps the spoken code transient and settles only after confirmation succeeds", async () => {

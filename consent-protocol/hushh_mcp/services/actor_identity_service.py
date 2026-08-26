@@ -88,6 +88,25 @@ class ActorIdentityAliasError(RuntimeError):
         super().__init__(message)
 
 
+class ActorIdentityPhoneClaimError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "PHONE_ALREADY_CLAIMED",
+        status_code: int = 409,
+    ) -> None:
+        self.code = code
+        self.status_code = status_code
+        super().__init__(message)
+
+
+_PHONE_ALREADY_CLAIMED_MESSAGE = (
+    "This phone number is already connected to another account. "
+    "Please sign in to that account or use a different number."
+)
+
+
 class ActorIdentityService:
     def schedule_sync_from_firebase(
         self,
@@ -697,39 +716,55 @@ class ActorIdentityService:
 
         try:
             async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    UPDATE actor_identity_cache
-                    SET
-                      phone_number = NULL,
-                      phone_verified = FALSE,
-                      updated_at = NOW()
-                    WHERE phone_number = $2
-                      AND user_id <> $1
-                    """,
-                    normalized_user_id,
-                    normalized_phone_number,
-                )
-                try:
-                    # Preserve a custom avatar in the returned (and client-cached)
-                    # identity, matching get_many/upsert_identity/set_custom_photo_url.
-                    row = await conn.fetchrow(
-                        claim_insert_with_custom_photo,
-                        normalized_user_id,
+                async with conn.transaction():
+                    # A verified phone number belongs to exactly one account.
+                    # Reject the claim outright rather than silently moving the
+                    # number over — the other account's ownership must never be
+                    # cleared or transferred as a side effect of this call.
+                    existing_owner = await conn.fetchrow(
+                        """
+                        SELECT 1
+                        FROM actor_identity_cache
+                        WHERE phone_number = $1
+                          AND phone_verified = TRUE
+                          AND user_id <> $2
+                        LIMIT 1
+                        """,
                         normalized_phone_number,
-                        normalized_source,
-                    )
-                except asyncpg.UndefinedColumnError as exc:
-                    if "custom_photo_url" not in str(exc):
-                        raise
-                    # Pre-107 gap: no custom avatar can exist yet, so the plain
-                    # photo_url is equivalent — keep the phone claim working.
-                    row = await conn.fetchrow(
-                        claim_insert_plain_photo,
                         normalized_user_id,
-                        normalized_phone_number,
-                        normalized_source,
                     )
+                    if existing_owner:
+                        raise ActorIdentityPhoneClaimError(_PHONE_ALREADY_CLAIMED_MESSAGE)
+
+                    try:
+                        # Preserve a custom avatar in the returned (and client-cached)
+                        # identity, matching get_many/upsert_identity/set_custom_photo_url.
+                        row = await conn.fetchrow(
+                            claim_insert_with_custom_photo,
+                            normalized_user_id,
+                            normalized_phone_number,
+                            normalized_source,
+                        )
+                    except asyncpg.UndefinedColumnError as exc:
+                        if "custom_photo_url" not in str(exc):
+                            raise
+                        # Pre-107 gap: no custom avatar can exist yet, so the plain
+                        # photo_url is equivalent — keep the phone claim working.
+                        row = await conn.fetchrow(
+                            claim_insert_plain_photo,
+                            normalized_user_id,
+                            normalized_phone_number,
+                            normalized_source,
+                        )
+        except ActorIdentityPhoneClaimError:
+            raise
+        except asyncpg.UniqueViolationError as exc:
+            # The ownership check above is not race-safe on its own (two
+            # concurrent claims for the same number can both pass it); the
+            # partial unique index on (phone_number) WHERE phone_verified is
+            # the real guard, and a violation here means the other request won
+            # the race. Surface the same conflict, never a 500.
+            raise ActorIdentityPhoneClaimError(_PHONE_ALREADY_CLAIMED_MESSAGE) from exc
         except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
             logger.debug(
                 "actor_identity_cache phone claim skipped; phone shadow schema unavailable"

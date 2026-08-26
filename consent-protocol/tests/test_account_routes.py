@@ -8,7 +8,10 @@ from fastapi.testclient import TestClient
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes import account
 from hushh_mcp.services.account_service import AccountService
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityPhoneClaimError,
+    ActorIdentityService,
+)
 
 
 def _build_app() -> FastAPI:
@@ -308,6 +311,35 @@ def test_claim_account_phone_maps_persistence_failure(monkeypatch):
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "PHONE_CLAIM_PERSISTENCE_UNAVAILABLE"
+
+
+def test_claim_account_phone_rejects_when_already_claimed_by_another_account(monkeypatch):
+    async def _mock_verify(raw_claim: str):
+        return "+16505550101", "phone-session-uid"
+
+    async def _mock_claim(self, *, user_id: str, phone_number: str):
+        assert user_id == "firebase_uid_second_account"
+        raise ActorIdentityPhoneClaimError(
+            "This phone number is already connected to another account. "
+            "Please sign in to that account or use a different number."
+        )
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_second_account"
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "PHONE_ALREADY_CLAIMED"
+    # The original owner's uid/email must never leak into the conflict response.
+    assert "firebase_uid" not in detail["message"]
+    assert "@" not in detail["message"]
 
 
 def test_start_uat_test_phone_verification_requires_firebase_auth(monkeypatch):
