@@ -102,9 +102,7 @@ def test_get_voice_preferences_returns_the_stored_default():
         }
         resp = client.get("/api/one/connect/voice-preferences")
     assert resp.status_code == 200
-    assert resp.json() == {
-        "preferences": {"shareScopesFromLastRequest": False, "updatedAt": None}
-    }
+    assert resp.json() == {"preferences": {"shareScopesFromLastRequest": False, "updatedAt": None}}
     svc_cls.return_value.get_voice_preferences.assert_called_once_with(user_id="user-a")
 
 

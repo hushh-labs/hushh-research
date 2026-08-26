@@ -20,4 +20,23 @@ describe("Analysis History destructive confirmation layering", () => {
     expect(alertContentTag).toContain('overlayClassName="z-[713]"');
     expect(alertContentTag).toContain('className="z-[714]"');
   });
+
+  it("uses a centered Dialog for desktop history versions instead of an anchored Popover", () => {
+    const source = read("components/kai/views/analysis-history-dashboard.tsx");
+
+    expect(source).toContain('from "@/components/ui/dialog"');
+    expect(source).toContain(
+      '<Dialog open={versionsOpen} onOpenChange={(open) => !open && closeVersions()}>',
+    );
+    expect(source).toContain(
+      '<DialogContent className="w-[min(28rem,calc(100vw-1.5rem))] p-0 sm:max-w-md">',
+    );
+    expect(source).toContain(
+      '<Sheet open={versionsOpen} onOpenChange={(open) => !open && closeVersions()} modal>',
+    );
+    expect(source).not.toContain('from "@/components/ui/popover"');
+    expect(source).not.toContain("versionsAnchor");
+    expect(source).not.toContain("PopoverAnchorPosition");
+    expect(source).not.toContain("getBoundingClientRect");
+  });
 });
