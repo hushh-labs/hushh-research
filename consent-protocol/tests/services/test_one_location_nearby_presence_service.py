@@ -218,6 +218,24 @@ def test_check_in_allows_a_place_reachable_at_human_speed():
     assert state["presence"]["placeLabel"] == "Spot A"
 
 
+def test_check_in_presence_payload_is_json_safe():
+    """FakeStore hands back a real datetime for checked_in_at/expires_at, the
+    same shape the Postgres driver returns. The Location voice specialist's
+    tool result is serialized with a plain json.dumps -- a raw datetime here
+    crashes the whole live session with no result ever reaching the user."""
+    import json
+
+    store = FakeStore()
+    store.last_presence = _previous_check_in(lat=51.5074, lng=-0.1278, minutes_ago=24 * 60)
+    service, _ = _service(store)
+
+    state = _check_in(service)
+
+    assert state["presence"]["checkedInAt"] == NOW.isoformat()
+    assert state["presence"]["expiresAt"] is not None
+    json.dumps(state)
+
+
 def test_check_in_allows_returning_to_the_same_venue_immediately():
     """Re-checking in where you already are is the most ordinary case there is."""
 

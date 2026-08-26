@@ -149,6 +149,45 @@ describe("GeminiLiveClient mid-call session frames", () => {
   });
 });
 
+describe("GeminiLiveClient per-utterance activity signal", () => {
+  // voice_activity_start tells the backend "this is fresh speech" -- several
+  // guards there are keyed on it meaning that: the per-turn dedupe clear,
+  // the already-completed/already-failed loop guards, stale directive
+  // disarming. If it only ever fires once for the whole socket instead of
+  // once per utterance, all of those silently stop working after the first
+  // thing the visitor says, for the rest of the call.
+
+  it("resets after the model's turn completes, so the next utterance sends a fresh signal", async () => {
+    const transport = new GeminiLiveClient();
+    const connection = transport as unknown as {
+      handleSocketMessage: (data: unknown) => Promise<void>;
+      visitorActivitySent: boolean;
+    };
+    connection.visitorActivitySent = true;
+
+    await connection.handleSocketMessage(
+      JSON.stringify({ serverContent: { turnComplete: true } }),
+    );
+
+    expect(connection.visitorActivitySent).toBe(false);
+  });
+
+  it("resets after an interrupted model turn too", async () => {
+    const transport = new GeminiLiveClient();
+    const connection = transport as unknown as {
+      handleSocketMessage: (data: unknown) => Promise<void>;
+      visitorActivitySent: boolean;
+    };
+    connection.visitorActivitySent = true;
+
+    await connection.handleSocketMessage(
+      JSON.stringify({ serverContent: { interrupted: true } }),
+    );
+
+    expect(connection.visitorActivitySent).toBe(false);
+  });
+});
+
 describe("GeminiLiveClient session resumption", () => {
   it("stores an incoming resumption handle and hands it off in the closed event", async () => {
     const onEvent = vi.fn();

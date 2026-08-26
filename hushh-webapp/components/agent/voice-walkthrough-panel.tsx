@@ -10,24 +10,6 @@ import {
 } from "@/lib/interaction/interaction-intent-coordinator";
 
 /**
- * Actions whose handler may attach a `subject` once it resolves who the
- * action is about (see the handlers themselves, and `parseVoiceSubject`).
- * Named here so a solo run of one of these earns the panel for its whole
- * processing time -- the loading beat is exactly what "who is this going
- * to" needs to show before the subject is known, and subject only arrives
- * once the handler has already returned. A step outside this list stays on
- * the original rule: a one-off action already has its own status text in
- * the bar.
- */
-const SUBJECT_CAPABLE_ACTION_IDS = new Set([
-  "connect.send_request",
-  "location.select_share_recipient",
-  "location.select_ask_recipient",
-  "location.share_selected",
-  "location.send_request",
-]);
-
-/**
  * Steps arriving within this long of the previous step's last update are
  * shown as one task even without a shared `goalId` -- an authored journey
  * aside, most multi-action requests are just One calling one action after
@@ -85,35 +67,38 @@ function stepTextClass(phase: ActionRun["phase"]): string {
 }
 
 /**
- * A live list of the steps One is working through, shown alongside the
- * spoken narration when the person has turned on walk-through mode (Voice
- * Settings). Reuses the action-run events that already fire for every
- * action -- solo or part of an authored journey -- rather than requiring a
- * pre-declared multi-step plan: each new call simply appends to, or starts,
- * the visible list.
+ * A card showing the action(s) One just worked through, alongside the
+ * spoken narration. Every action earns its own card this way, not just
+ * multi-step ones -- reuses the action-run events that already fire for
+ * every action, solo or part of an authored journey, rather than requiring
+ * a pre-declared multi-step plan.
  *
- * Deliberately hidden for a single-step task that never touches a person: a
- * one-off action already has its own status text in the bar, and this panel
- * earns its place once there is an actual sequence to follow, or once a
- * subject-capable step gives it something the bar's one-line pill can't show.
+ * `enabled` (Walk-through mode, Voice Settings) controls only whether
+ * *multiple* steps of one task get grouped into a single running panel --
+ * it does not gate whether a card shows at all. A single action's own
+ * result is always worth a card: that is exactly what "who is this going
+ * to" needs to show, and the bar's one-line pill has no room for a name.
  */
 export function VoiceWalkthroughPanel({
   enabled,
   onCancel,
 }: {
+  /** Groups multiple steps of one task into a single panel when true;
+   * when false, each step still gets shown, just one at a time. */
   enabled: boolean;
   /** Aborts whatever the last step is still doing. Only ever called while
    * that step is active -- there is nothing left to abort once it settles. */
   onCancel?: () => void;
 }) {
   const runs = useActionRuns();
-  const group = enabled ? currentTaskSteps(runs) : [];
+  const lastRun = runs[runs.length - 1] ?? null;
+  const group = enabled ? currentTaskSteps(runs) : lastRun ? [lastRun] : [];
   const last = group[group.length - 1] ?? null;
   const active = last ? !isTerminalActionRunPhase(last.phase) : false;
 
   const [linger, setLinger] = useState(false);
   useEffect(() => {
-    if (!enabled || !last) {
+    if (!last) {
       setLinger(false);
       return;
     }
@@ -128,7 +113,7 @@ export function VoiceWalkthroughPanel({
     // re-running it on every unrelated snapshot would restart the clock on
     // every step of a task still in progress.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, last?.id, last?.phase]);
+  }, [last?.id, last?.phase]);
 
   // Tracks the run explicitly dismissed, by id rather than a plain boolean --
   // cancelling flips `last.phase`, which re-runs the linger effect above and
@@ -138,14 +123,7 @@ export function VoiceWalkthroughPanel({
   const [dismissedId, setDismissedId] = useState<string | null>(null);
   const dismissed = last ? last.id === dismissedId : false;
 
-  // A single step still earns its place here once it either has named who
-  // it is about, or belongs to an action that might -- "who am I sending
-  // this to" is exactly the thing the bar's own one-line status pill has no
-  // room for, and it needs to show WHILE that resolves, not only after.
-  const hasSubject = group.some(
-    (step) => step.subject || SUBJECT_CAPABLE_ACTION_IDS.has(step.actionId),
-  );
-  if (!enabled || !linger || dismissed || (group.length < 2 && !hasSubject)) {
+  if (!linger || dismissed || group.length === 0) {
     return null;
   }
 
@@ -183,7 +161,13 @@ export function VoiceWalkthroughPanel({
           <li key={step.id} className="flex flex-col gap-1">
             <div className="flex items-center gap-2.5">
               <StepIcon phase={step.phase} />
-              <span className={stepTextClass(step.phase)}>{step.label}</span>
+              {/* message over label: label is a static per-action-type name
+                  ("Leave a circle"), message is the specific, current
+                  sentence ("Preparing Leave a circle" while running,
+                  "Left Family." once it settles) -- the card's whole job is
+                  showing what actually happened, not just which kind of
+                  action it was. */}
+              <span className={stepTextClass(step.phase)}>{step.message || step.label}</span>
             </div>
             {step.subject ? (
               <div className="ml-[26px] flex min-w-0 flex-col">
