@@ -348,6 +348,23 @@ class GcpBackend:
                     "name": "HUSSH_POD_MIGRATION_ENABLED",
                     "value": "true" if _flag("HUSSH_POD_MIGRATION_ENABLED") else "false",
                 },
+                # Whether this pod grounds itself from its OWN index rather than
+                # only from what a browser pushes in. Propagated from the hub for
+                # the same reason the turn flag is: the pod reads its own copy,
+                # so a hub that has it on and pods that do not would leave every
+                # background tick ungrounded with nothing saying why.
+                {
+                    "name": "POD_LOCAL_PKM_ENABLED",
+                    "value": "true" if _flag("POD_LOCAL_PKM_ENABLED") else "false",
+                },
+                # Whether this pod recovers a DURABLE identity key from its own
+                # sealed storage instead of minting a fresh one every boot. Off,
+                # the pod reports `podKeyDurable: false` honestly, which is what
+                # every pod in the fleet has been doing since it was built.
+                {
+                    "name": "POD_DURABLE_IDENTITY_ENABLED",
+                    "value": "true" if _flag("POD_DURABLE_IDENTITY_ENABLED") else "false",
+                },
                 # WHO may present a hub proof to this pod. Fail-closed inside the
                 # pod: an empty allowlist refuses every caller, so a pod rendered
                 # without this simply declines migration rather than trusting

@@ -249,10 +249,45 @@ async def _pod_startup() -> None:
         bool(os.getenv("HUSSH_SPACE_ID")),
     )
 
+    # Recover this pod's DURABLE identity before the keypair is resolved.
+    #
+    # `pod_self_registration` has always read `HUSSH_POD_PRIVATE_KEY`, and nothing
+    # in this repository ever wrote it -- so every pod minted a fresh keypair on
+    # every boot and reported `podKeyDurable: False`, which is the north star's
+    # Identity requirement failing in public. This fills that existing seam from
+    # the pod's OWN sealed storage, which is why it needs no new IAM: the key
+    # lives beside the commit log's wrapped key, in the pod's own prefix, under
+    # a key derived from the pod's own DEK.
+    #
+    # Strictly BEFORE `pod_keypair()`, which caches for the process lifetime.
+    # After it, this would be a no-op that looks like it worked.
+    try:
+        from hushh_mcp.services.pod_identity_store import (  # noqa: PLC0415
+            resolve_durable_private_key_b64,
+        )
+
+        durable = await resolve_durable_private_key_b64()
+        if durable and not os.getenv("HUSSH_POD_PRIVATE_KEY"):
+            # In-process only. This is the same seam a BYOC secretKeyRef would
+            # populate, so it never reaches a service description or a log.
+            os.environ["HUSSH_POD_PRIVATE_KEY"] = durable
+    except Exception:  # noqa: BLE001 - a pod must boot even with no durable identity
+        logger.warning("pod.durable_identity_unavailable", exc_info=True)
+
     # Generate the keypair now rather than on the first request, so the key exists
     # before the hub can ask for it and two concurrent requests cannot race to
     # create two different ones.
+    keypair_is_durable = False
     pod_keypair()
+    try:
+        from hushh_mcp.services.pod_self_registration import pod_key_is_durable  # noqa: PLC0415
+
+        keypair_is_durable = pod_key_is_durable()
+    except Exception:  # noqa: BLE001
+        pass
+    # Stated at boot, because "is this pod's identity stable across restarts" is
+    # a question the fleet has been answering wrongly and silently.
+    logger.info("pod.identity durable=%s", keypair_is_durable)
 
     _start_heartbeat_loop()
 

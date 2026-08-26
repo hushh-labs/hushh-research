@@ -340,6 +340,8 @@ dev_consent_ed25519_public_keys_secret=""
 # above: assigned only inside the dev block.
 hosted_pod_tier=""
 hosted_pod_project=""
+pod_local_pkm=""
+pod_durable_identity=""
 pod_data_door=""
 consent_audit_chain=""
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
@@ -491,6 +493,20 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # deployment-agnostic test the north star applies: setting a value, not
   # editing code.
   hosted_pod_project="${PROJECT_ID}"
+  # The pod grounds itself from its own commit-log-derived SQLite index when no
+  # browser pushed context in. `pkmContext` originates in the BROWSER and the hub
+  # only forwards it, so every background tick has arrived ungrounded -- which is
+  # part of why the tick body is still inert. Consulted second, never first: a
+  # browser-supplied projection is the fresher of the two.
+  pod_local_pkm="true"
+  # The pod recovers a DURABLE identity key from its own sealed storage instead
+  # of minting a fresh keypair on every boot. `HUSSH_POD_PRIVATE_KEY` has been
+  # read since it was written and set by nothing, so the whole fleet has reported
+  # `podKeyDurable: false` -- the north star's Identity requirement failing in
+  # public, confirmed live on the founder's pod 2026-08-25. Needs no new IAM: the
+  # key lands beside the log's wrapped key, in the pod's own prefix, sealed under
+  # a key derived from the pod's own DEK.
+  pod_durable_identity="true"
   # The consent-gated read doors that let an in-pod specialist see owner state
   # without the pod ever holding a database credential. Built with fail-closed
   # egress at two levels, five regression guards, and a projection allowlist --
@@ -543,6 +559,8 @@ append_optional_env "PERSONAL_AGENT_REACHABILITY_GATE" "${personal_agent_reachab
 append_optional_env "HUSSH_HOSTED_POD_TIER_ENABLED" "${hosted_pod_tier}"
 append_optional_env "HUSSH_POD_PROJECT" "${hosted_pod_project}"
 append_optional_env "POD_DATA_DOOR_ENABLED" "${pod_data_door}"
+append_optional_env "POD_LOCAL_PKM_ENABLED" "${pod_local_pkm}"
+append_optional_env "POD_DURABLE_IDENTITY_ENABLED" "${pod_durable_identity}"
 append_optional_env "CONSENT_AUDIT_CHAIN_ENABLED" "${consent_audit_chain}"
 # Ed25519 consent signing (dev only; every value is empty elsewhere). The PRIVATE
 # key rides Secret Manager only -- never an env literal -- and the PUBLIC map is

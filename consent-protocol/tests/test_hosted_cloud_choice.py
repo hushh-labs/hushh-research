@@ -297,6 +297,10 @@ def test_the_dev_lane_turns_on_what_was_built_and_never_enabled():
 
     assert emitted["POD_DATA_DOOR_ENABLED"] == "true"
     assert emitted["CONSENT_AUDIT_CHAIN_ENABLED"] == "true"
+    # The two closed this session: the pod grounds itself from its own index,
+    # and recovers a durable identity instead of minting one every boot.
+    assert emitted["POD_LOCAL_PKM_ENABLED"] == "true"
+    assert emitted["POD_DURABLE_IDENTITY_ENABLED"] == "true"
 
 
 @pytest.mark.parametrize("deploy_env", _NON_DEV_ENVS)
@@ -310,6 +314,8 @@ def test_no_other_lane_gains_any_of_them(deploy_env: str):
         "HUSSH_POD_PROJECT",
         "POD_DATA_DOOR_ENABLED",
         "CONSENT_AUDIT_CHAIN_ENABLED",
+        "POD_LOCAL_PKM_ENABLED",
+        "POD_DURABLE_IDENTITY_ENABLED",
     ):
         assert flag not in names, f"{flag} leaked into the {deploy_env or 'unset'} lane"
 
