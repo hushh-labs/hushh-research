@@ -848,7 +848,7 @@ function FeaturesScreen({
 
   return (
     <div
-      className="mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)] px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] sm:px-8 md:max-w-none md:px-10 lg:px-14"
+      className="relative z-50 pointer-events-auto mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)] px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] sm:px-8 md:max-w-none md:px-10 lg:px-14"
       data-one-feature-screen
     >
       <OnboardingNavigation
