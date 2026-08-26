@@ -247,3 +247,77 @@ def test_the_resolver_never_reaches_for_a_database():
         assert not any(forbidden in name for name in imported), (
             f"the pod's PKM resolver imports {forbidden!r}; a pod holds no database credential"
         )
+
+
+# --------------------------------------------------------------------------- #
+# The projection: what the pod actually grounds itself WITH
+# --------------------------------------------------------------------------- #
+
+
+async def test_local_grounding_projects_the_index_into_context(tmp_path, monkeypatch):
+    """The reason the resolver has a caller at all.
+
+    `pkmContext` originates in the browser and the hub only forwards it, so a
+    turn with no browser attached arrives with no grounding. That is every
+    background tick.
+    """
+    from hushh_mcp.services.pod_pkm_resolver import local_grounding
+
+    monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "pkm.sqlite3"))
+    log = await _log_with(tmp_path, [_commit("owner-a", "travel"), _commit("owner-a", "food")])
+
+    text = await local_grounding("owner-a", log=log)
+
+    assert text is not None
+    assert "travel: travel summary" in text
+    assert "food: food summary" in text
+
+
+async def test_local_grounding_is_empty_when_there_is_nothing_to_say(tmp_path, monkeypatch):
+    """An empty index must produce None rather than an empty string. An empty
+    string would count as grounding and report `grounded: true` for a turn that
+    learned nothing, which is the exact lie the normalisation above it prevents."""
+    from hushh_mcp.services.pod_pkm_resolver import local_grounding
+
+    monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "empty.sqlite3"))
+    log = await _log_with(tmp_path, [("memory_record", {"text": "not a pkm record"})])
+
+    assert await local_grounding("owner-a", log=log) is None
+
+
+async def test_local_grounding_never_leaks_another_owner(tmp_path, monkeypatch):
+    from hushh_mcp.services.pod_pkm_resolver import local_grounding
+
+    monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "pkm.sqlite3"))
+    log = await _log_with(tmp_path, [_commit("owner-a", "mine"), _commit("owner-b", "theirs")])
+
+    text = await local_grounding("owner-a", log=log)
+
+    assert text is not None
+    assert "mine" in text
+    assert "theirs" not in text
+
+
+async def test_local_grounding_is_off_when_the_flag_is_off(tmp_path, monkeypatch):
+    from hushh_mcp.services.pod_pkm_resolver import local_grounding
+
+    monkeypatch.setenv("POD_LOCAL_PKM_ENABLED", "0")
+    log = await _log_with(tmp_path, [_commit("owner-a")])
+
+    assert await local_grounding("owner-a", log=log) is None
+
+
+async def test_the_turn_prefers_the_browsers_projection_over_the_local_index(monkeypatch):
+    """Second, never first. When the browser sent a projection it is the fresher
+    of the two, because it holds the decrypted PKM while this index is rebuilt
+    from the log. Preferring the local copy would answer from older holdings on
+    exactly the turns a person is watching."""
+    from pathlib import Path
+
+    source = Path("api/routes/one/pod_turn.py").read_text(encoding="utf-8")
+
+    pushed = source.index("grounding = (payload.pkm_context")
+    local = source.index("local_grounding(user_id)")
+    guard = source.index("if grounding is None:")
+
+    assert pushed < guard < local, "the local index is consulted before the pushed context"

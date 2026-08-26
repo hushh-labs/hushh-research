@@ -205,9 +205,89 @@ async def resolve_pod_pkm_store(owner_user_id: str, *, log: Any = None) -> Optio
     return store
 
 
+#: The same ceiling the relay puts on `pkmContext`. Matched deliberately: the
+#: pod's own grounding and the browser's pushed grounding land in the same
+#: parameter, and a longer one from this path would be silently truncated
+#: somewhere less obvious.
+_GROUNDING_MAX_CHARS = 20000
+
+
+async def local_grounding(owner_user_id: str, *, log: Any = None) -> Optional[str]:
+    """Grounding built from THIS pod's own index, or None if it cannot be.
+
+    Why this exists: `pkmContext` originates in the BROWSER and the hub only
+    forwards it, so a turn with no browser attached arrives with no grounding at
+    all. That is every background tick. A pod that can only be grounded by a
+    person actively looking at it cannot do the between-conversation work the
+    architecture promises.
+
+    Reads the derived index read-only, by path, rather than reaching into the
+    engine's internals or adding a method to an oracle-conformant class. The
+    resolver already owns that path, so this is it reading its own file.
+
+    Returns None on anything unexpected. Grounding is an enhancement to a turn,
+    never a precondition for one.
+    """
+    store = await resolve_pod_pkm_store(owner_user_id, log=log)
+    if store is None:
+        return None
+
+    import json  # noqa: PLC0415
+    import sqlite3  # noqa: PLC0415
+
+    path = sqlite_path()
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except Exception:  # noqa: BLE001 - no index file yet is not a fault
+        return None
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT available_domains, domain_summaries FROM pkm_index WHERE user_id=?",
+            (owner_user_id,),
+        ).fetchone()
+    except Exception:  # noqa: BLE001
+        logger.warning("pod_pkm.index_unreadable", exc_info=True)
+        return None
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+    try:
+        domains = json.loads(row["available_domains"] or "[]")
+        summaries = json.loads(row["domain_summaries"] or "{}")
+    except Exception:  # noqa: BLE001
+        return None
+
+    lines: list[str] = []
+    for domain in domains:
+        summary = (summaries.get(domain) or {}).get("readable_summary")
+        if summary:
+            lines.append(f"{domain}: {summary}")
+    if not lines:
+        return None
+
+    text = "\n".join(lines)
+    if len(text) > _GROUNDING_MAX_CHARS:
+        # Truncate at a line boundary and SAY so, rather than handing the model a
+        # sentence that stops mid-word and reads as corrupted context.
+        clipped: list[str] = []
+        used = 0
+        for line in lines:
+            if used + len(line) + 1 > _GROUNDING_MAX_CHARS - 40:
+                break
+            clipped.append(line)
+            used += len(line) + 1
+        clipped.append("(earlier domains omitted for length)")
+        text = "\n".join(clipped)
+    return text
+
+
 __all__ = [
     "PodPkmOwnerMismatch",
     "RebuildStats",
+    "local_grounding",
     "local_pkm_enabled",
     "rebuild_stats",
     "reset_for_tests",

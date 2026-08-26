@@ -204,6 +204,29 @@ async def run_pod_turn(
     # count would report `grounded: true` for a turn that learned nothing.
     grounding = (payload.pkm_context or "").strip() or None
 
+    # No grounding pushed in? Ask this pod's OWN index.
+    #
+    # `pkmContext` originates in the browser and the hub only forwards it, so a
+    # turn with no browser attached arrives with none at all -- which is every
+    # background tick. A pod that can only be grounded while a person is looking
+    # at it cannot do the between-conversation work the architecture promises.
+    #
+    # Second, never first: when the browser DID send a projection it is the
+    # fresher of the two (it holds the decrypted PKM), and this pod's index is
+    # rebuilt from its own log. Preferring the local copy would quietly answer
+    # from older holdings on exactly the turns a person is watching.
+    if grounding is None:
+        try:
+            from hushh_mcp.services.pod_pkm_resolver import local_grounding  # noqa: PLC0415
+
+            # Keyed on the owner the HUB verified in the consent token, never on
+            # anything the request body carries, so a caller cannot steer this
+            # pod into rebuilding somebody else's index by naming them.
+            grounding = await local_grounding(user_id)
+        except Exception:  # noqa: BLE001 - grounding enhances a turn, never gates it
+            logger.warning("pod_turn.local_grounding_failed", exc_info=True)
+            grounding = None
+
     # The runner's SESSION (and therefore pod memory) is keyed by the AGENT's own
     # identity, while user_id keeps carrying the person's uid to tools via session
     # state. Pod memory is owner-scoped to the HusshID, and ADK hands the session
