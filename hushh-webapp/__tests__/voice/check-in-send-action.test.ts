@@ -48,4 +48,29 @@ describe("location.send_check_in", () => {
       "one_location",
     ]);
   });
+
+  it("shares no alias with the unrelated nearby check-in actions on the same screen", () => {
+    // Two different features -- this one sends the private, encrypted
+    // check-in draft already on screen; the nearby actions search public
+    // places -- happen to share the words "check in" and both live on
+    // /one/location. Both can be available at once (a private recipient
+    // already selected AND a nearby place already resolved), so an identical
+    // alias here is a real ambiguity, not one screen-scoping resolves away.
+    // Caught once already: "confirm the check in" pointed at both this
+    // action and location.confirm_nearby_check_in.
+    const nearbyActionIds = [
+      "location.nearby_check_in",
+      "location.confirm_nearby_check_in",
+      "location.checkout_nearby",
+    ];
+    const sendAliases = new Set(
+      (getKaiActionById(SEND)?.aliases ?? []).map((a) => a.toLowerCase()),
+    );
+    for (const actionId of nearbyActionIds) {
+      const aliases = getKaiActionById(actionId)?.aliases ?? [];
+      for (const alias of aliases) {
+        expect(sendAliases.has(alias.toLowerCase())).toBe(false);
+      }
+    }
+  });
 });
