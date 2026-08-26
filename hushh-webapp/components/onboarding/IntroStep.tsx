@@ -82,10 +82,13 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
 
       <div className={styles.stage}>
         {/* ── Typography-led hero. No cards, no fake metrics. hussh leads
-              as the small, quiet brand mark; One is the product and the
-              dominant visual event below it. ── */}
+              as a clearly-legible brand mark with its own quiet presence;
+              One is still the product and the dominant visual event below
+              it. ── */}
         <div className={styles.hero}>
-          <HushhWordmark className={styles.wordmark} />
+          <div className={styles.wordmarkWrap}>
+            <HushhWordmark className={styles.wordmark} />
+          </div>
 
           <span className={styles.eyebrow}>
             Your private agent

@@ -82,14 +82,43 @@
   text-align: center;
 }
 
-/* hussh is the brand, One is the product: a small, quiet wordmark — not a
-   pill, not a nav bar — so nothing above "One" competes with it. */
-.wordmark {
-  height: clamp(16px, 1.9vh, 21px);
-  width: auto;
-  margin-bottom: clamp(6px, 1.6vh, 16px);
-  opacity: 0.92;
+/* hussh is the brand, One is the product: legible and clearly present on
+   its own — not a pill, not a nav bar, and still a fraction of One's size
+   — so it reads as the brand mark without competing with the hero below
+   it. The wrap carries a tight, low radial glow (visible, not a spotlight)
+   so the mark has a little support of its own instead of sitting bare
+   against the shared canvas. */
+.wordmarkWrap {
+  position: relative;
+  display: inline-flex;
+  margin-top: clamp(2px, 0.6vh, 10px);
+  margin-bottom: clamp(10px, 2.4vh, 24px);
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+}
+
+.wordmarkWrap::before {
+  content: "";
+  position: absolute;
+  inset: -20px -30px;
+  z-index: -1;
+  border-radius: 999px;
+  background: radial-gradient(
+    60% 65% at 50% 50%,
+    color-mix(in oklab, var(--app-accent) 16%, transparent),
+    transparent 75%
+  );
+}
+
+.wordmark {
+  height: clamp(20px, 2.6vh, 28px);
+  width: auto;
+  /* A soft directional shadow rather than flat opacity: reads as depth in
+     light mode and as a faint light bloom in dark mode, since it is mixed
+     from the ink token each theme already flips. Full color, no dimming —
+     legibility was the actual complaint. */
+  filter: drop-shadow(
+    0 1px 3px color-mix(in oklab, var(--foundation-ink) 22%, transparent)
+  );
 }
 
 .hero {
