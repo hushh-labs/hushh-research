@@ -345,7 +345,7 @@ async def test_device_owner_token_requires_active_device():
         )
 
     assert valid is False
-    assert reason == "Trusted device is not active"
+    assert reason == "TRUSTED_DEVICE_REVOKED"
     assert result is None
 
 
@@ -372,5 +372,5 @@ async def test_device_owner_token_fails_closed_when_device_status_is_unavailable
         )
 
     assert valid is False
-    assert reason == "Trusted device revocation status could not be confirmed (DB unavailable)"
+    assert reason == "TRUSTED_DEVICE_STATUS_UNCONFIRMED"
     assert result is None

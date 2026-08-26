@@ -418,7 +418,7 @@ async def validate_token_with_db(
                         "(fingerprint=%s)",
                         _token_fingerprint(token_str),
                     )
-                    return False, "Trusted device is not active", None
+                    return False, "TRUSTED_DEVICE_REVOKED", None
     except Exception as e:
         # DB is unreachable — apply fail-closed policy based on token scope.
         # VAULT_OWNER tokens get a short grace period to avoid locking users
@@ -435,7 +435,7 @@ async def validate_token_with_db(
             )
             return (
                 False,
-                "Trusted device revocation status could not be confirmed (DB unavailable)",
+                "TRUSTED_DEVICE_STATUS_UNCONFIRMED",
                 None,
             )
         if is_vault_owner:

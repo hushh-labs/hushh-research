@@ -1215,7 +1215,7 @@
       "id": "trusted_device_registry",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used tracking, and revocation through TrustedDeviceService."
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService."
     },
     {
       "data_class": "workflow_state",
@@ -5150,7 +5150,7 @@
     "action_gateway": "4da0727c2fdeadb78bc4650914827d77ad085c72dbfebff7e1f1baa2e89c07a1",
     "agent_registry": "ee0eeb9ba4cdc177301df5ed35e03b93cdc8d116f4249d7ba6eb69b1362559a5",
     "cache_manifest": "13a2f556b7ea2ebbcf7729c5ba7dfa8875a79d8dd4a37df2b8dc2471ca544879",
-    "data_plane": "b7e681a7b0681e5d132313116490db2b7b802f77785a6147d629cf04ff9914a3",
+    "data_plane": "e54c50888114e8ec012180b6eb142335164d429494a7cab7a084a1ab0df64e84",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "91046655f19b6c84fa76f27faa3309b7f28887aec26cae65e2b3fa6843f389e4",
     "route_index": "eb051f176332f390083c5e270b7dcc494994a68352b741c16b1765efdc63243e",

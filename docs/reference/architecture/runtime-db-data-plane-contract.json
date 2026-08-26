@@ -569,10 +569,10 @@
       "exact_tables": [
         "trusted_devices"
       ],
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used tracking, and revocation through TrustedDeviceService.",
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService.",
       "retention_policy": "Retain active device registrations while the account exists; retain revoked metadata only for bounded security review before compaction.",
       "deletion_behavior": "Delete all device rows on account deletion; explicit device revocation immediately disables new challenges and records the revocation timestamp.",
-      "trust_boundary": "Public P-256 device keys and device metadata only; never private keys, Firebase tokens, vault passphrases, vault keys, decrypted PKM, or developer credentials.",
+      "trust_boundary": "Public P-256 device keys and device metadata only, including PKM device-sync cursors and remote-revoke seal timestamps; never private keys, Firebase tokens, vault passphrases, vault keys, decrypted PKM, or developer credentials.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "low_per_user"
     },
