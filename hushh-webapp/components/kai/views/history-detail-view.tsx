@@ -164,7 +164,7 @@ export function HistoryDetailView({
 
   if (embedded) {
     return (
-      <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+      <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
         {showHeader ? (
           <Card variant="none" effect="glass" preset="default">
             <CardContent className="p-4">
@@ -276,7 +276,7 @@ export function HistoryDetailView({
         </div>
       </div>
       
-      <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+      <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
 
 
       {/* Stored analysis badge */}
