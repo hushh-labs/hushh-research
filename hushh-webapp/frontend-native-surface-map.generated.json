@@ -4119,6 +4119,7 @@
         "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
+        "location.sos_default",
         "location.stop_share",
         "location.stop_sos",
         "location.trigger_sos"
@@ -9059,5 +9060,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b94c39affab0bf2c4bc623c1416ecdf74ca2544d4a9bf7e79fff223115f77032"
+  "content_sha256": "92bcf2ae536e94a573273b48104116f74577770d67efe97b33845789b3ef9e5d"
 }

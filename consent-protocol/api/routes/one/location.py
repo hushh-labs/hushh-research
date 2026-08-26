@@ -160,6 +160,12 @@ class UpdateNearbyCheckInPreferencesRequest(_CamelModel):
     allow_connection_requests: bool = Field(alias="allowConnectionRequests")
 
 
+class UpdateSosVoicePreferenceRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    default_action: Literal["open", "trigger"] = Field(alias="defaultAction")
+
+
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
@@ -696,6 +702,42 @@ def update_location_nearby_check_in_preferences(
                 user_id=_user_id(token_data),
                 visible=payload.visible,
                 allow_connection_requests=payload.allow_connection_requests,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/sos-voice-preference")
+def get_location_sos_voice_preference(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the viewer's own standing default for a bare emergency voice phrase.
+
+    Separate from `/location/state` for the same reason as the Nearby
+    Check-In preferences route -- Voice Settings needs one field, not the
+    full bulk fetch.
+    """
+    try:
+        return {
+            "preference": _service().get_sos_voice_preference(
+                user_id=_user_id(token_data)
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/sos-voice-preference")
+def update_location_sos_voice_preference(
+    payload: UpdateSosVoicePreferenceRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preference": _service().update_sos_voice_preference(
+                user_id=_user_id(token_data),
+                default_action=payload.default_action,
             )
         }
     except Exception as exc:

@@ -6366,6 +6366,66 @@ class OneLocationAgentService:
             )
         return self._nearby_check_in_preferences_payload(row)
 
+    @staticmethod
+    def _sos_voice_preference_payload(row: dict[str, Any] | None) -> dict[str, Any]:
+        return {
+            "defaultAction": str((row or {}).get("default_action") or "open"),
+            "updatedAt": _iso((row or {}).get("updated_at")) if row else None,
+        }
+
+    def get_sos_voice_preference(self, *, user_id: str) -> dict[str, Any]:
+        """Return the standing default for a bare emergency voice phrase.
+
+        A missing row means the person has never set a preference: it defaults
+        to "open" (show the SOS screen), never "trigger" -- a factory default
+        that sends a real alert would be a surprise no one asked for. Choosing
+        "trigger" never sends anything by itself either: it only routes a bare
+        phrase like "save me" straight to trigger_sos's own mandatory,
+        unconditional confirm card instead of the screen.
+        """
+        row = self._execute_one(
+            """
+            SELECT default_action, updated_at
+            FROM one_location_sos_voice_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return self._sos_voice_preference_payload(row)
+
+    def update_sos_voice_preference(
+        self,
+        *,
+        user_id: str,
+        default_action: str,
+    ) -> dict[str, Any]:
+        """Write the person's standing default for a bare emergency voice phrase."""
+        row = self._execute_one(
+            """
+            INSERT INTO one_location_sos_voice_preferences (
+              user_id, default_action, created_at, updated_at
+            ) VALUES (
+              :user_id, :default_action, NOW(), NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+              default_action = EXCLUDED.default_action,
+              updated_at = NOW()
+            RETURNING default_action, updated_at
+            """,
+            {
+                "user_id": user_id,
+                "default_action": default_action,
+            },
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_SOS_VOICE_PREFERENCE_UPDATE_FAILED",
+                "Could not update the SOS voice default.",
+                status_code=500,
+            )
+        return self._sos_voice_preference_payload(row)
+
     def _lock_current_auto_approve_preference(
         self,
         *,
@@ -7613,6 +7673,7 @@ class OneLocationAgentService:
         # missing row is still projected as off by this method.
         auto_approve_preference = self.get_auto_approve_preference(user_id=user_id)
         nearby_check_in_preferences = self.get_nearby_check_in_defaults(user_id=user_id)
+        sos_voice_preference = self.get_sos_voice_preference(user_id=user_id)
         _sections = self._run_read_queries_parallel(
             [
                 (
@@ -7851,6 +7912,7 @@ class OneLocationAgentService:
             "circles": named_circles,
             "autoApprovePreference": auto_approve_preference,
             "nearbyCheckInPreferences": nearby_check_in_preferences,
+            "sosVoicePreference": sos_voice_preference,
             "myRecipientKey": my_recipient_key,
             "ownerGrants": [
                 payload
