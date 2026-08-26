@@ -31,6 +31,13 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
       "Voice Settings is reachable hands-free from any screen -- say \"open voice settings\" to reach it and adjust anything above without touching the screen.",
   },
   {
+    version: "1.5",
+    date: "2026-08-26",
+    title: "A repeat connection request can reuse what you offered last time",
+    description:
+      "Turn on \"Reuse scopes from last request\" in Voice Settings, and asking to connect with someone you've already asked before offers the same access as last time -- they still approve every request either way.",
+  },
+  {
     version: "1.4",
     date: "2026-08-25",
     title: "These actions now run the moment you ask",
