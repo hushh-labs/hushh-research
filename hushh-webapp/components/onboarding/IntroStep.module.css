@@ -9,20 +9,18 @@
     BlinkMacSystemFont, var(--font-app-display);
   --landing-text: "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont,
     var(--font-app-body);
-  /* A readable-but-secondary ink for the supporting lines (tagline sits
-     above this at full --foundation-ink; the motions row and description
-     sit below it at --foundation-dim). Keeps them legible without making
-     every line compete at the same weight. */
+  /* A readable-but-secondary ink for the motions row: legible against the
+     canvas without competing with the tagline's full --foundation-ink. */
   --landing-secondary-ink: color-mix(
     in oklab,
     var(--foundation-ink) 55%,
     var(--foundation-dim) 45%
   );
   font-family: var(--landing-text);
-  /* A faint wash above the shared decorative canvas (unchanged) so its grain
-     and drifting motes read as texture instead of visual noise competing
-     with the content on top of them. */
-  background: color-mix(in oklab, var(--background) 10%, transparent);
+  /* A wash above the shared decorative canvas (unchanged) so its grain and
+     drifting motes read as a quiet texture rather than visual noise
+     competing with the one-thing-at-a-time composition on top of it. */
+  background: color-mix(in oklab, var(--background) 16%, transparent);
   /* The outer app scroll root already reserves --app-scroll-bottom-pad of
      clearance below this element for the fixed onboarding Agent Bar (see
      app/providers.tsx), then adds it back as its own padding-bottom. Sizing
@@ -73,32 +71,36 @@
       pill sized to its own content (not the full column width) so the
       wordmark and the links read as one intentionally-grouped mark rather
       than two things pinned to opposite edges of an otherwise empty bar.
-      The glass itself favors transparency over opacity — it should read as
-      a soft refraction of what's behind it, not a solid card. ── */
+      The glass recipe layers three things real frosted glass has and a flat
+      tinted rectangle doesn't: a translucent tint (not a solid fill), a
+      brighter hairline along the top where light would catch a physical
+      edge, and a soft cast shadow for depth — on top of the blur itself. ── */
 .brand {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: clamp(14px, 4vw, 26px);
+  gap: clamp(12px, 3.4vw, 22px);
   width: fit-content;
   max-width: 100%;
   margin: 0 auto;
-  padding: clamp(1px, 0.4vh, 4px) clamp(10px, 2.6vw, 16px);
+  padding: clamp(1px, 0.3vh, 3px) clamp(9px, 2.4vw, 14px);
   border-radius: 999px;
-  background: color-mix(in oklab, var(--app-glass-surface) 58%, transparent);
+  background: color-mix(in oklab, var(--app-glass-surface) 44%, transparent);
   border: 0.5px solid
-    color-mix(in oklab, var(--app-glass-border) 55%, transparent);
-  box-shadow: 0 4px 16px -12px
-    color-mix(in oklab, var(--foundation-ink) 20%, transparent);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  backdrop-filter: blur(14px) saturate(140%);
+    color-mix(in oklab, var(--app-glass-border) 40%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in oklab, white 30%, transparent) inset,
+    0 1px 1px color-mix(in oklab, white 20%, transparent) inset,
+    0 8px 24px -16px color-mix(in oklab, var(--foundation-ink) 24%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
   transform: translate3d(0, 0, 0);
   will-change: transform;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 
 .wordmark {
-  height: clamp(22px, 2.6vh, 30px);
+  height: clamp(20px, 2.3vh, 27px);
   width: auto;
   flex-shrink: 0;
 }
@@ -106,7 +108,7 @@
 .links {
   display: flex;
   align-items: center;
-  gap: clamp(0px, 1vw, 6px);
+  gap: clamp(0px, 0.8vw, 4px);
   min-width: 0;
 }
 
@@ -153,15 +155,15 @@
 }
 
 .emoji {
-  margin-top: clamp(6px, 2vh, 20px);
-  font-size: clamp(14px, 3.6vh, 40px);
+  margin-top: clamp(6px, 2.4vh, 26px);
+  font-size: clamp(14px, 3.9vh, 46px);
   line-height: 1;
   filter: drop-shadow(0 8px 18px rgba(109, 67, 26, 0.16));
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both;
 }
 
 .title {
-  margin: clamp(2px, 0.7vh, 8px) 0 0;
+  margin: clamp(2px, 0.8vh, 10px) 0 0;
   font-family: var(--landing-display);
   line-height: 1;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
@@ -203,7 +205,7 @@
 .divider {
   width: min(88px, 28%);
   height: 1px;
-  margin: clamp(6px, 2vh, 20px) auto 0;
+  margin: clamp(6px, 2.4vh, 28px) auto 0;
   background: linear-gradient(
     90deg,
     transparent,
@@ -215,7 +217,7 @@
 
 .tagline {
   max-width: 22rem;
-  margin: clamp(6px, 2vh, 20px) auto 0;
+  margin: clamp(6px, 2.4vh, 28px) auto 0;
   color: var(--foundation-ink);
   font-family: var(--landing-display);
   font-size: clamp(11px, 2.3vh, 20px);
@@ -231,7 +233,7 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  margin-top: clamp(4px, 1.4vh, 14px);
+  margin-top: clamp(4px, 1.8vh, 22px);
   color: var(--landing-secondary-ink);
   font-size: clamp(8px, 1.35vh, 12.5px);
   font-weight: 600;
@@ -252,16 +254,6 @@
   opacity: 0.42;
 }
 
-.description {
-  max-width: 23rem;
-  margin: clamp(6px, 1.6vh, 16px) auto 0;
-  color: var(--landing-secondary-ink);
-  font-size: clamp(7px, 1.7vh, 16px);
-  letter-spacing: -0.01em;
-  line-height: 1.45;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
-}
-
 .footer {
   align-self: end;
   display: flex;
@@ -269,8 +261,8 @@
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
-  padding-top: clamp(8px, 2vh, 16px);
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
+  padding-top: clamp(14px, 3.4vh, 34px);
+  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
 }
 
 .cta {

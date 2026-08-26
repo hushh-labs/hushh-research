@@ -144,15 +144,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               </span>
             ))}
           </div>
-
-          {/* Plain words only. "Encrypted" and "consent" are the mechanism and
-              the legal term; "locked" and "your yes" are what a person actually
-              pictures. "Vault" is a code noun and never appears in copy. */}
-          <p className={styles.description}>
-            Everything you save stays locked.
-            <br />
-            Nothing moves without your yes.
-          </p>
         </div>
 
         {/* ── CTA: Morphy Button, ink surface, gradient ripple. Sits in the
