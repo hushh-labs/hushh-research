@@ -3746,7 +3746,7 @@ export function KaiFlow({
   }
 
   return (
-    <div className="flex w-full flex-col h-full overflow-hidden">
+    <div className="flex w-full flex-col">
       {/* State-based rendering */}
       {state === "import_required" && (
         <PortfolioImportView
