@@ -61,6 +61,10 @@ from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
     OneLocationCircleService,
 )
+from hushh_mcp.services.one_location_nearby_presence_service import (
+    NearbyPresenceError,
+    OneLocationNearbyPresenceService,
+)
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
@@ -299,6 +303,7 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
         "connect.remove_connection",
         "connect.cancel_request",
         "connect.send_request",
+        "location.checkout_nearby",
     }
 )
 
@@ -340,7 +345,12 @@ def _is_backend_direct(clean_id: str, clean_slots: dict[str, Any]) -> bool:
 
 # Backend-direct errors that carry a spoken-safe .message, across the three
 # service modules these actions mutate through.
-_BackendDirectError = (OneLocationCircleError, OneLocationAgentError, ConnectionsError)
+_BackendDirectError = (
+    OneLocationCircleError,
+    OneLocationAgentError,
+    ConnectionsError,
+    NearbyPresenceError,
+)
 
 
 class _BackendDirectConfirmationNeeded(Exception):  # noqa: N818 - control-flow signal, not a failure
@@ -1045,6 +1055,12 @@ async def _execute_backend_direct_mutation(
         return (
             f"Cancelled your connection request to {join_names_for_speech(cancelled_names)}.{note}"
         )
+
+    if action_id == "location.checkout_nearby":
+        # No coordinates, no place, nothing client-only -- checking out only
+        # ever clears the caller's own presence row.
+        OneLocationNearbyPresenceService().checkout(user_id=user_id)
+        return "Checked you out. You're no longer visible to people nearby."
 
     raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
 
