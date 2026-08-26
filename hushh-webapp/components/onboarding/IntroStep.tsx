@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useRef } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useCallback } from "react";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -12,10 +10,9 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import styles from "./IntroStep.module.css";
 
 /* ────────────────────────────────────────────────────────────
- * Welcome ("/"). One brand row, one "One" moment, one clear next action —
- * nothing else competing for attention. The public destinations sit beside
- * the wordmark as a real navigation group with equal targets, not footer
- * text that happens to be clickable.
+ * Welcome ("/"). hussh is the brand, One is the product: a small quiet
+ * wordmark leads into one dominant "One" moment and one clear next action
+ * — nothing else competing for attention.
  * ──────────────────────────────────────────────────────────── */
 
 // One's four motions, shown as a quiet typographic rhythm — never as chips,
@@ -23,34 +20,6 @@ import styles from "./IntroStep.module.css";
 const MOTIONS = ["Listens", "Remembers", "Decides", "Acts"];
 
 export function IntroStep({ onLogin }: { onLogin?: () => void }) {
-  // Pointer-following highlight inside the glass pill. Written straight to
-  // the DOM (not React state) since it must track every pointermove without
-  // re-rendering the tree; the underlying custom properties default to
-  // centered so nothing moves on touch, where no pointermove ever fires.
-  const brandRef = useRef<HTMLDivElement>(null);
-  const handleBrandPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const el = brandRef.current;
-      if (!el || event.pointerType !== "mouse") return;
-      const rect = el.getBoundingClientRect();
-      el.style.setProperty(
-        "--pointer-x",
-        `${(((event.clientX - rect.left) / rect.width) * 100).toFixed(1)}%`,
-      );
-      el.style.setProperty(
-        "--pointer-y",
-        `${(((event.clientY - rect.top) / rect.height) * 100).toFixed(1)}%`,
-      );
-    },
-    [],
-  );
-  const handleBrandPointerLeave = useCallback(() => {
-    const el = brandRef.current;
-    if (!el) return;
-    el.style.setProperty("--pointer-x", "50%");
-    el.style.setProperty("--pointer-y", "0%");
-  }, []);
-
   const claimOne = useCallback(() => {
     if (!onLogin) {
       return {
@@ -112,31 +81,12 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       <OnboardingHeroBackground />
 
       <div className={styles.stage}>
-        {/* Brand row: wordmark plus the public destinations, one nav group
-            instead of a header logo and a separate footer link row. */}
-        <div
-          ref={brandRef}
-          className={styles.brand}
-          onPointerMove={handleBrandPointerMove}
-          onPointerLeave={handleBrandPointerLeave}
-        >
+        {/* ── Typography-led hero. No cards, no fake metrics. hussh leads
+              as the small, quiet brand mark; One is the product and the
+              dominant visual event below it. ── */}
+        <div className={styles.hero}>
           <HushhWordmark className={styles.wordmark} />
 
-          <nav aria-label="Explore Hussh" className={styles.links}>
-            <Link href={ROUTES.RESEARCH} className={styles.link}>
-              Research
-            </Link>
-            <Link href={ROUTES.BLOG} className={styles.link}>
-              Blog
-            </Link>
-            <Link href={ROUTES.DEVELOPERS} className={styles.link}>
-              Developers
-            </Link>
-          </nav>
-        </div>
-
-        {/* ── Typography-led hero. No cards, no fake metrics. ── */}
-        <div className={styles.hero}>
           <span className={styles.eyebrow}>
             Your private agent
           </span>

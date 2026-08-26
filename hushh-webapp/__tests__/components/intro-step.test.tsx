@@ -70,22 +70,14 @@ describe("IntroStep voice contract", () => {
     );
   });
 
-  it("keeps the root public navigation to Research, Blog, and Developers", () => {
+  it("leads with the hussh wordmark ahead of the private-agent line", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
-    const publicNav = screen.getByRole("navigation", { name: "Explore Hussh" });
-    expect(publicNav.querySelectorAll("a")).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute(
-      "href",
-      "/research",
-    );
-    expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute(
-      "href",
-      "/blog",
-    );
-    expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute(
-      "href",
-      "/developers",
+    const wordmark = screen.getByText("hussh");
+    const privateAgent = screen.getByText("Your private agent");
+
+    expect(wordmark.compareDocumentPosition(privateAgent)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
 });

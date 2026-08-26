@@ -37,9 +37,9 @@
 }
 
 /* A near-invisible blue/cyan light field behind the upper half of the page —
-   not a background of its own, just something for the glass pill's blur to
-   actually refract. Two soft radial pools, faded out well before halfway
-   down so it never reads as a colored section. */
+   not a background of its own, just a little atmosphere behind the wordmark
+   and hero. Two soft radial pools, faded out well before halfway down so it
+   never reads as a colored section. */
 .shell::before {
   content: "";
   position: absolute;
@@ -72,7 +72,7 @@
   width: 100%;
   max-width: 34rem;
   margin: 0 auto;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   /* A hidden-shell route has no app top bar to clear. Native status areas are
      normally 44–59px, so cap this defensive gutter at 64px. This contains a
      stale browser/native inset without sacrificing the real status-bar
@@ -82,133 +82,14 @@
   text-align: center;
 }
 
-/* ── Brand row: wordmark + public nav share the top of the page instead of
-      splitting the wordmark up here and the links below the CTA. A single
-      pill sized to its own content (not the full column width) so the
-      wordmark and the links read as one intentionally-grouped mark rather
-      than two things pinned to opposite edges of an otherwise empty bar.
-      The glass recipe layers what real frosted glass has and a flat tinted
-      rectangle doesn't: a translucent tint (not a solid fill) faint enough
-      that the canvas shows through, a brighter hairline and inset highlight
-      along the top where light would catch a physical edge, and a soft cast
-      shadow for depth underneath the blur itself. ── */
-.brand {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(12px, 3.4vw, 22px);
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 auto;
-  padding: clamp(1px, 0.3vh, 3px) clamp(9px, 2.4vw, 14px);
-  border-radius: 999px;
-  --pointer-x: 50%;
-  --pointer-y: 0%;
-  background:
-    radial-gradient(
-      140% 100% at 30% -20%,
-      color-mix(in oklab, var(--app-accent) 5%, transparent),
-      transparent 60%
-    ),
-    color-mix(in oklab, var(--app-glass-surface) 36%, transparent);
-  border: 0.5px solid
-    color-mix(in oklab, var(--app-glass-border) 38%, transparent);
-  box-shadow:
-    0 1px 0 color-mix(in oklab, white 32%, transparent) inset,
-    0 1px 1px color-mix(in oklab, white 18%, transparent) inset,
-    0 10px 28px -18px color-mix(in oklab, var(--foundation-ink) 26%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
-}
-
-/* Pointer-following highlight — position tracked from IntroStep.tsx via the
-   --pointer-x/--pointer-y custom properties (mouse only; untouched, centered
-   defaults on touch where no pointermove ever fires). Visibility is a pure
-   CSS :hover, so there is nothing to wire up beyond the position itself. */
-.brand::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    160px circle at var(--pointer-x) var(--pointer-y),
-    color-mix(in oklab, white 45%, transparent),
-    transparent 70%
-  );
-  opacity: 0;
-  transition: opacity 260ms ease-out;
-  pointer-events: none;
-}
-
-.brand:hover::after {
-  opacity: 0.6;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .brand::after {
-    transition: none;
-  }
-}
-
+/* hussh is the brand, One is the product: a small, quiet wordmark — not a
+   pill, not a nav bar — so nothing above "One" competes with it. */
 .wordmark {
-  height: clamp(20px, 2.3vh, 27px);
+  height: clamp(16px, 1.9vh, 21px);
   width: auto;
-  flex-shrink: 0;
-}
-
-.links {
-  display: flex;
-  align-items: center;
-  gap: clamp(0px, 0.8vw, 4px);
-  min-width: 0;
-}
-
-.link {
-  position: relative;
-  display: inline-flex;
-  /* Tap target stays 44px tall regardless of how compact the label reads. */
-  min-height: 44px;
-  align-items: center;
-  padding: 0 clamp(6px, 2vw, 12px);
-  border-radius: 999px;
-  color: var(--foundation-dim);
-  font-size: clamp(10px, 1.3vh, 12px);
-  font-weight: 590;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  transition: color var(--motion-duration-sm, 180ms)
-    var(--motion-ease-standard, ease-out);
-}
-
-/* Tiny hover "lens": a soft circular tint behind the label, not a filled
-   chip — it should read as light catching the glass, not a button state. */
-.link::before {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  z-index: -1;
-  border-radius: inherit;
-  background: radial-gradient(
-    circle at 50% 50%,
-    color-mix(in oklab, var(--app-accent) 14%, transparent),
-    transparent 72%
-  );
-  opacity: 0;
-  transition: opacity 200ms ease-out;
-}
-
-.link:hover,
-.link:focus-visible {
-  color: var(--foundation-ink);
-}
-
-.link:hover::before,
-.link:focus-visible::before {
-  opacity: 1;
+  margin-bottom: clamp(6px, 1.6vh, 16px);
+  opacity: 0.92;
+  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 
 .hero {
