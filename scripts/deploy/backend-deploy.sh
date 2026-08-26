@@ -342,6 +342,7 @@ hosted_pod_tier=""
 hosted_pod_project=""
 pod_local_pkm=""
 pod_durable_identity=""
+pod_migration=""
 pod_data_door=""
 consent_audit_chain=""
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
@@ -507,6 +508,15 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # key lands beside the log's wrapped key, in the pod's own prefix, sealed under
   # a key derived from the pod's own DEK.
   pod_durable_identity="true"
+  # The in-pod export/import routes that the one-click migration drives. Shipped
+  # this workstream, and shipped BROKEN: the hub renders HUSSH_POD_MIGRATION_ENABLED
+  # into every pod by reading this variable, but no lane set it -- so it rendered
+  # "false" on every pod forever and the migration routes 404'd everywhere while
+  # looking enabled. Caught by test_pod_capability_wiring_is_closed_loop, which is
+  # the whole reason that guard exists. On in dev so the migration rehearsal (the
+  # verification harness's first live job) can reach the routes; guarded further by
+  # the hub-caller identity check, and inert until the sequencer drives it.
+  pod_migration="true"
   # The consent-gated read doors that let an in-pod specialist see owner state
   # without the pod ever holding a database credential. Built with fail-closed
   # egress at two levels, five regression guards, and a projection allowlist --
@@ -561,6 +571,7 @@ append_optional_env "HUSSH_POD_PROJECT" "${hosted_pod_project}"
 append_optional_env "POD_DATA_DOOR_ENABLED" "${pod_data_door}"
 append_optional_env "POD_LOCAL_PKM_ENABLED" "${pod_local_pkm}"
 append_optional_env "POD_DURABLE_IDENTITY_ENABLED" "${pod_durable_identity}"
+append_optional_env "HUSSH_POD_MIGRATION_ENABLED" "${pod_migration}"
 append_optional_env "CONSENT_AUDIT_CHAIN_ENABLED" "${consent_audit_chain}"
 # Ed25519 consent signing (dev only; every value is empty elsewhere). The PRIVATE
 # key rides Secret Manager only -- never an env literal -- and the PUBLIC map is

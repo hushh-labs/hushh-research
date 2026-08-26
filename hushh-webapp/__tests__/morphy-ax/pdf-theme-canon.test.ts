@@ -46,9 +46,37 @@ function extractBlock(source: string, selector: string, startAt = 0): string {
   if (!match) throw new Error(`Missing selector: ${selector}`);
   const open = startAt + match.index + match[0].lastIndexOf("{");
   let depth = 0;
+  let commentOpen = false;
+  let quote: string | null = null;
   for (let i = open; i < source.length; i += 1) {
-    if (source[i] === "{") depth += 1;
-    if (source[i] === "}") {
+    const character = source[i];
+    const next = source[i + 1];
+    if (commentOpen) {
+      if (character === "*" && next === "/") {
+        commentOpen = false;
+        i += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (character === "\\") {
+        i += 1;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      commentOpen = true;
+      i += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "{") depth += 1;
+    if (character === "}") {
       depth -= 1;
       if (depth === 0) return source.slice(open + 1, i);
     }
@@ -58,7 +86,8 @@ function extractBlock(source: string, selector: string, startAt = 0): string {
 
 function readTokens(block: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [, name, value] of block.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
+  const withoutComments = block.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const [, name, value] of withoutComments.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
     out[name] = value.trim();
   }
   return out;
@@ -143,6 +172,10 @@ describe("PDF theme canon", () => {
     ]) {
       expect(accent[token], `dark theme is missing ${token}`).toBeTruthy();
     }
+  });
+
+  it("resolves the executive profile through the real formatter", async () => {
+    await expect(resolveFormatter("light", "executive")).resolves.toMatchObject({ id: "executive" });
   });
 
   it("refuses a theme outside the canon", async () => {

@@ -72,6 +72,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
+python3 scripts/ops/verify_pdf_artifact_contract.py
 ./bin/hushh docs verify
 python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a
 ```

@@ -308,7 +308,8 @@ Operator precedence:
 19. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
 20. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
 21. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
-22. Use [hussh-code-persona.md](./hussh-code-persona.md) as the durable engineering persona contract before turning founder-language or product non-deviation guidance into skill or agent policy.
+22. Use `skills/pdf-artifact-generation/SKILL.md` for any portable PDF artifact. Codex keeps its governed route pointer under `.codex/skills/founder-brief-curation/`; Claude reaches the same behavior through `.claude/skills/pdf-artifact-generation/`. Do not create host-local PDF CSS or renderers.
+23. Use [hussh-code-persona.md](./hussh-code-persona.md) as the durable engineering persona contract before turning founder-language or product non-deviation guidance into skill or agent policy.
 
 If a developer has not configured MCP yet:
 

@@ -104,6 +104,15 @@ Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends
 Use `data-model-audit` plus `./bin/hushh codex data-model-audit` when migrations, table ownership, data classes, retention, or legacy memory write drift are in scope.
 Use `github-contribution-governance` when contribution graph visibility, verified author email, PR target branch, or merge eligibility affects the task outcome.
 
+## Portable PDF artifacts
+
+All Codex and Claude PDF work uses the shared [portable PDF artifact skill](../../../skills/pdf-artifact-generation/SKILL.md).
+The existing Codex workflow retains routing metadata under `.codex/skills/founder-brief-curation/`; the
+portable behavior, full-bleed cover contract, semantic directives, and visual acceptance criteria live once
+at `skills/pdf-artifact-generation/SKILL.md`. Do not create a host-local PDF renderer or stylesheet.
+For a calendar-level monthly GitHub report, use its parameterized collector and monthly cadence reference;
+the calendar is an event record, never a timekeeping or performance measure.
+
 ## References
 
 - [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md): canonical queue, Admin PR landing, exact-SHA promotion, environment dispatch, proof, and closeout state machine.

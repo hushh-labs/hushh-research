@@ -114,7 +114,7 @@ Forbidden:
 5b. Portable PDF artifacts use the Morphy-owned
     `lib/morphy-ux/pdf-document-formatter.mjs`. The Markdown/PDF script is a
     generator only: it reads Foundation tokens from `app/globals.css` and uses
-    a named `technical`, `partner`, or `founder` formatter profile. Light and
+    a named `technical`, `partner`, `founder`, or `executive` formatter profile. Light and
     dark wordmarks use the same `hu` ink and `ssh` foil tokens as the app;
     `molten-gold-light` and `molten-gold` are the explicit light and dark Gold
     variants. Diagram labels inherit the profile's print-safe type scale, and
@@ -303,8 +303,9 @@ reaches documents without a second edit.
 
 | Concern | Canonical path |
 |---|---|
-| Curation + authoring rules | `.codex/skills/founder-brief-curation/SKILL.md` |
-| PDF artifact procedure | `.codex/skills/founder-brief-curation/references/pdf-artifact-generation.md` |
+| Portable artifact procedure | `skills/pdf-artifact-generation/SKILL.md` |
+| Codex routing + curation | `.codex/skills/founder-brief-curation/SKILL.md` |
+| Claude discovery bridge | `.claude/skills/pdf-artifact-generation/SKILL.md` |
 | Formatter + theme contract | `hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs` |
 | Exporter (CLI) | `hushh-webapp/scripts/reports/export-markdown-pdf.mjs` |
 | Design tokens | `hushh-webapp/app/globals.css` |
@@ -327,18 +328,41 @@ documents already in circulation name them, and the DocuSign document is
 cd hushh-webapp
 node scripts/reports/export-markdown-pdf.mjs \
   --input <doc.md> --output <doc.pdf> \
-  --theme light|dark|molten-gold-light|molten-gold
+  --theme light|dark|molten-gold-light|molten-gold \
+  --profile technical|partner|founder|executive
 ```
 
 Guard: `hushh-webapp/__tests__/morphy-ax/pdf-theme-canon.test.ts`. It drives the **real**
 `resolveFormatter`, not a copy — an earlier version reimplemented the resolution logic and
 passed against broken code, which is how the `dark` theme stayed broken through every
-prior run.
+prior run. `scripts/ops/verify_pdf_artifact_contract.py` additionally protects the
+canonical skill and both platform bridges from drifting back into separate procedures.
 
-### Deprecated: `.claude/skills/morphy-pdf/`
+### Full-bleed executive cover
 
-A divergent parallel copy with its own CSS, its own embedded fonts and its own renderer.
-It never reads `globals.css`, so its output ignores the Foundation tokens and the accent
-preference, and it cannot express `molten-gold-light`. Retained read-only so existing
-references resolve. **Do not extend it** — port anything still needed into the canonical
-formatter.
+An executive cover is assigned to the named `pdf-cover` A4 page, which has zero physical
+page margin. The shared exporter keeps ordinary reading margins on all other pages and
+lets CSS, not global browser margin options, own that geometry. A cover must be the first
+semantic block and be immediately followed by `<!-- pdf:page-break -->`; a white perimeter
+or corner bar around its dark ground is a release blocker.
+
+### Monthly executive calendar
+
+Monthly executive reports use the shared `pdf:table=calendar-list` semantic, rendered as a
+source-linked local-date progress list rather than a generic table or dense month grid. It is
+calendar-ready only when every date falls within the stated local IANA timezone/month and nearby
+prose defines the event measures.
+The timezone must be explicit; a PDF artifact must never fall back to UTC or its build machine's
+timezone for calendar labels. Individual delivery reports give each person a dedicated progress
+list; an organisation calendar never substitutes for that evidence. The seven-day
+`pdf:table=calendar` semantic remains available only when its spatial view is materially useful.
+The
+portable collector and monthly cadence live under
+`skills/pdf-artifact-generation/`; calendar event density is never a proxy for hours,
+compensation, or individual performance.
+
+### Legacy Claude alias: `.claude/skills/morphy-pdf/`
+
+The historical name is retained only for discovery compatibility. Its skill is a pointer to
+the root portable procedure, and no active private CSS, renderer, or token vocabulary
+remains beside it. Do not extend it; evolve the formatter and the canonical skill instead.
