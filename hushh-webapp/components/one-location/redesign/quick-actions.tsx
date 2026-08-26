@@ -45,8 +45,8 @@ const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
     icon: "text-[color:var(--app-accent-deep)]",
   },
   slate: {
-    tile: "bg-[#E5E5EA]",
-    icon: "text-[#6E6E73]",
+    tile: "bg-[color:var(--app-neutral-fill)]",
+    icon: "text-[color:var(--app-secondary-label)]",
   },
 };
 
@@ -97,7 +97,7 @@ export function QuickActionCard({
       data-voice-control-id={controlId}
       data-voice-action-id={voiceActionId}
       className={cn(
-        "group flex min-h-[132px] w-full min-w-0 flex-col items-center justify-center gap-3 rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-4 text-center shadow-[var(--app-card-shadow-standard)] transition-colors duration-150 dark:border-white/10",
+        "group flex min-h-[112px] w-full min-w-0 flex-col items-center justify-center gap-2.5 rounded-[18px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-3.5 text-center shadow-[var(--app-card-shadow-standard)] transition-colors duration-150 dark:shadow-none",
         isEmergency &&
           "bg-[color:var(--app-destructive)]/7 dark:bg-[color:var(--app-destructive)]/12",
         interactive

@@ -558,7 +558,7 @@ export default function GmailReceiptsPage({
     void loadReceipts(1);
   }, [canLoad, hasSealedReceiptAccess, loadReceipts, loading, user?.uid]);
 
-  const syncing = gmail.refreshingStatus || gmail.syncingRun;
+  const syncing = gmail.syncingRun;
   const isConnected = gmail.presentation.isConnected;
   const emailAgentIntroRecipient =
     gmail.status?.google_email?.trim() || user?.email?.trim() || null;
