@@ -677,9 +677,7 @@ def get_location_nearby_check_in_preferences(
     """
     try:
         return {
-            "preferences": _service().get_nearby_check_in_defaults(
-                user_id=_user_id(token_data)
-            )
+            "preferences": _service().get_nearby_check_in_defaults(user_id=_user_id(token_data))
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
