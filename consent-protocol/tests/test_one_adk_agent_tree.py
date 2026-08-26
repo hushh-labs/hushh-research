@@ -1390,9 +1390,7 @@ class TestBackendDirectCheckoutNearby:
                 OneLocationNearbyPresenceService, "checkout", autospec=True
             ) as checkout_mock,
         ):
-            result = await run_app_action(
-                "location.checkout_nearby", {}, _tool_context(state)
-            )
+            result = await run_app_action("location.checkout_nearby", {}, _tool_context(state))
         assert result["status"] == "completed"
         assert "checked you out" in result["message"].lower()
         checkout_mock.assert_called_once()
