@@ -104,7 +104,14 @@ ALTER TABLE one_location_events
       'location_circle_invite_created',
       'location_circle_invite_claimed',
       'location_circle_invite_revoked',
-      'location_one_network_joined'
+      'location_one_network_joined',
+      -- Added by migration 180, which reaches every environment through this
+      -- same validating ADD. Same failure mode as 'location_share_shortened'
+      -- above: any value 180 introduces has to appear here too, or replay
+      -- dies on it the first time a real row uses one.
+      'location_circle_code_joined',
+      'location_circle_member_invite_accepted',
+      'circle_member_added'
     )
   );
 
