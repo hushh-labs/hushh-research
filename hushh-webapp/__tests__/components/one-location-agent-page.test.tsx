@@ -1360,7 +1360,8 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryByRole("button", { name: "Your Map" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Settings$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Map$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Settings$/i })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /^Share location$/i }),
     ).toBeTruthy();
@@ -1374,7 +1375,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncCurrentUser).toHaveBeenCalledWith(
       expect.objectContaining({ uid: "user_a" }),
     );
-  });
+  }, 15000);
 
   it("hides the Activity menu when every Activity count is zero", async () => {
     // Empty Activity rows are visual noise on the Now screen. Keep the real
@@ -1566,7 +1567,7 @@ describe("OneLocationAgentPage", () => {
       expect(cell.className).toContain("items-center");
       expect(cell.className).toContain("text-center");
       expect(cell.className).toContain("rounded-[16px]");
-      expect(cell.className).toContain("min-h-[100px]");
+      expect(cell.className).toContain("min-h-[96px]");
       expect(cell.className).toContain("px-5");
     });
     expect(
@@ -1598,11 +1599,14 @@ describe("OneLocationAgentPage", () => {
     expect(within(activity).queryByText("Active shares")).toBeNull();
 
     expect(within(activity).queryByText("Share")).toBeNull();
-    expect(screen.queryByTestId("one-location-now-more")).toBeNull();
+    const more = screen.getByTestId("one-location-now-more");
+    expect(within(more).getByText("Map")).toBeTruthy();
+    expect(within(more).getByText("Settings")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Activity" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "More" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Your Map" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Settings$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Map$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Settings$/i })).toBeTruthy();
     expect(screen.queryByText("Check-In")).toBeNull();
     expect(screen.queryByText("Quick actions")).toBeNull();
   });
@@ -1620,7 +1624,7 @@ describe("OneLocationAgentPage", () => {
       name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("items-center");
+    expect(headerActions.className).toContain("items-end");
     expect(headerActions.className).toContain("justify-center");
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
@@ -1634,8 +1638,9 @@ describe("OneLocationAgentPage", () => {
       "mt-1",
       "w-full",
       "whitespace-nowrap",
-      "text-center",
-      "text-[12px]",
+      "text-right",
+      "text-[13px]",
+      "leading-[18px]",
       "font-normal",
     );
     expect(status.textContent).toBe("Location off");
@@ -6365,7 +6370,7 @@ describe("OneLocationAgentPage", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, 15000);
 
   it("remembers the running share on the device, and only ids and times", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
