@@ -21,8 +21,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { formatRelativeTime } from "@/lib/format/relative-time";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  deriveSyncDisplay,
+  type SyncTone,
+} from "@/lib/trusted-device/sync-display";
 
 interface TrustedDevice {
   device_id: string;
@@ -31,7 +36,18 @@ interface TrustedDevice {
   status: "active" | "revoked";
   created_at: number;
   last_used_at: number | null;
+  // Added by migration 176; optional so an older payload still type-checks and
+  // falls through to the honest "unavailable" / "not yet synced" states.
+  revoked_at?: number | null;
+  last_synced_at?: number | null;
+  sealed_at?: number | null;
 }
+
+const _SYNC_TONE_CLASS: Record<SyncTone, string> = {
+  active: "text-foreground",
+  neutral: "text-foreground",
+  muted: "text-muted-foreground",
+};
 
 export default function TrustedDevicesPage() {
   const { user } = useAuth();
@@ -82,6 +98,8 @@ export default function TrustedDevicesPage() {
     }
   }
 
+  const nowMs = Date.now();
+
   return (
     <AppPageShell
       as="main"
@@ -108,35 +126,53 @@ export default function TrustedDevicesPage() {
         ) : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <div className="space-y-3">
-          {devices.map((device) => (
-            <article
-              className="flex items-center gap-4 rounded-2xl border bg-card p-4"
-              key={device.device_id}
-            >
-              <div className="flex size-10 items-center justify-center rounded-xl bg-muted">
-                <Laptop className="size-5" aria-hidden />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="truncate text-sm font-medium">
-                  {device.device_name}
-                </h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {device.status === "active" ? "Active" : "Revoked"} ·{" "}
-                  {device.platform}
-                </p>
-              </div>
-              {device.status === "active" ? (
-                <Button
-                  aria-label={`Revoke ${device.device_name}`}
-                  onClick={() => setPendingRevocation(device)}
-                  size="icon"
-                  variant="ghost"
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              ) : null}
-            </article>
-          ))}
+          {devices.map((device) => {
+            const sync = deriveSyncDisplay(device, nowMs);
+            const connected = formatRelativeTime(device.created_at, nowMs);
+            const lastActive = formatRelativeTime(device.last_used_at, nowMs);
+            const meta = [
+              device.platform,
+              connected ? `Connected ${connected}` : "",
+              lastActive ? `Last active ${lastActive}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <article
+                className="flex items-center gap-4 rounded-2xl border bg-card p-4"
+                key={device.device_id}
+              >
+                <div className="flex size-10 items-center justify-center rounded-xl bg-muted">
+                  <Laptop className="size-5" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-sm font-medium">
+                    {device.device_name}
+                  </h2>
+                  <p
+                    className={`mt-1 truncate text-xs font-medium ${_SYNC_TONE_CLASS[sync.tone]}`}
+                  >
+                    {sync.label}
+                  </p>
+                  {meta ? (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {meta}
+                    </p>
+                  ) : null}
+                </div>
+                {device.status === "active" ? (
+                  <Button
+                    aria-label={`Unlink ${device.device_name}`}
+                    onClick={() => setPendingRevocation(device)}
+                    size="icon"
+                    variant="ghost"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                ) : null}
+              </article>
+            );
+          })}
           {!loading && devices.length === 0 ? (
             <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
               No trusted devices are connected.
@@ -152,12 +188,14 @@ export default function TrustedDevicesPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revoke this trusted device?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Unlink {pendingRevocation?.device_name || "this device"}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingRevocation?.device_name || "This device"} will immediately
-              lose access to new owner capabilities and Personal information writes.
-              Reconnecting requires browser approval and local vault setup
-              again.
+              This device will stop syncing immediately, and its local copy of
+              your vault will be sealed on the device. Reconnecting requires
+              approving it again in your browser and setting up the local vault
+              from scratch.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -169,7 +207,7 @@ export default function TrustedDevicesPage() {
                 if (pendingRevocation) void revoke(pendingRevocation.device_id);
               }}
             >
-              {revoking ? "Revoking…" : "Revoke device"}
+              {revoking ? "Unlinking…" : "Unlink device"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
