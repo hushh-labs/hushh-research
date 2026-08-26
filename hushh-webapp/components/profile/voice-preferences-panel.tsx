@@ -25,6 +25,8 @@ import {
 } from "@/lib/agent/voice-engine-changelog";
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { VOICE_PERSONA_OPTIONS } from "@/lib/agent/voice-persona-options";
+import { OneLocationService } from "@/lib/one-location/service";
+import { ConnectionsService } from "@/lib/services/connections-service";
 
 /** Select has no null option, so the default pick gets its own sentinel value. */
 const VOICE_NAME_DEFAULT_VALUE = "__default__";
@@ -78,12 +80,189 @@ function VoiceChangelog({ onOpenChangelog }: { onOpenChangelog: () => void }) {
   );
 }
 
+type LocationAgentDefaults = {
+  autoApproveRequests: boolean;
+  nearbyCheckInVisible: boolean;
+  nearbyCheckInAllowConnectionRequests: boolean;
+};
+
+function LocationAgentDefaultsGroup({
+  vaultOwnerToken,
+}: {
+  vaultOwnerToken: string | null;
+}) {
+  const [defaults, setDefaults] = useState<LocationAgentDefaults | null>(null);
+
+  useEffect(() => {
+    if (!vaultOwnerToken) return;
+    let cancelled = false;
+    OneLocationService.getState(vaultOwnerToken)
+      .then((state) => {
+        if (cancelled) return;
+        setDefaults({
+          autoApproveRequests: Boolean(state.autoApprovePreference?.enabled),
+          nearbyCheckInVisible: state.nearbyCheckInPreferences?.visible ?? true,
+          nearbyCheckInAllowConnectionRequests:
+            state.nearbyCheckInPreferences?.allowConnectionRequests ?? false,
+        });
+      })
+      .catch(() => {
+        // Settings row disappears rather than showing a stale or wrong
+        // default; the person can reopen the page to retry.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultOwnerToken]);
+
+  if (!vaultOwnerToken || !defaults) return null;
+
+  const setNearbyCheckIn = (
+    updater: (current: LocationAgentDefaults) => LocationAgentDefaults,
+  ) => {
+    setDefaults((current) => {
+      if (!current) return current;
+      const next = updater(current);
+      OneLocationService.updateNearbyCheckInPreferences({
+        vaultOwnerToken,
+        visible: next.nearbyCheckInVisible,
+        allowConnectionRequests: next.nearbyCheckInAllowConnectionRequests,
+      }).catch(() => setDefaults(current));
+      return next;
+    });
+  };
+
+  return (
+    <SettingsGroup
+      title="Location"
+      description="Defaults One uses for location requests and Nearby Check-In."
+    >
+      <SettingsRow
+        title="Auto-approve requests"
+        description="Let matching location requests through automatically."
+        trailing={
+          <Switch
+            checked={defaults.autoApproveRequests}
+            onCheckedChange={(checked) => {
+              setDefaults((current) =>
+                current ? { ...current, autoApproveRequests: checked } : current,
+              );
+              OneLocationService.updateAutoApprovePreference({
+                vaultOwnerToken,
+                enabled: checked,
+                scope: checked ? { kind: "all_contacts" } : undefined,
+              }).catch(() =>
+                setDefaults((current) =>
+                  current ? { ...current, autoApproveRequests: !checked } : current,
+                ),
+              );
+            }}
+            aria-label="Auto-approve requests"
+          />
+        }
+      />
+      <SettingsRow
+        title="Visible in Nearby Check-In"
+        description="Show up to people nearby when you check in."
+        trailing={
+          <Switch
+            checked={defaults.nearbyCheckInVisible}
+            onCheckedChange={(checked) =>
+              setNearbyCheckIn((current) => ({
+                ...current,
+                nearbyCheckInVisible: checked,
+              }))
+            }
+            aria-label="Visible in Nearby Check-In"
+          />
+        }
+      />
+      <SettingsRow
+        title="Allow connection requests"
+        description="Let people who see you checked in ask to connect."
+        trailing={
+          <Switch
+            checked={defaults.nearbyCheckInAllowConnectionRequests}
+            onCheckedChange={(checked) =>
+              setNearbyCheckIn((current) => ({
+                ...current,
+                nearbyCheckInAllowConnectionRequests: checked,
+              }))
+            }
+            aria-label="Allow connection requests"
+          />
+        }
+      />
+    </SettingsGroup>
+  );
+}
+
+function ConnectAgentDefaultsGroup({
+  getIdToken,
+}: {
+  getIdToken: (() => Promise<string>) | null;
+}) {
+  const [shareScopes, setShareScopes] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!getIdToken) return;
+    let cancelled = false;
+    getIdToken()
+      .then((idToken) => ConnectionsService.getVoicePreferences({ idToken }))
+      .then((preferences) => {
+        if (!cancelled) setShareScopes(preferences.shareScopesFromLastRequest);
+      })
+      .catch(() => {
+        // Settings row disappears rather than showing a stale or wrong
+        // default; the person can reopen the page to retry.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getIdToken]);
+
+  if (!getIdToken || shareScopes === null) return null;
+
+  return (
+    <SettingsGroup
+      title="Connect"
+      description="Defaults One uses for voice-initiated connection requests."
+    >
+      <SettingsRow
+        title="Reuse scopes from last request"
+        description="Let a repeat voice request offer the same access as last time. The other person still approves every request."
+        trailing={
+          <Switch
+            checked={shareScopes}
+            onCheckedChange={(checked) => {
+              setShareScopes(checked);
+              getIdToken()
+                .then((idToken) =>
+                  ConnectionsService.updateVoicePreferences({
+                    idToken,
+                    shareScopesFromLastRequest: checked,
+                  }),
+                )
+                .catch(() => setShareScopes(!checked));
+            }}
+            aria-label="Reuse scopes from last request"
+          />
+        }
+      />
+    </SettingsGroup>
+  );
+}
+
 export function VoicePreferencesPanel({
   userId,
+  vaultOwnerToken = null,
+  getIdToken = null,
   onOpenChangelog,
   onOpenExamples,
 }: {
   userId: string | null;
+  vaultOwnerToken?: string | null;
+  getIdToken?: (() => Promise<string>) | null;
   onOpenChangelog: () => void;
   onOpenExamples: () => void;
 }) {
@@ -197,6 +376,8 @@ export function VoicePreferencesPanel({
           }
         />
       </SettingsGroup>
+      <LocationAgentDefaultsGroup vaultOwnerToken={vaultOwnerToken} />
+      <ConnectAgentDefaultsGroup getIdToken={getIdToken} />
       <SettingsGroup
         title="What voice can control"
         description="Turn a domain off to block voice there; tap still works."

@@ -55,6 +55,11 @@ export interface ConnectionSummaryEntry {
   connectedFromContacts?: boolean;
 }
 
+export interface ConnectionVoicePreference {
+  shareScopesFromLastRequest: boolean;
+  updatedAt?: string | null;
+}
+
 export type ConnectionAudience = "all" | "ria";
 
 export interface ConnectionPage {
@@ -457,6 +462,32 @@ export class ConnectionsService {
     );
     const payload = await jsonOrThrow<{ request: ConnectionRequest }>(response);
     return payload.request;
+  }
+
+  static async getVoicePreferences(opts: {
+    idToken: string;
+  }): Promise<ConnectionVoicePreference> {
+    const response = await ApiService.apiFetch("/api/one/connect/voice-preferences", {
+      method: "GET",
+      headers: authHeaders(opts.idToken),
+    });
+    const payload = await jsonOrThrow<{ preferences: ConnectionVoicePreference }>(response);
+    return payload.preferences;
+  }
+
+  static async updateVoicePreferences(opts: {
+    idToken: string;
+    shareScopesFromLastRequest: boolean;
+  }): Promise<ConnectionVoicePreference> {
+    const response = await ApiService.apiFetch("/api/one/connect/voice-preferences", {
+      method: "PATCH",
+      headers: authHeaders(opts.idToken),
+      body: JSON.stringify({
+        share_scopes_from_last_request: opts.shareScopesFromLastRequest,
+      }),
+    });
+    const payload = await jsonOrThrow<{ preferences: ConnectionVoicePreference }>(response);
+    return payload.preferences;
   }
 
   static async getScopeProposalHistory(opts: {

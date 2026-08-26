@@ -339,6 +339,49 @@ def test_auto_approve_preference_route_binds_owner_and_scope(monkeypatch) -> Non
     ]
 
 
+def test_nearby_check_in_preferences_route_reads_and_writes_the_owner(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.get_calls: list[dict] = []
+            self.update_calls: list[dict] = []
+
+        def get_nearby_check_in_defaults(self, **kwargs):
+            self.get_calls.append(kwargs)
+            return {"visible": True, "allowConnectionRequests": False, "updatedAt": None}
+
+        def update_nearby_check_in_defaults(self, **kwargs):
+            self.update_calls.append(kwargs)
+            return {
+                "visible": kwargs["visible"],
+                "allowConnectionRequests": kwargs["allow_connection_requests"],
+                "updatedAt": "2026-08-26T09:00:00+00:00",
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    get_response = client.get("/api/one/location/nearby-check-in-preferences")
+    assert get_response.status_code == 200
+    assert get_response.json() == {
+        "preferences": {"visible": True, "allowConnectionRequests": False, "updatedAt": None}
+    }
+    assert service.get_calls == [{"user_id": "owner-from-token"}]
+
+    patch_response = client.patch(
+        "/api/one/location/nearby-check-in-preferences",
+        json={"visible": False, "allowConnectionRequests": True},
+    )
+    assert patch_response.status_code == 200
+    assert service.update_calls == [
+        {
+            "user_id": "owner-from-token",
+            "visible": False,
+            "allow_connection_requests": True,
+        }
+    ]
+
+
 def test_view_envelope_route_threads_allow_empty_query_param(monkeypatch) -> None:
     """The opt-in must reach the service, and must default to off.
 

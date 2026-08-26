@@ -3940,6 +3940,8 @@ function ProfilePageContent() {
         content: (
           <VoicePreferencesPanel
             userId={user.uid}
+            vaultOwnerToken={vaultOwnerToken}
+            getIdToken={user.getIdToken ? () => user.getIdToken() : null}
             onOpenChangelog={() =>
               updateProfileView({ detail: "voice-changelog" }, "push")
             }
