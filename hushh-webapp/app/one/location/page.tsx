@@ -85,7 +85,7 @@ import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
 } from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById, listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -630,160 +630,51 @@ export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
  * Every id here exists in `page.voice-action-contract.json`; nothing describes
  * a capability the gateway does not carry.
  */
-const LOCATION_VOICE_ACTIONS = [
-  // Local handlers FIRST, and the order is load-bearing.
-  //
-  // Every action on this surface names `one_location`, so they all tie for
-  // top rank in `prioritizeAvailableActionIds` and the 10-item cap falls back
-  // to the order they appear here. Route actions survive being cut regardless
-  // -- the relay admits navigation from any screen whether or not it was
-  // submitted -- but a dropped local handler is simply gone, and comes back
-  // from the relay as `action_unavailable`, which reads as a broken feature.
-  //
-  // With 24 actions and 10 slots, listing these last meant the only actions
-  // that DO something were the only ones guaranteed to be lost.
-  {
-    id: "location.share_selected",
-    actionId: "location.share_selected",
-    label: "Share with the people I picked",
-    purpose:
-      "Start the share with whoever is already selected, for a duration you say.",
-  },
-  {
-    id: "location.select_share_recipient",
-    actionId: "location.select_share_recipient",
-    label: "Pick someone for the share",
-    purpose:
-      "Select a named connection in the share composer without sending anything.",
-  },
-  {
-    id: "location.pause_updates",
-    actionId: "location.pause_updates",
-    label: "Pause my location",
-    purpose: "Stop sending location updates from this device.",
-  },
-  {
-    id: "location.resume_updates",
-    actionId: "location.resume_updates",
-    label: "Resume my location",
-    purpose: "Turn location updates back on for this device.",
-  },
-  {
-    id: "location.refresh",
-    actionId: "location.refresh",
-    label: "Refresh location",
-    purpose: "Reload location sharing state.",
-  },
+// location.checkout_nearby is wired in the generated gateway but has no
+// useLocalOnboardingActionHandler registration anywhere -- its own UI button
+// calls OneLocationService.checkoutNearby() directly, bypassing the voice
+// path entirely. Publishing it would offer something that always fails,
+// which is worse than not offering it. Excluded until it has a real handler
+// (tracked separately); every other exclusion below is enforced by the
+// filter, not a second hand-list to keep in sync.
+const LOCATION_VOICE_ACTIONS_EXCLUDE_IDS = new Set<string>([
+  "location.checkout_nearby",
+]);
 
-  {
-    id: "location.open_now",
-    actionId: "location.open_now",
-    label: "Open Location now",
-    purpose: "Show current sharing status and quick actions.",
-  },
-  {
-    id: "location.open_people",
-    actionId: "location.open_people",
-    label: "Open Location people",
-    purpose: "Show the people and circles you share with.",
-  },
-  {
-    id: "location.open_links",
-    actionId: "location.open_links",
-    label: "Open Location links",
-    purpose: "Show temporary sharing links.",
-  },
-  {
-    id: "location.open_share",
-    actionId: "location.open_share",
-    label: "Share my location",
-    purpose: "Open the share composer.",
-  },
-  {
-    id: "location.open_ask",
-    actionId: "location.open_ask",
-    label: "Ask for someone's location",
-    purpose: "Open the request composer.",
-  },
-  {
-    id: "location.open_invite",
-    actionId: "location.open_invite",
-    label: "Invite someone to Location",
-    purpose: "Invite someone not on Hushh yet.",
-  },
-  {
-    id: "location.open_create_circle",
-    actionId: "location.open_create_circle",
-    label: "Create a circle",
-    purpose: "Name a new circle to share with as a group.",
-  },
-  {
-    id: "location.open_join_circle",
-    actionId: "location.open_join_circle",
-    label: "Join a circle",
-    purpose: "Enter an invite code to join a circle.",
-  },
-  {
-    id: "location.open_temporary_link",
-    actionId: "location.open_temporary_link",
-    label: "Create a temporary link",
-    purpose: "Make a link that expires.",
-  },
-  {
-    id: "location.open_check_in",
-    actionId: "location.open_check_in",
-    label: "Check in",
-    purpose: "Send a one-off note of where you are.",
-  },
-  {
-    id: "location.open_sos",
-    actionId: "location.open_sos",
-    label: "Open emergency SOS",
-    purpose: "Open the emergency alert screen.",
-  },
-  {
-    id: "location.open_sms_contacts",
-    actionId: "location.open_sms_contacts",
-    label: "Open emergency contacts",
-    purpose: "Choose who receives an SOS text.",
-  },
-  {
-    id: "location.open_settings",
-    actionId: "location.open_settings",
-    label: "Open Location privacy settings",
-    purpose: "Open privacy and precision controls.",
-  },
-  {
-    id: "location.open_active_shares",
-    actionId: "location.open_active_shares",
-    label: "Open active location shares",
-    purpose: "See and stop what is live now.",
-  },
-  {
-    id: "location.open_shared_with_me",
-    actionId: "location.open_shared_with_me",
-    label: "Open locations shared with me",
-    purpose: "See who is sharing with you.",
-  },
-  {
-    id: "location.open_needs_review",
-    actionId: "location.open_needs_review",
-    label: "Open location requests to review",
-    purpose: "Approve or decline requests.",
-  },
-  {
-    id: "location.add_connections",
-    actionId: "location.add_connections",
-    label: "Add people to share location with",
-    purpose: "Open Connect to find people.",
-  },
-  {
-    id: "location.open_map",
-    actionId: "location.open_map",
-    label: "Open the location map",
-    purpose: "Open the full-screen map.",
-  },
-];
+// Derived from the generated action gateway, not hand-typed. This used to be
+// a manually maintained list and it drifted out of sync with the real,
+// contract-authored action set three times -- once documented below, twice
+// more found in the same audit that added this comment. Location's real
+// local-handler count grew past what anyone kept remembering to mirror here;
+// deriving it means a new Location action becomes reachable the moment it is
+// added to the contract, with no second edit to forget.
+//
+// prioritizeAvailableActionIds still ranks and caps this exactly as before
+// (route actions are cap-exempt; local handlers compete for the 14-slot
+// cap and lose ties to whichever SUBVIEW_ACTION_BOOST entry matches the
+// current subview) -- this only changes what becomes a CANDIDATE, not how
+// candidates are ranked once the list is bigger.
+export const LOCATION_VOICE_ACTIONS = listKaiActionsForSurface({
+  screen: "one_location",
+})
+  .filter(
+    (action) =>
+      action.execution_target.status === "wired" &&
+      (action.execution_target.path === "local_handler" ||
+        action.execution_target.path === "route") &&
+      action.execution_policy !== "manual_only" &&
+      !LOCATION_VOICE_ACTIONS_EXCLUDE_IDS.has(action.action_id),
+  )
+  .map((action) => ({
+    id: action.action_id,
+    actionId: action.action_id,
+    label: action.label,
+    // First sentence only: the contract's `meaning` is full multi-sentence
+    // prose written for the model's semantic assessment, not a short
+    // one-liner. This field is consumed as a terse purpose string elsewhere
+    // in this surface's metadata, matching the previous hand-written style.
+    purpose: action.meaning.split(/(?<=[.!?])\s/)[0] || action.meaning,
+  }));
 
 const LOCATION_VOICE_CONTROLS = [
   {

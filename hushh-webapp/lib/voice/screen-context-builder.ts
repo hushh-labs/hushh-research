@@ -499,7 +499,9 @@ function readStringArray(
  * `${screen}:` (empty subview) as the default set for that screen's bare
  * route. Only screens whose local-handler count has actually outgrown
  * ACTION_ID_SCREEN_SEGMENT_CAP need an entry here -- as of writing, that is
- * Location alone (28 screen-owned local handlers competing for 14 slots).
+ * Location alone (30 screen-owned local handlers competing for 14 slots,
+ * derived from the contract in page.tsx's LOCATION_VOICE_ACTIONS -- see that
+ * file for why it is derived rather than hand-counted).
  *
  * This boosts matches to the top rank in `rankOf` below; it never demotes
  * anything. An action absent from the current subview's list still competes
@@ -515,6 +517,7 @@ const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
     "location.stop_share",
     "location.approve_request",
     "location.decline_request",
+    "location.refresh",
   ],
   "one_location:create-circle": ["location.create_circle"],
   "one_location:share": [
@@ -540,7 +543,11 @@ const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
     "location.add_emergency_contact",
     "location.remove_emergency_contact",
   ],
-  "one_location:sos": ["location.trigger_sos", "location.stop_sos"],
+  "one_location:sos": [
+    "location.trigger_sos",
+    "location.stop_sos",
+    "location.sos_default",
+  ],
   // The People tab is where circle membership is actually managed.
   "one_location:people": [
     "location.add_to_circle",
