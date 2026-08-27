@@ -41,6 +41,7 @@ import {
   marketplaceInvestorSourceLabel,
   marketplaceInvestorUserId,
 } from "@/lib/marketplace/investor-discovery";
+import { resolveMarketplacePrimaryCardLabel } from "@/lib/marketplace/primary-card-label";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { buildMarketplaceConnectionsRoute, buildRiaClientWorkspaceRoute } from "@/lib/navigation/routes";
 import {
@@ -1358,23 +1359,20 @@ export default function MarketplacePage() {
                       }
                     >
                       <span className="truncate">
-                        {swipeCard.isTestProfile
-                          ? swipeCard.kind === "investor" && currentPersona === "ria"
-                            ? "Open workspace"
-                            : "Demo"
-                          : Boolean(discoveryCardUserId(swipeCard)) &&
-                              actionLoadingUserId === discoveryCardUserId(swipeCard)
-                            ? "Connecting..."
-                            : currentPersona === "investor"
-                              ? "Request advisory"
-                              : swipeCard.canConnect
-                                ? "Send request"
-                                : swipeCard.kind === "investor" &&
-                                    isMarketplaceInvestorShortlistable(
-                                      swipeCard.profile as MarketplaceInvestor
-                                    )
-                                  ? "Save lead"
-                                  : "View profile"}
+                        {resolveMarketplacePrimaryCardLabel({
+                          kind: swipeCard.kind,
+                          isTestProfile: swipeCard.isTestProfile,
+                          isActionLoading:
+                            Boolean(discoveryCardUserId(swipeCard)) &&
+                            actionLoadingUserId === discoveryCardUserId(swipeCard),
+                          currentPersona,
+                          canConnect: swipeCard.canConnect,
+                          isInvestorShortlistable:
+                            swipeCard.kind === "investor" &&
+                            isMarketplaceInvestorShortlistable(
+                              swipeCard.profile as MarketplaceInvestor
+                            ),
+                        })}
                       </span>
                     </Button>
                   </div>
@@ -1421,6 +1419,9 @@ export default function MarketplacePage() {
             const isPublicSecInvestor =
               item.kind === "investor" &&
               isPublicSecMarketplaceInvestor(item.profile as MarketplaceInvestor);
+            const isInvestorShortlistable =
+              item.kind === "investor" &&
+              isMarketplaceInvestorShortlistable(item.profile as MarketplaceInvestor);
             return (
               <RiaSurface
                 key={`${item.kind}-${item.id}`}
@@ -1497,22 +1498,14 @@ export default function MarketplacePage() {
                       }
                     >
                       <span className="min-w-0 truncate">
-                        {item.isTestProfile
-                          ? item.kind === "investor" && currentPersona === "ria"
-                            ? "Open workspace"
-                            : "Demo"
-                          : Boolean(userId) && actionLoadingUserId === userId
-                            ? "Connecting..."
-                            : currentPersona === "investor"
-                              ? "Request advisory"
-                              : item.canConnect
-                                ? "Send request"
-                                : item.kind === "investor" &&
-                                    isMarketplaceInvestorShortlistable(
-                                      item.profile as MarketplaceInvestor
-                                    )
-                                  ? "Save lead"
-                                  : "View profile"}
+                        {resolveMarketplacePrimaryCardLabel({
+                          kind: item.kind,
+                          isTestProfile: item.isTestProfile,
+                          isActionLoading: Boolean(userId) && actionLoadingUserId === userId,
+                          currentPersona,
+                          canConnect: item.canConnect,
+                          isInvestorShortlistable,
+                        })}
                       </span>
                     </Button>
                     <Button
