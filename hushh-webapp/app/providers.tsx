@@ -132,6 +132,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   const isPublicKnowledgeWorkspace =
     pathname === ROUTES.WELCOME &&
     ["research", "blog", "developers"].includes(searchParams?.get("tab") ?? "");
+  const suppressAnonymousEntryChrome =
+    (pathname === ROUTES.HOME && !isPublicKnowledgeWorkspace) ||
+    pathname === ROUTES.LOGIN;
   const shellPathname = useMemo(
     () =>
       pathname === ROUTES.HOME &&
@@ -152,7 +155,8 @@ function AppShellFrame({ children }: ProvidersProps) {
   const routeLayoutMode = routeLayout.mode;
   // Chrome visibility is primarily route-owned. A small set of focused
   // Location flows still keeps the top shell while clearing bottom chrome.
-  const hidesPersistentChrome = routeLayout.persistentChrome === "none";
+  const hidesPersistentChrome =
+    routeLayout.persistentChrome === "none" || suppressAnonymousEntryChrome;
   const locationAction = String(searchParams?.get("action") || "").trim();
   const focusedLocationChromeFlow =
     shellPathname === ROUTES.ONE_LOCATION &&

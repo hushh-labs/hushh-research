@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("IntroStep voice contract", () => {
-  it("publishes and executes the same Claim your One control used by tapping", async () => {
+  it("publishes and executes the same Meet your agents control used by tapping", async () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
 
@@ -35,7 +35,7 @@ describe("IntroStep voice contract", () => {
       ).not.toBeNull();
     });
 
-    const button = screen.getByRole("button", { name: /claim your one/i });
+    const button = screen.getByRole("button", { name: /meet your agents/i });
     expect(button).toHaveAttribute(
       "data-voice-control-id",
       "onboarding_claim_one",
@@ -55,37 +55,30 @@ describe("IntroStep voice contract", () => {
     });
   });
 
-  it("uses the standardized root quiet mark between the private-agent line and One", () => {
+  it("uses the standardized root quiet mark before One without the old eyebrow", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
-    const privateAgent = screen.getByText("Your private agent");
+    expect(screen.queryByText("Your private agent")).toBeNull();
     const quietMark = screen.getByText("🤫");
     const one = screen.getByRole("heading", { name: "One" });
 
-    expect(privateAgent.compareDocumentPosition(quietMark)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
     expect(quietMark.compareDocumentPosition(one)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
 
-  it("keeps the root public navigation to Research, Blog, and Developers", () => {
+  it("renders the focused root copy and removes public footer links", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
-    const publicNav = screen.getByRole("navigation", { name: "Explore Hussh" });
-    expect(publicNav.querySelectorAll("a")).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute(
-      "href",
-      "/research",
-    );
-    expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute(
-      "href",
-      "/blog",
-    );
-    expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute(
-      "href",
-      "/developers",
-    );
+    expect(
+      screen.getByText("Personal agents for everyday life."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("One app to bring them together."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Your agents. Yours to own.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Research" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Blog" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Developers" })).toBeNull();
   });
 });

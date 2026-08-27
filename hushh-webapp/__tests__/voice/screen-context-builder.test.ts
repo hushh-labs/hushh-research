@@ -70,22 +70,37 @@ describe("the action-id cap invariant this file's own comments document", () => 
     expect(ACTION_ID_SCREEN_SEGMENT_CAP).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
   });
 
-  it("matches the backend's Pydantic max_length for available_action_ids", () => {
-    // consent-protocol/hushh_mcp/agents/onboarding/agent.py's
-    // OnboardingJourneyContext.available_action_ids has max_length=18 --
-    // see tests/test_onboarding_goal_agent.py's matching parity test on
-    // that side. There is no automated cross-language sync for this; both
-    // sides must be changed together, in the same commit.
-    expect(AVAILABLE_ACTION_IDS_CAP).toBe(18);
+  it("is derived, not a bare number to keep in sync by hand", () => {
+    // Used to be a bare 18 in four places (this file, the backend's
+    // LIVE_CONTEXT_ARRAY_CAP, its onboarding Pydantic max_length, and two
+    // agent_tree.py render-time slices), each requiring a manual "keep in
+    // sync" edit whenever GLOBAL_NAV_ACTION_IDS grew. It grew twice without
+    // any of those edits happening, which is what silently broke the
+    // "must ALWAYS be visible" guarantee below. Deriving it here means
+    // there is only one number to get right.
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(
+      ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length,
+    );
   });
 
-  it("documents that a crowded screen already trades away some global-nav slots", () => {
-    // Not a bound that must hold -- the opposite: 14 + 8 already exceeds 18
-    // today, so the append loop in prioritizeAvailableActionIds already
-    // silently drops some GLOBAL_NAV_ACTION_IDS entries once a screen's own
-    // segment is full. Asserted here so a future reader sees this is known
-    // and accepted, not undiscovered.
-    expect(ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length).toBeGreaterThan(
+  it("matches the backend's shared AVAILABLE_ACTION_IDS_CAP", () => {
+    // consent-protocol/hushh_mcp/services/action_gateway.py defines the same
+    // derivation in Python (imported by live_context.py's
+    // LIVE_CONTEXT_ARRAY_CAP, onboarding/agent.py's Pydantic max_length, and
+    // agent_tree.py's two render-time slices). There is no automated
+    // cross-language sync for this; both sides must be changed together, in
+    // the same commit, and this pins the current value so a drift is caught
+    // here instead of in a UAT deploy.
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(24);
+  });
+
+  it("never lets a crowded screen trade away a global-nav slot", () => {
+    // The bug this replaces: GLOBAL_NAV_ACTION_IDS's own comment says these
+    // "must ALWAYS be visible... regardless of the current screen", but the
+    // cap used to be a bare 18, so only the first 4 (fixed declaration
+    // order) survived once a screen's local segment filled its 14 slots.
+    // Now the cap is sized to hold both segments in full, always.
+    expect(ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length).toBeLessThanOrEqual(
       AVAILABLE_ACTION_IDS_CAP,
     );
   });
@@ -1187,6 +1202,14 @@ describe("a surface that declares more controls than the context can carry", () 
     clearVoiceSurfaceMetadata();
   });
 
+  // Local (screen-owned) ids only, excluding the reserved global-nav segment
+  // -- that segment now rides along on every screen with published actions
+  // (see the includeGlobalNavigation fix above), so a plain length check
+  // against the combined array no longer isolates the screen-segment cap.
+  function localOnlyIds(actionIds: readonly string[]): string[] {
+    return actionIds.filter((id) => !GLOBAL_NAV_ACTION_IDS.includes(id));
+  }
+
   it("keeps the actions that DO something when the openers outnumber the cap", () => {
     // Location's real shape: 18 controls whose first ten all open a tab, with
     // every acting handler declared last. `publishedActionIds` was capped at
@@ -1248,7 +1271,7 @@ describe("a surface that declares more controls than the context can carry", () 
     );
     expect(snapshot.available_action_ids).toContain("location.pause_updates");
     // Still bounded -- this fixes an ordering bug, it does not lift the cap.
-    expect(snapshot.available_action_ids.length).toBeLessThanOrEqual(
+    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
       ACTION_ID_SCREEN_SEGMENT_CAP,
     );
     // And the openers are what yields, since navigation is admitted from any
@@ -1317,7 +1340,7 @@ describe("a surface that declares more controls than the context can carry", () 
     for (const actionId of localHandlers) {
       expect(snapshot.available_action_ids).toContain(actionId);
     }
-    expect(snapshot.available_action_ids.length).toBeLessThanOrEqual(
+    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
       ACTION_ID_SCREEN_SEGMENT_CAP,
     );
   });
@@ -1389,8 +1412,69 @@ describe("a surface that declares more controls than the context can carry", () 
     for (const actionId of peopleTabActions) {
       expect(snapshot.available_action_ids).toContain(actionId);
     }
-    expect(snapshot.available_action_ids.length).toBeLessThanOrEqual(
+    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
       ACTION_ID_SCREEN_SEGMENT_CAP,
     );
+  });
+
+  it("still shows every global nav contract when the local segment is completely full", () => {
+    // Regression for the bug this fixes: prioritizeAvailableActionIds was
+    // called with includeGlobalNavigation = underlyingActionsAvailable &&
+    // publishedActionIds.length === 0, so ANY screen that published its own
+    // actions -- Location's permanent steady state, not just a crowded
+    // moment -- got zero GLOBAL_NAV_ACTION_IDS entries, not just a truncated
+    // few. All ten must survive now regardless of how full (or empty) the
+    // local segment is, as long as no interaction layer is actively
+    // blocking.
+    window.history.pushState({}, "", "/one/location");
+    const localHandlers = [
+      "location.accept_circle_invite",
+      "location.add_emergency_contact",
+      "location.add_to_circle",
+      "location.approve_request",
+      "location.change_share_duration",
+      "location.create_circle",
+      "location.decline_circle_invite",
+      "location.decline_request",
+      "location.delete_circle",
+      "location.delete_saved_location",
+      "location.leave_circle",
+      "location.pause_updates",
+      "location.refresh",
+      "location.remove_emergency_contact",
+      "location.remove_from_circle",
+      "location.rename_circle",
+      "location.resume_updates",
+      "location.save_current_location",
+      "location.select_ask_recipient",
+      "location.select_share_recipient",
+      "location.send_check_in",
+      "location.send_request",
+      "location.set_auto_share",
+      "location.share_selected",
+      "location.stop_share",
+      "location.stop_sos",
+      "location.trigger_sos",
+    ];
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_location",
+      controls: localHandlers.map((actionId) => ({
+        id: actionId,
+        actionId,
+        label: actionId,
+      })),
+    });
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+      voiceContext: {},
+    });
+
+    const availableIds = (
+      context.screen_metadata as { available_action_ids: string[] }
+    ).available_action_ids;
+    for (const navId of GLOBAL_NAV_ACTION_IDS) {
+      expect(availableIds).toContain(navId);
+    }
   });
 });
