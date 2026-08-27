@@ -1306,6 +1306,34 @@ async def ask_consent_agent(
     return result
 
 
+def _intro_navigable(entry: dict[str, Any] | None, action_id: str) -> bool:
+    """True only for what run_intro_navigation_action will actually run.
+
+    A single predicate shared by both functions below, so the catalog
+    list_intro_navigation_actions offers can never drift from what the
+    executor accepts. It used to be narrower here (route.* prefix + policy +
+    status) than in the list function (is_navigation_action alone, a
+    deliberately broader union used elsewhere for the main, post-vault
+    list_app_actions), so 45 of 77 "navigable" ids were listed as candidates
+    and then always rejected -- including every location.open_*/setup.open_*
+    action, none of which belongs pre-vault. Narrowing the list to this
+    predicate (rather than widening the executor to match the old list) is
+    the safe direction: run_intro_navigation_action's own contract is that it
+    "can never turn an informational pre-vault turn into a vault, consent, or
+    mutation action," which a wider executor would break.
+    """
+    if entry is None:
+        return False
+    policy = str(entry.get("risk", {}).get("execution_policy") or "")
+    status = str(entry.get("execution_target", {}).get("status") or "")
+    return (
+        action_id.startswith("route.")
+        and is_navigation_action(entry)
+        and policy == "allow_direct"
+        and status == "wired"
+    )
+
+
 async def run_intro_navigation_action(action_id: str, tool_context: ToolContext) -> dict[str, Any]:
     """Offer one low-risk route action from One's anonymous, pre-vault surface.
 
@@ -1315,15 +1343,7 @@ async def run_intro_navigation_action(action_id: str, tool_context: ToolContext)
     """
     clean_id = str(action_id or "").strip()
     entry = get_action_gateway_action(clean_id)
-    policy = str((entry or {}).get("risk", {}).get("execution_policy") or "")
-    status = str((entry or {}).get("execution_target", {}).get("status") or "")
-    if (
-        entry is None
-        or not clean_id.startswith("route.")
-        or not is_navigation_action(entry)
-        or policy != "allow_direct"
-        or status != "wired"
-    ):
+    if not _intro_navigable(entry, clean_id):
         return {
             "status": "unavailable",
             "message": "That action is not available before the vault is unlocked.",
@@ -1334,9 +1354,9 @@ async def run_intro_navigation_action(action_id: str, tool_context: ToolContext)
 async def list_intro_navigation_actions() -> dict[str, Any]:
     """List the generated, directly-wired routes available before vault unlock.
 
-    This is a bounded catalog, not a classifier. One uses it only when the
-    action id is uncertain; semantic interpretation of the user's request
-    remains in the model.
+    This is a bounded catalog, not a classifier. Call it first whenever the
+    person's words are not already a close match to a route you already know
+    -- semantic interpretation of what they meant still belongs to the model.
     """
     results = [
         {
@@ -1345,7 +1365,7 @@ async def list_intro_navigation_actions() -> dict[str, Any]:
             "meaning": str(entry.get("meaning") or ""),
         }
         for entry in list_action_gateway_actions()
-        if is_navigation_action(entry)
+        if _intro_navigable(entry, str(entry.get("action_id") or ""))
     ]
     return {"status": "ok", "results": results[:32]}
 
@@ -1379,7 +1399,9 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
             "do not force a workflow or interpret words with fixed keyword rules. "
             "When the user clearly asks to open a Hussh screen, call "
             "run_intro_navigation_action with one exact generated route.* action id. "
-            "Call list_intro_navigation_actions only when the action id is uncertain. "
+            "Call list_intro_navigation_actions first unless their words are already a "
+            "close match to a route id you already know -- do not rely on a feeling "
+            "of confidence. "
             "Never claim access to personal information, PKM, "
             "email, location, consent records, CRM records, or any completed action. "
             "For protected or mutating work, explain that unlocking the vault and the "

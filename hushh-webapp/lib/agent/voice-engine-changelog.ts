@@ -19,6 +19,13 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   {
     version: "1.6",
     date: "2026-08-28",
+    title: "Fixed: a few \"open X\" requests before sign-in said they weren't available",
+    description:
+      "On the very first screen, before your vault is unlocked, asking to open certain Hussh screens could say they weren't available even though they were. Voice now only offers what it can actually open there.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
     title: "Fixed: \"stop sharing\" now actually stops sharing",
     description:
       "Saying \"stop sharing\" with no name attached used to just open the list of who could see you -- nothing stopped. It now pauses your location right away, the same as tapping pause yourself.",
