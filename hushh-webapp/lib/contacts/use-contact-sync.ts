@@ -38,6 +38,7 @@ import { toast } from "sonner";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhContacts } from "@/lib/capacitor";
+import { isNative } from "@/lib/capacitor/platform";
 import {
   INVITE_TO_ONE_DIALOG_TITLE,
   INVITE_TO_ONE_SHARE_TEXT,
@@ -367,11 +368,23 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       })
       .catch(() => {
         if (cancelled) return;
-        // No device plugin is still usable when the web-only Google source is
-        // configured. Native never reports Google as connectable.
-        setGoogleFallback(googleConfigured);
-        setAvailable(googleConfigured);
-        preloadGoogleFallback();
+        // A failed probe is not evidence that there is nothing to read.
+        //
+        // On native there is an address book, always; the bridge call merely
+        // did not answer. Treating that as "unavailable" would hide the
+        // control on the platform the feature is mainly for -- and hide it
+        // silently, since `googleContactsAvailability()` returns
+        // "unconfigured" whenever `isNative()`, so the Google arm below can
+        // never restore it there. The tap itself fails loudly and with a
+        // remedy, which is the better place for a real failure to surface.
+        //
+        // On web the reasoning inverts: no plugin answer and no Google client
+        // means there genuinely is no source, and a control that exists only
+        // to explain that is worse than no control.
+        const native = isNative();
+        setGoogleFallback(!native && googleConfigured);
+        setAvailable(native || googleConfigured);
+        if (!native) preloadGoogleFallback();
       });
     return () => {
       cancelled = true;
