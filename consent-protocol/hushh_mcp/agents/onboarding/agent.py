@@ -15,6 +15,7 @@ from hushh_mcp.onboarding_contract import (
     SETUP_CAPABILITY_IDS,
     SETUP_CAPABILITY_ORDER,
 )
+from hushh_mcp.services.action_gateway import AVAILABLE_ACTION_IDS_CAP
 
 _PHASES = (
     "anonymous_auth",
@@ -133,7 +134,9 @@ class OnboardingJourneyContext(BaseModel):
     root_resolved: bool = False
     return_route: Literal["/one/setup"] = "/one/setup"
     callback_state: Literal["none", "pending", "succeeded", "cancelled", "failed"] = "none"
-    available_action_ids: list[str] = Field(default_factory=list, max_length=18)
+    available_action_ids: list[str] = Field(
+        default_factory=list, max_length=AVAILABLE_ACTION_IDS_CAP
+    )
     setup_capability_ids: list[str] = Field(default_factory=list, max_length=10)
     screen: str = Field(default="unknown", max_length=64)
     assessment: OnboardingAssessmentV1 = Field(default_factory=OnboardingAssessmentV1)

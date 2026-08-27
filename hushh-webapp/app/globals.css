@@ -2114,6 +2114,43 @@ html.kb-open .ambient-chrome-mask--bottom {
   padding-bottom: var(--app-page-content-bottom-gap);
 }
 
+.one-agent-launcher-grid {
+  --one-agent-icon-size: 64px;
+  --one-agent-cell-height: 128px;
+  --one-agent-column-gap: 12px;
+  --one-agent-row-gap: 14px;
+  max-width: 390px;
+}
+
+.one-agent-launcher-grid-inner {
+  column-gap: var(--one-agent-column-gap);
+  row-gap: var(--one-agent-row-gap);
+}
+
+.one-agent-app-icon svg {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.08));
+}
+
+@media (max-width: 360px), (max-height: 620px) {
+  .one-agent-launcher-grid {
+    --one-agent-icon-size: 56px;
+    --one-agent-cell-height: 112px;
+    --one-agent-column-gap: 8px;
+    --one-agent-row-gap: 10px;
+    max-width: 336px;
+  }
+}
+
+@media (min-width: 768px) {
+  .one-agent-launcher-grid {
+    --one-agent-icon-size: 76px;
+    --one-agent-cell-height: 156px;
+    --one-agent-column-gap: 20px;
+    --one-agent-row-gap: 20px;
+    max-width: 640px;
+  }
+}
+
 /* Sparse screens (empty states, short lists) let their height fit content
    instead of an ancestor stretching them to the full viewport, which produced
    a large dead scroll region above the floating "Talk to One" bar. The bottom
