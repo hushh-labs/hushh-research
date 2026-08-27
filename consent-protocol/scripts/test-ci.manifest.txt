@@ -166,6 +166,8 @@ tests/test_pod_server.py
 tests/test_pod_service_account_id_fits_google.py
 tests/test_pod_spec_deployment_axes.py
 tests/test_pod_capability_wiring_is_closed_loop.py
+tests/test_pod_parity_probe.py
+tests/test_pod_lifecycle_drill.py
 tests/test_pod_status_vocabulary_is_one_vocabulary.py
 tests/test_pod_storage.py
 tests/test_pod_turn_grounding.py

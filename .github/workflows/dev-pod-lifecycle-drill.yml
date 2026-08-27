@@ -1,0 +1,70 @@
+name: Dev Pod Lifecycle Drill
+
+# The harness's Layer 2. It runs the pod lifecycle drill's ORCHESTRATION on a
+# cadence -- provision, teach, prove-learned, kill, rebuild the same owner,
+# recall across the death, negative control -- against the in-memory fleet, and
+# archives the result. This is the offline `--dry-run` half: it needs no cloud,
+# costs nothing, and goes red the day the drill's own logic (including the
+# negative self-test, which proves a state-LOSING lifecycle fails the drill)
+# stops holding. It runs here, on a schedule, independent of any PR, so the
+# guarantee does not depend on someone remembering to run the tests.
+#
+# THE LIVE DOUBLE-CYCLE IS DELIBERATELY NOT A CI JOB.
+# Running the identical sequence against real Cloud Run + real GCS is the
+# operator path: `pod_lifecycle_drill.py --live --project hushh-pda-dev
+# --owner <throwaway HusshID> --consent-token <minted pkm.read grant>`. It is
+# excluded here for the same reason `pod_evolution_gcs_probe.py` is an operator
+# check and not a CI test: it creates real per-user pods (minutes of billed
+# compute in a shared, costed project) and needs a consent token minted at
+# runtime for the drill owner, which a CI runner has no safe way to mint. The
+# drill tears down every service it provisions, pass or fail, but the decision
+# to spend money on a live run stays a human's.
+#
+# NOTE ON ACTIVATION: GitHub only fires `schedule:` and shows `workflow_dispatch`
+# for workflows on the repository's DEFAULT branch. This file lives on the
+# dev-ahead-of-main workstream branch, so the cron is dormant until it is
+# promoted to `main` -- the drill's logic is already guarded on every PR by
+# `tests/test_pod_lifecycle_drill.py`; this workflow's cron is the cadence, and
+# its activation is a governance-gated promotion, not an oversight.
+
+on:
+  schedule:
+    - cron: "23 7 * * 1" # Mondays 07:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orchestration-heartbeat:
+    name: Pod lifecycle drill (offline orchestration)
+    if: github.repository == 'hushh-labs/hushh-research'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python + uv runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+
+      - name: Run the lifecycle drill orchestration check
+        shell: bash
+        working-directory: consent-protocol
+        run: |
+          set -euo pipefail
+          uv run python scripts/ops/pod_lifecycle_drill.py \
+            --dry-run \
+            --report-path /tmp/dev-pod-lifecycle-drill-report.json
+
+      - name: Upload drill report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: dev-pod-lifecycle-drill-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: /tmp/dev-pod-lifecycle-drill-report.json
