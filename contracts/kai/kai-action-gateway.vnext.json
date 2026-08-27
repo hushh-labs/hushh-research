@@ -504,7 +504,7 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_intro",
-      "surface_title": "Claim your One",
+      "surface_title": "Meet your agents",
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md",
         "docs/reference/one/one-voice-onboarding-journey.md"
@@ -14371,8 +14371,9 @@
     {
       "action_id": "onboarding.claim_one",
       "surface_id": "one_intro",
-      "label": "Claim your One",
+      "label": "Meet your agents",
       "aliases": [
+        "meet your agents",
         "claim your one",
         "claim my one",
         "claim one",
@@ -14455,7 +14456,7 @@
         "workflow_steps": [
           {
             "type": "action",
-            "label": "Claim your One",
+            "label": "Meet your agents",
             "failure_behavior": "stop",
             "action_id": "onboarding.claim_one",
             "settlement_target": {
