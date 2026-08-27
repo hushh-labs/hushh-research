@@ -17,10 +17,22 @@ function read(relativePath: string) {
  * by `e2e/connect-sticky-header.layout.spec.ts`, which renders and measures
  * them. What a rendered fixture cannot hold is which offsets the COMPONENT
  * hands the browser — a fixture only ever contains what its author put there.
- * These three assertions are the other half of that pair, in the same shape the
+ * These assertions are the other half of that pair, in the same shape the
  * `phone-width geometry QA reported` block in `app/connect/page-client.test.tsx`
  * already uses.
  */
+/** The value of a `const NAME = "…";` class string, by name. */
+function classNameConstant(source: string, name: string): string {
+  const declared = source.indexOf(`const ${name} =`);
+  if (declared < 0) throw new Error(`${name} is not declared`);
+  const opens = source.indexOf('"', declared);
+  const closes = source.indexOf('";', opens + 1);
+  if (opens < 0 || closes < 0) {
+    throw new Error(`${name} is not a single string constant`);
+  }
+  return source.slice(opens + 1, closes);
+}
+
 describe("connect sticky header contract", () => {
   const source = read("app/connect/page-client.tsx");
 
@@ -42,5 +54,46 @@ describe("connect sticky header contract", () => {
     // one width and one surface.
     expect(source).toContain("--connect-sticky-header-height");
     expect(source).toContain("new ResizeObserver(publish)");
+  });
+
+  it("paints both pinned bands opaque", () => {
+    // 15% of a roster row is still a roster row. At `bg-background/85` names and
+    // avatars read through the strips and through the search field as they
+    // scroll past — reported from a phone as "the contact list is scrolling
+    // behind the header".
+    //
+    // Read off the two constants rather than the whole file: the docblocks above
+    // them quote the value this replaced, and a bare `toContain` over the source
+    // would keep failing on the explanation for its own fix.
+    for (const name of [
+      "CONNECT_STICKY_HEADER_CLASSNAME",
+      "CONNECT_STICKY_SEARCH_CLASSNAME",
+    ]) {
+      expect(classNameConstant(source, name)).not.toMatch(/bg-background\//);
+    }
+  });
+
+  it("continues the header's material up over the top mask's fade tail", () => {
+    // The header pins at `--top-shell-live-height`, which is the mask's LAST
+    // VISIBLE pixel — so the `--top-fade-active` band directly above it is
+    // chrome at the top and clear glass at the bottom, and rows crossed it in
+    // plain sight between the bar and the strips. A fixture cannot hold this:
+    // it is a band the component draws outside its own box.
+    expect(source).toContain("before:bottom-full");
+    expect(source).toContain("before:bg-background");
+    expect(source).toContain(
+      "data-[pinned=true]:before:h-[calc(var(--top-fade-active,0px)+1px)]",
+    );
+  });
+
+  it("gives the cover a height only while the header is really pinned", () => {
+    // At rest the header sits `--page-header-section-gap` below the page title —
+    // 10px at this page's compact density — so an unconditional 22px cover would
+    // sit on "Connect" rather than on the mask's tail. The sentinel is what says
+    // which of the two states the header is in; the header itself cannot, since
+    // once pinned it never leaves the scrollport.
+    expect(source).toContain("stickyPinSentinelRef");
+    expect(source).toContain("new IntersectionObserver");
+    expect(source).toContain("rootMargin: `-${pinnedAt}px 0px 0px 0px`");
   });
 });
