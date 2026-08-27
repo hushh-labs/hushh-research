@@ -983,11 +983,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     >
                       <span
                         aria-hidden
-                        className="flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[23px] leading-none"
-                        style={{
-                          fontFamily:
-                            '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji',
-                        }}
+                        className="hushh-brand-mark flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[23px] leading-none"
                       >
                         🤫
                       </span>
