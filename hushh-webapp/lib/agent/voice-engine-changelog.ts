@@ -25,6 +25,20 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   },
   {
     version: "1.6",
+    date: "2026-08-28",
+    title: "Fixed: \"stop sharing\" now actually stops sharing",
+    description:
+      "Saying \"stop sharing\" with no name attached used to just open the list of who could see you -- nothing stopped. It now pauses your location right away, the same as tapping pause yourself.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Fixed: a few Location and Connect commands could pick the wrong one",
+    description:
+      "Some phrasing -- \"send it\" while sharing or asking, a nameless \"connect with someone\", a bare \"accept\" or \"decline\" near a circle invite -- could land on the wrong action or do nothing. Each of these now points at exactly one thing.",
+  },
+  {
+    version: "1.6",
     date: "2026-08-27",
     title: "Voice commands are more consistent on close or urgent phrasing",
     description:
