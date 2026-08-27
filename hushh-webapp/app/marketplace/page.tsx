@@ -41,6 +41,7 @@ import {
   marketplaceInvestorSourceLabel,
   marketplaceInvestorUserId,
 } from "@/lib/marketplace/investor-discovery";
+import { formatMarketplaceDisplayName } from "@/lib/marketplace/display-name";
 import { resolveMarketplacePrimaryCardLabel } from "@/lib/marketplace/primary-card-label";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { buildMarketplaceConnectionsRoute, buildRiaClientWorkspaceRoute } from "@/lib/navigation/routes";
@@ -310,7 +311,7 @@ export default function MarketplacePage() {
     return {
       id: marketplaceInvestorCardId(investor),
       kind: "investor",
-      title: investor.display_name,
+      title: formatMarketplaceDisplayName(investor.display_name),
       headline: investor.headline || "Open to advisor connections",
       summary:
         investor.strategy_summary ||
@@ -684,7 +685,7 @@ export default function MarketplacePage() {
       return {
         id: ria.id,
         kind: "ria" as const,
-        title: ria.display_name,
+        title: formatMarketplaceDisplayName(ria.display_name),
         headline: ria.headline || "Advisor profile available",
         summary: ria.strategy_summary || RIA_COPY.connect.summaryFallback,
         metaLine:
@@ -717,7 +718,7 @@ export default function MarketplacePage() {
       return {
         id: investorId,
         kind: "investor" as const,
-        title: investor.display_name,
+        title: formatMarketplaceDisplayName(investor.display_name),
         headline: investor.headline || "Open to advisor connections",
         summary:
           investor.strategy_summary ||
