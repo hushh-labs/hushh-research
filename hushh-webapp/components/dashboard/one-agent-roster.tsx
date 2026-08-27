@@ -70,28 +70,29 @@ const ONE_HOME_AGENT_DEFINITIONS: readonly AgentHomeDefinition[] = [
     id: "location",
     label: "Location",
     order: 0,
-    surface: "var(--app-accent)",
+    surface:
+      "linear-gradient(180deg, var(--app-accent) 0%, color-mix(in oklab, var(--app-accent) 88%, black) 100%)",
     glyph: "location",
   },
   {
     id: "email",
     label: "KYC",
     order: 1,
-    surface: "#32ADE6",
+    surface: "linear-gradient(180deg, #42C2F2 0%, #32ADE6 100%)",
     glyph: "kyc",
   },
   {
     id: "finance",
     label: "Finance",
     order: 2,
-    surface: "#5E5CE6",
+    surface: "linear-gradient(180deg, #6E6BFF 0%, #5856D6 100%)",
     glyph: "finance",
   },
   {
     id: "ria",
     label: "RIA",
     order: 3,
-    surface: "#AF52DE",
+    surface: "linear-gradient(180deg, #BF5AF2 0%, #AF52DE 100%)",
     glyph: "ria",
   },
   {
@@ -107,28 +108,29 @@ const ONE_HOME_AGENT_DEFINITIONS: readonly AgentHomeDefinition[] = [
     id: "calendar",
     label: "Calendar",
     order: 5,
-    surface: "var(--app-accent)",
+    surface:
+      "linear-gradient(180deg, var(--app-accent) 0%, color-mix(in oklab, var(--app-accent) 88%, black) 100%)",
     glyph: "calendar",
   },
   {
     id: "pkm",
     label: "Memory",
     order: 6,
-    surface: "#30B0C7",
+    surface: "linear-gradient(180deg, #38C7D4 0%, #30B0C7 100%)",
     glyph: "memory",
   },
   {
     id: "consent",
     label: "Consent",
     order: 7,
-    surface: "#636366",
+    surface: "linear-gradient(180deg, #6E6E73 0%, #3A3A3C 100%)",
     glyph: "consent",
   },
   {
     id: "connected-systems",
     label: "CRM",
     order: 8,
-    surface: "#3A7CA5",
+    surface: "linear-gradient(180deg, #45B8D8 0%, #2F7FA8 100%)",
     glyph: "crm",
   },
 ] as const;
@@ -533,7 +535,7 @@ function AgentHomeStatusAdornment({ status }: { status: AgentHomeStatus }) {
     return (
       <span
         data-testid="one-agent-notification-badge"
-        className="absolute -right-1.5 -top-1.5 z-20 inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[color:var(--background)] bg-[color:var(--app-destructive)] px-1 text-[11px] font-semibold leading-none text-white"
+        className="absolute -right-1.5 -top-1.5 z-20 inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-white bg-[color:var(--app-destructive)] px-1 text-[11px] font-semibold leading-none text-white shadow-[0_1px_3px_rgba(0,0,0,0.18)] dark:border-[#1C1C1E]"
         aria-hidden
       >
         {formatBadgeValue(status.count)}
@@ -545,29 +547,14 @@ function AgentHomeStatusAdornment({ status }: { status: AgentHomeStatus }) {
     return (
       <span
         data-testid="one-agent-live-dot"
-        className="absolute -right-1 -top-1 z-20 h-[10px] w-[10px] rounded-full border-2 border-[color:var(--background)] bg-[color:var(--app-success)]"
+        className="absolute -right-1 -top-1 z-20 h-[10px] w-[10px] rounded-full border-2 border-white bg-[color:var(--app-success)] dark:border-[#1C1C1E]"
         aria-hidden
       />
     );
   }
 
   if (status.kind === "setup") {
-    return (
-      <span
-        data-testid="one-agent-setup-badge"
-        className="absolute -right-1 -top-1 z-20 inline-flex h-[17px] w-[17px] items-center justify-center rounded-full border-2 border-[color:var(--background)] bg-[color:var(--app-accent)] text-white"
-        aria-hidden
-      >
-        <svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" aria-hidden>
-          <path
-            d="M6 2.1v7.8M2.1 6h7.8"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeWidth="1.8"
-          />
-        </svg>
-      </span>
-    );
+    return null;
   }
 
   return null;
@@ -585,11 +572,11 @@ function AgentHomeIcon({
       <span
         data-testid={`one-agent-icon-${definition.id}`}
         className={cn(
-          "inline-flex h-[var(--one-agent-icon-size)] w-[var(--one-agent-icon-size)] items-center justify-center rounded-[25%] text-white",
-          "shadow-[0_1px_2px_rgba(0,0,0,0.08),0_4px_12px_rgba(0,0,0,0.05)] ring-1 ring-white/25",
+          "one-agent-app-icon inline-flex h-[var(--one-agent-icon-size)] w-[var(--one-agent-icon-size)] items-center justify-center rounded-[25%] text-white",
+          "shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_10px_20px_rgba(0,0,0,0.14)] ring-1 ring-white/35",
           definition.surfaceClassName,
         )}
-        style={{ backgroundColor: definition.surface }}
+        style={{ background: definition.surface }}
         aria-hidden
       >
         <AgentHomeGlyph
@@ -615,9 +602,10 @@ function AgentLauncherItem({ mode }: { mode: OneAgentMode }) {
       aria-label={accessibleName}
       data-testid={`one-agent-tile-${mode.id}`}
       className={cn(
-        "group flex min-h-[var(--one-agent-cell-height)] min-w-0 flex-col items-center justify-center gap-2 rounded-[18px] px-1.5 py-2 text-center outline-none",
-        "transition-[background-color,opacity,transform] duration-150 ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--background)] active:opacity-90 motion-reduce:transition-none",
+        "one-agent-launcher-tile group flex min-h-[var(--one-agent-cell-height)] w-full min-w-0 flex-col items-center justify-center gap-2.5 rounded-[28px] px-2 text-center outline-none",
+        "bg-white/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.70),0_18px_36px_rgba(29,29,31,0.08)] ring-1 ring-black/[0.045] backdrop-blur-xl",
+        "transition-[box-shadow,opacity,transform,background-color] duration-150 ease-[var(--motion-ease-standard)]",
+        "hover:bg-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.82),0_20px_38px_rgba(29,29,31,0.11)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--background)] active:scale-[0.985] active:opacity-95 dark:bg-white/[0.075] dark:ring-white/[0.09] dark:hover:bg-white/[0.10] motion-reduce:transition-none motion-reduce:active:scale-100",
       )}
     >
       <span className="transition-transform duration-[120ms] ease-[var(--motion-ease-standard)] group-active:scale-[0.95] motion-reduce:transition-none motion-reduce:group-active:scale-100">
@@ -625,7 +613,7 @@ function AgentLauncherItem({ mode }: { mode: OneAgentMode }) {
       </span>
       <span
         data-ui-role="body-strong"
-        className="block max-w-full whitespace-nowrap text-center text-[13px] font-semibold leading-[17px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
+        className="block max-w-full whitespace-nowrap text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
       >
         {definition.label}
       </span>
@@ -637,7 +625,7 @@ function AgentLauncherGrid({ children }: { children: ReactNode }) {
   return (
     <div
       data-testid="one-agents-grid"
-      className="one-agent-launcher-grid mx-auto w-full max-w-[390px] overflow-visible px-0"
+      className="one-agent-launcher-grid mx-auto w-full overflow-visible px-0"
     >
       <div
         data-agent-roster-layout="app-icon-launcher-grid"
@@ -669,7 +657,7 @@ export function OneAgentRoster({
     <section
       aria-label="One agents"
       data-testid="one-agents-section"
-      className="mx-auto flex w-full max-w-[430px] flex-col justify-center"
+      className="mx-auto flex w-full max-w-[760px] flex-col justify-center"
     >
       <h1 className="sr-only">One</h1>
       <AgentLauncherGrid>
