@@ -20,12 +20,12 @@ name: Dev Pod Lifecycle Drill
 # drill tears down every service it provisions, pass or fail, but the decision
 # to spend money on a live run stays a human's.
 #
-# NOTE ON ACTIVATION: GitHub only fires `schedule:` and shows `workflow_dispatch`
-# for workflows on the repository's DEFAULT branch. This file lives on the
-# dev-ahead-of-main workstream branch, so the cron is dormant until it is
-# promoted to `main` -- the drill's logic is already guarded on every PR by
-# `tests/test_pod_lifecycle_drill.py`; this workflow's cron is the cadence, and
-# its activation is a governance-gated promotion, not an oversight.
+# NOTE ON ACTIVATION: GitHub fires `schedule:` and shows `workflow_dispatch` only
+# for workflows on the repository's DEFAULT branch. A promoted copy of this
+# workflow now lives on `main` and fires the weekly cron there; this
+# development-branch copy is the source of record, where the drill's logic is
+# additionally guarded on every PR by `tests/test_pod_lifecycle_drill.py`. Keep
+# the two in step when the drill changes.
 
 on:
   schedule:
