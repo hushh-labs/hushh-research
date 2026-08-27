@@ -2115,10 +2115,11 @@ html.kb-open .ambient-chrome-mask--bottom {
 }
 
 .one-agent-launcher-grid {
-  --one-agent-icon-size: clamp(54px, 15.2vw, 62px);
-  --one-agent-cell-height: clamp(86px, 23vw, 98px);
-  --one-agent-column-gap: clamp(8px, 3vw, 16px);
-  --one-agent-row-gap: clamp(8px, 2.3vh, 18px);
+  --one-agent-icon-size: 64px;
+  --one-agent-cell-height: 128px;
+  --one-agent-column-gap: 12px;
+  --one-agent-row-gap: 14px;
+  max-width: 390px;
 }
 
 .one-agent-launcher-grid-inner {
@@ -2126,17 +2127,27 @@ html.kb-open .ambient-chrome-mask--bottom {
   row-gap: var(--one-agent-row-gap);
 }
 
-@media (max-height: 620px) {
+.one-agent-app-icon svg {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.08));
+}
+
+@media (max-width: 360px), (max-height: 620px) {
   .one-agent-launcher-grid {
-    --one-agent-icon-size: 52px;
-    --one-agent-cell-height: 84px;
+    --one-agent-icon-size: 56px;
+    --one-agent-cell-height: 112px;
+    --one-agent-column-gap: 8px;
+    --one-agent-row-gap: 10px;
+    max-width: 336px;
   }
 }
 
 @media (min-width: 768px) {
   .one-agent-launcher-grid {
-    --one-agent-icon-size: 62px;
-    --one-agent-cell-height: 98px;
+    --one-agent-icon-size: 76px;
+    --one-agent-cell-height: 156px;
+    --one-agent-column-gap: 20px;
+    --one-agent-row-gap: 20px;
+    max-width: 640px;
   }
 }
 
