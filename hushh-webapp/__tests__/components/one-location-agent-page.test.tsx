@@ -6114,7 +6114,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
 
     const connect = await screen.findByRole("button", {
-      name: "Connect contacts",
+      name: "Find contacts",
     });
     order.length = 0;
     getIdToken.mockClear();
@@ -6142,7 +6142,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect contacts",
+        name: "Find contacts",
       }),
     );
 
@@ -6152,7 +6152,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
     expect(
       await screen.findByRole("button", {
-        name: "Connect contacts",
+        name: "Find contacts",
       }),
     ).toBeEnabled();
     expect(screen.queryByText(/couldn't check your contacts/i)).toBeNull();
@@ -6170,7 +6170,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect contacts",
+        name: "Find contacts",
       }),
     );
 
@@ -6227,7 +6227,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect contacts",
+        name: "Find contacts",
       }),
     );
 
