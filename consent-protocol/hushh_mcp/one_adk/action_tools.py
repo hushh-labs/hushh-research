@@ -1543,9 +1543,11 @@ async def run_app_action(
 ) -> dict[str, Any]:
     """Run a governed app action by its exact action id.
 
-    Use list_app_actions first when unsure of the id. Pass required inputs in
-    slots (e.g. {"symbol": "NVDA"}). The app validates guards and confirms
-    sensitive actions; never claim an outcome beyond this tool's status.
+    Call list_app_actions first unless the person's own words are already a
+    close match to a visible label -- do not decide this by how confident it
+    feels. Pass required inputs in slots (e.g. {"symbol": "NVDA"}). The app
+    validates guards and confirms sensitive actions; never claim an outcome
+    beyond this tool's status.
     """
     clean_id = str(action_id or "").strip()
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
