@@ -1522,6 +1522,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 vm.clearNamedCircleShareContext();
                 openShareFlow();
               }}
+              onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
+              onOpenSettings={vm.onOpenLocationSettings}
               onCheckIn={() =>
                 nearbyCheckInAvailable
                   ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
@@ -1531,8 +1533,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
               onOpenNeedsReview={() => openFlow("needs-review")}
-              onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
-              onOpenSettings={() => openFlow("settings")}
               onRequestLocation={() => openFlow("ask")}
             />
           </LocationHubPanel>
@@ -1610,15 +1610,6 @@ function NowHub({
   onRequestLocation: () => void;
 }) {
   const activityRows = [
-    {
-      leading: <LocationMenuListIcon name="active" />,
-      title: "Active shares",
-      value: vm.activeOwnerGrants.length,
-      ariaLabel: "Active shares",
-      onClick: onOpenActiveShares,
-      voiceControlId: "one-location-action-active-shares",
-      voiceActionId: "location.open_active_shares",
-    },
     {
       leading: <LocationMenuListIcon name="pin" />,
       title: "Sharing with you",

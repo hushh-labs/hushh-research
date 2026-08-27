@@ -49,8 +49,11 @@ test.describe("first post-login Agent Directory visual contract", () => {
       await page.setViewportSize(viewport);
       await openOneDirectory(page);
 
+      await expect(
+        page.getByRole("heading", { name: "Agents (9)" }),
+      ).toBeVisible();
+      await expect(page.getByTestId("one-agents-search")).toBeVisible();
       await expect(page.getByTestId("one-agents-grid")).toBeVisible();
-      await expect(page.getByTestId("one-agents-search")).toHaveCount(0);
 
       const metrics = await page.evaluate(() => {
         const foundation = document.querySelector(".foundation-public-ambient");
@@ -61,6 +64,12 @@ test.describe("first post-login Agent Directory visual contract", () => {
           '[data-testid="one-agents-section"]',
         );
         const sectionRect = section?.getBoundingClientRect();
+        const title = document.querySelector("#one-agents-heading");
+        const titleStyle = title ? getComputedStyle(title) : null;
+        const search = document.querySelector(
+          '[data-testid="one-agents-search"]',
+        );
+        const searchStyle = search ? getComputedStyle(search) : null;
         const grid = document.querySelector('[data-testid="one-agents-grid"]');
         const layout = document.querySelector(
           '[data-agent-roster-layout="app-icon-launcher-grid"]',
@@ -108,7 +117,12 @@ test.describe("first post-login Agent Directory visual contract", () => {
         return {
           foundationBackgroundImage: foundationStyle?.backgroundImage,
           foundationBackgroundColor: foundationStyle?.backgroundColor,
+          titleFontSize: titleStyle?.fontSize,
+          titleFontWeight: titleStyle?.fontWeight,
+          titleLineHeight: titleStyle?.lineHeight,
           sectionWidth: Math.round(sectionRect?.width ?? 0),
+          searchHeight: Math.round(search?.getBoundingClientRect().height ?? 0),
+          searchRadius: searchStyle?.borderRadius,
           gridClassName: layout?.className,
           gridWidth: Math.round(gridRect?.width ?? 0),
           tileCount: tiles.length,
@@ -120,16 +134,22 @@ test.describe("first post-login Agent Directory visual contract", () => {
       });
 
       expect(metrics.foundationBackgroundImage).toBe("none");
-      expect(metrics.sectionWidth).toBeLessThanOrEqual(820);
+      expect(metrics.titleFontSize).toBe("34px");
+      expect(metrics.titleFontWeight).toBe("700");
+      expect(metrics.titleLineHeight).toBe("41px");
+      expect(metrics.sectionWidth).toBeLessThanOrEqual(560);
+      expect(metrics.searchHeight).toBeGreaterThanOrEqual(44);
+      expect(metrics.searchHeight).toBeLessThanOrEqual(46);
+      expect(metrics.searchRadius).toBe("15px");
       expect(metrics.gridClassName).toContain("grid-cols-3");
-      expect(metrics.gridWidth).toBeLessThanOrEqual(640);
+      expect(metrics.gridWidth).toBeLessThanOrEqual(552);
       expect(metrics.tileCount).toBe(9);
       expect(metrics.tiles.every((tile) => tile.height >= 100)).toBe(true);
       expect(metrics.icons.every((icon) => icon.width >= 60)).toBe(true);
       expect(metrics.icons.every((icon) => icon.height >= 60)).toBe(true);
       expect(
         metrics.icons.every((icon) =>
-          ["19px", "18px", "17px", "16px", "14px"].includes(icon.radius),
+          ["18px", "17px", "16px"].includes(icon.radius),
         ),
       ).toBe(true);
       expect(metrics.horizontalOverflow).toBe(false);

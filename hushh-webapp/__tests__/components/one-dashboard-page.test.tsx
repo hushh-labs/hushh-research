@@ -1,10 +1,13 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
-import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
+import {
+  CACHE_KEYS,
+  CacheService,
+} from "@/lib/services/cache-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 function status(
@@ -31,29 +34,17 @@ function buildStatusMap(
   return map;
 }
 
-const expectedOrder = [
-  "location",
-  "email",
-  "finance",
-  "ria",
-  "gmail",
-  "calendar",
-  "pkm",
-  "consent",
-  "connected-systems",
-] as const;
+function openAgentListView() {
+  fireEvent.click(screen.getByRole("button", { name: "Agent launcher options" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "View as list" }));
+  return screen.getByTestId("one-agents-list");
+}
 
-const expectedLabels = [
-  "Location",
-  "KYC",
-  "Finance",
-  "RIA",
-  "Gmail",
-  "Calendar",
-  "Memory",
-  "Consent",
-  "CRM",
-] as const;
+function openAgentSearch() {
+  fireEvent.click(screen.getByRole("button", { name: "Agent launcher options" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Search agents" }));
+  return screen.getByTestId("one-agents-search");
+}
 
 describe("OneDashboardPage", () => {
   beforeEach(() => {
@@ -63,7 +54,7 @@ describe("OneDashboardPage", () => {
 
   it("keeps unfinished Finance actionable after root onboarding is dismissed", () => {
     const userId = "dashboard-dismissed-user";
-    OneSetupCompletionHintService.markResolved(userId);
+    OneSetupCompletionHintService.markResolved(userId); // dismissed
 
     render(
       <OneDashboardPage
@@ -75,24 +66,31 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    const financeLink = screen.getByRole("link", {
-      name: "Finance, setup required",
-    });
+    // Root onboarding completion is not Finance completion. The resolver's
+    // actionable state must still lead to the bounded Finance setup workspace.
+    const financeLink = screen.getByRole("link", { name: /^Open Finance/ });
     expect(financeLink.getAttribute("href")).toBe(
       buildOneSetupCapabilityRoute("finance"),
     );
   });
 
-  it("renders a direct 3 by 3 app-icon launcher instead of the old agent directory", () => {
+  it("renders the primary One agents as a direct premium app-icon launcher", () => {
     const userId = "dashboard-launcher-user";
+    CacheService.getInstance().set(
+      CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7),
+      {
+        movers: {
+          gainers: [{ symbol: "RFAI", change_pct: 355.6 }],
+        },
+      },
+    );
     CacheService.getInstance().set(CACHE_KEYS.ONE_LOCATION_STATE(userId), {
       ownerGrants: [{ status: "active" }],
       receivedGrants: [{ status: "approved" }],
     });
-    CacheService.getInstance().set(
-      CACHE_KEYS.PENDING_CONSENTS(userId),
-      [{ id: "pending-1" }, { id: "pending-2" }],
-    );
+    CacheService.getInstance().set(CACHE_KEYS.PKM_METADATA(userId), {
+      totalAttributes: 31,
+    });
 
     const { container } = render(
       <OneDashboardPage
@@ -104,24 +102,38 @@ describe("OneDashboardPage", () => {
           calendar: { state: "blocked", prerequisite: "oauth" },
           email: { state: "completed" },
           location: { state: "completed" },
-          ria: { state: "completed" },
+          ria: { state: "in-progress" },
           "connected-systems": { state: "blocked", prerequisite: "oauth" },
         })}
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "One", hidden: true })).toBeTruthy();
+    expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
+    expect(screen.queryByText("Your private agent")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
-    expect(screen.queryByText(/Agents \(\d+\)/)).toBeNull();
-    expect(screen.queryByRole("searchbox", { name: /search agents/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Agent launcher options" })).toBeNull();
     expect(screen.queryByTestId("one-agents-list")).toBeNull();
-    expect(screen.queryByTestId("one-agents-search")).toBeNull();
-    expect(container.textContent).not.toMatch(
-      /action due|approvals waiting|requests to review|saved details|live shares|connected systems|Finish setup|View as list|View as grid/i,
-    );
+    expect(container.textContent).not.toContain("Finish setup");
 
+    const heading = screen.getByRole("heading", { name: "Agents, 9 agents" });
+    expect(heading.textContent).toBe("Agents, 9 agents");
+    expect(heading.querySelector(".sr-only")).toBeTruthy();
+    expect(container.textContent).not.toContain("Agents (9)");
+    expect(screen.queryByTestId("one-agents-search")).toBeNull();
+    expect(screen.queryByTestId("one-agents-view-grid")).toBeNull();
+    expect(screen.getByRole("button", { name: "Agent launcher options" })).toBeTruthy();
+
+    const expectedOrder = [
+      "finance",
+      "location",
+      "ria",
+      "gmail",
+      "calendar",
+      "email",
+      "pkm",
+      "consent",
+      "connected-systems",
+    ] as const;
     const tiles = Array.from(
       container.querySelectorAll('[data-testid^="one-agent-tile-"]'),
     );
@@ -134,101 +146,237 @@ describe("OneDashboardPage", () => {
     );
     expect(grid).toBeTruthy();
     expect(grid?.className).toContain("grid-cols-3");
-
-    const gridScope = within(screen.getByTestId("one-agents-grid"));
-    for (const label of expectedLabels) {
-      expect(gridScope.getByText(label)).toBeTruthy();
-    }
-
-    expect(screen.getAllByTestId("one-agent-notification-badge")).toHaveLength(2);
-    expect(screen.getByTestId("one-agent-live-dot")).toBeTruthy();
-    expect(screen.queryByTestId("one-agent-live-label")).toBeNull();
-    expect(screen.queryByTestId("one-agents-empty-state")).toBeNull();
-  });
-
-  it("preserves tile destinations and setup routing", () => {
-    render(
-      <OneDashboardPage
-        displayName="Kushal Trivedi"
-        capabilityStatusById={buildStatusMap({
-          email: { state: "completed" },
-          finance: { state: "not-started", requiresUnlock: true },
-          gmail: { state: "blocked", prerequisite: "oauth" },
-          calendar: { state: "blocked", prerequisite: "oauth" },
-          location: { state: "completed" },
-          "connected-systems": { state: "blocked", prerequisite: "oauth" },
-        })}
-      />,
+    expect(grid?.className).not.toContain("sm:grid-cols-[repeat(4");
+    expect(screen.getByTestId("one-agents-grid").className).not.toContain(
+      "bg-white",
+    );
+    expect(screen.getByTestId("one-agents-grid").className).not.toContain(
+      "rounded-[20px]",
     );
 
+    const financeLink = screen.getByRole("link", {
+      name: /Open Finance, RFAI up 355\.6 percent/,
+    });
+    expect(financeLink.getAttribute("href")).toBe(ROUTES.KAI_HOME);
     expect(
-      screen.getByRole("link", { name: "Location" }).getAttribute("href"),
+      screen.getByRole("link", {
+        name: /Open Location, 2 live shares/,
+      }).getAttribute("href"),
     ).toBe(ROUTES.ONE_LOCATION);
     expect(
-      screen.getByRole("link", { name: "KYC" }).getAttribute("href"),
-    ).toBe(ROUTES.ONE_KYC);
-    expect(
-      screen
-        .getByRole("link", { name: "Finance, setup required" })
-        .getAttribute("href"),
-    ).toBe(buildOneSetupCapabilityRoute("finance"));
-    expect(
-      screen
-        .getByRole("link", { name: "Gmail, setup required" })
-        .getAttribute("href"),
+      screen.getByRole("link", { name: /^Open Gmail/ }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
-      screen
-        .getByRole("link", { name: "Calendar, setup required" })
-        .getAttribute("href"),
+      screen.getByRole("link", { name: /^Open Calendar/ }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("calendar"));
     expect(
-      screen
-        .getByRole("link", { name: "CRM, setup required" })
-        .getAttribute("href"),
+      screen.getByRole("link", { name: /^Open KYC/ }).getAttribute("href"),
+    ).toBe(ROUTES.ONE_KYC);
+    expect(
+      screen.getByRole("link", { name: /^Open CRM/ }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("connected-systems"));
     expect(
-      screen.getByRole("link", { name: "Memory" }).getAttribute("href"),
+      screen.getByRole("link", { name: /^Open Memory/ }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
     expect(
-      screen.getByRole("link", { name: "Consent" }).getAttribute("href"),
+      screen.getByRole("link", { name: /^Open Consent/ }).getAttribute("href"),
     ).toContain(ROUTES.CONSENTS);
+
+    for (const id of expectedOrder) {
+      const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
+      expect(icon).toBeTruthy();
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "lucide");
+      expect(icon.className).toContain("h-[68px]");
+      expect(icon.className).toContain("w-[68px]");
+      expect(icon.className).toContain("rounded-[18px]");
+      expect(icon.querySelector("svg")?.className.baseVal).toContain(
+        "!text-white",
+      );
+    }
+
+    const gridScope = within(screen.getByTestId("one-agents-grid"));
+    expect(gridScope.queryByText("RFAI")).toBeNull();
+    expect(gridScope.queryByText("+355.6%")).toBeNull();
+    expect(gridScope.queryByText("2")).toBeNull();
+    expect(gridScope.queryByText("live")).toBeNull();
+    expect(gridScope.queryByText("31")).toBeNull();
+    expect(gridScope.queryByText("saved")).toBeNull();
+    expect(screen.queryByText("0 actions")).toBeNull();
+    expect(screen.queryByText("0 approvals waiting")).toBeNull();
+    expect(screen.queryByText("status not loaded")).toBeNull();
+    expect(screen.queryByText("Checking...")).toBeNull();
+    expect(screen.queryByText("Ready")).toBeNull();
+    expect(screen.queryByText("Explore")).toBeNull();
+    expect(screen.queryByTestId("one-agent-notification-badge")).toBeNull();
+    expect(screen.getByTestId("one-agent-live-dot")).toBeTruthy();
+    expect(container.querySelector(".material-ripple")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });
 
-  it("ignores the removed saved list-view preference", () => {
+  it("defaults first-time visitors to grid and preserves a saved list view", () => {
+    const { unmount } = render(
+      <OneDashboardPage displayName="Kushal Trivedi" />,
+    );
+
+    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
+    expect(screen.queryByTestId("one-agents-view-grid")).toBeNull();
+    expect(screen.queryByTestId("one-agents-view-list")).toBeNull();
+
+    unmount();
     window.localStorage.setItem("hushh:one-agent-roster-view", "list");
 
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
-    expect(screen.queryByTestId("one-agents-list")).toBeNull();
-    expect(screen.queryByTestId("one-agents-view-content")).toBeNull();
+    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-view-content")).not.toHaveClass(
+      "motion-step-enter",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent launcher options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "View as grid" }));
+    expect(screen.getByTestId("one-agents-view-content")).toHaveClass(
+      "motion-step-enter",
+    );
+    expect(window.localStorage.getItem("hushh:one-agent-roster-view")).toBe(
+      "grid",
+    );
   });
 
-  it("renders only meaningful adornments and caps action counts", () => {
-    const { rerender } = render(
+  it("keeps list view available with the same routes and solid app identity", () => {
+    render(
       <OneDashboardPage
         displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
-          calendar: { state: "in-progress", pendingCount: 112 },
+          finance: { state: "not-started", requiresUnlock: true },
+          ria: { state: "in-progress" },
         })}
       />,
     );
 
-    expect(screen.getByText("99+")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Calendar, 99+ reviews" })).toBeTruthy();
-    expect(screen.queryByText("0")).toBeNull();
+    const list = openAgentListView();
+    expect(list).toBeTruthy();
 
+    const financeRow = screen.getByRole("link", { name: /^Open Finance/ });
+    expect(financeRow.getAttribute("href")).toBe(
+      buildOneSetupCapabilityRoute("finance"),
+    );
+    const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
+    expect(financeIcon.className).toContain("h-10");
+    expect(financeIcon.className).toContain("w-10");
+    expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
+      "!text-white",
+    );
+    expect(screen.queryByTestId("one-agent-notification-badge")).toBeNull();
+  });
+
+  it("opens search from overflow and filters by title, description, metric value, and metric label", () => {
+    const userId = "dashboard-search-user";
+    CacheService.getInstance().set(
+      CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7),
+      {
+        movers: {
+          gainers: [{ symbol: "RFAI", change_pct: 12.25 }],
+        },
+      },
+    );
+    CacheService.getInstance().set(CACHE_KEYS.ONE_LOCATION_STATE(userId), {
+      ownerGrants: [{ status: "active" }],
+      receivedGrants: [],
+    });
+
+    render(
+      <OneDashboardPage displayName="Kushal Trivedi" userId={userId} />,
+    );
+
+    expect(screen.queryByTestId("one-agents-search")).toBeNull();
+    const search = openAgentSearch();
+
+    fireEvent.change(search, {
+      target: { value: "location" },
+    });
+    expect(screen.getByTestId("one-agent-tile-location")).toBeTruthy();
+    expect(screen.queryByTestId("one-agent-tile-finance")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    fireEvent.change(screen.getByTestId("one-agents-search"), {
+      target: { value: "receipt" },
+    });
+    expect(screen.getByTestId("one-agent-tile-gmail")).toBeTruthy();
+    expect(screen.queryByTestId("one-agent-tile-location")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    fireEvent.change(screen.getByTestId("one-agents-search"), {
+      target: { value: "RFAI" },
+    });
+    expect(screen.getByTestId("one-agent-tile-finance")).toBeTruthy();
+    expect(screen.queryByTestId("one-agent-tile-location")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    fireEvent.change(screen.getByTestId("one-agents-search"), {
+      target: { value: "live" },
+    });
+    expect(screen.getByTestId("one-agent-tile-location")).toBeTruthy();
+    expect(screen.queryByTestId("one-agent-tile-finance")).toBeNull();
+  });
+
+  it("shows a quiet empty state for unmatched search", () => {
+    render(<OneDashboardPage displayName="Kushal Trivedi" />);
+
+    fireEvent.change(openAgentSearch(), {
+      target: { value: "not an agent" },
+    });
+
+    expect(screen.getByTestId("one-agents-empty-state")).toBeTruthy();
+    expect(screen.getByText("No matching agents")).toBeTruthy();
+    expect(screen.getByText("Try another search.")).toBeTruthy();
+    expect(screen.queryByTestId("one-agent-tile-finance")).toBeNull();
+  });
+
+  it("shows the finance mover as a concise green percentage without redundant winner copy", () => {
+    render(
+      <OneDashboardPage
+        displayName="Kushal Trivedi"
+        userId="roster-finance-metric"
+      />,
+    );
+
+    expect(screen.queryByText(/winner/i)).toBeNull();
+  });
+
+  it("shows real unresolved counts as dynamic badges without turning setup fallbacks into badges", () => {
+    const userId = "dashboard-notification-badge-user";
+    CacheService.getInstance().set(
+      CACHE_KEYS.PENDING_CONSENTS(userId),
+      [{ id: "pending-1" }, { id: "pending-2" }],
+    );
+
+    const { rerender } = render(
+      <OneDashboardPage
+        displayName="Kushal Trivedi"
+        userId={userId}
+        capabilityStatusById={buildStatusMap({
+          finance: { state: "not-started", requiresUnlock: true },
+          calendar: { state: "blocked", prerequisite: "oauth" },
+        })}
+      />,
+    );
+
+    expect(screen.getAllByTestId("one-agent-notification-badge")).toHaveLength(2);
+    expect(screen.getAllByText("2")).toHaveLength(2);
+
+    CacheService.getInstance().set(CACHE_KEYS.PENDING_CONSENTS(userId), []);
     rerender(
       <OneDashboardPage
         displayName="Kushal Trivedi"
+        userId={userId}
         capabilityStatusById={buildStatusMap({
-          calendar: { state: "completed", pendingCount: 0 },
+          finance: { state: "not-started", requiresUnlock: true },
+          calendar: { state: "blocked", prerequisite: "oauth" },
         })}
       />,
     );
 
     expect(screen.queryByTestId("one-agent-notification-badge")).toBeNull();
-    expect(screen.queryByTestId("one-agent-setup-badge")).toBeNull();
   });
 });
