@@ -1354,7 +1354,9 @@ describe("OneLocationAgentPage", () => {
       "active",
     );
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: /Active shares/i })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Active shares/i }),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "Proximity alerts" }),
     ).toBeNull();
@@ -1377,10 +1379,9 @@ describe("OneLocationAgentPage", () => {
     );
   }, 15000);
 
-  it("hides the Activity menu when every Activity count is zero", async () => {
-    // Empty Activity rows are visual noise on the Now screen. Keep the real
-    // destinations wired when counts exist, but remove the whole group when
-    // nothing needs attention.
+  it("hides empty Activity rows while keeping More available without section labels", async () => {
+    // The visible section labels were the noise. Activity only appears when it
+    // has real counts, while More remains the quiet utility surface.
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1392,8 +1393,14 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     expect(screen.queryByTestId("one-location-now-activity")).toBeNull();
+
+    const more = screen.getByTestId("one-location-now-more");
+    expect(within(more).getByRole("button", { name: /^Map$/i })).toBeTruthy();
+    expect(
+      within(more).getByRole("button", { name: /^Settings$/i }),
+    ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Activity" })).toBeNull();
-    expect(screen.queryByText("0")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "More" })).toBeNull();
   });
 
   it("keeps Activity rows visually quiet even when counts are non-zero", async () => {
@@ -1439,7 +1446,7 @@ describe("OneLocationAgentPage", () => {
         ?.getAttribute("data-icon-tone");
     };
 
-    expect(screen.queryByText("Active shares")).toBeNull();
+    expect(screen.getByText("Active shares")).toBeTruthy();
     expect(await toneOf("Sharing with you")).toBeUndefined();
     expect(await toneOf("Needs review")).toBeUndefined();
   });
@@ -1594,9 +1601,9 @@ describe("OneLocationAgentPage", () => {
     expect(actions.querySelector("[data-one-location-sms-row]")).toBeTruthy();
 
     const activity = screen.getByTestId("one-location-now-activity");
+    expect(within(activity).queryByText("Active shares")).toBeNull();
     expect(within(activity).getByText("Sharing with you")).toBeTruthy();
     expect(within(activity).getByText("Needs review")).toBeTruthy();
-    expect(within(activity).queryByText("Active shares")).toBeNull();
 
     expect(within(activity).queryByText("Share")).toBeNull();
     const more = screen.getByTestId("one-location-now-more");
@@ -3686,7 +3693,9 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Now" }));
-    expect(screen.queryByRole("button", { name: /Active shares/i })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Active shares/i }),
+    ).toBeTruthy();
     await openSharePersonStep();
     fireEvent.change(screen.getByPlaceholderText("Search people"), {
       target: { value: "advisor" },
@@ -6056,7 +6065,7 @@ describe("OneLocationAgentPage", () => {
         await screen.findByTestId("one-location-onboarding-contacts"),
       ).toBeTruthy();
       expect(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       ).toBeTruthy();
     } finally {
       Reflect.deleteProperty(navigator, "contacts");
@@ -6105,7 +6114,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
 
     const connect = await screen.findByRole("button", {
-      name: "Connect Google Contacts",
+      name: "Connect contacts",
     });
     order.length = 0;
     getIdToken.mockClear();
@@ -6133,7 +6142,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect Google Contacts",
+        name: "Connect contacts",
       }),
     );
 
@@ -6143,7 +6152,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
     expect(
       await screen.findByRole("button", {
-        name: "Connect Google Contacts",
+        name: "Connect contacts",
       }),
     ).toBeEnabled();
     expect(screen.queryByText(/couldn't check your contacts/i)).toBeNull();
@@ -6161,7 +6170,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect Google Contacts",
+        name: "Connect contacts",
       }),
     );
 
@@ -6218,7 +6227,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect Google Contacts",
+        name: "Connect contacts",
       }),
     );
 

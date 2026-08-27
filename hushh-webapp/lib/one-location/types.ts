@@ -25,6 +25,19 @@ export type OneLocationNearbyCheckInPreference = {
   updatedAt?: string | null;
 };
 
+/**
+ * What a bare emergency voice phrase ("save me", "turn on sos") does:
+ * "open" shows the SOS screen, "trigger" goes straight to the send-alert
+ * confirm card. Neither sends an alert by itself -- trigger_sos's own
+ * confirm card is never skipped.
+ */
+export type OneLocationSosVoiceDefaultAction = "open" | "trigger";
+
+export type OneLocationSosVoicePreference = {
+  defaultAction: OneLocationSosVoiceDefaultAction;
+  updatedAt?: string | null;
+};
+
 export type OneLocationRecommendationTier =
   | "needs_action"
   | "trusted_circle"
@@ -516,6 +529,8 @@ export type OneLocationState = {
   autoApprovePreference?: OneLocationAutoApprovePreference;
   /** Server-owned Nearby Check-In visibility and connection-request defaults. */
   nearbyCheckInPreferences?: OneLocationNearbyCheckInPreference;
+  /** Server-owned default for a bare emergency voice phrase (open vs trigger). */
+  sosVoicePreference?: OneLocationSosVoicePreference;
   /** Pending targeted invitations for this user to join a named Circle. */
   circleMemberInvites?: OneLocationCircleMemberInvite[];
   myRecipientKey?: OneLocationMyRecipientKey | null;

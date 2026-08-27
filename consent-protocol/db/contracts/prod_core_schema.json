@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 180,
+  "expected_migration_version": 181,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -750,6 +750,12 @@
       "user_id",
       "visible",
       "allow_connection_requests",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_sos_voice_preferences": [
+      "user_id",
+      "default_action",
       "created_at",
       "updated_at"
     ],

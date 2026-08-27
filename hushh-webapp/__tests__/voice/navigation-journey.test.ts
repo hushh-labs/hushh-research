@@ -122,6 +122,11 @@ describe("navigation journeys", () => {
       // and automatic sharing decides whether approved people keep receiving
       // updates without you doing anything.
       "location.set_auto_share",
+      // A bare emergency phrase ("save me", "sos") resolves per the
+      // person's own stored default -- open the screen, or go straight to
+      // trigger_sos's own confirm card below. Escorted for the same reason
+      // trigger_sos is: said from wherever the person is, not just Location.
+      "location.sos_default",
       "location.stop_share",
       "location.stop_sos",
       // The highest-consequence action on this surface. Escorted the same

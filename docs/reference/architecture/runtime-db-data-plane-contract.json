@@ -436,7 +436,8 @@
         "one_location_recipient_keys",
         "one_location_referrals",
         "one_location_sms_contacts",
-        "one_location_share_grants"
+        "one_location_share_grants",
+        "one_location_sos_voice_preferences"
       ],
       "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",

@@ -810,7 +810,7 @@ export function LocationPickerMap({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
           onClick={() => void handleConfirm()}

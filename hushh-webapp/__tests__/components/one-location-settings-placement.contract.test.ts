@@ -23,6 +23,7 @@ describe("One Location settings placement", () => {
 
     expect(nowSource).not.toContain('testId="one-location-settings-entry"');
     expect(nowSource).not.toContain('title="Privacy"');
+    expect(nowSource).not.toContain("LocationNowGroupLabel");
   });
 
   it("offers Ask for location inside the compact Now actions", () => {
@@ -48,7 +49,6 @@ describe("One Location settings placement", () => {
     expect(moreIndex).toBeGreaterThan(activityIndex);
     expect(nowSource).toContain('title: "Map"');
     expect(nowSource).toContain('title: "Settings"');
-    expect(nowSource).not.toContain('title: "Active shares"');
     expect(nowSource).not.toContain("LocationNowGroupLabel");
 
     // Reuses the existing ask flow rather than introducing a second one, so

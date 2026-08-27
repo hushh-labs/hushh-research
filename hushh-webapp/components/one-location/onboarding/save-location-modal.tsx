@@ -1282,7 +1282,12 @@ export function SaveLocationModal({
               </p>
             </div>
 
-            <div className={SHEET_FOOTER_CLASSNAME}>
+            <div
+              className={cn(
+                SHEET_FOOTER_CLASSNAME,
+                "bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]",
+              )}
+            >
               {/* A disabled primary button with no explanation is the whole of
                   "saving is not working" from the outside. When it is off, say
                   which single thing turns it on. */}
@@ -1533,7 +1538,7 @@ export function SaveLocationModal({
               </div>
             ) : null}
 
-            <div className="mt-1 flex flex-col gap-2.5">
+            <div className="mt-1 flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
                 onClick={handleSave}

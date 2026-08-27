@@ -152,7 +152,8 @@
     "177_one_location_nearby_check_in_preferences.sql",
     "178_connection_voice_preferences.sql",
     "179_feed_notification_projection_coverage.sql",
-    "180_one_location_circle_feed_durability.sql"
+    "180_one_location_circle_feed_durability.sql",
+    "181_one_location_sos_voice_preferences.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -258,7 +259,8 @@
       "177_one_location_nearby_check_in_preferences.sql",
       "178_connection_voice_preferences.sql",
       "179_feed_notification_projection_coverage.sql",
-      "180_one_location_circle_feed_durability.sql"
+      "180_one_location_circle_feed_durability.sql",
+      "181_one_location_sos_voice_preferences.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

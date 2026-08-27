@@ -26,6 +26,7 @@ import {
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { VOICE_PERSONA_OPTIONS } from "@/lib/agent/voice-persona-options";
 import { OneLocationService } from "@/lib/one-location/service";
+import type { OneLocationSosVoiceDefaultAction } from "@/lib/one-location/types";
 import { ConnectionsService } from "@/lib/services/connections-service";
 
 /** Select has no null option, so the default pick gets its own sentinel value. */
@@ -84,6 +85,7 @@ type LocationAgentDefaults = {
   autoApproveRequests: boolean;
   nearbyCheckInVisible: boolean;
   nearbyCheckInAllowConnectionRequests: boolean;
+  sosDefaultAction: OneLocationSosVoiceDefaultAction;
 };
 
 function LocationAgentDefaultsGroup({
@@ -104,6 +106,7 @@ function LocationAgentDefaultsGroup({
           nearbyCheckInVisible: state.nearbyCheckInPreferences?.visible ?? true,
           nearbyCheckInAllowConnectionRequests:
             state.nearbyCheckInPreferences?.allowConnectionRequests ?? false,
+          sosDefaultAction: state.sosVoicePreference?.defaultAction ?? "open",
         });
       })
       .catch(() => {
@@ -129,6 +132,17 @@ function LocationAgentDefaultsGroup({
         allowConnectionRequests: next.nearbyCheckInAllowConnectionRequests,
       }).catch(() => setDefaults(current));
       return next;
+    });
+  };
+
+  const setSosDefault = (defaultAction: OneLocationSosVoiceDefaultAction) => {
+    setDefaults((current) => {
+      if (!current) return current;
+      OneLocationService.updateSosVoicePreference({
+        vaultOwnerToken,
+        defaultAction,
+      }).catch(() => setDefaults(current));
+      return { ...current, sosDefaultAction: defaultAction };
     });
   };
 
@@ -192,6 +206,30 @@ function LocationAgentDefaultsGroup({
             aria-label="Allow connection requests"
           />
         }
+      />
+      <SettingsRow
+        title="In an emergency"
+        description="What a bare phrase like 'save me' or 'SOS' does. Still confirmed before anything sends."
+        trailing={
+          <Select
+            value={defaults.sosDefaultAction}
+            onValueChange={(value) =>
+              setSosDefault(value as OneLocationSosVoiceDefaultAction)
+            }
+          >
+            <SelectTrigger
+              className="w-full sm:w-56 min-w-[11rem]"
+              aria-label="In an emergency"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="open">Open the screen</SelectItem>
+              <SelectItem value="trigger">Send the alert</SelectItem>
+            </SelectContent>
+          </Select>
+        }
+        stackTrailingOnMobile
       />
     </SettingsGroup>
   );
