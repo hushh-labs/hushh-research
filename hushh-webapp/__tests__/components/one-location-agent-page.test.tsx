@@ -6065,7 +6065,7 @@ describe("OneLocationAgentPage", () => {
         await screen.findByTestId("one-location-onboarding-contacts"),
       ).toBeTruthy();
       expect(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       ).toBeTruthy();
     } finally {
       Reflect.deleteProperty(navigator, "contacts");
@@ -6114,7 +6114,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
 
     const connect = await screen.findByRole("button", {
-      name: "Connect Google Contacts",
+      name: "Connect contacts",
     });
     order.length = 0;
     getIdToken.mockClear();
@@ -6142,7 +6142,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect Google Contacts",
+        name: "Connect contacts",
       }),
     );
 
@@ -6152,7 +6152,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
     expect(
       await screen.findByRole("button", {
-        name: "Connect Google Contacts",
+        name: "Connect contacts",
       }),
     ).toBeEnabled();
     expect(screen.queryByText(/couldn't check your contacts/i)).toBeNull();
@@ -6170,7 +6170,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect Google Contacts",
+        name: "Connect contacts",
       }),
     );
 
@@ -6227,7 +6227,7 @@ describe("OneLocationAgentPage", () => {
     await leaveLocationFeatureStep();
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Connect Google Contacts",
+        name: "Connect contacts",
       }),
     );
 
