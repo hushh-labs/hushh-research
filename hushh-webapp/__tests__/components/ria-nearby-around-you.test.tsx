@@ -184,10 +184,11 @@ async function openAPlace() {
 
 function chooseCountry(code: string, name: string) {
   const country = screen.getByLabelText(/^country code$/i);
+  fireEvent.focus(country);
   expect(
     screen.getByRole("option", { name: `${code} - ${name}` }),
   ).toBeInTheDocument();
-  fireEvent.change(country, { target: { value: code } });
+  fireEvent.click(screen.getByRole("option", { name: `${code} - ${name}` }));
 }
 
 describe("Around you", () => {
@@ -411,13 +412,24 @@ describe("national index", () => {
 
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    const country = screen.getByLabelText(/^country code$/i);
+    fireEvent.focus(country);
     const codeOptions = screen
       .getAllByRole("option")
       .map((option) => option.getAttribute("value"))
       .filter(Boolean);
     expect(codeOptions.slice(0, 3)).toEqual(["AD", "AE", "AF"]);
+    expect(screen.getByTestId("nearby-place-postal-country-row")).toHaveClass(
+      "flex-col",
+      "sm:flex-row",
+    );
+    expect(country).toHaveAttribute("role", "combobox");
+    expect(country).toHaveClass("h-11", "w-full", "uppercase");
+    fireEvent.change(country, { target: { value: "IN" } });
+    expect(screen.getByRole("option", { name: "IN - India" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "US - United States" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "560001" } });
-    chooseCountry("IN", "India");
+    fireEvent.click(screen.getByRole("option", { name: "IN - India" }));
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() =>
