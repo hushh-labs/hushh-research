@@ -1417,6 +1417,125 @@ describe("a surface that declares more controls than the context can carry", () 
     );
   });
 
+  it("keeps refresh reachable on Location's bare route now that it competes with 30 handlers (#6080)", () => {
+    // Regression: location.refresh was one of the 5 actions already in the
+    // old hand-typed array, but had no SUBVIEW_ACTION_BOOST entry for the
+    // bare/default subview. Once the array grew to its real, contract-derived
+    // size, refresh started losing the insertion-order tiebreak for the
+    // 14-slot cap. It is boosted on "one_location:" now, alongside the
+    // handlers that were already there.
+    window.history.pushState({}, "", "/one/location");
+    const localHandlers = [
+      "location.accept_circle_invite",
+      "location.add_emergency_contact",
+      "location.add_to_circle",
+      "location.approve_request",
+      "location.change_share_duration",
+      "location.confirm_nearby_check_in",
+      "location.create_circle",
+      "location.decline_circle_invite",
+      "location.decline_request",
+      "location.delete_circle",
+      "location.delete_saved_location",
+      "location.leave_circle",
+      "location.nearby_check_in",
+      "location.pause_updates",
+      "location.refresh",
+      "location.remove_emergency_contact",
+      "location.remove_from_circle",
+      "location.rename_circle",
+      "location.resume_updates",
+      "location.save_current_location",
+      "location.select_ask_recipient",
+      "location.select_share_recipient",
+      "location.send_check_in",
+      "location.send_request",
+      "location.set_auto_share",
+      "location.share_selected",
+      "location.sos_default",
+      "location.stop_share",
+      "location.stop_sos",
+      "location.trigger_sos",
+    ];
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_location",
+      controls: localHandlers.map((actionId) => ({
+        id: actionId,
+        actionId,
+        label: actionId,
+      })),
+    });
+
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location", null),
+    });
+
+    expect(snapshot.available_action_ids).toContain("location.refresh");
+    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
+      ACTION_ID_SCREEN_SEGMENT_CAP,
+    );
+  });
+
+  it("keeps sos_default reachable on the SOS subview alongside trigger_sos and stop_sos", () => {
+    // "save me" / bare emergency phrasing resolves to location.sos_default
+    // (see Voice Settings' emergency-default choice), not directly to
+    // trigger_sos. Without a boost entry it would compete on equal footing
+    // with 29 other local handlers and could lose the tiebreak on the one
+    // subview where it matters most.
+    window.history.pushState({}, "", "/one/location?view=sos");
+    const localHandlers = [
+      "location.accept_circle_invite",
+      "location.add_emergency_contact",
+      "location.add_to_circle",
+      "location.approve_request",
+      "location.change_share_duration",
+      "location.confirm_nearby_check_in",
+      "location.create_circle",
+      "location.decline_circle_invite",
+      "location.decline_request",
+      "location.delete_circle",
+      "location.delete_saved_location",
+      "location.leave_circle",
+      "location.nearby_check_in",
+      "location.pause_updates",
+      "location.refresh",
+      "location.remove_emergency_contact",
+      "location.remove_from_circle",
+      "location.rename_circle",
+      "location.resume_updates",
+      "location.save_current_location",
+      "location.select_ask_recipient",
+      "location.select_share_recipient",
+      "location.send_check_in",
+      "location.send_request",
+      "location.set_auto_share",
+      "location.share_selected",
+      "location.sos_default",
+      "location.stop_share",
+      "location.stop_sos",
+      "location.trigger_sos",
+    ];
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_location",
+      controls: localHandlers.map((actionId) => ({
+        id: actionId,
+        actionId,
+        label: actionId,
+      })),
+    });
+
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location?view=sos", "one_location", "sos"),
+    });
+
+    expect(snapshot.available_action_ids).toContain("location.sos_default");
+    expect(snapshot.available_action_ids).toContain("location.trigger_sos");
+    expect(snapshot.available_action_ids).toContain("location.stop_sos");
+    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
+      ACTION_ID_SCREEN_SEGMENT_CAP,
+    );
+  });
+
   it("still shows every global nav contract when the local segment is completely full", () => {
     // Regression for the bug this fixes: prioritizeAvailableActionIds was
     // called with includeGlobalNavigation = underlyingActionsAvailable &&
