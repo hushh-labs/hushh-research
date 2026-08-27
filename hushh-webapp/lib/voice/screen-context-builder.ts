@@ -59,13 +59,6 @@ export const ACTION_ID_SCREEN_SEGMENT_CAP = 14;
 // two caps applied after it.
 export const PUBLISHED_ACTION_IDS_CAP = 64;
 /**
- * available_action_ids carries the screen-ranked list PLUS a reserved global
- * navigation segment, so it gets a wider cap than other context arrays. The
- * backend mirrors this value (Pydantic max_length + persona sanitize limit);
- * keep all three in sync.
- */
-export const AVAILABLE_ACTION_IDS_CAP = 18;
-/**
  * Cross-screen navigation contracts that must ALWAYS be visible to the model,
  * regardless of the current screen. Without this reserved segment, strict
  * screen filtering plus the context cap made "go to profile" undiscoverable
@@ -84,6 +77,23 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.voice_settings",
   "route.one_feed",
 ];
+/**
+ * available_action_ids carries the screen-ranked local segment PLUS the
+ * reserved global navigation segment above, so it must be at least as wide
+ * as both combined -- not a separately-picked number. It used to be a bare
+ * 18. That alone was a real but narrow gap (see prioritizeAvailableActionIds'
+ * caller, which had a separate and much bigger bug suppressing nav
+ * entirely on any screen with published actions -- fixed there). Deriving
+ * the cap here means the next agent that adds its own entry to
+ * GLOBAL_NAV_ACTION_IDS grows this automatically, with no second number to
+ * remember to bump.
+ *
+ * The backend mirrors this value as AVAILABLE_ACTION_IDS_CAP in
+ * hushh_mcp/services/action_gateway.py (Pydantic max_length + the two
+ * agent_tree.py render-time slices); keep them in sync.
+ */
+export const AVAILABLE_ACTION_IDS_CAP =
+  ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length;
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";
 export const INVALID_ARRAY_TYPE_ERROR = "INVALID_ARRAY_TYPE";
@@ -917,10 +927,18 @@ export function buildStructuredScreenContext(args: {
       ...publishedActionIds,
     ],
     screen,
-    // A mounted authored inventory is the current interaction authority.
-    // Do not append global navigation behind an active setup terminal, dialog,
-    // or other visible control; that would let a voice turn escape the page.
-    underlyingActionsAvailable && publishedActionIds.length === 0,
+    // Do not append global navigation behind an active setup terminal,
+    // dialog, or other blocking control; that would let a voice turn escape
+    // the page mid-flow. underlyingActionsAvailable already answers exactly
+    // that question (false only while an interaction layer is actively
+    // blocking). The extra `publishedActionIds.length === 0` this used to
+    // carry conflated "a blocking flow is open right now" with "this screen
+    // happens to publish its own actions" -- true of every substantive
+    // screen at every steady-state moment, not just risky ones -- and
+    // silently suppressed GLOBAL_NAV_ACTION_IDS entirely (not just past its
+    // cap) on Location, Gmail, and every other screen with real local
+    // handlers, every single turn.
+    underlyingActionsAvailable,
     subview,
   );
   const screenMetadata = {

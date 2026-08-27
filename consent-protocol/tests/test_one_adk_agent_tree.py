@@ -199,6 +199,18 @@ class TestAgentTreeShape:
         assert "Never call yourself Kai" in ONE_IDENTITY_INSTRUCTION
         assert "Visible controls take priority over introductions" in ONE_IDENTITY_INSTRUCTION
         assert "list_app_actions" in ONE_IDENTITY_INSTRUCTION
+        # Replaces "call list_app_actions when the exact id is uncertain": a
+        # confidence judgment that swung on wording, not a checkable rule.
+        # Two-turn table-stakes regression: "save me" and "trigger sos"
+        # should not diverge on whether the model felt certain about either.
+        assert (
+            "call list_app_actions first with their own words, every time, "
+            "rather than judging whether you feel certain" in ONE_IDENTITY_INSTRUCTION
+        )
+        assert (
+            "Call list_app_actions first unless their words are already a "
+            "close match to one of the visible labels" in ONE_IDENTITY_INSTRUCTION
+        )
         assert "correlated app action settlement" in ONE_IDENTITY_INSTRUCTION
         assert "Conversation comes before workflow" in ONE_IDENTITY_INSTRUCTION
         assert "so what?" in ONE_IDENTITY_INSTRUCTION
@@ -209,6 +221,12 @@ class TestAgentTreeShape:
         assert "Gmail receipt sync and inbox search are paused" in ONE_IDENTITY_INSTRUCTION
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
         assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
+        # Onboarding's own instance of the same rule (replaces "When the
+        # exact generated id is uncertain, call list_app_actions").
+        assert (
+            "Whenever the person's own words are not a close match to one of "
+            "the visible labels, call list_app_actions" in ONE_IDENTITY_INSTRUCTION
+        )
 
     def test_identity_instruction_carries_persona_grounding(self):
         # Durable north-star + principle grounding is folded into the shared
@@ -261,7 +279,14 @@ class TestAgentTreeShape:
         assert "ACTIVE ROUTE PLAYBOOK" in instruction
         assert "Terms => auth.open_terms" in instruction
         assert "Do not call open_screen" in instruction
-        assert "First assess meaning semantically" in instruction
+        assert (
+            "First check whether the person's own words closely echo one of the "
+            "labels above" in instruction
+        )
+        assert (
+            "call list_app_actions with their own words first, every time, "
+            "rather than guessing from a label that only partly fits" in instruction
+        )
 
     def test_runtime_instruction_warns_when_voice_control_is_off(self):
         # Gate 1/Gate 2 refuse every actual tool call while voice is off, but
@@ -354,7 +379,7 @@ class TestAgentTreeShape:
         assert "Continue with Apple => auth.sign_in_apple" in instruction
         assert "Continue with Google => auth.sign_in_google" in instruction
         assert "clear provider request selects its exact Apple or Google action" in instruction
-        assert "list_app_actions only to retrieve bounded candidates" in instruction
+        assert "call list_app_actions with their own words first, every time" in instruction
         assert "genuinely ambiguous" in instruction
 
     def test_finance_instruction_distinguishes_an_unlocked_empty_portfolio(self):
