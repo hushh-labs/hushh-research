@@ -55,6 +55,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_PENDING_DIRECTIVE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
+    _intro_navigable,
     _one_runtime_instruction,
     _specialist_turn,
     ask_consent_agent,
@@ -62,6 +63,7 @@ from hushh_mcp.one_adk.agent_tree import (
     build_one_root_agent,
     build_one_text_agent,
     get_one_runner,
+    list_intro_navigation_actions,
     open_gmail_email_draft,
     open_screen,
 )
@@ -140,6 +142,47 @@ class TestAgentTreeShape:
         assert agent.name == "one_intro"
         assert tool_names == {"run_intro_navigation_action", "list_intro_navigation_actions"}
         assert "do not force a workflow" in agent.instruction
+
+    def test_pre_vault_head_no_longer_uses_the_uncertain_self_assessment_gate(self):
+        # Replaces #6087: "Call list_intro_navigation_actions only when the
+        # action id is uncertain" -- the same brittle self-assessment gate
+        # already fixed for list_app_actions in PR #6071, just in this
+        # separate static instruction that fix didn't touch.
+        agent = build_one_intro_text_agent()
+        assert "when the action id is uncertain" not in agent.instruction
+        assert (
+            "Call list_intro_navigation_actions first unless their words are "
+            "already a close match" in agent.instruction
+        )
+
+    @pytest.mark.asyncio
+    async def test_every_listed_intro_route_is_accepted_by_the_executor(self):
+        # #6086: list_intro_navigation_actions used to filter only by
+        # is_navigation_action, a broader test than run_intro_navigation_action's
+        # own predicate (route.* prefix + allow_direct + wired). 45 of 77 ids
+        # were listed as candidates and then always rejected. Both functions
+        # now share _intro_navigable, so this invariant holds by construction
+        # -- asserted directly so a future regression fails here, not in UAT.
+        listing = await list_intro_navigation_actions()
+        assert listing["status"] == "ok"
+        assert listing["results"], "expected at least one pre-vault route to be listed"
+        for result in listing["results"]:
+            entry = get_action_gateway_action(result["action_id"])
+            assert _intro_navigable(entry, result["action_id"]), (
+                f"{result['action_id']} is listed by list_intro_navigation_actions "
+                "but would be rejected by run_intro_navigation_action"
+            )
+
+    def test_intro_navigable_rejects_a_route_shaped_id_missing_the_prefix(self):
+        # The concrete casualty #6086 was filed against: onboarding.continue,
+        # auth.sign_in_open, and vault.setup_open are all wired/allow_direct
+        # and reachable via execution_target.path == "route" (the OTHER half
+        # of is_navigation_action's union), but none starts with "route.".
+        for action_id in ("onboarding.continue", "auth.sign_in_open", "vault.setup_open"):
+            entry = get_action_gateway_action(action_id)
+            assert entry is not None, f"{action_id} missing from the gateway"
+            assert entry.get("execution_target", {}).get("path") == "route"
+            assert not _intro_navigable(entry, action_id)
 
     def test_isolated_google_search_uses_the_text_model(self):
         agent = build_one_root_agent()
