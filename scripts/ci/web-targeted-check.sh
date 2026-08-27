@@ -93,7 +93,12 @@ fi
 # shape is half the contract: the RIAs tab filters its connections on a row
 # flag that has to survive the service type on its way from the Python half to
 # the screen, and a change confined to that file used to match no pack at all.
-if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/connections-service\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
+# `lib/contacts/` and `contact-matching.ts` are in here because contact sync is
+# shared code with two front doors: the One Location agent and, now, Connect's
+# People section. A change to the region resolver or the matcher is a change to
+# both screens, so both packs have to re-run -- and until this was added, a
+# change confined to `lib/contacts/` matched no pack in the repo at all.
+if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/connections-service\.ts|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
   run_check "Connect people search" npm run verify:connect-search
   ran=1
 fi
@@ -130,7 +135,7 @@ fi
 # caught here, and one of them -- an open-ended duration offered on the Request
 # screen -- emits a non-numeric sentinel into a field the same lane runs
 # Number() over.
-if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/)'; then
+if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)'; then
   run_check "One Location flows" npm run verify:one-location
   ran=1
 fi

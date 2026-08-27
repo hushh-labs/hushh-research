@@ -139,7 +139,9 @@ function phoneStringsOf(person: PeoplePerson): string[] {
  * (it needs a user gesture and can show a consent sheet), and keeping the two
  * apart means this module can be tested with a plain string.
  */
-export function googlePeopleContactSource(token: string): MarketplaceContactSource {
+export function googlePeopleContactSource(
+  token: string,
+): MarketplaceContactSource {
   return async ({ limit }) => {
     const contacts: HushhContactsReadResult["contacts"] = [];
     let pageToken: string | null = null;
@@ -167,7 +169,7 @@ export function googlePeopleContactSource(token: string): MarketplaceContactSour
             ? "Google contact access expired. Connect again to keep going."
             : response.status === 403
               ? "Google Contacts access is unavailable for this app or account. Try again later."
-            : "Could not read your Google contacts. Try again in a moment.",
+              : "Could not read your Google contacts. Try again in a moment.",
         );
       }
 
@@ -195,13 +197,17 @@ export function googlePeopleContactSource(token: string): MarketplaceContactSour
     return {
       contacts: contacts.slice(0, limit),
       sourcePlatform: "google",
-      // Null, not the browser locale — and this is strictly better than the
-      // device-picker path. `resolveContactPhoneRegion` takes the first of
-      // device region, the account's own verified number, then locale. The web
-      // picker passes a locale, so a US-locale browser overrides an Indian
-      // account's own number, which is exactly the bug
-      // `phone-normalization.ts` was written to kill. Passing null lets the
-      // account's real number decide.
+      // Null, not the browser locale. A People read has no device behind it,
+      // so there is no region to report and inventing one from the browser's
+      // language would be a guess dressed as a signal.
+      //
+      // This used to be load-bearing for a different reason: the resolver took
+      // ANY device region ahead of the account's own number, so a US-locale
+      // browser overrode an Indian account and every bare national number
+      // hashed wrong. Passing null was how this path sidestepped it. The
+      // resolver now ranks by provenance — only a SIM-derived region outranks
+      // the account's number — so the sidestep is no longer what saves us, and
+      // null is simply the honest value.
       defaultRegion: null,
       // A People read is the whole address book, not a hand-picked subset. This
       // flag is the sole gate on the partial-read copy and its "Check more"
