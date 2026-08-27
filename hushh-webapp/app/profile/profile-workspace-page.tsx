@@ -28,6 +28,7 @@ import {
   MessageCircleQuestion,
   Users,
   Monitor,
+  Laptop,
   Phone,
   Palette,
   RefreshCw,
@@ -3234,6 +3235,13 @@ function ProfilePageContent() {
           onClick={() =>
             updateProfileView({ panel: "security", detail: "vault" }, "push")
           }
+        />
+        <SettingsRow
+          icon={Laptop}
+          title="Trusted devices"
+          description="Computers connected to your private agent."
+          chevron
+          onClick={() => router.push(ROUTES.PROFILE_SECURITY_DEVICES)}
         />
       </SettingsGroup>
     </div>
