@@ -301,7 +301,9 @@ describe("Connect — People", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
-    expect(await screen.findByRole("button", { name: "Loading…" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Loading…" }),
+    ).toBeTruthy();
 
     act(() => {
       window.dispatchEvent(
@@ -401,6 +403,23 @@ describe("Connect — People", () => {
 
     expect(await screen.findByText("Current Person")).toBeTruthy();
     expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1);
+
+    // Refresh is a control, not part of the heading text. It used to be a
+    // child of the `title` node, which SettingsGroup renders inside an element
+    // carrying `role="heading"` -- a button there is folded into the heading's
+    // accessible name and is never offered as something to press. The two
+    // assertions below are what keep it out: the heading's name is the plain
+    // text, and the button is not a descendant of it.
+    const connectionsHeading = screen
+      .getAllByRole("heading")
+      .find((node) => node.textContent?.includes("connections"));
+    expect(connectionsHeading).toBeTruthy();
+    expect(
+      connectionsHeading?.contains(
+        screen.getByRole("button", { name: "Refresh contacts" }),
+      ),
+    ).toBe(false);
+    expect(connectionsHeading?.textContent).not.toContain("Refresh");
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh contacts" }));
 
