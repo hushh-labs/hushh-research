@@ -127,7 +127,7 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
       </div>
       <div className={styles.halo} />
       <div className={styles.iconWrap}>
-        <span className={styles.icon}>🤫</span>
+        <span className={`hushh-brand-mark ${styles.icon}`}>🤫</span>
       </div>
       <div className={styles.textStack}>
         <div className={styles.label2}>
