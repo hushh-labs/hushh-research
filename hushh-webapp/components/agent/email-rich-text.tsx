@@ -7,19 +7,16 @@ import {
   AlignRight,
   Bold,
   Quote,
-  Eye,
   Heading2,
   Italic,
   Link2,
   List,
   ListOrdered,
-  PencilLine,
   Underline,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 type RichEmailComposerProps = {
@@ -177,7 +174,14 @@ function parseBlocks(value: string): EmailBlock[] {
     }
     const paragraph: string[] = [];
     while (index < lines.length && (lines[index] ?? "").trim()) {
-      paragraph.push(lines[index] ?? "");
+      const lineCandidate = lines[index] ?? "";
+      if (
+        paragraph.length > 0 &&
+        (/^[-*•]\s+/.test(lineCandidate) || /^\d+[.)]\s+/.test(lineCandidate))
+      ) {
+        break;
+      }
+      paragraph.push(lineCandidate);
       index += 1;
     }
     blocks.push({ kind: "paragraph", lines: paragraph });
@@ -369,191 +373,241 @@ export function EmailRichTextPreview({
   );
 }
 
+/** Sanitizes pasted HTML from external sources (Word, browsers, external mail) */
+function sanitizePastedHtml(htmlString: string): string {
+  if (typeof window === "undefined" || !htmlString.trim()) return "";
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlString, "text/html");
+
+  const allowedTags = new Set([
+    "P", "BR", "H1", "H2", "H3", "STRONG", "B", "EM", "I", "U",
+    "UL", "OL", "LI", "BLOCKQUOTE", "A", "SPAN"
+  ]);
+
+  const cleanNode = (node: Node): Node | null => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return doc.createTextNode(node.textContent || "");
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+
+    const el = node as HTMLElement;
+    const tagName = el.tagName.toUpperCase();
+
+    if (tagName === "SCRIPT" || tagName === "STYLE" || tagName === "META" || tagName === "LINK") {
+      return null;
+    }
+
+    if (!allowedTags.has(tagName)) {
+      const fragment = doc.createDocumentFragment();
+      for (const child of Array.from(el.childNodes)) {
+        const cleanedChild = cleanNode(child);
+        if (cleanedChild) fragment.appendChild(cleanedChild);
+      }
+      return fragment;
+    }
+
+    const newEl = doc.createElement(tagName.toLowerCase());
+
+    if (tagName === "A" && el.getAttribute("href")) {
+      const href = el.getAttribute("href") || "";
+      if (isSafeHref(href)) {
+        newEl.setAttribute("href", href);
+        newEl.setAttribute("target", "_blank");
+        newEl.setAttribute("rel", "noreferrer");
+      }
+    }
+
+    for (const child of Array.from(el.childNodes)) {
+      const cleanedChild = cleanNode(child);
+      if (cleanedChild) newEl.appendChild(cleanedChild);
+    }
+
+    return newEl;
+  };
+
+  const container = doc.createElement("div");
+  for (const child of Array.from(doc.body.childNodes)) {
+    const cleaned = cleanNode(child);
+    if (cleaned) container.appendChild(cleaned);
+  }
+  return container.innerHTML;
+}
+
 export function EmailRichTextComposer({
   id,
   value,
   disabled = false,
-  showPreviewOnFirstContent = false,
   onChange,
 }: RichEmailComposerProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const previewedGeneratedContentRef = useRef(false);
-  const [previewing, setPreviewing] = useState(() => {
-    return Boolean(normalizeRichEmailText(value).trim());
-  });
+  const editorRef = useRef<HTMLDivElement>(null);
   const [linkUrl, setLinkUrl] = useState("");
+  const isInternalChangeRef = useRef(false);
+  const lastHtmlRef = useRef("");
 
+  // Seed editor HTML on mount or when value changes externally (e.g. AI draft generation)
   useEffect(() => {
-    if (
-      showPreviewOnFirstContent &&
-      !previewedGeneratedContentRef.current &&
-      normalizeRichEmailText(value).trim()
-    ) {
-      previewedGeneratedContentRef.current = true;
-      setPreviewing(true);
+    if (isInternalChangeRef.current) {
+      isInternalChangeRef.current = false;
+      return;
     }
-  }, [showPreviewOnFirstContent, value]);
+    if (!editorRef.current) return;
 
-  const replaceSelection = (before: string, after = before, fallback = "text") => {
-    const field = textareaRef.current;
-    const start = field?.selectionStart ?? value.length;
-    const end = field?.selectionEnd ?? value.length;
-    const selected = value.slice(start, end) || fallback;
-    const next = `${value.slice(0, start)}${before}${selected}${after}${value.slice(end)}`;
-    onChange(next);
-    requestAnimationFrame(() => {
-      field?.focus();
-      field?.setSelectionRange(start + before.length, start + before.length + selected.length);
-    });
+    const targetHtml = value.trim().startsWith("<") && value.includes(">")
+      ? value
+      : richEmailHtmlFromMarkdown(value);
+
+    if (editorRef.current.innerHTML !== targetHtml) {
+      editorRef.current.innerHTML = targetHtml || "<p><br></p>";
+      lastHtmlRef.current = editorRef.current.innerHTML;
+    }
+  }, [value]);
+
+  const emitChange = () => {
+    if (!editorRef.current) return;
+    const currentHtml = editorRef.current.innerHTML;
+    if (currentHtml === lastHtmlRef.current) return;
+
+    lastHtmlRef.current = currentHtml;
+    isInternalChangeRef.current = true;
+    onChange(currentHtml);
   };
 
-  const prefixLines = (prefix: string, numbered = false) => {
-    const field = textareaRef.current;
-    const start = field?.selectionStart ?? 0;
-    const end = field?.selectionEnd ?? value.length;
-    const lineStart = value.lastIndexOf("\n", Math.max(start - 1, 0)) + 1;
-    const lineEnd = value.indexOf("\n", end);
-    const selected = value.slice(lineStart, lineEnd < 0 ? value.length : lineEnd);
-    const nextLines = selected
-      .split("\n")
-      .map((line, index) => (line ? `${numbered ? `${index + 1}. ` : prefix}${line}` : line));
-    onChange(`${value.slice(0, lineStart)}${nextLines.join("\n")}${lineEnd < 0 ? "" : value.slice(lineEnd)}`);
-    requestAnimationFrame(() => field?.focus());
+  const handleInput = () => {
+    emitChange();
   };
 
-  const wrapBlock = (open: string, close: string) => {
-    const field = textareaRef.current;
-    const start = field?.selectionStart ?? 0;
-    const end = field?.selectionEnd ?? value.length;
-    const lineStart = value.lastIndexOf("\n", Math.max(start - 1, 0)) + 1;
-    const lineEnd = value.indexOf("\n", end);
-    const selected = value.slice(lineStart, lineEnd < 0 ? value.length : lineEnd) || "Text";
-    onChange(
-      `${value.slice(0, lineStart)}${open}\n${selected}\n${close}${lineEnd < 0 ? "" : value.slice(lineEnd)}`,
-    );
-    requestAnimationFrame(() => field?.focus());
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const htmlData = e.clipboardData.getData("text/html");
+    const textData = e.clipboardData.getData("text/plain");
+
+    if (htmlData) {
+      const cleanHtml = sanitizePastedHtml(htmlData);
+      if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+        document.execCommand("insertHTML", false, cleanHtml);
+      }
+    } else if (textData) {
+      if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+        document.execCommand("insertText", false, textData);
+      }
+    }
+    handleInput();
   };
 
-  const addLink = () => {
-    const href = linkUrl.trim();
-    if (!isSafeHref(href)) return;
-    replaceSelection("[", `](${href})`, "link text");
-    setLinkUrl("");
+  const preserveFocusAndExecute = (command: string, arg: string | undefined = undefined) => {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+    if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+      // Deprecation Note: execCommand is used here for native cross-browser WYSIWYG formatting
+      document.execCommand(command, false, arg);
+    }
+    emitChange();
   };
 
   const handleFormattingAction = (action: FormattingAction) => {
     switch (action) {
       case "bold":
-        replaceSelection("**");
+        preserveFocusAndExecute("bold");
         return;
       case "italic":
-        replaceSelection("*");
+        preserveFocusAndExecute("italic");
         return;
       case "underline":
-        replaceSelection("++");
+        preserveFocusAndExecute("underline");
         return;
       case "heading":
-        prefixLines("## ");
+        preserveFocusAndExecute("formatBlock", "<h2>");
         return;
       case "bullet-list":
-        prefixLines("- ");
+        preserveFocusAndExecute("insertUnorderedList");
         return;
       case "numbered-list":
-        prefixLines("", true);
+        preserveFocusAndExecute("insertOrderedList");
         return;
       case "quote":
-        prefixLines("> ");
+        preserveFocusAndExecute("formatBlock", "blockquote");
         return;
       case "align-left":
-        wrapBlock(":::left", ":::");
+        preserveFocusAndExecute("justifyLeft");
         return;
       case "align-center":
-        wrapBlock(":::center", ":::");
+        preserveFocusAndExecute("justifyCenter");
         return;
       case "align-right":
-        wrapBlock(":::right", ":::");
+        preserveFocusAndExecute("justifyRight");
+        return;
     }
+  };
+
+  const addLink = () => {
+    const href = linkUrl.trim();
+    if (!isSafeHref(href)) return;
+    preserveFocusAndExecute("createLink", href);
+    setLinkUrl("");
   };
 
   return (
     <div className="overflow-hidden rounded-xl border border-border/60 bg-background shadow-xs focus-within:border-primary/50 transition-colors">
-      {previewing ? (
-        <div
-          className="min-h-52 bg-background px-4 py-4 sm:px-5"
-          data-testid="one-email-rich-preview"
-        >
-          <EmailRichTextPreview value={value} />
-        </div>
-      ) : (
-        <Textarea
-          aria-label="Message"
-          className="min-h-52 resize-y rounded-none border-0 bg-transparent px-4 py-4 text-[15px] leading-relaxed placeholder:text-muted-foreground/60 shadow-none focus-visible:ring-0 sm:px-5"
-          data-testid="one-email-draft-message"
-          disabled={disabled}
-          id={id}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder="Write your message…"
-          ref={textareaRef}
-          value={value}
-        />
-      )}
+      <div
+        ref={editorRef}
+        contentEditable={!disabled}
+        suppressContentEditableWarning
+        id={id}
+        data-testid="one-email-draft-message"
+        role="textbox"
+        aria-multiline="true"
+        aria-label="Message"
+        className="min-h-52 resize-y overflow-y-auto px-4 py-4 text-[15px] leading-relaxed outline-none focus-visible:outline-none sm:px-5 [&_p]:mb-4 [&_p:last-child]:mb-0 [&_ul]:mb-4 [&_ul]:pl-6 [&_ul]:list-disc [&_ol]:mb-4 [&_ol]:pl-6 [&_ol]:list-decimal [&_li]:mb-1 [&_blockquote]:mb-4 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/40 [&_blockquote]:pl-3 [&_blockquote]:italic [&_h1]:mb-3 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold"
+        onInput={handleInput}
+        onBlur={handleInput}
+        onPaste={handlePaste}
+      />
 
-      {/* Gmail-style minimal bottom toolbar row */}
-      <div className="flex flex-wrap items-center gap-2 border-t border-border/50 bg-background/60 px-3 py-1.5">
-        <div aria-label="Text formatting" className="flex min-w-0 items-center gap-0.5" role="toolbar">
+      <div className="flex flex-wrap items-center gap-1 border-t border-border bg-muted/30 px-3 py-1.5">
+        <div aria-label="Text formatting" className="flex items-center gap-0.5" role="toolbar">
           {FORMATTING_CONTROLS.map(({ label, action }) => {
             const Icon = formattingIcon(action);
             return (
               <Button
                 aria-label={label}
-                disabled={disabled || previewing}
+                disabled={disabled}
                 key={label}
+                onMouseDown={(e) => {
+                  // Prevent button click taking focus away from editor selection
+                  e.preventDefault();
+                }}
                 onClick={() => handleFormattingAction(action)}
                 size="icon"
                 type="button"
                 variant="ghost"
-                className="h-7 w-7 rounded-md text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                className="h-7 w-7 text-muted-foreground hover:bg-background hover:text-foreground"
               >
                 <Icon className="h-3.5 w-3.5" />
               </Button>
             );
           })}
         </div>
-        <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          {!previewing ? (
-            <>
-              <Input
-                aria-label="Link URL"
-                className="h-7 w-28 rounded-md bg-background/80 text-xs sm:w-40"
-                disabled={disabled}
-                onChange={(event) => setLinkUrl(event.target.value)}
-                placeholder="https://…"
-                value={linkUrl}
-              />
-              <Button
-                aria-label="Add link"
-                disabled={disabled || !isSafeHref(linkUrl.trim())}
-                onClick={addLink}
-                size="sm"
-                type="button"
-                variant="ghost"
-                className="h-7 gap-1 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <Link2 className="h-3.5 w-3.5" />
-                Link
-              </Button>
-            </>
-          ) : null}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Input
+            aria-label="Link URL"
+            className="h-7 w-28 bg-background text-xs sm:w-40"
+            disabled={disabled}
+            onChange={(event) => setLinkUrl(event.target.value)}
+            placeholder="https://…"
+            value={linkUrl}
+          />
           <Button
-            aria-label={previewing ? "Edit message" : "Preview message"}
-            onClick={() => setPreviewing((current) => !current)}
+            aria-label="Add link"
+            disabled={disabled || !isSafeHref(linkUrl.trim())}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={addLink}
             size="sm"
             type="button"
             variant="ghost"
-            className="h-7 gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:bg-background hover:text-foreground"
           >
-            {previewing ? <PencilLine className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            {previewing ? "Edit" : "Preview"}
+            <Link2 className="h-3.5 w-3.5" />
+            Link
           </Button>
         </div>
       </div>
