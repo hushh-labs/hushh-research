@@ -10,6 +10,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { SurfaceStack } from "@/components/app-ui/surfaces";
 import {
   buildKaiTestClientAccess,
   canShowKaiTestProfile,
@@ -176,7 +177,7 @@ export default function RiaClientsPage() {
   return (
     <AppPageShell
       as="main"
-      width="expanded"
+      width="standard"
       nativeTest={{
         routeId: "/ria/clients",
         marker: "native-route-ria-clients",
@@ -188,7 +189,7 @@ export default function RiaClientsPage() {
             : "empty-valid",
       }}
     >
-      <AppPageHeaderRegion>
+      <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
           eyebrow={RIA_COPY.clients.eyebrow}
           title={
@@ -209,7 +210,7 @@ export default function RiaClientsPage() {
 
       <AppPageContentRegion>
         <RiaVerificationGate>
-        <div className="flex flex-col gap-8">
+        <SurfaceStack className="gap-8">
           {/* Connected is the roster of investors who already granted access.
               Around you is prospecting against public records — a different
               kind of person entirely, which is why they are separate views on
@@ -302,7 +303,7 @@ export default function RiaClientsPage() {
             )}
           </SettingsGroup>
           )}
-        </div>
+        </SurfaceStack>
         </RiaVerificationGate>
       </AppPageContentRegion>
     </AppPageShell>
