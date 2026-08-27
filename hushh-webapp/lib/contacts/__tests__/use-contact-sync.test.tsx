@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   permissionState: "prompt" as "prompt" | "granted" | "unavailable",
+  getPermissionState: vi.fn(),
   googleAvailability: "unconfigured" as "connectable" | "unconfigured",
   requestGoogleToken: vi.fn(),
   preloadGoogle: vi.fn(),
   googleSource: vi.fn(),
   syncSignals: vi.fn(),
+  isNative: vi.fn(() => false),
   trackEvent: vi.fn(),
   onGraphMutated: vi.fn(),
   toastSuccess: vi.fn(),
@@ -18,8 +20,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/capacitor", () => ({
   HushhContacts: {
-    getPermissionState: async () => ({ state: mocks.permissionState }),
+    getPermissionState: mocks.getPermissionState,
   },
+}));
+
+vi.mock("@/lib/capacitor/platform", () => ({
+  isNative: mocks.isNative,
 }));
 
 vi.mock("@/lib/contacts/google-people-source", () => ({
@@ -121,6 +127,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.permissionState = "prompt";
   mocks.googleAvailability = "unconfigured";
+  mocks.isNative.mockReturnValue(false);
+  mocks.getPermissionState.mockImplementation(async () => ({
+    state: mocks.permissionState,
+  }));
   mocks.syncSignals.mockResolvedValue(EMPTY_RESULT);
   // The hook calls `.catch()` on this directly. A bare vi.fn() returns
   // undefined and throws inside the mount effect, which vitest reports as an
@@ -340,5 +350,65 @@ describe("useContactSync — what it tells the surface", () => {
     });
     expect(mocks.syncSignals).not.toHaveBeenCalled();
     expect(mocks.requestGoogleToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("useContactSync — the native contract", () => {
+  // On a phone the address book is the source, and Google is not merely
+  // unused there: `googleContactsAvailability()` returns "unconfigured"
+  // whenever `isNative()`, because the shell's page origin is a custom scheme
+  // that Google will not accept as an authorised JavaScript origin. These
+  // tests hold that line from this side.
+
+  it("keeps the control available when the native probe fails", async () => {
+    // The regression this exists for. `googleConfigured` is false on native by
+    // construction, so a probe failure used to set `available` to false and
+    // the control vanished on the platform the feature is mainly for -- with
+    // an address book sitting right there. A failed probe is not evidence that
+    // there is nothing to read.
+    mocks.isNative.mockReturnValue(true);
+    mocks.getPermissionState.mockRejectedValue(new Error("bridge down"));
+
+    const { result } = setup();
+    await waitFor(() => expect(result.current.available).toBe(true));
+    expect(result.current.googleFallback).toBe(false);
+    expect(mocks.preloadGoogle).not.toHaveBeenCalled();
+  });
+
+  it("hides the control when a WEB probe fails and no Google client exists", async () => {
+    // The same failure, inverted: off a device, no plugin answer and no Google
+    // client means there genuinely is nothing to read.
+    mocks.isNative.mockReturnValue(false);
+    mocks.googleAvailability = "unconfigured";
+    mocks.getPermissionState.mockRejectedValue(new Error("no plugin"));
+
+    const { result } = setup();
+    await waitFor(() => expect(result.current.available).toBe(false));
+  });
+
+  it("still reads the device book when the OS has not been asked yet", async () => {
+    mocks.isNative.mockReturnValue(true);
+    mocks.permissionState = "prompt";
+    const { result } = setup();
+
+    await waitFor(() => expect(result.current.available).toBe(true));
+    expect(result.current.googleFallback).toBe(false);
+
+    await act(async () => {
+      await result.current.sync();
+    });
+    // No source override: the read goes to the native plugin, and the OS
+    // permission sheet is raised inside it rather than as a separate step.
+    expect(mocks.syncSignals.mock.calls[0][0].source).toBeUndefined();
+  });
+
+  it("keeps the control for a denied device, so Settings stays reachable", async () => {
+    // Denied is not unavailable. Hiding the control would remove the only
+    // route back to the OS setting that turned it off.
+    mocks.isNative.mockReturnValue(true);
+    mocks.getPermissionState.mockResolvedValue({ state: "denied" });
+
+    const { result } = setup();
+    await waitFor(() => expect(result.current.available).toBe(true));
   });
 });
