@@ -7,19 +7,16 @@ import {
   AlignRight,
   Bold,
   Quote,
-  Eye,
   Heading2,
   Italic,
   Link2,
   List,
   ListOrdered,
-  PencilLine,
   Underline,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 type RichEmailComposerProps = {

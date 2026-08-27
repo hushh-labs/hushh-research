@@ -4,7 +4,7 @@ import { EmailRichTextComposer } from "@/components/agent/email-rich-text";
 
 describe("EmailRichTextComposer End-to-End Live DOM Verification", () => {
   beforeEach(() => {
-    document.execCommand = vi.fn((command, _show, arg) => {
+    document.execCommand = vi.fn((command, _show, _arg) => {
       const editor = screen.getByTestId("one-email-draft-message");
       if (command === "bold") {
         editor.innerHTML = editor.innerHTML.replace("sample", "<strong>sample</strong>");
