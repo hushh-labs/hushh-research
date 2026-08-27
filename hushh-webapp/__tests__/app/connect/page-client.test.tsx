@@ -29,6 +29,40 @@ const mocks = vi.hoisted(() => ({
   // render would retrigger every effect keyed on it and spin forever, which
   // would say nothing about the page.
   user: { uid: "me", getIdToken: async () => "id-token" },
+  // Contact sync hides its control until it knows a source exists, and the
+  // probe below is what decides. jsdom has no `navigator.contacts`, so the real
+  // plugin answers "unavailable", the control never renders, and a suite that
+  // did not set this would assert nothing while staying green.
+  contactsPermissionState: "prompt" as "prompt" | "granted" | "unavailable",
+  syncContactSignals: vi.fn(),
+  toastInfo: vi.fn(),
+}));
+
+vi.mock("@/lib/capacitor", () => ({
+  HushhContacts: {
+    getPermissionState: async () => ({
+      state: mocks.contactsPermissionState,
+    }),
+    requestPermission: async () => ({ state: mocks.contactsPermissionState }),
+    readContacts: async () => ({
+      contacts: [],
+      sourcePlatform: "web",
+      limited: true,
+      truncated: false,
+      totalAvailable: 0,
+    }),
+    openAppSettings: async () => ({ opened: false }),
+  },
+}));
+
+// Only the network-facing call is replaced. `describeContactSyncOutcome` and
+// the error types stay real, because they are what turn a result into the copy
+// and the remedy a person is actually shown.
+vi.mock("@/lib/one-location/contact-signals", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/one-location/contact-signals")
+  >()),
+  syncOneLocationContactSignals: mocks.syncContactSignals,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -86,7 +120,14 @@ vi.mock("@/components/connect/nearby-directories", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: mocks.toastSuccess, error: mocks.toastError },
+  toast: {
+    success: mocks.toastSuccess,
+    error: mocks.toastError,
+    // A third branch the sync flow uses: no matches at all, and the
+    // "unavailable" failure. Without it the mock throws instead of the test
+    // asserting anything.
+    info: mocks.toastInfo,
+  },
 }));
 
 // The ladder itself (native sheet -> Web Share -> clipboard) is proved in
@@ -2030,5 +2071,169 @@ describe("Connect — Circles", () => {
     ).toBeTruthy();
     // No navigation: the inner strip does not touch the URL.
     expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A whole `OneLocationContactSignalResult` with nothing matched.
+ *
+ * Written out in full rather than trimmed to the fields the sheet happens to
+ * read today. `__tests__/` sits outside the tsconfig `include`, so
+ * `tsc --noEmit` never compiles this file: a missing field fails at render
+ * time, or worse, silently does not.
+ */
+function emptyContactSyncResult() {
+  return {
+    matches: [],
+    matchedUserIds: [],
+    totalContacts: 0,
+    readContactCount: 0,
+    checkedContactCount: 0,
+    matchedContactCount: 0,
+    unmatchedContactCount: 0,
+    uncheckedContactCount: 0,
+    uncheckableContactCount: 0,
+    excludedSelfContactCount: 0,
+    lookupLimitedContactCount: 0,
+    lookupLimitExceeded: false,
+    inviteCandidateCount: 0,
+    autoConnectedCount: 0,
+    alreadyConnectedCount: 0,
+    requestRequiredCount: 0,
+    suppressedCount: 0,
+    unknownContactCount: 0,
+    completedBatchCount: 0,
+    totalBatchCount: 0,
+    mutationOutcomeUnknown: false,
+    sourcePlatform: "web" as const,
+    limited: false,
+    truncated: false,
+    partial: false,
+    region: null,
+  };
+}
+
+describe("Connect — contact sync", () => {
+  // Offered where an address book helps: People. Not on RIAs, where somebody
+  // is found by their verified profile rather than by being in your phone,
+  // and not on "Around you", which is third-party directories and never
+  // reaches this section at all.
+
+  it("offers Sync contacts on People", async () => {
+    mocks.listConnections.mockResolvedValue([]);
+    render(<ConnectPageClient />);
+
+    expect(
+      await screen.findByRole("button", { name: "Sync contacts" }),
+    ).toBeTruthy();
+  });
+
+  it("does not offer it on the RIAs tab", async () => {
+    mocks.listConnections.mockResolvedValue([]);
+    render(<ConnectPageClient />);
+
+    await screen.findByRole("button", { name: "Sync contacts" });
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Sync contacts" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("hides it when no contact source is reachable", async () => {
+    // A desktop browser with no picker and no Google client configured. A
+    // button whose only function is to explain that it cannot work is worse
+    // than no button.
+    mocks.contactsPermissionState = "unavailable";
+    mocks.listConnections.mockResolvedValue([]);
+    try {
+      render(<ConnectPageClient />);
+
+      await screen.findByRole("heading", { name: "People" });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Sync contacts" }),
+        ).toBeNull(),
+      );
+    } finally {
+      // A plain string on the hoisted object, so `vi.clearAllMocks()` does not
+      // touch it. Without the finally, a failure above takes the contact
+      // source away from every test that runs after this one.
+      mocks.contactsPermissionState = "prompt";
+    }
+  });
+
+  it("keeps the control out of the section heading", async () => {
+    // The rule Refresh follows too. Inside an element with role="heading" a
+    // button is folded into the heading's accessible name and is never
+    // offered as something to press.
+    mocks.listConnections.mockResolvedValue([]);
+    render(<ConnectPageClient />);
+
+    const sync = await screen.findByRole("button", {
+      name: "Sync contacts",
+    });
+    const heading = screen.getByRole("heading", { name: "People" });
+
+    expect(heading.contains(sync)).toBe(false);
+    expect(heading.textContent).not.toContain("Sync");
+  });
+
+  it("refuses a second read while one is already running", async () => {
+    mocks.listConnections.mockResolvedValue([]);
+    let release: (value: unknown) => void = () => {};
+    mocks.syncContactSignals.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    render(<ConnectPageClient />);
+    const button = await screen.findByRole("button", {
+      name: "Sync contacts",
+    });
+
+    // Both taps inside ONE act, so React has not committed between them and
+    // the fiber still carries disabled={false}. Without that React drops the
+    // second click before the handler runs, and the disabled attribute alone
+    // passes this test -- which it did: deleting the in-flight ref changed
+    // nothing until this was written properly. The attribute cannot be the
+    // guard in any case, because the "Check more" and "Sync again" remedies
+    // re-enter through a sonner toast button that carries no disabled at all.
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+
+    expect(mocks.syncContactSignals).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Sync contacts" }),
+      ).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Sync contacts",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      release(emptyContactSyncResult());
+    });
+
+    // The sheet is half of what this change puts on Connect. Without these,
+    // deleting its mount breaks no test in this file.
+    expect(await screen.findByText("Contact sync results")).toBeTruthy();
+    expect(
+      screen.getByText("No Hushh accounts matched in this sync."),
+    ).toBeTruthy();
+    expect(mocks.toastInfo.mock.calls[0][0]).toBe(
+      "No Hushh users matched this time",
+    );
   });
 });

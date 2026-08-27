@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   BadgeCheck,
+  BookUser,
   Loader2,
   Lock,
   RefreshCw,
@@ -52,6 +53,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequireAuth } from "@/hooks/use-auth";
+import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -706,6 +709,48 @@ export default function ConnectPageClient() {
     [loadConnectionsPage],
   );
 
+  // The same contact sync the One Location agent offers, on the screen whose
+  // whole job is finding people. It is one implementation, not a second one:
+  // everything about reading an address book, hashing numbers and matching
+  // them lives in the hook, and this surface supplies only what is its own --
+  // which list to refresh afterwards, and which route the analytics belong to.
+  //
+  // `onInviteShareStarted` is deliberately not passed. On Location it records
+  // the acquisition source for that journey, and first touch wins inside it,
+  // so calling it from here would not merely file a wrong row -- it would
+  // consume the slot and leave a later, genuine Location touch unrecorded.
+  const connectionAudienceRef = useRef(connectionAudience);
+  connectionAudienceRef.current = connectionAudience;
+
+  const contactSync = useContactSync({
+    routeId: "connect",
+    // `user ? getIdToken : null`, not `getIdToken`. The option is nullable so
+    // the hook can check sign-in SYNCHRONOUSLY, before it asks GIS for a token
+    // -- a token fetch in front of that call spends the tap's transient
+    // activation and Safari blocks the popup. `getIdToken` here is a
+    // useCallback, so it is always truthy and resolves to null when signed
+    // out; passing it raw made the guard dead code and let the Google consent
+    // popup open for a signed-out visitor. This restores the predicate the
+    // Location page used.
+    getIdToken: user ? getIdToken : null,
+    accountPhoneNumber: user?.phoneNumber,
+    userId: user?.uid,
+    // Awaited, and its boolean dropped: the hook only needs to know the
+    // refresh finished before it announces the outcome, so the toast never
+    // claims a connection the list behind it has not caught up to.
+    //
+    // The audience is read from a ref rather than captured. A sync is long
+    // enough to switch tabs under, and the hook snapshots its options once at
+    // the start; a captured value would refresh the People audience into the
+    // RIAs group and repaint it with the wrong people.
+    onConnectionGraphChanged: async () => {
+      await refreshConnectionsFirstPage({
+        audience: connectionAudienceRef.current,
+      });
+      setDirectoryRefreshNonce((nonce) => nonce + 1);
+    },
+  });
+
   useEffect(() => {
     // Audience is part of the server-side truth for this list. Clear the
     // previous audience before loading so a failed RIAs request cannot leave
@@ -837,6 +882,7 @@ export default function ConnectPageClient() {
   }, [inviteToOneShare]);
 
   const resultSetKey = `${directoryAudience}:${pageSize}:${trimmedQuery}`;
+  const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
   const [renderedResultSetKey, setRenderedResultSetKey] =
     useState(resultSetKey);
   if (renderedResultSetKey !== resultSetKey) {
@@ -889,7 +935,19 @@ export default function ConnectPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, trimmedQuery, currentPage, pageSize, directoryAudience]);
+  }, [
+    user,
+    trimmedQuery,
+    currentPage,
+    pageSize,
+    directoryAudience,
+    // A contact sync can connect people who are sitting in this list right
+    // now. Their rows carry a `relationship` the server decided before the
+    // sync ran, so without this the directory keeps offering "Connect" to
+    // somebody it just connected you to, and the request that follows is
+    // refused. Bumping the nonce re-asks the server for the same page.
+    directoryRefreshNonce,
+  ]);
 
   const selectSurface = useCallback(
     (next: ConnectSurface) => {
@@ -1014,6 +1072,39 @@ export default function ConnectPageClient() {
       }
     },
     [user],
+  );
+
+  /**
+   * A match from the results sheet goes through this page's own review, not
+   * straight to the server.
+   *
+   * `config/protected-behaviors.json` locks
+   * `connect-request-asks-before-it-shares`: on Connect a request opens the
+   * capability review pre-granting nothing, and the only permitted bypass is a
+   * catalog empty on both sides. The hook's own `requestConnection` calls
+   * `ConnectionsService.sendRequest` outright -- harmless while the sheet lived
+   * only on Location, a second unreviewed path the moment it renders here. So
+   * the sheet hands the person over and this page asks, exactly as a directory
+   * row does.
+   *
+   * The sheet closes first, deliberately: the review is a dialog, and leaving
+   * the sheet underneath it would stack two layers over one decision.
+   */
+  const requestConnectionFromContactMatch = useCallback(
+    async (matchUserId: string) => {
+      const match = contactSync.result?.matches.find(
+        (candidate) => candidate.userId === matchUserId,
+      );
+      contactSync.setResultsOpen(false);
+      await sendConnectRequest({
+        userId: matchUserId,
+        displayName: match?.displayName ?? null,
+        photoUrl: null,
+        email: null,
+        relationship: "none",
+      });
+    },
+    [contactSync, sendConnectRequest],
   );
 
   const handleConnect = useCallback(
@@ -2418,6 +2509,42 @@ export default function ConnectPageClient() {
                       </div>
                       <SettingsGroup
                         title={CONNECT_TAB_LABEL[tab]}
+                        // People only. This one JSX node also renders the RIAs
+                        // tab, where an address book has nothing to offer --
+                        // an advisor is found by their verified profile, not
+                        // by being in your phone. "Around you" never reaches
+                        // here at all; that tab short-circuits to its own
+                        // directories component.
+                        //
+                        // `available` is false on a desktop browser with no
+                        // Google client configured, which is the one case
+                        // where there is genuinely nothing to read. Hiding it
+                        // there is kinder than a button that exists only to
+                        // explain that it cannot work.
+                        titleAction={
+                          !isAdvisorTab && contactSync.available ? (
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fade"
+                              size="sm"
+                              aria-label="Sync contacts"
+                              aria-busy={contactSync.syncing}
+                              title="Sync contacts"
+                              disabled={contactSync.syncing}
+                              onClick={() => void contactSync.sync()}
+                              className={CONNECT_INLINE_BUTTON_CLASSNAME}
+                            >
+                              <BookUser
+                                aria-hidden="true"
+                                className="mr-1.5 h-3.5 w-3.5"
+                              />
+                              {contactSync.syncing
+                                ? "Syncing\u2026"
+                                : "Sync contacts"}
+                            </Button>
+                          ) : null
+                        }
                         description={
                           isSelectionMode ? (
                             <span id="connect-selection-limit">
@@ -3128,6 +3255,11 @@ export default function ConnectPageClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ContactSyncResultsSheet
+        {...contactSync.resultsSheetProps}
+        onRequestConnection={requestConnectionFromContactMatch}
+      />
 
       {showLimitBanner && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
