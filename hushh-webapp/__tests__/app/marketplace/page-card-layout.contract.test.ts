@@ -33,4 +33,13 @@ describe("marketplace client card layout contract", () => {
     expect(source).toContain('data-testid="marketplace-client-card-actions"');
     expect(source).toContain("mt-auto grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2");
   });
+
+  it("wires the toolbar refresh beside Contacts to contact matching", () => {
+    const source = readMarketplacePage();
+
+    expect(source).toContain('aria-label="Refresh contacts"');
+    expect(source).toContain("onClick={() => void matchContacts()}");
+    expect(source).toContain("aria-busy={contactMatchLoading}");
+    expect(source).not.toContain('aria-label={directoryKind === "investors" ? "Refresh deck" : "Restart deck"}');
+  });
 });

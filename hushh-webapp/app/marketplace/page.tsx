@@ -1133,11 +1133,15 @@ export default function MarketplacePage() {
               </Button>
               <button
                 type="button"
-                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95"
-                aria-label={directoryKind === "investors" ? "Refresh deck" : "Restart deck"}
-                onClick={resetSwipeDeck}
+                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95 disabled:opacity-70"
+                aria-label="Refresh contacts"
+                aria-busy={contactMatchLoading}
+                disabled={contactMatchLoading}
+                onClick={() => void matchContacts()}
               >
-                <RotateCcw className="h-4 w-4" />
+                <RotateCcw
+                  className={cn("h-4 w-4", contactMatchLoading && "animate-spin")}
+                />
               </button>
             </div>
 
