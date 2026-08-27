@@ -80,12 +80,13 @@ export function EmailDraftCard({
   const sendStartedRef = useRef(false);
 
   const updateDraft = (field: keyof EmailDraft, value: string) => {
-    const normalizedValue = field === "body" ? normalizeRichEmailText(value) : value;
+    const isBody = field === "body";
+    const isHtml = isBody && value.trim().startsWith("<") && value.includes(">");
     setDraft((current) => ({
       ...current,
-      [field]: normalizedValue,
-      ...(field === "body"
-        ? { htmlBody: richEmailHtmlFromMarkdown(normalizedValue) }
+      [field]: isBody ? (isHtml ? value : normalizeRichEmailText(value)) : value,
+      ...(isBody
+        ? { htmlBody: isHtml ? value : richEmailHtmlFromMarkdown(normalizeRichEmailText(value)) }
         : {}),
     }));
     setMissingDetails([]);
