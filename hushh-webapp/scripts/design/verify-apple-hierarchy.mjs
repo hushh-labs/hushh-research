@@ -170,7 +170,6 @@ for (const repoPath of [
   "components/app-ui/stream-progress-panel.tsx",
   "components/app-ui/section-toc.tsx",
   "lib/morphy-ux/ui/surface-primitives.tsx",
-  "lib/morphy-ux/ui/filter-chip.tsx",
   "lib/morphy-ux/ui/segmented-tabs.tsx",
   "lib/morphy-ux/ui/segmented-pill.tsx",
   "components/dashboard/one-agent-roster.tsx",
