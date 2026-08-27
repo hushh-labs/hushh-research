@@ -38,6 +38,14 @@ import {
  * header's measured height on top of that — measured, because the header is one
  * strip on Circles and two everywhere else.
  *
+ * `--top-shell-live-height` is the mask's LAST VISIBLE pixel, not its solid
+ * edge, so pinning there leaves the `--top-fade-active` band above the strips
+ * showing whatever is behind it — and what is behind it is the roster. The
+ * header covers that band with its own material while it is pinned, and only
+ * while it is pinned: at rest the same band is the gap under the page title.
+ * Both halves are measured below, because a cover that is always on and a cover
+ * that is never on each pass exactly one of them.
+ *
  * jsdom proves none of this: it applies no CSS and measures every element as
  * 0x0, so `className.toContain("sticky")` passes against a strip that never
  * pins and a search row that lands behind it.
@@ -56,10 +64,13 @@ const SURFACE_STRIP_HEIGHT_PX = 38;
 const TAB_STRIP_HEIGHT_PX = 38;
 
 const STICKY_HEADER_CLASSNAME =
-  "sticky top-[var(--top-shell-live-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-3 bg-background/85 px-[var(--page-inline-gutter-standard)] pb-3 pt-2 backdrop-blur-md sm:space-y-4";
+  "sticky top-[var(--top-shell-live-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-3 bg-background px-[var(--page-inline-gutter-standard)] pb-3 pt-2 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:bg-background data-[pinned=true]:before:h-[calc(var(--top-fade-active,0px)+1px)] sm:space-y-4";
 
 const STICKY_SEARCH_CLASSNAME =
-  "sticky top-[calc(var(--top-shell-live-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background/85 px-[var(--page-inline-gutter-standard)] py-2 backdrop-blur-md";
+  "sticky top-[calc(var(--top-shell-live-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] py-2";
+
+/** The page title Connect renders above the strips, and its gap to them. */
+const PAGE_HEADER_HEIGHT_PX = 34;
 
 async function buildStylesheet(candidates: string[]): Promise<string> {
   const webappRoot = process.cwd();
@@ -142,7 +153,17 @@ function shellMarkup(): string {
       <div
         data-app-top-bar
         style="position: fixed; inset-inline: 0; top: 0; z-index: 50; height: var(--top-shell-live-height); background: rgba(0,0,0,0.06);"
-      ></div>
+      >
+        <!-- The mask paints solid to here and then dissolves over
+             --top-fade-active to nothing. Modelled, not decorative: the band
+             between this edge and the bar's full height is the one the roster
+             was crossing in plain sight, and a bar drawn as one opaque block
+             cannot show it. -->
+        <div
+          data-app-top-bar-solid
+          style="height: var(--top-shell-mask-solid-height);"
+        ></div>
+      </div>
       <div
         data-app-scroll-root="true"
         style="position: fixed; inset: 0; overflow-y: auto;"
@@ -154,10 +175,18 @@ function shellMarkup(): string {
           data-app-shell-width="standard"
           data-top-content-anchor="true"
         >
+          <!-- Connect renders a page title above the strips, and at compact
+               density the page-header section gap leaves only 10px between the
+               two. That gap is what makes the cover conditional, so the fixture
+               has to contain the thing it must not cover. -->
+          <div class="app-page-header-region w-full min-w-0">
+            <div data-page-header style="height: ${PAGE_HEADER_HEIGHT_PX}px; background: #c8c8d0;">Connect</div>
+          </div>
           <div class="app-page-content-region w-full min-w-0">
             <div class="surface-stack surface-stack-compact">
-              <div data-connect-stack class="space-y-4 sm:space-y-5">
-                <div data-testid="connect-sticky-header" class="${STICKY_HEADER_CLASSNAME}">
+              <div data-connect-stack class="relative space-y-4 sm:space-y-5">
+                <div data-testid="connect-sticky-pin-sentinel" aria-hidden class="pointer-events-none absolute inset-x-0 top-0 h-px"></div>
+                <div data-testid="connect-sticky-header" data-pinned="false" class="${STICKY_HEADER_CLASSNAME}">
                   <div data-strip="surface" style="height: ${SURFACE_STRIP_HEIGHT_PX}px; background: #e8e8ed;">People / Circles</div>
                   <div data-strip="tab" style="height: ${TAB_STRIP_HEIGHT_PX}px; background: #e8e8ed;">People / RIAs / Around you</div>
                 </div>
@@ -186,6 +215,12 @@ async function writeFixture(): Promise<string> {
     "flex",
     "items-center",
     "gap-2",
+    "relative",
+    "pointer-events-none",
+    "absolute",
+    "inset-x-0",
+    "top-0",
+    "h-px",
     ...APP_SHELL_FRAME_CLASSNAME.split(" "),
     APP_SHELL_MAX_WIDTHS.standard,
     ...STICKY_HEADER_CLASSNAME.split(" "),
@@ -215,6 +250,29 @@ async function writeFixture(): Promise<string> {
       Math.ceil(header.getBoundingClientRect().height) + "px",
     );
   })();
+  /* The pinned-state observer, again as the component runs it. Hard-coding
+     data-pinned here would test a cover this fixture switched on by hand; the
+     question is whether the component's own rootMargin puts the switch at the
+     pin boundary. */
+  (function () {
+    var header = document.querySelector('[data-testid="connect-sticky-header"]');
+    var sentinel = document.querySelector(
+      '[data-testid="connect-sticky-pin-sentinel"]',
+    );
+    var scrollRoot = document.querySelector('[data-app-scroll-root="true"]');
+    var pinnedAt = Math.max(
+      0,
+      Math.round(parseFloat(getComputedStyle(header).top) || 0),
+    );
+    new IntersectionObserver(
+      function (entries) {
+        var entry = entries[entries.length - 1];
+        if (!entry) return;
+        header.dataset.pinned = entry.isIntersecting ? "false" : "true";
+      },
+      { root: scrollRoot, rootMargin: "-" + pinnedAt + "px 0px 0px 0px" },
+    ).observe(sentinel);
+  })();
 </script>
 </body></html>`,
   );
@@ -223,7 +281,7 @@ async function writeFixture(): Promise<string> {
 
 /** Scroll the app root by `y` and read back what is pinned where. */
 async function measureAt(page: Page, y: number) {
-  return page.evaluate((scrollTop) => {
+  return page.evaluate(async (scrollTop) => {
     const scrollRoot = document.querySelector<HTMLElement>(
       "[data-app-scroll-root]",
     )!;
@@ -232,19 +290,73 @@ async function measureAt(page: Page, y: number) {
     // `getPropertyValue` hands back the unresolved `calc(...)` string, which is
     // NaN to `parseFloat` and would quietly pass every comparison below.
     const topBar = document.querySelector<HTMLElement>("[data-app-top-bar]")!;
+    const solid = document.querySelector<HTMLElement>(
+      "[data-app-top-bar-solid]",
+    )!;
     const header = document.querySelector<HTMLElement>(
       '[data-testid="connect-sticky-header"]',
+    )!;
+    const sentinel = document.querySelector<HTMLElement>(
+      '[data-testid="connect-sticky-pin-sentinel"]',
     )!;
     const search = document.querySelector<HTMLElement>(
       '[data-testid="connect-search-row"]',
     )!;
     const directory = document.querySelector<HTMLElement>("[data-directory]")!;
+    const pageHeader = document.querySelector<HTMLElement>("[data-page-header]")!;
+    const stack = document.querySelector<HTMLElement>("[data-connect-stack]")!;
     const shell = document.querySelector<HTMLElement>(".app-page-shell")!;
+    // The observer answers a frame or two after the scroll, so waiting a fixed
+    // number of frames would be a race dressed as a constant. Wait for it to
+    // AGREE with the geometry instead: pinned is exactly "the header is no
+    // longer where the sentinel is". If the observer never fires, this times
+    // out and every assertion below fails, which is the correct outcome.
+    const settled = await new Promise<boolean>((resolve) => {
+      let framesLeft = 60;
+      const check = () => {
+        const truth =
+          header.getBoundingClientRect().top -
+            sentinel.getBoundingClientRect().top >
+          0.5;
+        if ((header.dataset.pinned === "true") === truth) return resolve(true);
+        if (framesLeft-- <= 0) return resolve(false);
+        requestAnimationFrame(check);
+      };
+      requestAnimationFrame(check);
+    });
+    /** The alpha term of a computed colour, in any of its serialisations. */
+    const alphaOf = (colour: string): number => {
+      const slashForm = /\/\s*([\d.]+%?)\s*\)/.exec(colour);
+      const legacyForm = /^rgba\([^)]*,\s*([\d.]+)\s*\)$/.exec(colour);
+      const raw = slashForm?.[1] ?? legacyForm?.[1];
+      if (raw === undefined) return 1;
+      return raw.endsWith("%")
+        ? Number.parseFloat(raw) / 100
+        : Number.parseFloat(raw);
+    };
     const shellBox = shell.getBoundingClientRect();
     const liveHeight = +topBar.getBoundingClientRect().height.toFixed(2);
     const headerBox = header.getBoundingClientRect();
     const searchBox = search.getBoundingClientRect();
     return {
+      settled,
+      pinned: header.dataset.pinned === "true",
+      solidHeight: +solid.getBoundingClientRect().height.toFixed(2),
+      // The band the header continues its own material into. Read off the
+      // rendered pseudo-element, so a cover that resolved to `auto` — which is
+      // what an unset `--top-fade-active` would give — reads as the 0 it is.
+      coverHeight: +(
+        Number.parseFloat(getComputedStyle(header, "::before").height) || 0
+      ).toFixed(2),
+      // Alpha, not the colour string. A computed background serialises as
+      // `rgb()`, `rgba()`, `oklab(… / a)` or `color(srgb … / a)` depending on
+      // the browser and on how the token was authored, and only one of those
+      // shapes was ever going to be the one this suite guessed.
+      headerAlpha: alphaOf(getComputedStyle(header).backgroundColor),
+      coverAlpha: alphaOf(getComputedStyle(header, "::before").backgroundColor),
+      searchAlpha: alphaOf(getComputedStyle(search).backgroundColor),
+      stackTop: +stack.getBoundingClientRect().top.toFixed(2),
+      pageHeaderBottom: +pageHeader.getBoundingClientRect().bottom.toFixed(2),
       liveHeight,
       headerTop: +headerBox.top.toFixed(2),
       headerBottom: +headerBox.bottom.toFixed(2),
@@ -336,6 +448,70 @@ test.describe("connect sticky header", () => {
       expect(
         Math.abs(scrolled.searchRight - scrolled.pageRight),
       ).toBeLessThanOrEqual(SLACK_PX);
+    });
+
+    test(`the strips cover the top mask's fade tail while pinned at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await writeFixture());
+      await awaitProductFont(page);
+
+      const scrolled = await measureAt(page, 700);
+
+      expect(scrolled.settled).toBe(true);
+      expect(scrolled.pinned).toBe(true);
+      // The band exists in the first place. A fixture whose bar was one opaque
+      // block would report 0 here and then pass everything below vacuously.
+      const tail = scrolled.liveHeight - scrolled.solidHeight;
+      expect(tail).toBeGreaterThan(0);
+      // And the header's own material reaches back across it, up to the mask's
+      // solid edge. Anything short of that is roster showing between the bar
+      // and the strips, which is the whole report.
+      expect(scrolled.coverHeight).toBeGreaterThanOrEqual(tail);
+      expect(scrolled.headerTop - scrolled.coverHeight).toBeLessThanOrEqual(
+        scrolled.solidHeight + SLACK_PX,
+      );
+    });
+
+    test(`both pinned bands are opaque at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await writeFixture());
+      await awaitProductFont(page);
+
+      const scrolled = await measureAt(page, 1400);
+
+      // Geometry alone does not settle this: a band in exactly the right place
+      // at 85% still shows the names scrolling under it.
+      expect(scrolled.headerAlpha).toBe(1);
+      expect(scrolled.coverAlpha).toBe(1);
+      expect(scrolled.searchAlpha).toBe(1);
+    });
+
+    test(`the cover keeps off the page title at rest at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await writeFixture());
+      await awaitProductFont(page);
+
+      const atRest = await measureAt(page, 0);
+
+      expect(atRest.settled).toBe(true);
+      expect(atRest.pinned).toBe(false);
+      // Unpinned, the cover measures nothing at all, so the 10px that
+      // `--page-header-section-gap` leaves under "Connect" at compact density is
+      // not something it can take a bite out of.
+      expect(atRest.coverHeight).toBe(0);
+      expect(atRest.headerTop - atRest.coverHeight).toBeGreaterThanOrEqual(
+        atRest.pageHeaderBottom - SLACK_PX,
+      );
+      // And the out-of-flow sentinel left the strips where they were: it is the
+      // first child of a `space-y-*` stack, which would otherwise be a 16px
+      // shove down the page.
+      expect(Math.abs(atRest.headerTop - atRest.stackTop)).toBeLessThanOrEqual(
+        SLACK_PX,
+      );
     });
 
     test(`the search row stays out of the way before its section arrives at ${width}px`, async ({

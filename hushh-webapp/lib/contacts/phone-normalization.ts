@@ -51,27 +51,60 @@ function asCountryCode(value: unknown): CountryCode | undefined {
 /**
  * Resolve which region bare national numbers ("9876543210") should be read in.
  *
- * Ordered by how strongly each signal predicts the contact book's own region:
- * the SIM/network country reported by the device beats the account's own number,
- * which beats the UI locale.
+ * Ordered by how strongly each signal predicts the contact book's own region.
+ * A region derived from the number plan -- the SIM, then the serving network --
+ * is the best predictor and goes first. Everything else is ranked BELOW the
+ * account's own verified number, which beats the UI locale.
+ *
+ * That distinction is the whole point of `deviceRegionFromNumberPlan`, and only
+ * one caller can set it. Android reads `simCountryIso` then `networkCountryIso`
+ * (HushhContactsPlugin.kt:130). iOS reads `Locale.current` and nothing else
+ * (HushhContactsPlugin.swift:128) -- not an oversight: `CTCarrier` has returned
+ * dummy values since iOS 16, so an iPhone has no number plan to report. The web
+ * picker passes the browser locale (contacts-web.ts:82).
+ *
+ * Ranking a locale above the account's own number is not a small mistake. A
+ * bare `9876543210` read as US parses to `+19876543210` and as IN to
+ * `+919876543210`, and `isPossible()` is true for BOTH -- so nothing is
+ * dropped, nothing errors, the digest simply misses and the person is told
+ * nobody was found. An Indian account on an iPhone set to English (US) matched
+ * none of their own contacts.
+ *
+ * `google-people-source.ts:198` already documented this and sidestepped it by
+ * passing `defaultRegion: null`. This fixes it at the source instead, so the
+ * iOS and picker paths get it too.
  */
 export function resolveContactPhoneRegion(signals: {
-  /** Region reported by the native contacts plugin (SIM or network country). */
+  /** Region reported by the native contacts plugin or the web picker. */
   deviceRegion?: string | null;
+  /**
+   * True only when `deviceRegion` came from the device's number plan (the SIM
+   * or serving network) rather than a locale. Absent means "a locale", which
+   * is the safe default: it ranks the value below the account's own number.
+   */
+  deviceRegionFromNumberPlan?: boolean;
   /** The signed-in user's own verified phone number, in E.164. */
   accountPhoneNumber?: string | null;
   /** BCP-47 locale tag, e.g. `en-IN`. Defaults to the browser locale. */
   localeTag?: string | null;
 }): CountryCode | undefined {
   const fromDevice = asCountryCode(signals.deviceRegion);
-  if (fromDevice) return fromDevice;
+  if (fromDevice && signals.deviceRegionFromNumberPlan) return fromDevice;
 
   const accountPhone = String(signals.accountPhoneNumber ?? "").trim();
   if (accountPhone.startsWith("+")) {
-    const parsed = parsePhoneNumberFromString(accountPhone, mobilePhoneMetadata);
+    const parsed = parsePhoneNumberFromString(
+      accountPhone,
+      mobilePhoneMetadata,
+    );
     const fromAccount = asCountryCode(parsed?.country);
     if (fromAccount) return fromAccount;
   }
+
+  // A locale-derived device region still beats the browser's own language --
+  // on native it is the phone's region setting, which at least belongs to the
+  // person rather than to whatever the WebView reports.
+  if (fromDevice) return fromDevice;
 
   const localeTag =
     signals.localeTag ??
