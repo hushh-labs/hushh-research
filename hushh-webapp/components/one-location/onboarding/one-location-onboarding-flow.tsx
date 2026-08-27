@@ -700,7 +700,7 @@ function CheckInFeatureCard() {
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
-          Check in on spot. Your Circle knows.
+          Check in on the spot and notify your circle
         </p>
       </div>
       <div
