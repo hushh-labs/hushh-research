@@ -1,8 +1,6 @@
-#!/usr/bin/env node
-
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +31,58 @@ const CAPABILITY_GUARD_COVERAGE_PATH = path.resolve(
   WEBAPP_ROOT,
   "contracts/kai/capability-guard-coverage.v1.json",
 );
+
+// Mirrors GLOBAL_NAV_ACTION_IDS in hushh-webapp/lib/voice/screen-context-builder.ts.
+// There is no automated cross-file sync for this; bump both together. Used only to
+// decide alias-collision risk below -- a global-nav id can appear alongside any
+// screen's own actions, so it always counts as co-occurring with everything.
+const GLOBAL_NAV_ACTION_IDS = new Set([
+  "route.one_agents",
+  "route.kai_home",
+  "route.ria_home",
+  "route.profile",
+  "route.one_location",
+  "route.one_pkm",
+  "route.consents",
+  "route.profile_connected_systems",
+  "route.voice_settings",
+  "route.one_feed",
+]);
+
+// Alias collisions that exist today, are NOT part of the current fix batch
+// (issues #6081-#6085), and are deliberately allowed to keep the build green.
+// Each is a real pair the collision guard below would otherwise reject --
+// remove an entry here in the same PR that actually resolves it. Tracked in a
+// follow-up issue rather than fixed here because none of them share this
+// batch's failure shape (a `+90` exact-alias-match risk/no-op risk); most
+// look like two adjacent, low-stakes ways to reach nearly the same place.
+const KNOWN_ALIAS_COLLISIONS = new Set([
+  // route.one_connect (open Connect) vs location.add_connections (also opens
+  // Connect, from Location's own "you need a connection first" dead end) --
+  // same destination either way, not investigated further.
+  "add people::location.add_connections::route.one_connect",
+  "connect with someone::location.add_connections::route.one_connect",
+  "find people::location.add_connections::route.one_connect",
+  // Both onboarding-vault-creation steps in the same flow; not investigated.
+  "finish setting up::setup.hub_master_ack::vault.setup_open",
+  "set up my vault::setup.hub_master_ack::vault.setup_open",
+  // route.one_connect vs its own People tab -- adjacent destinations.
+  "my connections::connect.open_people::route.one_connect",
+  // Generic per-step dismiss word shared across every setup screen that has
+  // one; only two of the seven collide here because collision detection is
+  // pairwise -- the other five share it too. Not investigated.
+  "not now::setup.skip_calendar::setup.skip_gmail",
+  // Two ways back to Analysis history; not investigated.
+  "open analysis history::analysis.back_to_history::route.analysis_history",
+  // Deliberate compat alias for the RIA workspace route, not a real gap.
+  "open ria workspace::route.ria_home::route.ria_workspace_compat",
+  // location.chat.turn delegates to the Location specialist for status/Q&A;
+  // its overlap with direct actions on the same words is likely benign
+  // (the specialist has the same information) but not investigated.
+  "stop sharing my location::location.chat.turn::location.pause_updates",
+  "who can see me right now::location.chat.turn::location.open_active_shares",
+  "who can see my location::location.chat.turn::location.open_people",
+]);
 
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
 const AGENT_PERSONAS = new Set([
@@ -801,6 +851,65 @@ async function readContracts() {
   };
 }
 
+// A bare alias owned by two actions is not just noisy: the backend ranker
+// (consent-protocol/hushh_mcp/one_adk/action_tools.py `_relevance_score`)
+// scores a full-phrase exact alias match at +90, well clear of label (+20) or
+// meaning (+5) -- so whichever action happens to own a shared alias wins
+// outright, and no amount of better `meaning` text on the other side can
+// out-argue it. This only matters when both actions could plausibly be in
+// the same per-turn candidate set at once; two actions on unrelated,
+// never-co-visible screens sharing a word is not a real routing risk.
+function validateAliasCollisions(actions) {
+  const wired = actions.filter(
+    (action) => action.execution_target?.status === "wired",
+  );
+  const ownersByAlias = new Map();
+  for (const action of wired) {
+    for (const alias of action.aliases) {
+      const key = alias.trim().toLowerCase();
+      if (!key) continue;
+      if (!ownersByAlias.has(key)) ownersByAlias.set(key, []);
+      ownersByAlias.get(key).push(action);
+    }
+  }
+
+  const canCoOccur = (a, b) => {
+    if (a.surface_id === b.surface_id) return true;
+    if (GLOBAL_NAV_ACTION_IDS.has(a.action_id) || GLOBAL_NAV_ACTION_IDS.has(b.action_id)) {
+      return true;
+    }
+    const aScreens = new Set(a.reachability?.screens || []);
+    return (b.reachability?.screens || []).some((screen) => aScreens.has(screen));
+  };
+
+  const offenders = [];
+  for (const [alias, owners] of ownersByAlias) {
+    if (owners.length < 2) continue;
+    for (let i = 0; i < owners.length; i += 1) {
+      for (let j = i + 1; j < owners.length; j += 1) {
+        const [a, b] = [owners[i], owners[j]].sort((x, y) =>
+          x.action_id.localeCompare(y.action_id),
+        );
+        if (!canCoOccur(a, b)) continue;
+        const collisionKey = `${alias}::${a.action_id}::${b.action_id}`;
+        if (KNOWN_ALIAS_COLLISIONS.has(collisionKey)) continue;
+        offenders.push(`"${alias}": ${a.action_id} vs ${b.action_id}`);
+      }
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new Error(
+      "Alias collision(s) between actions that can appear in the same turn " +
+        "(same surface, shared reachable screen, or global nav):\n  " +
+        offenders.join("\n  ") +
+        "\nMove or remove the alias from one action, or -- only if this is a " +
+        "genuine, deliberate, low-stakes overlap -- add it to " +
+        "KNOWN_ALIAS_COLLISIONS in this file with a one-line reason.",
+    );
+  }
+}
+
 async function validateCapabilityGuardCoverage(contracts) {
   const raw = JSON.parse(
     await fs.readFile(CAPABILITY_GUARD_COVERAGE_PATH, "utf8"),
@@ -873,6 +982,7 @@ async function main() {
   const checkOnly = args.has("--check");
 
   const contracts = await readContracts();
+  validateAliasCollisions(contracts.actions);
   await validateCapabilityGuardCoverage(contracts);
   const gatewayPayload = createGatewayPayload(contracts);
   const gatewayText = `${JSON.stringify(gatewayPayload, null, 2)}\n`;
@@ -898,7 +1008,14 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+// Only auto-run when executed directly (`node generate-kai-action-gateway.mjs`),
+// not when imported by a test -- importing this module must not perform file
+// I/O or throw as a side effect of loading it.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
+
+export { validateAliasCollisions, KNOWN_ALIAS_COLLISIONS, GLOBAL_NAV_ACTION_IDS };
