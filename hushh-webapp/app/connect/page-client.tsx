@@ -7,6 +7,7 @@ import {
   BadgeCheck,
   Loader2,
   Lock,
+  RefreshCw,
   Search as SearchIcon,
   Share2,
   UserRound,
@@ -164,6 +165,38 @@ export function writeStoredConnectSearchQuery(query: string): void {
 const CONNECT_STRIP_COMPACT_PADDING =
   "[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5";
 
+/**
+ * The pinned header: both tab strips, and nothing else.
+ *
+ * `--top-shell-live-height` rather than `top-0` -- the scroll root clears the
+ * top bar with a spacer rather than padding, so `top-0` sticks a strip to the
+ * scrollport edge, which the fixed bar overlays. Same token the feed's sticky
+ * day dividers use.
+ *
+ * The negative inline margin is what makes the background reach the page
+ * gutters. Without it, rows scroll past visibly in the 16-24px either side of a
+ * header that is supposed to be covering them.
+ *
+ * Held by e2e/connect-sticky-header.layout.spec.ts.
+ */
+const CONNECT_STICKY_HEADER_CLASSNAME =
+  "sticky top-[var(--top-shell-live-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-3 bg-background/85 px-[var(--page-inline-gutter-standard)] pb-3 pt-2 backdrop-blur-md sm:space-y-4";
+
+/**
+ * The search row pins UNDER the header, not with it.
+ *
+ * This field searches the directory, and the directory is what sits below it --
+ * `My connections` is above. Lifting it into the header would fix a control to
+ * the top of a screen where the first thing under it is a list the field does
+ * not filter. Pinned in place instead, it arrives exactly when its own results
+ * do and stays for as long as they are on screen.
+ *
+ * The offset is the live top shell plus whatever the header above measured, so
+ * a two-strip header and a one-strip header both land it in the right place.
+ */
+const CONNECT_STICKY_SEARCH_CLASSNAME =
+  "sticky top-[calc(var(--top-shell-live-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background/85 px-[var(--page-inline-gutter-standard)] py-2 backdrop-blur-md";
+
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
   advisors: "RIAs",
@@ -252,6 +285,8 @@ const CONNECT_PAGER_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
+const CONNECT_REFRESH_BUTTON_CLASSNAME =
+  "h-8 min-h-8 w-8 min-w-8 rounded-full p-0 text-muted-foreground hover:text-foreground disabled:opacity-70";
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 8;
@@ -479,6 +514,8 @@ export default function ConnectPageClient() {
     count: number;
   }>({ loading: true, error: null, count: 0 });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const connectStackRef = useRef<HTMLDivElement | null>(null);
+  const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
   const [query, setQuery] = useState<string>(readStoredConnectSearchQuery);
   useEffect(() => {
     writeStoredConnectSearchQuery(query);
@@ -512,6 +549,31 @@ export default function ConnectPageClient() {
     offeredHandles: string[];
   } | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  /**
+   * Publish the pinned header's height so the search row can sit under it.
+   *
+   * Measured rather than assumed: the header is one strip on Circles and two
+   * everywhere else, and a strip's own height moves with the type scale and the
+   * breakpoint. A hard-coded offset is right at exactly one width.
+   *
+   * Written to the page's own stack, not `documentElement`, so it inherits down
+   * to the search row and to nothing else, and leaves with the page.
+   */
+  useEffect(() => {
+    const header = stickyHeaderRef.current;
+    const stack = connectStackRef.current;
+    if (!header || !stack) return;
+    const publish = () => {
+      stack.style.setProperty(
+        "--connect-sticky-header-height",
+        `${Math.ceil(header.getBoundingClientRect().height)}px`,
+      );
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [surface]);
   /**
    * The people picked for a bulk request, held whole rather than by id.
    *
@@ -715,6 +777,17 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
+  const connectionsHeading = isAdvisorTab
+    ? `My RIAs (${connectionsTotalCount})`
+    : `My connections (${connectionsTotalCount})`;
+  const handleRefreshConnections = useCallback(() => {
+    if (connectionsRefreshingFirstPage) return;
+    void refreshConnectionsFirstPage({ audience: connectionAudience });
+  }, [
+    connectionAudience,
+    connectionsRefreshingFirstPage,
+    refreshConnectionsFirstPage,
+  ]);
   // Searching a name and finding nobody has one likely explanation the
   // directory cannot act on: that person has not joined yet. Offered on People
   // only -- People searches the whole of One, so "not here" really does mean
@@ -1994,14 +2067,45 @@ export default function ConnectPageClient() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="space-y-4 sm:space-y-5">
-            {/* The outer axis. People, or the groups they are in. */}
-            <SegmentedTabs
-              value={surface}
-              onValueChange={(value) => selectSurface(value as ConnectSurface)}
-              options={CONNECT_SURFACES}
-              className={CONNECT_STRIP_COMPACT_PADDING}
-            />
+          <div ref={connectStackRef} className="space-y-4 sm:space-y-5">
+            {/* Both axes travel together. Pinning the outer strip and letting
+                the inner one scroll would leave a header naming a surface above
+                a tab bar that has already left the screen. */}
+            <div
+              ref={stickyHeaderRef}
+              data-testid="connect-sticky-header"
+              className={CONNECT_STICKY_HEADER_CLASSNAME}
+            >
+              {/* The outer axis. People, or the groups they are in. */}
+              <SegmentedTabs
+                value={surface}
+                onValueChange={(value) => selectSurface(value as ConnectSurface)}
+                options={CONNECT_SURFACES}
+                className={CONNECT_STRIP_COMPACT_PADDING}
+              />
+
+              {surface === "circles" ? null : (
+                <SegmentedTabs
+                  value={tab}
+                  onValueChange={(value) => setTab(value as ConnectTab)}
+                  options={CONNECT_TABS}
+                  // A third tab takes a third of the strip, and the option's own
+                  // 16px side padding then costs more than the widest label has
+                  // left: measured on a 375px screen, "Around you" rendered as
+                  // "Around yo…". Tab titles are ours, not user content, so
+                  // an ellipsis in one is a defect rather than a graceful
+                  // degradation.
+                  //
+                  // Padding is the thing that gives, which is the cheapest rung
+                  // on the ladder -- the strip keeps its height, its grid, its
+                  // type and its active pill, and nothing changes from 640px up,
+                  // where there was never any pressure. Scoped to this strip
+                  // rather than pushed into SegmentedTabs so no other surface's
+                  // spacing moves.
+                  className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
+                />
+              )}
+            </div>
 
             {surface === "circles" ? (
               <ConnectCirclesTab
@@ -2015,60 +2119,62 @@ export default function ConnectPageClient() {
               />
             ) : (
               <>
-            <SegmentedTabs
-              value={tab}
-              onValueChange={(value) => setTab(value as ConnectTab)}
-              options={CONNECT_TABS}
-              // A third tab takes a third of the strip, and the option's own
-              // 16px side padding then costs more than the widest label has
-              // left: measured on a 375px screen, "Around you" rendered as
-              // "Around yo…". Tab titles are ours, not user content, so an
-              // ellipsis in one is a defect rather than a graceful degradation.
-              //
-              // Padding is the thing that gives, which is the cheapest rung on
-              // the ladder -- the strip keeps its height, its grid, its type
-              // and its active pill, and nothing changes from 640px up, where
-              // there was never any pressure. Scoped to this strip rather than
-              // pushed into SegmentedTabs so no other surface's spacing moves.
-              className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
-            />
-
             {tab === "nearby" ? (
               <NearbyDirectories getIdToken={getIdToken} />
             ) : (
               <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup
-              title={
-                isAdvisorTab
-                          ? `My RIAs (${connectionsTotalCount})`
-                          : `My connections (${connectionsTotalCount})`
-              }
-              separatorInset
-              contentClassName={
-                sortedConnections.length > 0
-                  ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
-                  : undefined
-              }
-              testId="connect-my-connections-group"
-            >
-              {sortedConnections.length === 0 ? (
-                <SettingsRow
-                  // No description. "Connections appear here." explained what
-                  // an empty list already showed, and the obvious replacement
-                  // -- pointing at the search box -- is the sentence the
-                  // directory section directly below already carries. Saying
-                  // it twice on one screen is what made it noise the first
-                  // time. The title is the whole message.
-                          title={
-                            isAdvisorTab ? "No RIAs yet" : "No connections yet"
-                          }
-                  density="compact"
-                  disabled
-                />
-              ) : (
-                sortedConnections.map((connection) => (
-                  <SettingsRow
-                    key={connection.connectionId}
+                <SettingsGroup
+                  title={
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 truncate">
+                        {connectionsHeading}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        aria-label="Refresh contacts"
+                        aria-busy={connectionsRefreshingFirstPage}
+                        title="Refresh contacts"
+                        disabled={connectionsRefreshingFirstPage}
+                        onClick={handleRefreshConnections}
+                        className={CONNECT_REFRESH_BUTTON_CLASSNAME}
+                      >
+                        <RefreshCw
+                          aria-hidden="true"
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            connectionsRefreshingFirstPage && "animate-spin",
+                          )}
+                        />
+                      </Button>
+                    </span>
+                  }
+                  separatorInset
+                  contentClassName={
+                    sortedConnections.length > 0
+                      ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
+                      : undefined
+                  }
+                  testId="connect-my-connections-group"
+                >
+                  {sortedConnections.length === 0 ? (
+                    <SettingsRow
+                      // No description. "Connections appear here." explained what
+                      // an empty list already showed, and the obvious replacement
+                      // -- pointing at the search box -- is the sentence the
+                      // directory section directly below already carries. Saying
+                      // it twice on one screen is what made it noise the first
+                      // time. The title is the whole message.
+                      title={isAdvisorTab ? "No RIAs yet" : "No connections yet"}
+                      density="compact"
+                      disabled
+                    />
+                  ) : (
+                    sortedConnections.map((connection) => (
+                      <SettingsRow
+                        key={connection.connectionId}
                     // Same mark, same tone, same meaning as the results list
                     // below: verified is a state, and this screen already
                     // spends green on it. Both lists are on screen together,
@@ -2176,7 +2282,21 @@ export default function ConnectPageClient() {
             ) : null}
 
             <div className="space-y-4">
-              <div className="flex w-full items-center gap-2">
+              {/* No `w-full` here any more, and it is load-bearing: this row
+                  bleeds to the page gutters with a negative inline margin, and
+                  `width: 100%` resolves against the text column, so the margin
+                  only slid the row 16px left instead of widening it. A block
+                  flex container fills its containing block on its own, and with
+                  `auto` the margins can do their job. `cn` is tailwind-merge, so
+                  a later `w-full` would have beaten anything the constant said.
+                  Held by e2e/connect-sticky-header.layout.spec.ts. */}
+              <div
+                data-testid="connect-search-row"
+                className={cn(
+                  CONNECT_STICKY_SEARCH_CLASSNAME,
+                  "flex items-center gap-2",
+                )}
+              >
                 <div className="relative flex-1">
                   <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
                     <SearchIcon className="h-4.5 w-4.5" />
