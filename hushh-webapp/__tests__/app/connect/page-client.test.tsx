@@ -375,6 +375,77 @@ describe("Connect — People", () => {
     ).toEqual([1, 2, 3, 1, 2]);
   });
 
+  it("refreshes My connections from the visible refresh control", async () => {
+    const refreshedPageOne = deferred<TestConnectionPage>();
+    let firstPageCallCount = 0;
+    mocks.listConnectionsPage.mockImplementation(async (_options) => {
+      firstPageCallCount += 1;
+      if (firstPageCallCount > 1) return refreshedPageOne.promise;
+      return {
+        items: [
+          {
+            connectionId: "c-current",
+            userId: "u-current",
+            displayName: "Current Person",
+            photoUrl: null,
+          },
+        ],
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+        audience: "all",
+      };
+    });
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("Current Person")).toBeTruthy();
+    expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh contacts" }));
+
+    await waitFor(() =>
+      expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(2),
+    );
+    const refreshingButton = screen.getByRole("button", {
+      name: "Refresh contacts",
+    }) as HTMLButtonElement;
+    expect(refreshingButton.disabled).toBe(true);
+    expect(refreshingButton).toHaveAttribute("aria-busy", "true");
+
+    fireEvent.click(refreshingButton);
+    expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      refreshedPageOne.resolve({
+        items: [
+          {
+            connectionId: "c-refreshed",
+            userId: "u-refreshed",
+            displayName: "Refreshed Person",
+            photoUrl: null,
+          },
+        ],
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+        audience: "all",
+      });
+      await refreshedPageOne.promise;
+    });
+
+    expect(await screen.findByText("Refreshed Person")).toBeTruthy();
+    expect(screen.queryByText("Current Person")).toBeNull();
+    const refreshButton = screen.getByRole("button", {
+      name: "Refresh contacts",
+    }) as HTMLButtonElement;
+    expect(refreshButton.disabled).toBe(false);
+    expect(refreshButton).toHaveAttribute("aria-busy", "false");
+    expect(mocks.listConnectionsPage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, limit: 50, audience: "all" }),
+    );
+  });
+
   it("restarts paging after removing a connection loaded beyond page 1", async () => {
     let removed = false;
     mocks.removeConnection.mockImplementation(async () => {

@@ -7,6 +7,7 @@ import {
   BadgeCheck,
   Loader2,
   Lock,
+  RefreshCw,
   Search as SearchIcon,
   Share2,
   UserRound,
@@ -252,6 +253,8 @@ const CONNECT_PAGER_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
+const CONNECT_REFRESH_BUTTON_CLASSNAME =
+  "h-8 min-h-8 w-8 min-w-8 rounded-full p-0 text-muted-foreground hover:text-foreground disabled:opacity-70";
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 8;
@@ -715,6 +718,17 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
+  const connectionsHeading = isAdvisorTab
+    ? `My RIAs (${connectionsTotalCount})`
+    : `My connections (${connectionsTotalCount})`;
+  const handleRefreshConnections = useCallback(() => {
+    if (connectionsRefreshingFirstPage) return;
+    void refreshConnectionsFirstPage({ audience: connectionAudience });
+  }, [
+    connectionAudience,
+    connectionsRefreshingFirstPage,
+    refreshConnectionsFirstPage,
+  ]);
   // Searching a name and finding nobody has one likely explanation the
   // directory cannot act on: that person has not joined yet. Offered on People
   // only -- People searches the whole of One, so "not here" really does mean
@@ -2037,38 +2051,58 @@ export default function ConnectPageClient() {
               <NearbyDirectories getIdToken={getIdToken} />
             ) : (
               <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup
-              title={
-                isAdvisorTab
-                          ? `My RIAs (${connectionsTotalCount})`
-                          : `My connections (${connectionsTotalCount})`
-              }
-              separatorInset
-              contentClassName={
-                sortedConnections.length > 0
-                  ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
-                  : undefined
-              }
-              testId="connect-my-connections-group"
-            >
-              {sortedConnections.length === 0 ? (
-                <SettingsRow
-                  // No description. "Connections appear here." explained what
-                  // an empty list already showed, and the obvious replacement
-                  // -- pointing at the search box -- is the sentence the
-                  // directory section directly below already carries. Saying
-                  // it twice on one screen is what made it noise the first
-                  // time. The title is the whole message.
-                          title={
-                            isAdvisorTab ? "No RIAs yet" : "No connections yet"
-                          }
-                  density="compact"
-                  disabled
-                />
-              ) : (
-                sortedConnections.map((connection) => (
-                  <SettingsRow
-                    key={connection.connectionId}
+                <SettingsGroup
+                  title={
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 truncate">
+                        {connectionsHeading}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        aria-label="Refresh contacts"
+                        aria-busy={connectionsRefreshingFirstPage}
+                        title="Refresh contacts"
+                        disabled={connectionsRefreshingFirstPage}
+                        onClick={handleRefreshConnections}
+                        className={CONNECT_REFRESH_BUTTON_CLASSNAME}
+                      >
+                        <RefreshCw
+                          aria-hidden="true"
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            connectionsRefreshingFirstPage && "animate-spin",
+                          )}
+                        />
+                      </Button>
+                    </span>
+                  }
+                  separatorInset
+                  contentClassName={
+                    sortedConnections.length > 0
+                      ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
+                      : undefined
+                  }
+                  testId="connect-my-connections-group"
+                >
+                  {sortedConnections.length === 0 ? (
+                    <SettingsRow
+                      // No description. "Connections appear here." explained what
+                      // an empty list already showed, and the obvious replacement
+                      // -- pointing at the search box -- is the sentence the
+                      // directory section directly below already carries. Saying
+                      // it twice on one screen is what made it noise the first
+                      // time. The title is the whole message.
+                      title={isAdvisorTab ? "No RIAs yet" : "No connections yet"}
+                      density="compact"
+                      disabled
+                    />
+                  ) : (
+                    sortedConnections.map((connection) => (
+                      <SettingsRow
+                        key={connection.connectionId}
                     // Same mark, same tone, same meaning as the results list
                     // below: verified is a state, and this screen already
                     // spends green on it. Both lists are on screen together,
