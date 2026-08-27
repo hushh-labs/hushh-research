@@ -872,10 +872,37 @@ const PEOPLE_LIST_SCROLL_CLASS =
   "space-y-5 overflow-visible md:max-h-[420px] md:space-y-3 md:overflow-y-auto md:overscroll-contain md:pr-1 md:[scrollbar-width:thin] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-black/15 dark:md:[&::-webkit-scrollbar-thumb]:bg-white/20";
 const FLOW_STEP_ONE_CLASSNAME =
   "mx-auto w-full max-w-[640px] space-y-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]";
+// The Send button on this step is pinned and carries its own chrome
+// clearance, so this column reserves a reading gap and nothing more. A second
+// reserve here is the empty band under the last card.
 const FLOW_STEP_CONFIRM_CLASSNAME =
-  "mx-auto w-full max-w-[560px] space-y-5 pb-[calc(var(--app-bottom-fixed-ui,96px)+1rem)]";
+  "mx-auto w-full max-w-[560px] space-y-5 pb-[var(--app-page-content-bottom-gap,24px)]";
+/**
+ * The pinned action bar for a flow step.
+ *
+ * Measured, not reasoned about. `[data-app-scroll-root]` already carries
+ * `padding-bottom: var(--app-scroll-bottom-pad)`, and a scroll container's
+ * bottom padding lifts a `sticky bottom-0` child by that much -- so the bar
+ * clears the tab bar and the "Talk to One" bar for free. Its own reserve is
+ * only ever for what the scroll root has NOT accounted for.
+ *
+ * The on-screen keyboard is exactly that. `html.kb-open` hides the whole bottom
+ * shell (globals.css) but does not shrink the reserve it left, so a keyboard
+ * taller than that reserve eats the difference -- and on a step carrying a
+ * message field, the button a person just reached for went under the keyboard
+ * they were typing on. Subtracting the reserve rather than adding to it is what
+ * keeps the bar from floating a tab bar's height too high the rest of the time.
+ *
+ * The floor is `--app-safe-area-bottom-effective`, for the routes where the
+ * scroll root reserves nothing at all and the home indicator is the only thing
+ * underneath.
+ *
+ * Held by e2e/one-location-flow-action-footer.layout.spec.ts. Keyboard
+ * clearance here has been written twice and lost twice (#5698, then
+ * `9d67a4f20`), because nothing failed when it went.
+ */
 const STICKY_FLOW_ACTION_CLASSNAME =
-  "sticky bottom-0 z-20 -mx-1 bg-[linear-gradient(to_bottom,transparent,rgba(242,242,247,0.92)_24%,rgba(242,242,247,0.98))] px-1 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 dark:bg-[linear-gradient(to_bottom,transparent,color-mix(in_srgb,var(--background)_92%,transparent)_24%,var(--background))]";
+  "sticky bottom-0 z-20 -mx-1 bg-[linear-gradient(to_bottom,transparent,rgba(242,242,247,0.92)_24%,rgba(242,242,247,0.98))] px-1 pb-[calc(max(var(--kb-height,0px)-var(--app-scroll-bottom-pad,0px),var(--app-safe-area-bottom-effective,0px))+0.75rem)] pt-3 dark:bg-[linear-gradient(to_bottom,transparent,color-mix(in_srgb,var(--background)_92%,transparent)_24%,var(--background))]";
 
 function selectedCountCopy(count: number, emptyCopy: string) {
   if (count <= 0) return emptyCopy;
@@ -5039,7 +5066,15 @@ function AskFlow({
           }
         />
 
-        <div data-testid="one-location-ask-send-bar" className="space-y-2.5">
+        {/* Pinned for the same reason Continue is on step 1: the last check
+            before an outward action -- how many people, and to whom -- must be
+            on screen at the moment the action is. The count is `aria-live`, so
+            it is spoken as it changes rather than only when the button is
+            reached. */}
+        <div
+          data-testid="one-location-ask-send-bar"
+          className={cn(STICKY_FLOW_ACTION_CLASSNAME, "space-y-2.5")}
+        >
           {isRequestFormValid ? (
             <p
               aria-live="polite"
