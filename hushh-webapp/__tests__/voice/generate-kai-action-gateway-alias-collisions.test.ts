@@ -4,7 +4,6 @@ import {
   GLOBAL_NAV_ACTION_IDS,
   KNOWN_ALIAS_COLLISIONS,
   validateAliasCollisions,
-  // eslint-disable-next-line import/extensions -- this is a script, not a lib module
 } from "../../scripts/voice/generate-kai-action-gateway.mjs";
 
 type FixtureAction = {
