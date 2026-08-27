@@ -1,0 +1,36 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+const root = process.cwd();
+
+function readMarketplacePage() {
+  return fs.readFileSync(path.join(root, "app", "marketplace", "page.tsx"), "utf8");
+}
+
+describe("marketplace client card layout contract", () => {
+  it("keeps marketplace card CTAs aligned without enlarging the card container", () => {
+    const source = readMarketplacePage();
+
+    expect(source).toContain('data-testid="marketplace-client-card-grid"');
+    expect(source).toContain("grid gap-4 pb-16 md:auto-rows-fr md:grid-cols-2 md:items-stretch xl:grid-cols-3");
+    expect(source).toContain('data-testid="marketplace-client-card"');
+    expect(source).toContain(
+      "h-full min-h-[286px] rounded-[28px] p-4 sm:p-5 [&>div]:h-full [&>div]:min-h-0"
+    );
+    expect(source).toContain("flex h-full min-h-0 flex-col gap-4");
+    expect(source).not.toContain("min-h-[320px]");
+    expect(source).not.toContain("height: 420px");
+    expect(source).not.toContain("position: absolute");
+
+    expect(source).toContain('data-testid="marketplace-client-card-header"');
+    expect(source).toContain("flex min-h-[72px] items-start gap-4");
+    expect(source).toContain('data-testid="marketplace-client-card-body"');
+    expect(source).toContain("flex min-h-0 flex-1 flex-col");
+    expect(source).toContain('data-testid="marketplace-client-card-meta"');
+    expect(source).toContain("mt-auto min-h-[18px] pt-3");
+    expect(source).toContain('data-testid="marketplace-client-card-actions"');
+    expect(source).toContain("mt-auto grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2");
+  });
+});

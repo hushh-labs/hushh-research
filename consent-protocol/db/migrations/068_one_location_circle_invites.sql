@@ -106,7 +106,12 @@ ALTER TABLE one_location_events
       'location_circle_invite_created',
       'location_circle_invite_claimed',
       'location_circle_invite_revoked',
-      'location_one_network_joined'
+      'location_one_network_joined',
+      -- Added by migration 180. Kept identical to 064's list for the same
+      -- reason as the comment above: the declarations must agree.
+      'location_circle_code_joined',
+      'location_circle_member_invite_accepted',
+      'circle_member_added'
     )
   ) NOT VALID;
 

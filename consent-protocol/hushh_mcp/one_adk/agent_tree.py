@@ -75,6 +75,7 @@ from hushh_mcp.one_adk.specialist_availability import (
 )
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
 from hushh_mcp.services.action_gateway import (
+    AVAILABLE_ACTION_IDS_CAP,
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
@@ -301,10 +302,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "for a visible action, asking about the current screen, continuing the "
     "conversation, or expressing genuine ambiguity. When they clearly ask for "
     "a currently available, low-risk visible control whose exact generated id is "
-    "in the active inventory, call run_app_action with that id immediately. Use "
-    "list_app_actions only to retrieve bounded generated candidates when the exact "
-    "id is uncertain; it is not semantic authority and never decides what the "
-    "person meant. Do this before greeting, explaining who "
+    "in the active inventory, call run_app_action with that id immediately. "
+    "Otherwise -- whenever their own words do not closely echo one of the visible "
+    "labels, including short, ambiguous, or urgent phrasing -- call list_app_actions "
+    "first with their own words, every time, rather than judging whether you feel "
+    "certain; it is not semantic authority and never decides what the person meant, "
+    "only what candidates you get to choose from. Do this before greeting, explaining who "
     "you are, or narrating onboarding. Do not infer controls from page text, and "
     "do not offer a screen-bound action from another screen. An action with an "
     "authored journey is NOT screen-bound: start_app_goal opens the screen it "
@@ -394,8 +397,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "It opens a preview only; never start the debate until the person explicitly "
     "confirms from that preview. "
     "For other app actions (opening a workspace tab), call "
-    "run_app_action "
-    "with the exact action id, using list_app_actions first when unsure. "
+    "run_app_action with the exact action id. Call list_app_actions first unless "
+    "their words are already a close match to one of the visible labels -- do not "
+    "rely on a feeling of confidence. "
     "Actions owned by a specialist must go through that specialist's ask_ "
     "tool; run_app_action will redirect you if needed. Use google_search when "
     "the user needs fresh public information from the web. Answer general "
@@ -611,10 +615,11 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "CURRENT screen. If resolve_onboarding_goal returns selected_action_id, call "
     "start_app_goal for an authored journey or run_app_action for a single-screen action. "
     "Never turn an explicit Apple or Google request back into a generic provider "
-    "question after its destination is accepted. When the exact "
-    "generated id is uncertain, call list_app_actions (it returns only actions "
-    "valid for the current screen) and pick from that, rather than naming a "
-    "step from another screen. For example, do not bring up phone "
+    "question after its destination is accepted. Whenever the person's own words "
+    "are not a close match to one of the visible labels, call list_app_actions (it "
+    "returns only actions valid for the current screen) and pick from that, rather "
+    "than naming a step from another screen or guessing an id you are not directly "
+    "looking at. For example, do not bring up phone "
     "verification unless the user is actually on the phone screen. While "
     "someone is still finishing setup, be proactive rather than waiting to be "
     "asked: after you open a screen or complete a step, briefly name ONE next "
@@ -667,7 +672,7 @@ def _one_runtime_instruction(context: Any) -> str:
     verified_action_ids = (
         [
             str(action_id).strip()
-            for action_id in available_action_ids[:18]
+            for action_id in available_action_ids[:AVAILABLE_ACTION_IDS_CAP]
             if isinstance(action_id, str) and str(action_id).strip()
         ]
         if isinstance(available_action_ids, list)
@@ -711,12 +716,12 @@ def _one_runtime_instruction(context: Any) -> str:
         ]
 
     # Render every executable id the browser published (bounded upstream at
-    # 18 by the app_context sanitizer). Rendering fewer than the allowlist
-    # previously made ids 11+ executable but invisible, which read as
-    # "actions not detected" in conversation.
+    # AVAILABLE_ACTION_IDS_CAP by the app_context sanitizer). Rendering fewer
+    # than the allowlist previously made ids 11+ executable but invisible,
+    # which read as "actions not detected" in conversation.
     action_lines: list[str] = []
     rendered_ids: set[str] = set()
-    for action_id in prompt_action_ids[:18]:
+    for action_id in prompt_action_ids[:AVAILABLE_ACTION_IDS_CAP]:
         entry = get_action_gateway_action(str(action_id))
         if entry is None:
             continue
@@ -738,12 +743,14 @@ def _one_runtime_instruction(context: Any) -> str:
                 if unrendered
                 else ""
             )
-            + "\nFirst assess meaning semantically. For a clear request matching one "
-            "of these controls, call run_app_action with that exact id. A clear "
+            + "\nFirst check whether the person's own words closely echo one of the "
+            "labels above. If so, call run_app_action with that exact id. A clear "
             "provider request selects its exact Apple or Google action; never "
-            "replace it with a generic provider explanation. Use list_app_actions "
-            "only to retrieve bounded candidates when the id is uncertain. Do not "
-            "call open_screen or google_search instead of a matching current control."
+            "replace it with a generic provider explanation. If their words do not "
+            "clearly echo one of these labels -- including short, ambiguous, or "
+            "urgent phrasing -- call list_app_actions with their own words first, "
+            "every time, rather than guessing from a label that only partly fits. "
+            "Do not call open_screen or google_search instead of a matching current control."
         )
 
     layer_instruction = ""

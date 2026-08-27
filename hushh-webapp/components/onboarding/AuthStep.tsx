@@ -1059,19 +1059,17 @@ export function AuthStep({
       </button>
 
       <div
-        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"
+        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-6"
         style={{
           height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
           minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
         }}
         data-auth-content-block
       >
-        {/* Center the complete sign-in group as one visual block while the
-            fixed Back control remains independently anchored above it. The
-            clusters use one deliberate rhythm: identity, provider actions,
-            then the consent and legal context. */}
+        {/* Center the sign-in group as one visual block while the fixed Back
+            control and legal footer remain independently anchored. */}
         <div
-          className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"
+          className="flex w-full flex-none flex-col items-center gap-6 text-center"
           data-auth-signin-clusters
         >
           <div className="flex flex-col items-center gap-4">
@@ -1141,46 +1139,31 @@ export function AuthStep({
               ) : null}
             </div>
 
-            <div
-              className="flex flex-col items-center gap-3"
-              data-auth-supporting-content
-            >
-              {/* Consent-first reassurance chip. */}
-              <div className="flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
-                <Icon
-                  icon={Shield}
-                  size="sm"
-                  className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
-                />
-                <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
-                  You choose what One can see.
-                </span>
-              </div>
-
-              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
-                By continuing you agree to our{" "}
-                <button
-                  type="button"
-                  onClick={() => void openLegalDoc("terms")}
-                  data-voice-control-id="auth_terms"
-                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-                >
-                  Terms
-                </button>
-                <span aria-hidden="true"> and </span>
-                <button
-                  type="button"
-                  onClick={() => void openLegalDoc("privacy")}
-                  data-voice-control-id="auth_privacy"
-                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-                >
-                  Privacy Policy
-                </button>
-                .
-              </p>
-            </div>
           </div>
         </div>
+        <p
+          className="type-footnote absolute inset-x-4 bottom-6 mx-auto max-w-none text-center leading-5 text-[#86868b] dark:text-white/45"
+          data-auth-supporting-content
+        >
+          By continuing, you agree to{" "}
+          <button
+            type="button"
+            onClick={() => void openLegalDoc("terms")}
+            data-voice-control-id="auth_terms"
+            className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+          >
+            Terms
+          </button>
+          <span aria-hidden="true"> and </span>
+          <button
+            type="button"
+            onClick={() => void openLegalDoc("privacy")}
+            data-voice-control-id="auth_privacy"
+            className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+          >
+            Privacy Policy
+          </button>
+        </p>
       </div>
       <AuthLegalDialog
         docType={activeLegalDoc}
