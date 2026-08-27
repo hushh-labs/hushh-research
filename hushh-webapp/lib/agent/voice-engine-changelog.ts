@@ -18,6 +18,20 @@ export type VoiceEngineChangelogEntry = {
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   {
     version: "1.6",
+    date: "2026-08-27",
+    title: "Voice commands are more consistent on close or urgent phrasing",
+    description:
+      "The same request said two different ways -- like \"save me\" versus \"trigger sos\" -- could go to different places, or nowhere. Voice now checks a wider set of matches before guessing, so close wording lands on the same result reliably.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-27",
+    title: "Fixed: some \"open X\" voice commands went quiet on busy screens",
+    description:
+      "Saying things like \"open voice settings\" or \"open my feed\" could stop working once a screen had enough of its own commands, like Location. Navigation commands now work from every screen, all the time.",
+  },
+  {
+    version: "1.6",
     date: "2026-08-26",
     title: "Set what \"help\" does in an emergency",
     description:
