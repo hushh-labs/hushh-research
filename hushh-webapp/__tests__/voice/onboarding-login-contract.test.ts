@@ -81,7 +81,7 @@ describe("One Voice Login onboarding contracts", () => {
     expect(generic.reachability.screens).not.toContain("login");
   });
 
-  it("exposes the visible root intro control as a root-only local action", () => {
+  it("exposes the visible root claim control as a root-only local action", () => {
     const contract = JSON.parse(readFileSync(introContractPath, "utf8"));
     const claim = contract.actions.find(
       (action: { action_id: string }) =>
@@ -89,9 +89,8 @@ describe("One Voice Login onboarding contracts", () => {
     );
 
     expect(claim).toMatchObject({
-      label: "Meet your agents",
+      label: "Claim your One",
       aliases: expect.arrayContaining([
-        "meet your agents",
         "claim your one",
         "claim my one",
         "get started",

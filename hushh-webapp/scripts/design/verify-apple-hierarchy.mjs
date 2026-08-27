@@ -194,20 +194,14 @@ for (const repoPath of [
 
 expectIncludes(
   "components/dashboard/one-agent-roster.tsx",
-  'aria-label="One agents"',
-  "one home launcher must expose a semantic One agents region",
-);
-
-expectNotIncludes(
-  "components/dashboard/one-agent-roster.tsx",
   "Agents ({modes.length})",
-  "one home launcher must not render the old Agents count title",
+  "agents heading is the page title and must use title casing",
 );
 
 expectNotIncludes(
   "components/dashboard/one-agent-roster.tsx",
-  'placeholder="Search agents"',
-  "one home launcher must not render the old roster search field",
+  "text-[28px] leading-[34px]",
+  "agents heading must use the shared LargeTitle role instead of a route-level arbitrary override",
 );
 
 expectNotIncludes(

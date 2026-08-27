@@ -7,9 +7,6 @@ const mocks = vi.hoisted(() => ({
   disconnect: vi.fn(),
   getIdToken: vi.fn(),
   openAgent: vi.fn(),
-  openGoogleOAuthPopup: vi.fn(),
-  navigateGoogleOAuthPopup: vi.fn(),
-  popupClose: vi.fn(),
 }));
 
 vi.mock("@/components/agent/agent-popover-provider", () => ({
@@ -31,19 +28,6 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
   },
 }));
 
-vi.mock("@/lib/google/google-oauth-popup", () => ({
-  createGoogleOAuthPopupAttempt: () => ({
-    version: 1,
-    attemptId: "calendar-attempt",
-    service: "calendar",
-    startedAt: 1,
-  }),
-  isGoogleOAuthPopupSettlement: () => false,
-  navigateGoogleOAuthPopup: mocks.navigateGoogleOAuthPopup,
-  openGoogleOAuthPopup: mocks.openGoogleOAuthPopup,
-  readGoogleOAuthPopupSettlement: () => null,
-}));
-
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
@@ -53,9 +37,6 @@ describe("CalendarAgentPage", () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     mocks.getIdToken.mockResolvedValue("firebase-token");
-    mocks.openGoogleOAuthPopup.mockReturnValue({
-      close: mocks.popupClose,
-    } as unknown as Window);
     vi.spyOn(window, "open").mockImplementation(
       () =>
         ({
