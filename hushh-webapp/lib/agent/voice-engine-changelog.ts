@@ -19,6 +19,13 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   {
     version: "1.6",
     date: "2026-08-28",
+    title: "Asking for someone's location now asks how long",
+    description:
+      "\"Ask Sarah for her location\" used to send the request without ever asking how long you wanted it for, so the length the other person saw and approved was one nobody chose. One now asks, the same way it already does before sharing your own.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
     title: "Fixed: a few \"open X\" requests before sign-in said they weren't available",
     description:
       "On the very first screen, before your vault is unlocked, asking to open certain Hussh screens could say they weren't available even though they were. Voice now only offers what it can actually open there.",
