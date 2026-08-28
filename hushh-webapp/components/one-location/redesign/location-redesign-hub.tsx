@@ -151,6 +151,10 @@ import {
 } from "./selectors";
 import { REQUEST_DURATION_LADDER } from "./duration-presets";
 import {
+  AskForMoreTime,
+  type RequestMoreTimeHours,
+} from "./request-more-time";
+import {
   LiveShareStatusCard,
   ShareCountdownText,
   type LiveShareStatus,
@@ -434,26 +438,30 @@ export type LocationHubViewModel = {
   /** Grant currently showing the inline duration editor, or null. */
   editingGrantId: string | null;
   /**
-   * Grant whose duration is being saved, or null. Deliberately not
-   * `revokingGrantId`: one flag for both made Save and Remove spin together,
-   * and left Save stuck spinning on the next Edit of the same person.
+   * Which amount is in flight, as `grantId:hours`.
+   *
+   * The pair, not the grant: a row shows four amounts and only the tapped one
+   * spins. It replaced a `savingGrantId` that the retired absolute-duration
+   * editor owned -- and that flag was deliberately never `revokingGrantId`,
+   * because one flag for both made Save and Remove spin together and left Save
+   * stuck spinning on the next Edit of the same person. The same rule holds
+   * here: asking for more time must not disable the control that stops it.
    */
-  savingGrantId: string | null;
   requestingMoreTimeKey: string | null;
   onEditGrantStart: (grantId: string) => void;
   onEditGrantCancel: () => void;
-  editGrantDurationHours: string;
-  setEditGrantDurationHours: (v: string) => void;
-  onEditGrantSave: (params: {
-    ownerUserId: string;
-    grantId: string;
-    ownerLabel: string;
-  }) => void;
+  /**
+   * Ask the owner for more of a share that is already live.
+   *
+   * Additive: `additionalHours` goes on TOP of what is left, which is what
+   * `extendsGrantId` means to the server. See `redesign/request-more-time`,
+   * which owns the amounts and is the only thing that calls this.
+   */
   onRequestMoreTime: (params: {
     ownerUserId: string;
     grantId: string;
     ownerLabel: string;
-    additionalHours: 0.5 | 2;
+    additionalHours: RequestMoreTimeHours;
   }) => Promise<void>;
   /*
    * The same edit, for the share you are giving rather than the one you are
@@ -3136,13 +3144,6 @@ function peopleShareStatus(
   return left ? `${prefix} · ${left}` : prefix;
 }
 
-function requestMoreTimeLabel(hours: number | null | undefined): string {
-  if (hours === 0.5) return "30 min more";
-  if (hours === 2) return "2 hours more";
-  const duration = formatLocationDurationLabel(hours);
-  return duration ? `${duration} more` : "More time";
-}
-
 function requestDurationLabel(request: OneLocationAccessRequest): string {
   if (request.requestedDurationMode === "until_stopped") {
     return "Until stopped";
@@ -3556,11 +3557,6 @@ export function PeopleHub({
                 const isEditing =
                   Boolean(grantId) && vm.editingGrantId === grantId;
                 const ownerLabel = vm.requestOwnerLabel(request);
-                const thirtyKey = grantId ? `${grantId}:0.5` : "";
-                const twoHourKey = grantId ? `${grantId}:2` : "";
-                const requestingMore =
-                  vm.requestingMoreTimeKey === thirtyKey ||
-                  vm.requestingMoreTimeKey === twoHourKey;
                 return (
                   <div key={request.id}>
                     <SettingsRow
@@ -3623,81 +3619,21 @@ export function PeopleHub({
                     />
                     {isEditing && grantId ? (
                       <div className="space-y-3 px-4 pb-4 pt-1">
-                        <p className="text-[15px] font-semibold leading-5 text-foreground">
-                          Ask for more time
-                        </p>
-                        {pendingExtension ? (
-                          <div className="rounded-2xl bg-[color:var(--app-neutral-fill)] px-4 py-3">
-                            <p className="text-[15px] font-semibold leading-5 text-foreground">
-                              {requestMoreTimeLabel(
-                                pendingExtension.requestedDurationHours,
-                              )}{" "}
-                              requested
-                            </p>
-                            <div className="mt-1 flex items-center justify-between gap-3">
-                              <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-                                Waiting for approval
-                              </p>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-9 px-2 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
-                                onClick={() =>
-                                  vm.onWithdrawRequest(pendingExtension.id)
-                                }
-                                disabled={
-                                  vm.withdrawingRequestId ===
-                                  pendingExtension.id
-                                }
-                              >
-                                Take back
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="grid gap-2 min-[340px]:grid-cols-2">
-                              {[
-                                {
-                                  hours: 0.5 as const,
-                                  label: "30 min more",
-                                  key: thirtyKey,
-                                },
-                                {
-                                  hours: 2 as const,
-                                  label: "2 hours more",
-                                  key: twoHourKey,
-                                },
-                              ].map((option) => (
-                                <Button
-                                  key={option.key}
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-11 min-h-11 rounded-2xl border-[color:var(--app-accent)]/30 bg-[color:var(--app-primary-surface)] px-3 text-[15px] font-semibold leading-5 text-[color:var(--app-accent)] shadow-none hover:bg-[color:var(--app-accent-surface)] hover:text-[color:var(--app-accent)]"
-                                  onClick={() =>
-                                    vm.onRequestMoreTime({
-                                      ownerUserId: request.ownerUserId,
-                                      grantId,
-                                      ownerLabel,
-                                      additionalHours: option.hours,
-                                    })
-                                  }
-                                  disabled={requestingMore}
-                                  isLoading={
-                                    vm.requestingMoreTimeKey === option.key
-                                  }
-                                >
-                                  {vm.requestingMoreTimeKey === option.key
-                                    ? "Requesting…"
-                                    : option.label}
-                                </Button>
-                              ))}
-                            </div>
-                            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-                              They’ll need to approve.
-                            </p>
-                          </>
-                        )}
+                        {/* The same control step 1 of Request location shows,
+                            because it is the same decision about the same
+                            share. That screen used to render an absolute
+                            "New duration" picker here instead -- see
+                            `redesign/request-more-time`. */}
+                        <AskForMoreTime
+                          grantId={grantId}
+                          ownerUserId={request.ownerUserId}
+                          ownerLabel={ownerLabel}
+                          pendingExtension={pendingExtension}
+                          requestingMoreTimeKey={vm.requestingMoreTimeKey}
+                          withdrawingRequestId={vm.withdrawingRequestId}
+                          onRequestMoreTime={vm.onRequestMoreTime}
+                          onWithdrawRequest={vm.onWithdrawRequest}
+                        />
                         <div className="border-t border-[color:var(--app-separator)] pt-1">
                           <Button
                             variant="ghost"
@@ -4976,6 +4912,24 @@ function AskFlow({
     return () => window.clearInterval(timer);
   }, [hasTimeRelativeRow]);
 
+  /**
+   * The extension already waiting on each live grant, indexed once.
+   *
+   * The People tab keeps the same index for the same reason: with an ask
+   * already pending, showing the amounts again is how one share collects four
+   * identical requests the owner has to answer one at a time.
+   */
+  const pendingExtensionByGrantId = useMemo(() => {
+    const byGrantId = new globalThis.Map<string, OneLocationAccessRequest>();
+    for (const request of vm.requestedByMe) {
+      if (request.status !== "pending" || !request.extendsGrantId) continue;
+      if (!byGrantId.has(request.extendsGrantId)) {
+        byGrantId.set(request.extendsGrantId, request);
+      }
+    }
+    return byGrantId;
+  }, [vm.requestedByMe]);
+
   const isRequestFormValid = vm.selectedRequestOwnerIds.length > 0;
   const sendingRequest = vm.busy === "request";
   const sendRequest = () => {
@@ -5002,7 +4956,16 @@ function AskFlow({
   if (step === "details") {
     return (
       <div className={FLOW_STEP_CONFIRM_CLASSNAME}>
-        <TaskFlowHeader eyebrow="Step 2 of 2" title="Ready to ask?" />
+        {/* Names the two fields under it rather than asking whether the
+            person is ready.
+
+            "Ready to ask?" was a yes/no question about the reader's state of
+            mind, on a screen whose whole job is to collect two answers -- how
+            long, and why. It told somebody arriving here nothing they did not
+            already know (they tapped Continue; they are ready) and nothing
+            about what the screen wanted from them. This is the same two words
+            the section labels below use, in the same order. */}
+        <TaskFlowHeader eyebrow="Step 2 of 2" title="How long, and why?" />
 
         <SectionCard className="p-5 sm:p-6">
           <div className="space-y-6">
@@ -5215,28 +5178,34 @@ function AskFlow({
                   }
                   expandedContent={
                     isEditingThis && activeGrant ? (
-                      <div className="space-y-3">
-                        <DurationSelector
-                          value={vm.editGrantDurationHours}
-                          onChange={vm.setEditGrantDurationHours}
-                          label="New duration"
-                          presentation="select"
-                        />
-                        <Button
-                          size="sm"
-                          className="h-9 w-full rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-                          onClick={() =>
-                            vm.onEditGrantSave({
-                              ownerUserId: r.userId,
-                              grantId: activeGrant.id,
-                              ownerLabel: recipientLabel,
-                            })
-                          }
-                          isLoading={vm.savingGrantId === activeGrant.id}
-                        >
-                          Save
-                        </Button>
-                      </div>
+                      /* Reported: "4 hours ke liye approval maine le liya toh
+                         neeche ke time duration edit mein aana illogical ...
+                         agar deni hain toh user can ask for more time".
+                         Right on both counts. This slot held a `Select`
+                         labelled "New duration" listing ABSOLUTE lengths
+                         preselected to whatever the share had left, so the
+                         obvious reading -- "this share is 4 hours" -- was the
+                         wrong one: the request carries `extendsGrantId`, which
+                         makes the number additive, and picking under what was
+                         left silently shortened instead. One field, two
+                         operations, and nothing on screen saying which.
+
+                         It is the same control the People tab already used for
+                         this exact decision. Ending the share early did not go
+                         with it -- that is the row's own Remove, one line up
+                         and unambiguous. */
+                      <AskForMoreTime
+                        grantId={activeGrant.id}
+                        ownerUserId={r.userId}
+                        ownerLabel={recipientLabel}
+                        pendingExtension={pendingExtensionByGrantId.get(
+                          activeGrant.id,
+                        )}
+                        requestingMoreTimeKey={vm.requestingMoreTimeKey}
+                        withdrawingRequestId={vm.withdrawingRequestId}
+                        onRequestMoreTime={vm.onRequestMoreTime}
+                        onWithdrawRequest={vm.onWithdrawRequest}
+                      />
                     ) : undefined
                   }
                 />

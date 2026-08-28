@@ -210,7 +210,6 @@ import {
 } from "@/lib/one-location/location-readiness";
 import {
   GRANT_EDIT_DURATION_FALLBACK,
-  defaultEditDurationHours,
   grantDurationEditIntent,
   grantRemainingHours,
 } from "@/lib/one-location/grant-duration-edit";
@@ -236,6 +235,10 @@ import {
   SHARE_DURATION_LADDER,
   SHARE_DURATION_UNTIL_STOP_VALUE,
 } from "@/components/one-location/redesign/duration-presets";
+import {
+  requestMoreTimeKey,
+  type RequestMoreTimeHours,
+} from "@/components/one-location/redesign/request-more-time";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
@@ -2447,14 +2450,9 @@ export function OneLocationAgentPageContent({
   >(null);
   /** Which grant is showing the inline duration editor, wherever it's listed. */
   const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
-  /** Which grant's duration is being saved. Separate from revoke on purpose. */
-  const [savingGrantId, setSavingGrantId] = useState<string | null>(null);
   const [requestingMoreTimeKey, setRequestingMoreTimeKey] = useState<
     string | null
   >(null);
-  const [editGrantDurationHours, setEditGrantDurationHours] = useState(
-    GRANT_EDIT_DURATION_FALLBACK,
-  );
   // One clock for every "time left" on this screen. The countdowns read
   // Date.now() at render and nothing re-rendered them, so "Stops in 59 min"
   // was true when the screen opened and stayed on the glass as the hour ran
@@ -6393,109 +6391,20 @@ export function OneLocationAgentPageContent({
    * can disagree with the server's near the boundary -- but it is now the
    * rare correction rather than the normal path.
    */
-  const handleEditGrantDuration = useCallback(
-    async (
-      params: { ownerUserId: string; grantId: string; ownerLabel: string },
-      durationHours: number,
-    ) => {
-      if (!vaultOwnerToken) return;
-      const { ownerUserId, grantId, ownerLabel } = params;
-      const grant = activeReceivedGrants.find((row) => row.id === grantId);
-      // Its own flag, not the revoke one. Sharing `revokingGrantId` made
-      // saving a duration disable that row's Remove button, and a save that
-      // returned early left the flag set for good -- so the next Edit on
-      // that person opened with Save already spinning and permanently
-      // disabled. That is the "save button takes more time" report.
-      setSavingGrantId(grantId);
-      try {
-        const intent = grantDurationEditIntent({
-          grant,
-          durationHours,
-          nowMs: Date.now(),
-        });
-        // Save on a picker still showing what the share already has left is
-        // not a change. It used to spend a refused shorten and then ask the
-        // owner for one more minute of their location, and report that as
-        // "Asked ... for more time" over a row whose time never moved.
-        if (intent === "unchanged") {
-          setEditingGrantId(null);
-          return;
-        }
-        if (intent === "shorten") {
-          try {
-            await OneLocationService.shortenGrant({
-              vaultOwnerToken,
-              grantId,
-              durationHours,
-            });
-            toast.success("Access shortened.");
-            setEditingGrantId(null);
-            // Held until the list has actually reconciled, so this grant is
-            // not savable again against the expiry it just replaced.
-            await refresh({ background: true }).catch(() => null);
-            return;
-          } catch (error) {
-            if (apiErrorCode(error) !== "LOCATION_GRANT_SHORTEN_ONLY") {
-              toast.error(
-                error instanceof Error
-                  ? error.message
-                  : "Couldn't change the time. Try again.",
-              );
-              return;
-            }
-            // The backend read the clock differently. Fall through and ask.
-          }
-        }
-        // Extending needs the owner's approval again -- send a new request
-        // rather than silently lengthening the existing grant.
-        try {
-          // The amount travels WITH the request now. This used to send the
-          // literal string "Requesting more time." and nothing else, so the
-          // number the person had just chosen from the picker directly above
-          // this button was the one fact the owner never received.
-          const durationLabel = formatLocationDurationLabel(durationHours);
-          await OneLocationService.requestAccess({
-            vaultOwnerToken,
-            ownerUserId,
-            message: durationLabel
-              ? `Requesting ${durationLabel} more of your live location.`
-              : "Requesting more time.",
-            requestedDurationHours: durationHours,
-            requestedDurationMode: "timed",
-            extendsGrantId: grantId,
-          });
-          toast.success(
-            durationLabel
-              ? `Asked ${ownerLabel} for ${durationLabel} more.`
-              : `Asked ${ownerLabel} for more time.`,
-          );
-          setEditingGrantId(null);
-          await refresh({ background: true }).catch(() => null);
-        } catch (error) {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : `Couldn't ask ${ownerLabel} for more time. Try again.`,
-          );
-        }
-      } finally {
-        setSavingGrantId(null);
-      }
-    },
-    [activeReceivedGrants, refresh, vaultOwnerToken],
-  );
-
   const handleRequestMoreTime = useCallback(
     async (params: {
       ownerUserId: string;
       grantId: string;
       ownerLabel: string;
-      additionalHours: 0.5 | 2;
+      additionalHours: RequestMoreTimeHours;
     }) => {
       if (!vaultOwnerToken) return;
       const { ownerUserId, grantId, ownerLabel, additionalHours } = params;
-      const requestKey = `${grantId}:${additionalHours}`;
+      const requestKey = requestMoreTimeKey(grantId, additionalHours);
       setRequestingMoreTimeKey(requestKey);
+      // "30 min" / "1 hour" -- the same words the button carried, so the toast
+      // reads back what was tapped.
+      const amount = formatLocationDurationLabel(additionalHours);
       try {
         await OneLocationService.requestAccess({
           vaultOwnerToken,
@@ -6503,15 +6412,14 @@ export function OneLocationAgentPageContent({
           requestedDurationHours: additionalHours,
           requestedDurationMode: "timed",
           extendsGrantId: grantId,
-          message:
-            additionalHours === 0.5
-              ? "Requesting 30 minutes more of your live location."
-              : "Requesting 2 hours more of your live location.",
+          message: amount
+            ? `Requesting ${amount} more of your live location.`
+            : "Requesting more time.",
         });
         toast.success(
-          additionalHours === 0.5
-            ? `Asked ${ownerLabel} for 30 min more.`
-            : `Asked ${ownerLabel} for 2 hours more.`,
+          amount
+            ? `Asked ${ownerLabel} for ${amount} more.`
+            : `Asked ${ownerLabel} for more time.`,
         );
         setEditingGrantId(null);
         await refresh({ background: true }).catch(() => null);
@@ -13249,21 +13157,13 @@ export function OneLocationAgentPageContent({
     onStopGrant: (grantId) => void handleRevoke(grantId),
     onAskReshare: (grant) => void handleAskReshare(grant),
     editingGrantId,
-    savingGrantId,
     requestingMoreTimeKey,
-    onEditGrantStart: (grantId) => {
-      // Open on what the share actually has left, not on a constant. The
-      // editor used to say "1 hour" above a row reading "30 more min", so
-      // the field was never the current duration and Save on the untouched
-      // default asked for MORE time instead of changing anything.
-      setEditGrantDurationHours(
-        defaultEditDurationHours(
-          activeReceivedGrants.find((grant) => grant.id === grantId),
-          Date.now(),
-        ),
-      );
-      setEditingGrantId(grantId);
-    },
+    // Opens the row's expanded panel and nothing else. It used to seed an
+    // absolute "New duration" picker from what the share had left; that
+    // control is gone -- every amount the panel offers is now additive, so
+    // there is no current value for it to open on. See
+    // `redesign/request-more-time`.
+    onEditGrantStart: (grantId) => setEditingGrantId(grantId),
     onEditGrantCancel: () => setEditingGrantId(null),
     liveShareDurationEditing,
     liveShareDurationHours,
@@ -13272,10 +13172,6 @@ export function OneLocationAgentPageContent({
     onEditLiveShareDurationStart: handleEditLiveShareDurationStart,
     onEditLiveShareDurationCancel: () => setLiveShareDurationEditing(false),
     onSaveLiveShareDuration: () => void handleSaveLiveShareDuration(),
-    editGrantDurationHours,
-    setEditGrantDurationHours,
-    onEditGrantSave: (params) =>
-      void handleEditGrantDuration(params, Number(editGrantDurationHours)),
     onRequestMoreTime: handleRequestMoreTime,
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: handleCopyPublicInvite,

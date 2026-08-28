@@ -207,10 +207,12 @@ describe("One Location — the Share confirm step is a measured column", () => {
   });
 
   it("keeps the default clamp for the two editors that have no column", () => {
-    // The live-share "New time" editor and the People tab's "New duration"
-    // render straight into the 880px shell. Without the default they stretch to
-    // ~792px and their duration cells reach 258px — the exact state an earlier
-    // round was fixing.
+    // The live-share "New time" editor renders straight into the 880px shell
+    // with no column of its own. Without the default it stretches to ~792px and
+    // its duration cells reach 258px — the exact state an earlier round was
+    // fixing. (Its old neighbour here, the recipient-side "New duration"
+    // picker, is gone: that lane asks for time additively now. See
+    // `components/one-location/redesign/request-more-time`.)
     const selectors = repoFile(
       "components/one-location/redesign/selectors.tsx",
     );

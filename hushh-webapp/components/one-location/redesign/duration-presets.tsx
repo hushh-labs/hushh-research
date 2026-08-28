@@ -33,12 +33,26 @@ export const SHARE_DURATION_LADDER: DurationRung[] = [
   { value: "1", label: "1 hour" },
 ];
 
+/**
+ * Asking someone else for their location.
+ *
+ * Three rungs plus `Custom`, which the picker appends -- four cells, two rows
+ * of two on a phone. It was five rungs plus Custom, and six cells is where a
+ * ladder stops being a row of choices and starts being a keypad: the screen it
+ * sits on also carries four Reason chips, a recipient rail and two stacked
+ * actions, so the duration question alone was three rows of the card.
+ *
+ * The three that stay are the ones an ask is actually made in -- "where are
+ * you now" (15 min), the default hour, and an afternoon (2 hours). 4 and 8
+ * hours did not disappear: `Custom` reaches any value the backend accepts, and
+ * a cell that is one deliberate tap away is not a feature removed. Compare
+ * {@link SHARE_DURATION_LADDER}, which makes the same trade harder -- two
+ * rungs -- for the same reason.
+ */
 export const REQUEST_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
   { value: "1", label: "1 hour" },
   { value: "2", label: "2 hours" },
-  { value: "4", label: "4 hours" },
-  { value: "8", label: "8 hours" },
 ];
 
 export const SHARE_DURATION_UNTIL_STOP_VALUE = "until_stopped";
