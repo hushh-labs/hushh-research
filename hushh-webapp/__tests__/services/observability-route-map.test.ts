@@ -114,6 +114,7 @@ describe("observability route map", () => {
     // Must not swallow an unrelated sibling.
     expect(resolveRouteId("/consents")).toBe("consents");
     expect(resolveRouteId("/agent")).toBe("agent");
+    expect(resolveRouteId("/people/opaque-person-ref")).toBe("person_profile");
     expect(resolveRouteId("/one/connect/settings")).toBe("connect_settings");
     expect(resolveRouteId("/one/profile/preferences/gemini")).toBe(
       "profile_preferences_gemini",
@@ -174,19 +175,19 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/kai/market/news/user_123")).toBe(
       "/api/kai/market/news/{user_id}",
     );
-    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/stream")).toBe(
-      "/api/kai/agent/chat/stream",
+    expect(normalizeApiPathToTemplate("/api/one/agent-chat")).toBe(
+      "/api/one/agent-chat",
     );
     expect(
       normalizeApiPathToTemplate(
-        "/api/kai/agent/chat/conversations/user_123?limit=1",
+        "/api/one/agent-chat/conversations/user_123?limit=1",
       ),
-    ).toBe("/api/kai/agent/chat/conversations/{user_id}");
+    ).toBe("/api/one/agent-chat/conversations/{user_id}");
     expect(
       normalizeApiPathToTemplate(
-        "/api/kai/agent/chat/history/conversation_123",
+        "/api/one/agent-chat/history/conversation_123",
       ),
-    ).toBe("/api/kai/agent/chat/history/{conversation_id}");
+    ).toBe("/api/one/agent-chat/history/{conversation_id}");
     expect(
       normalizeApiPathToTemplate(
         "/api/kai/analyze/run/run_987/stream?cursor=0",

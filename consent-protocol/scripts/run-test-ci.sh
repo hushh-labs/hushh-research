@@ -57,6 +57,7 @@ cleanup_offline_db() {
 trap cleanup_offline_db EXIT
 
 TESTING="${TESTING:-true}" \
+GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-hushh-ci-test}" \
 DB_OFFLINE="${DB_OFFLINE:-1}" \
 OFFLINE_DB_PATH="$OFFLINE_DB_PATH" \
 APP_SIGNING_KEY="${APP_SIGNING_KEY:-test_secret_key_for_ci_only_32chars_min}" \

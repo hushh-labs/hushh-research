@@ -15,6 +15,7 @@ export type DirectoryAudience = "all" | "people" | "ria";
 
 export interface DirectoryPerson {
   userId: string;
+  publicPersonRef?: string | null;
   displayName: string | null;
   photoUrl: string | null;
   email: string | null;
@@ -39,6 +40,7 @@ export interface DirectoryPage {
 export interface ConnectionSummaryEntry {
   connectionId: string;
   userId: string;
+  publicPersonRef?: string | null;
   displayName: string | null;
   photoUrl: string | null;
   createdAt: string | null;

@@ -173,7 +173,7 @@ export function TrustedPersonCard({
             aria-label={actionAriaLabel}
             isLoading={actionBusy}
             disabled={actionDisabled}
-            className="ui-text-button-label h-8 shrink-0 rounded-full px-3.5"
+            className="h-8 shrink-0 rounded-full px-3.5 text-sm"
           >
             {actionLabel}
           </Button>

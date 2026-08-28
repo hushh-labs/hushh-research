@@ -5,6 +5,7 @@ from hushh_mcp.agents.onboarding.agent import (
     OnboardingJourneyContext,
     resolve_onboarding_goal,
 )
+from hushh_mcp.services.action_gateway import AVAILABLE_ACTION_IDS_CAP
 
 
 def test_available_action_ids_bound_matches_the_frontend_publisher():
@@ -23,10 +24,14 @@ def test_available_action_ids_bound_matches_the_frontend_publisher():
     """
     field = OnboardingJourneyContext.model_fields["available_action_ids"]
     max_length = next(
-        (constraint.max_length for constraint in field.metadata if hasattr(constraint, "max_length")),
+        (
+            constraint.max_length
+            for constraint in field.metadata
+            if hasattr(constraint, "max_length")
+        ),
         PydanticUndefined,
     )
-    assert max_length == 18
+    assert max_length == AVAILABLE_ACTION_IDS_CAP
 
 
 def test_login_only_permits_explicit_provider_actions_and_requests_choice() -> None:

@@ -156,7 +156,7 @@ describe("RiaService.savePickPackage sibling preservation", () => {
     );
   });
 
-  it("carries regulator_profile forward when saving picks", async () => {
+  it("carries regulator_profile and investor debate context forward when saving picks", async () => {
     loadDomainDataMock.mockResolvedValue({
       schema_version: 1,
       advisor_package: PICKS_PAYLOAD,
@@ -172,11 +172,23 @@ describe("RiaService.savePickPackage sibling preservation", () => {
       top_picks: [],
       avoid_rows: [],
       screening_sections: [],
+      investor_debate_thesis: "Pressure-test downside risk against the portfolio's concentration.",
     });
 
     const { plan } = await capturePlan();
     expect(plan.domainData.regulator_profile).toMatchObject(FACTS);
-    expect(plan.domainData.advisor_package).toBeTruthy();
+    expect(plan.domainData.advisor_package).toMatchObject({
+      investor_debate_thesis:
+        "Pressure-test downside risk against the portfolio's concentration.",
+    });
     expect(plan.summary).toMatchObject({ has_regulator_profile: true });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/ria/picks",
+      expect.objectContaining({
+        body: expect.stringContaining(
+          '"investor_debate_thesis":"Pressure-test downside risk against the portfolio\'s concentration."',
+        ),
+      }),
+    );
   });
 });

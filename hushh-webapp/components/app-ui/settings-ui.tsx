@@ -141,16 +141,14 @@ export function SettingsPresentationProvider({
 const SETTINGS_ICON_TONE_CLASSNAME = {
   accent:
     "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
-  blue:
-    "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
+  blue: "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
   purple:
     "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
   green:
     "bg-[rgba(52,199,89,0.12)] text-[#34C759] dark:bg-[rgba(48,209,88,0.20)] dark:text-[#30D158]",
   orange:
     "bg-[rgba(255,159,10,0.12)] text-[#FF9F0A] dark:bg-[rgba(255,159,10,0.20)] dark:text-[#FFD60A]",
-  red:
-    "bg-[rgba(255,59,48,0.12)] text-[#FF3B30] dark:bg-[rgba(255,69,58,0.20)] dark:text-[#FF6961]",
+  red: "bg-[rgba(255,59,48,0.12)] text-[#FF3B30] dark:bg-[rgba(255,69,58,0.20)] dark:text-[#FF6961]",
   // People, circles and private sharing. Added because the tone vocabulary was
   // smaller than the semantics: `accent`, `blue` and `purple` are byte-identical
   // above, so "these are PEOPLE" had no colour of its own and every row that
@@ -163,8 +161,7 @@ const SETTINGS_ICON_TONE_CLASSNAME = {
   // brightens for dark the way --app-warning and --app-destructive do.
   indigo:
     "bg-[color-mix(in_srgb,var(--app-indigo)_12%,transparent)] text-[color:var(--app-indigo)] dark:bg-[color-mix(in_srgb,var(--app-indigo)_20%,transparent)] dark:text-[color:var(--app-indigo)]",
-  gray:
-    "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
+  gray: "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
 } as const;
 
 type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
@@ -172,7 +169,9 @@ type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
 export function SettingsGroup({
   eyebrow,
   title,
+  titleAction,
   description,
+  toolbar,
   children,
   embedded = false,
   separatorInset,
@@ -183,7 +182,33 @@ export function SettingsGroup({
 }: {
   eyebrow?: string;
   title?: ReactNode;
+  /**
+   * A control that belongs to this section, shown at the end of the heading
+   * row.
+   *
+   * It renders as a SIBLING of the heading, never inside it. The heading
+   * carries `role="heading"`, and a button placed within one is both invalid
+   * and unusable: a screen reader folds the control's label into the heading's
+   * accessible name, and interactive content inside a heading is not something
+   * assistive tech offers a way to reach.
+   *
+   * Optional, and absent by default -- with nothing passed the heading block
+   * renders exactly the markup it always has, so the other consumers of this
+   * component are untouched.
+   */
+  titleAction?: ReactNode;
   description?: ReactNode;
+  /**
+   * A control that acts on THIS group's rows -- a search field over the list
+   * it filters, for instance. It sits between the heading and the card, so the
+   * heading that names the list and the sentence explaining how to use it are
+   * both read before the control they describe. Placed above the heading, the
+   * field arrived before anything had said what it searched, and the
+   * supporting line ("Search by name.") ended up UNDER the box it was
+   * instructing -- pointing backwards at a control the reader had already
+   * passed.
+   */
+  toolbar?: ReactNode;
   children: ReactNode;
   embedded?: boolean;
   /**
@@ -231,35 +256,47 @@ export function SettingsGroup({
   );
 
   return (
-    <section
-      className={cn(
-        "w-full",
-        className,
-      )}
-      data-testid={testId}
-    >
-      {eyebrow || title || description ? (
-        <div className="mb-2 mt-7 space-y-[var(--settings-heading-stack-gap)] px-[6px]">
-          {eyebrow || title ? (
-            <SectionLabel
-              data-slot="settings-group-heading"
-              role="heading"
-              aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
-            >
-              {eyebrow ? (
-                <span>
-                  {eyebrow}
-                </span>
-              ) : null}
-              {title ? <span>{title}</span> : null}
-            </SectionLabel>
+    <section className={cn("w-full", className)} data-testid={testId}>
+      {eyebrow || title || description || titleAction ? (
+        <div className="mb-2 mt-7 flex items-start justify-between gap-3 px-[6px]">
+          <div className="min-w-0 flex-1 space-y-[var(--settings-heading-stack-gap)]">
+            {eyebrow || title ? (
+              <SectionLabel
+                data-slot="settings-group-heading"
+                role="heading"
+                aria-level={embedded ? 3 : 2}
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
+              >
+                {eyebrow ? <span>{eyebrow}</span> : null}
+                {title ? <span>{title}</span> : null}
+              </SectionLabel>
+            ) : null}
+            {description ? (
+              <RowDescription className="max-w-2xl [overflow-wrap:anywhere]">
+                {description}
+              </RowDescription>
+            ) : null}
+          </div>
+          {titleAction ? (
+            // `shrink-0` so the control keeps its full width and the title
+            // wraps instead -- the reverse squeezes a button until its label
+            // truncates, which is how a section action stops being readable at
+            // 320px.
+            <div className="shrink-0">{titleAction}</div>
           ) : null}
-          {description ? (
-            <RowDescription className="max-w-2xl [overflow-wrap:anywhere]">
-              {description}
-            </RowDescription>
-          ) : null}
+        </div>
+      ) : null}
+      {toolbar ? (
+        <div
+          data-slot="settings-group-toolbar"
+          className={cn(
+            "mb-3",
+            // Without a heading above it there is no `mt-7` to sit under, so
+            // the control would hug whatever preceded the group.
+            !(eyebrow || title || description) && "mt-7",
+          )}
+        >
+          {toolbar}
         </div>
       ) : null}
       {shell}
@@ -518,9 +555,7 @@ export function SettingsRow({
             />
           </button>
           {trailingContent ? (
-            <div role="presentation">
-              {trailingContent}
-            </div>
+            <div role="presentation">{trailingContent}</div>
           ) : null}
         </div>
       </div>
@@ -673,9 +708,7 @@ export function AdaptiveDetailSurface({
                 {leading ? <div className="shrink-0">{leading}</div> : null}
                 <div className="min-w-0 text-left">
                   {eyebrow ? (
-                    <SectionLabel as="p">
-                      {eyebrow}
-                    </SectionLabel>
+                    <SectionLabel as="p">{eyebrow}</SectionLabel>
                   ) : null}
                   <SheetTitle className="ui-text-navigation-title truncate">
                     {title}
@@ -729,11 +762,7 @@ export function AdaptiveDetailSurface({
             <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0 text-left">
-                {eyebrow ? (
-                  <SectionLabel as="p">
-                    {eyebrow}
-                  </SectionLabel>
-                ) : null}
+                {eyebrow ? <SectionLabel as="p">{eyebrow}</SectionLabel> : null}
                 <DrawerTitle className="ui-text-navigation-title truncate">
                   {title}
                 </DrawerTitle>
@@ -788,11 +817,7 @@ export function AdaptiveDetailSurface({
           <div className="flex min-w-0 items-center gap-3 text-left">
             {leading ? <div className="shrink-0">{leading}</div> : null}
             <div className="min-w-0 text-left">
-              {eyebrow ? (
-                <SectionLabel as="p">
-                  {eyebrow}
-                </SectionLabel>
-              ) : null}
+              {eyebrow ? <SectionLabel as="p">{eyebrow}</SectionLabel> : null}
               <DialogTitle className="ui-text-navigation-title truncate">
                 {title}
               </DialogTitle>

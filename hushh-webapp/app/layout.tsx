@@ -102,12 +102,16 @@ export default function RootLayout({
         {/* Accent no-FOUC: apply the persisted accent preference before first
             paint (default iOS Blue needs no attribute; gold sets data-accent).
             Body mirrors ACCENT_NO_FOUC_SCRIPT in lib/theme/accent.ts. */}
-        <script
+        <Script
+          id="accent-no-fouc"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `try{var a=localStorage.getItem("hushh.app.accent.v1");if(a==="gold"){document.documentElement.setAttribute("data-accent","gold");}}catch(e){}`,
           }}
         />
-        <script
+        <Script
+          id="native-ios-class"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}}catch(e){}`,
           }}

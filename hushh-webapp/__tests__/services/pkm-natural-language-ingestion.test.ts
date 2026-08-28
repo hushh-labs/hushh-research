@@ -103,4 +103,41 @@ describe("ingestNaturalLanguagePkm", () => {
     expect(mocks.preview.mock.calls.every(([params]) => params.message.length <= 10_000)).toBe(true);
     expect(result.chunkCount).toBeGreaterThan(1);
   });
+
+  it("preserves every numbered section in a long assistant-authored profile import", async () => {
+    const sectionIds = Array.from({ length: 14 }, (_, index) => `FACT-${index + 1}`);
+    const profileImport = sectionIds
+      .map((id, index) => `${index + 1}. Profile section\n- ${id}: synthetic detail ${index + 1}`)
+      .join("\n\n");
+    mocks.preview.mockImplementation(async ({ message }: { message: string }) => ({
+      cards: [{ card_id: "section", source_text: message }],
+    }));
+    mocks.save.mockResolvedValueOnce({
+      attempted: 3,
+      saved: 3,
+      failed: 0,
+      domains: ["identity", "professional"],
+      results: [],
+    });
+
+    await ingestNaturalLanguagePkm({
+      userId: "user_1",
+      message: profileImport,
+      currentDomains: [],
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_memory_capture",
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "agent_chat_memory_capture",
+      },
+    });
+
+    const submittedText = mocks.preview.mock.calls
+      .map(([params]) => params.message)
+      .join("\n");
+    for (const id of sectionIds) expect(submittedText).toContain(id);
+    expect(mocks.preview).toHaveBeenCalledTimes(3);
+  });
 });

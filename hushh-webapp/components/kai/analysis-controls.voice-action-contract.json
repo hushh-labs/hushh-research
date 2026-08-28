@@ -20,7 +20,7 @@
       "action_id": "analysis.back_to_history",
       "label": "Back to Analysis History",
       "meaning": "Returns from the live analysis workspace to its saved history.",
-      "aliases": ["back to history", "open analysis history"],
+      "aliases": ["back to history"],
       "search_keywords": ["analysis", "history", "back"],
       "guard_ids": [],
       "risk_level": "low",

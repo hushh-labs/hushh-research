@@ -161,7 +161,7 @@ Consent-manager surface rules:
 2. Advisor-authored content flowing back to the investor uses `connection_scope_proposals`, `relationship_share_grants`, and append-only proposal/share event histories.
 3. The reserved capability is `ria_active_picks_feed_v1`; connection acceptance alone never enables it.
 4. Kai only exposes `ria:*` pick sources when the relationship, proposal, grant, and artifact are all active and refer to the same approved capability.
-5. Active encrypted Picks syncs update the entitled artifact without requiring a new request. A later revocation blocks new Market, preview, Debate, retry, and refresh reads, while an already-running Debate uses its authorized start-time snapshot.
+5. Active PKM-derived Picks syncs update the entitled artifact without requiring a new request. An advisor's bounded investor debate thesis travels only inside that same artifact and is used as attributed context for a selected investor's live Debate; it is not new `attr.*` scope authority, source lineage, event payload, or durable run history. A later revocation blocks new Market, preview, Debate, retry, and refresh reads, while an already-running Debate uses its authorized start-time snapshot.
 
 ## MCP Read-Only Tools
 

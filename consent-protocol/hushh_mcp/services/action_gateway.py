@@ -17,6 +17,16 @@ from hushh_mcp.services.generated_contracts import generated_contract_path
 
 logger = logging.getLogger(__name__)
 
+# Mirrors the frontend's derived AVAILABLE_ACTION_IDS_CAP in
+# hushh-webapp/lib/voice/screen-context-builder.ts:
+#   ACTION_ID_SCREEN_SEGMENT_CAP (14) + len(GLOBAL_NAV_ACTION_IDS) (10).
+# There is no automated cross-language sync for this -- bump both together,
+# in the same commit, whenever either grows on the TS side. Consumed by
+# live_context.py's LIVE_CONTEXT_ARRAY_CAP, onboarding/agent.py's
+# OnboardingJourneyContext.available_action_ids max_length, and
+# one_adk/agent_tree.py's two render-time slices.
+AVAILABLE_ACTION_IDS_CAP = 24
+
 
 def _strings(value: Any) -> list[str]:
     return [str(item).strip() for item in value or [] if str(item or "").strip()]
