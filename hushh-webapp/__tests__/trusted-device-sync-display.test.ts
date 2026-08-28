@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import {
   deriveSyncDisplay,
+  HEARTBEAT_FRESH_MS,
   SEAL_CONFIRM_WINDOW_MS,
 } from "@/lib/trusted-device/sync-display";
 
@@ -27,6 +28,38 @@ describe("deriveSyncDisplay", () => {
     );
     expect(d.label).not.toMatch(/^Active\b/);
     expect(d.label).toContain("Trusted");
+  });
+
+  it("says a device is active now only on a fresh heartbeat", () => {
+    const d = deriveSyncDisplay(
+      {
+        status: "active",
+        last_synced_at: NOW - 2 * 86_400_000,
+        last_heartbeat_at: NOW - 30_000,
+        heartbeat: { current_model: "gemini-3.6-flash" },
+      },
+      NOW,
+    );
+    // A stale sync must not suppress a live heartbeat: this is the exact case
+    // that used to read "last synced 2 days ago" while the agent was running.
+    expect(d).toEqual({
+      label: "Active now · running gemini-3.6-flash",
+      tone: "active",
+    });
+  });
+
+  it("falls back to trust-only once the heartbeat goes stale", () => {
+    const d = deriveSyncDisplay(
+      {
+        status: "active",
+        last_synced_at: NOW - 3_600_000,
+        last_heartbeat_at: NOW - HEARTBEAT_FRESH_MS - 1000,
+      },
+      NOW,
+    );
+    // Never keep claiming reachability from an expired heartbeat.
+    expect(d.label).toMatch(/^Trusted · last synced /);
+    expect(d.label).not.toContain("Active now");
   });
 
   it("shows 'not yet synced' for a trusted device that never synced", () => {

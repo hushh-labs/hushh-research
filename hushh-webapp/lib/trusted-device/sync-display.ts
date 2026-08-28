@@ -8,7 +8,18 @@ export interface DeviceSyncFields {
   revoked_at?: number | null;
   last_synced_at?: number | null;
   sealed_at?: number | null;
+  /** Advisory liveness telemetry posted by the running device (migration 186). */
+  last_heartbeat_at?: number | null;
+  heartbeat?: { current_model?: string; busy?: boolean } | null;
 }
+
+/**
+ * How recently a device must have checked in to be called reachable. The agent
+ * heartbeats every 5 minutes, so this allows one missed beat before the label
+ * falls back to trust-only -- long enough to absorb a retry or a sleep/wake,
+ * short enough that "reachable now" stays honest.
+ */
+export const HEARTBEAT_FRESH_MS = 11 * 60 * 1000;
 
 export type SyncTone = "active" | "neutral" | "muted";
 
@@ -38,11 +49,23 @@ export function deriveSyncDisplay(
   nowMs: number,
 ): SyncDisplay {
   if (device.status === "active") {
-    // "Trusted", not "Active": status only says this device is still authorized
-    // (not revoked). It is NOT a liveness signal -- the server has no channel
-    // telling it whether the agent is running right now, and last_synced_at only
-    // moves when the device pulls the sync channel. Saying "Active" next to a
-    // two-day-old sync reads as "reachable now", which the data cannot support.
+    // A fresh heartbeat is the ONLY evidence the agent is actually running, so
+    // it is the only thing that may say so. Everything below it reports trust
+    // and sync time instead, because status alone means "still authorized" and
+    // last_synced_at only moves when the device pulls the sync channel.
+    if (
+      device.last_heartbeat_at != null &&
+      nowMs - device.last_heartbeat_at <= HEARTBEAT_FRESH_MS
+    ) {
+      const model = device.heartbeat?.current_model;
+      return {
+        label: model ? `Active now · running ${model}` : "Active now",
+        tone: "active",
+      };
+    }
+    // "Trusted", not "Active": no fresh heartbeat means the server cannot say
+    // whether the agent is running. Saying "Active" next to a two-day-old sync
+    // reads as "reachable now", which the data cannot support.
     if (device.last_synced_at != null) {
       return {
         label: `Trusted · last synced ${formatRelativeTime(device.last_synced_at, nowMs)}`,
