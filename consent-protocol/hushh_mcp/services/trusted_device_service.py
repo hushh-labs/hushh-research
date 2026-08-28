@@ -481,8 +481,25 @@ def _loopback_redirect_uri(value: str) -> str:
     return normalized
 
 
-_HEARTBEAT_TEXT_FIELDS = ("machine_id", "current_model", "agent_version")
+_HEARTBEAT_TEXT_FIELDS = (
+    "machine_id",
+    "current_model",
+    "agent_version",
+    # What the owner sees on connect: the machine their agent runs on. Names
+    # only, never identifiers -- no serial number, no hostname, no MAC.
+    "brand",
+    "processor",
+)
 _HEARTBEAT_MAX_TEXT = 120
+
+# Bounded because a device posts these. An unbounded float would let a bad or
+# buggy client store 1e309 and render as garbage wherever it is shown; a value
+# outside the plausible range is dropped rather than clamped, since clamping
+# would invent a reading that was never taken.
+_HEARTBEAT_NUMERIC_FIELDS: tuple[tuple[str, float, float], ...] = (
+    ("ram_total_gb", 0.0, 16_384.0),
+    ("ram_used_pct", 0.0, 100.0),
+)
 
 
 def _safe_heartbeat(snapshot: dict[str, Any] | None) -> dict[str, Any]:
@@ -503,6 +520,14 @@ def _safe_heartbeat(snapshot: dict[str, Any] | None) -> dict[str, Any]:
             text = str(value).strip()
             if text:
                 safe[field] = text[:_HEARTBEAT_MAX_TEXT]
+    for field, low, high in _HEARTBEAT_NUMERIC_FIELDS:
+        value = snapshot.get(field)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            number = float(value)
+            # NaN and the infinities fail every comparison, so they are excluded
+            # by the range test rather than needing a separate guard.
+            if low <= number <= high:
+                safe[field] = round(number, 2)
     busy = snapshot.get("busy")
     if isinstance(busy, bool):
         safe["busy"] = busy

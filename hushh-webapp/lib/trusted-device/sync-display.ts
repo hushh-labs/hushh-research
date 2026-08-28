@@ -14,12 +14,20 @@ export interface DeviceSyncFields {
 }
 
 /**
- * How recently a device must have checked in to be called reachable. The agent
- * heartbeats every 5 minutes, so this allows one missed beat before the label
- * falls back to trust-only -- long enough to absorb a retry or a sleep/wake,
- * short enough that "reachable now" stays honest.
+ * How recently a device must have checked in to be called reachable.
+ *
+ * Must stay above twice the agent's keepalive interval, so a single missed beat
+ * (a retry, a sleep/wake) does not flip a healthy machine to "trust only". The
+ * agent pushes on every transition and keeps a 600s keepalive underneath
+ * (KEEPALIVE_INTERVAL_SECONDS in hermes_cli/hussh_one_pkm/presence.py), so this
+ * is 2 x 600s plus slack. Shortening one without the other is what makes a
+ * live device read as gone.
+ *
+ * This is the idle-machine bound only. A machine anyone is actually using
+ * pushes on session start, model load and eject, so it reports far fresher
+ * than this ceiling; the window is what "quiet but alive" is allowed to cost.
  */
-export const HEARTBEAT_FRESH_MS = 11 * 60 * 1000;
+export const HEARTBEAT_FRESH_MS = 21 * 60 * 1000;
 
 export type SyncTone = "active" | "neutral" | "muted";
 

@@ -85,6 +85,60 @@ def test_heartbeat_tolerates_a_missing_or_malformed_payload() -> None:
     assert _safe_heartbeat("not-a-dict") == {}  # type: ignore[arg-type]
 
 
+def test_heartbeat_keeps_the_machine_specs_shown_on_connect() -> None:
+    # Brand, processor and RAM are what the owner sees when a device connects.
+    safe = _safe_heartbeat(
+        {
+            "brand": "Mac16,5",
+            "processor": "Apple M4 Max",
+            "ram_total_gb": 128.0,
+            "ram_used_pct": 41.7,
+        }
+    )
+    assert safe == {
+        "brand": "Mac16,5",
+        "processor": "Apple M4 Max",
+        "ram_total_gb": 128.0,
+        "ram_used_pct": 41.7,
+    }
+
+
+def test_heartbeat_drops_out_of_range_numbers_rather_than_clamping() -> None:
+    # A device posts these, so an unbounded float would render as garbage
+    # wherever it is shown. Dropping is right and clamping is not: clamping
+    # would invent a reading that was never taken.
+    safe = _safe_heartbeat(
+        {
+            "machine_id": "gw-studio",
+            "ram_used_pct": 4_000.0,
+            "ram_total_gb": -8.0,
+        }
+    )
+    assert safe == {"machine_id": "gw-studio"}
+
+
+def test_heartbeat_rejects_nan_and_infinity() -> None:
+    # These fail every comparison, so the range test excludes them. A NaN is
+    # not serializable as standard JSON and must never reach the column.
+    safe = _safe_heartbeat(
+        {
+            "ram_used_pct": float("nan"),
+            "ram_total_gb": float("inf"),
+        }
+    )
+    assert safe == {}
+
+
+def test_heartbeat_still_rejects_specs_of_the_wrong_type() -> None:
+    safe = _safe_heartbeat(
+        {
+            "ram_used_pct": True,  # bool is an int subclass; not a reading
+            "brand": {"nested": "object"},
+        }
+    )
+    assert safe == {}
+
+
 def test_record_heartbeat_stamps_a_server_timestamp() -> None:
     store = _RecordingStore()
     TrustedDeviceService(store=store).record_heartbeat(  # type: ignore[arg-type]
