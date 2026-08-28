@@ -171,3 +171,79 @@ async def test_mirror_skips_empty_subject(monkeypatch):
 
     monkeypatch.setattr(cac, "get_consent_audit_chain_service", _must_not_be_called)
     await append_consent_receipt_safe(subject_id="", event_type="GRANTED", issued_at_ms=1)
+
+
+# --------------------------------------------------------------------------- #
+# Head anchoring. A prev_hash walk proves every link that still exists and
+# nothing about links that no longer do: drop the newest receipts, or all of
+# them, and rows 1..k (or zero rows) chain perfectly. A ledger that reports
+# success after being emptied is not tamper-evident, and an emptied ledger is
+# the first thing an auditor would try.
+# --------------------------------------------------------------------------- #
+
+
+class _StubChain(ConsentAuditChainService):
+    """verify_chain without a database: it owns the head logic, list_receipts
+    only supplies rows."""
+
+    def __init__(self, receipts):
+        self._receipts = receipts
+
+    async def list_receipts(self, subject_id, limit=5000):  # noqa: ARG002
+        return self._receipts
+
+
+async def test_an_unpinned_chain_returns_its_head_so_a_caller_can_pin_it():
+    out = await _StubChain(_valid_chain(3)).verify_chain(_SUBJECT)
+    assert out["ok"] is True
+    assert out["head_seq"] == 3
+    assert out["head_hash"]
+
+
+async def test_a_truncated_chain_fails_against_a_pinned_head():
+    """The tail was dropped. Every surviving link still verifies, which is
+    exactly why the pin is the only thing that can catch it."""
+    full = _valid_chain(5)
+    truncated = full[:3]
+    out = await _StubChain(truncated).verify_chain(
+        _SUBJECT, expected_head_seq=5, expected_head_hash=full[-1]["hash"]
+    )
+    assert out["ok"] is False
+    assert out["reason"] == "head_regressed"
+    assert out["head_seq"] == 3
+
+
+async def test_a_WIPED_chain_fails_rather_than_reporting_success():
+    """The case that made this necessary: zero rows link perfectly."""
+    full = _valid_chain(4)
+    unpinned = await _StubChain([]).verify_chain(_SUBJECT)
+    assert unpinned["ok"] is True, "with no pin there is nothing to compare against"
+
+    pinned = await _StubChain([]).verify_chain(
+        _SUBJECT, expected_head_seq=4, expected_head_hash=full[-1]["hash"]
+    )
+    assert pinned["ok"] is False
+    assert pinned["reason"] == "head_regressed"
+
+
+async def test_a_rewritten_head_at_the_same_length_is_caught():
+    """Same seq, different history. Length alone would call this fine."""
+    original = _valid_chain(3)
+    rewritten = _valid_chain(2)
+    rewritten.append(_receipt(3, rewritten[-1]["hash"], scope="vault.read.health"))
+    out = await _StubChain(rewritten).verify_chain(
+        _SUBJECT, expected_head_seq=3, expected_head_hash=original[-1]["hash"]
+    )
+    assert out["ok"] is False
+    assert out["reason"] == "head_diverged"
+
+
+async def test_a_growing_chain_still_verifies_against_an_older_pin():
+    """New receipts must not read as tampering, or the guard would fire on
+    ordinary use and be turned off."""
+    full = _valid_chain(6)
+    out = await _StubChain(full).verify_chain(
+        _SUBJECT, expected_head_seq=3, expected_head_hash=full[2]["hash"]
+    )
+    assert out["ok"] is True
+    assert out["head_seq"] == 6

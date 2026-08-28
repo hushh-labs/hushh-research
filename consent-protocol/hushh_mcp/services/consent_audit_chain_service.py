@@ -299,12 +299,65 @@ class ConsentAuditChainService:
                 }
             prev_hash = receipt["hash"]
             expected_seq += 1
-        return {"ok": True, "count": len(receipts), "head_hash": prev_hash}
+        return {
+            "ok": True,
+            "count": len(receipts),
+            "head_seq": len(receipts),
+            "head_hash": prev_hash,
+        }
 
-    async def verify_chain(self, subject_id: str) -> dict[str, Any]:
-        """Fetch the subject's receipts and verify the chain integrity."""
+    async def verify_chain(
+        self,
+        subject_id: str,
+        *,
+        expected_head_seq: int | None = None,
+        expected_head_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch the subject's receipts and verify the chain integrity.
+
+        **Head anchoring.** A ``prev_hash`` walk proves every surviving link, and
+        proves nothing about links that no longer exist. Dropping the newest
+        receipts, or all of them, leaves rows 1..k -- or zero rows -- chaining
+        perfectly, so an unanchored check answers ``ok`` for a chain that has been
+        truncated or wiped. A tamper-evident ledger that reports success after
+        being emptied is not tamper-evident, and this is exactly the case an
+        auditor would test first.
+
+        The caller pins the last head it saw (trust-on-first-use, the same shape
+        the Fabric receipt chain already uses) and passes it back. A head that has
+        regressed below, or diverged from, the pinned one fails closed. With no
+        pin this returns the head so the caller can pin it for next time.
+        """
         receipts = await self.list_receipts(subject_id, limit=5000)
-        return self.verify_receipts(subject_id, receipts)
+        result = self.verify_receipts(subject_id, receipts)
+        if not result.get("ok"):
+            return result
+
+        head_seq = int(result.get("head_seq") or 0)
+        head_hash = str(result.get("head_hash") or "")
+        if expected_head_seq is not None:
+            if head_seq < int(expected_head_seq):
+                return {
+                    "ok": False,
+                    "broken_at_seq": head_seq,
+                    "reason": "head_regressed",
+                    "head_seq": head_seq,
+                    "head_hash": head_hash,
+                    "expected_head_seq": int(expected_head_seq),
+                }
+            if (
+                head_seq == int(expected_head_seq)
+                and expected_head_hash is not None
+                and not hmac.compare_digest(head_hash, str(expected_head_hash))
+            ):
+                return {
+                    "ok": False,
+                    "broken_at_seq": head_seq,
+                    "reason": "head_diverged",
+                    "head_seq": head_seq,
+                    "head_hash": head_hash,
+                }
+        return result
 
 
 _consent_audit_chain_service: ConsentAuditChainService | None = None
