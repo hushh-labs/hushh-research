@@ -499,7 +499,14 @@ _HEARTBEAT_MAX_TEXT = 120
 _HEARTBEAT_NUMERIC_FIELDS: tuple[tuple[str, float, float], ...] = (
     ("ram_total_gb", 0.0, 16_384.0),
     ("ram_used_pct", 0.0, 100.0),
+    # Only a machine with a battery sends these. A desktop omits them entirely
+    # rather than sending 0, so an absent battery stays distinguishable from a
+    # flat one. Never default these to a number when reading them back.
+    ("battery_pct", 0.0, 100.0),
+    ("battery_minutes_remaining", 0.0, 10_080.0),
 )
+
+_HEARTBEAT_BOOL_FIELDS = ("busy", "battery_charging", "on_ac")
 
 
 def _safe_heartbeat(snapshot: dict[str, Any] | None) -> dict[str, Any]:
@@ -528,9 +535,10 @@ def _safe_heartbeat(snapshot: dict[str, Any] | None) -> dict[str, Any]:
             # by the range test rather than needing a separate guard.
             if low <= number <= high:
                 safe[field] = round(number, 2)
-    busy = snapshot.get("busy")
-    if isinstance(busy, bool):
-        safe["busy"] = busy
+    for field in _HEARTBEAT_BOOL_FIELDS:
+        value = snapshot.get(field)
+        if isinstance(value, bool):
+            safe[field] = value
     for field in ("active_sessions", "next_cron_at"):
         value = snapshot.get(field)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:

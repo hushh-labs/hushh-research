@@ -129,6 +129,36 @@ def test_heartbeat_rejects_nan_and_infinity() -> None:
     assert safe == {}
 
 
+def test_heartbeat_keeps_battery_state_for_a_laptop() -> None:
+    safe = _safe_heartbeat(
+        {
+            "battery_pct": 27,
+            "battery_charging": False,
+            "on_ac": False,
+            "battery_minutes_remaining": 102,
+        }
+    )
+    assert safe == {
+        "battery_pct": 27,
+        "battery_charging": False,
+        "on_ac": False,
+        "battery_minutes_remaining": 102,
+    }
+
+
+def test_a_desktop_reports_no_battery_rather_than_zero_percent() -> None:
+    # A machine with no battery omits the fields entirely. If it sent 0 instead,
+    # nothing downstream could tell a desktop from a laptop about to die.
+    safe = _safe_heartbeat({"machine_id": "studio", "ram_used_pct": 12.0})
+    assert "battery_pct" not in safe
+    assert "battery_charging" not in safe
+
+
+def test_an_out_of_range_battery_reading_is_dropped() -> None:
+    safe = _safe_heartbeat({"machine_id": "gw", "battery_pct": 480})
+    assert safe == {"machine_id": "gw"}
+
+
 def test_heartbeat_still_rejects_specs_of_the_wrong_type() -> None:
     safe = _safe_heartbeat(
         {
