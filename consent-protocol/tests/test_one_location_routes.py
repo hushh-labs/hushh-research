@@ -405,9 +405,7 @@ def test_sos_voice_preference_route_reads_and_writes_the_owner(monkeypatch) -> N
 
     get_response = client.get("/api/one/location/sos-voice-preference")
     assert get_response.status_code == 200
-    assert get_response.json() == {
-        "preference": {"defaultAction": "open", "updatedAt": None}
-    }
+    assert get_response.json() == {"preference": {"defaultAction": "open", "updatedAt": None}}
     assert service.get_calls == [{"user_id": "owner-from-token"}]
 
     patch_response = client.patch(
