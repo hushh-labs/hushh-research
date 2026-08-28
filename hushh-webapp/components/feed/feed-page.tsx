@@ -29,6 +29,8 @@ import { FeedRow } from "@/components/feed/feed-row";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import {
   FeedService,
@@ -69,6 +71,38 @@ function groupItemsByDay(
   }
   return groups;
 }
+
+/**
+ * What voice can do while someone is standing on the Feed.
+ *
+ * Derived from the generated action gateway rather than hand-listed, the same
+ * way Location's surfaces do it -- a new Feed action becomes reachable the
+ * moment it is added to the contract, with no second list to remember.
+ *
+ * This screen published nothing at all until now, which mattered more here
+ * than almost anywhere else: connect.accept_request and connect.reject_request
+ * name `one_feed` as their home, so the one screen where "accept their request"
+ * is the obvious thing to say was the one screen that never offered it. Both
+ * execute backend-direct, so they always *ran* if the model went looking --
+ * they were simply never suggested.
+ */
+const FEED_VOICE_ACTIONS = listKaiActionsForSurface({ screen: "one_feed" })
+  .filter(
+    (action) =>
+      action.execution_target.status === "wired" &&
+      (action.execution_target.path === "local_handler" ||
+        action.execution_target.path === "route" ||
+        action.execution_target.path === "control") &&
+      action.execution_policy !== "manual_only",
+  )
+  .map((action) => ({
+    id: action.action_id,
+    actionId: action.action_id,
+    label: action.label,
+    // First sentence only: contract `meaning` is multi-sentence prose written
+    // for the model's semantic assessment, not a short one-liner.
+    purpose: action.meaning.split(/(?<=[.!?])\s/)[0] || action.meaning,
+  }));
 
 export function FeedPage() {
   const { user, loading: authLoading } = useAuth();
@@ -161,6 +195,37 @@ function FeedPageSession({
     hasClearableSmsEmergencies,
     clearSmsEmergencies,
   } = useFeedActionables();
+
+  // Counts only -- never who, and never what any item says. The Feed is a list
+  // of other people's names and activity; the only thing voice needs from it is
+  // whether there is anything waiting, which is what makes "accept their
+  // request" a sensible thing to offer here at all.
+  // `connection:` is the id prefix use-feed-actionables gives an incoming
+  // connection request; FeedActionable is a presentation shape and carries no
+  // kind of its own, so the prefix is the only thing that distinguishes one.
+  const pendingConnectionRequestCount = actionables.filter((entry) =>
+    entry.id.startsWith("connection:"),
+  ).length;
+
+  usePublishVoiceSurfaceMetadata(
+    user && !authLoading
+      ? {
+          screenId: "one_feed",
+          title: "Feed",
+          purpose:
+            "Shows recent activity and anything waiting on you, including connection requests you can accept or decline.",
+          spokenSubject: "Feed",
+          actions: FEED_VOICE_ACTIONS,
+          availableActions: FEED_VOICE_ACTIONS.map((action) => action.label),
+          busyOperations: actionablesLoading ? ["feed_actionables_load"] : [],
+          screenMetadata: {
+            pending_connection_request_count: pendingConnectionRequestCount,
+            actionable_count: actionables.length,
+            data_state: actionablesLoading ? "loading" : "loaded",
+          },
+        }
+      : null,
+  );
 
   const {
     data,
