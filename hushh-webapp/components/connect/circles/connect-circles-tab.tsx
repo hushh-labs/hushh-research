@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { KeyRound, Plus, ShieldCheck, Siren, UsersRound } from "lucide-react";
+import { KeyRound, Plus, ShieldCheck, UsersRound } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
@@ -18,6 +18,7 @@ import {
   CreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
+import { CircleSmsMark } from "@/components/one-location/redesign/circles/circle-sms-mark";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
@@ -599,7 +600,21 @@ export function ConnectCirclesTab({
             return (
               <SettingsRow
                 key={circle.id}
-                icon={kind === "trusted" ? ShieldCheck : Siren}
+                // The SMS Circle keeps its own identity here, the one
+                // Location's People tab already gives it: a filled red disc
+                // reading "SMS". A `Siren` in the same indigo well as Trusted
+                // and every user-made Circle made the one row that behaves
+                // differently in an emergency read as another ordinary group,
+                // and made the two surfaces that list the same Circle disagree
+                // about what it is.
+                //
+                // `leading` wins over `icon` in `SettingsRow`, and both count
+                // as a leading visual for the inset hairline, so the two rows
+                // keep the same 58px separator start.
+                leading={
+                  kind === "sms" ? <CircleSmsMark size="sm" /> : undefined
+                }
+                icon={kind === "sms" ? undefined : ShieldCheck}
                 iconTone="indigo"
                 // The product name only for the Circle that is yours. An SMS
                 // Circle shows up in the list of everyone on it, and the server

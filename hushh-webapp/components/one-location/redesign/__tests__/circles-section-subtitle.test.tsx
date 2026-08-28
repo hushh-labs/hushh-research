@@ -100,6 +100,17 @@ describe("the circle row's second line", () => {
     expect(screen.getByText("SMS")).toBeTruthy();
     expect(screen.getByText("Save My Soul · 1 person")).toBeTruthy();
     expect(screen.queryByTestId("siren")).toBeNull();
+
+    // The mark is now one component, shared with Connect's Circles tab, which
+    // used to draw a `Siren` in an indigo well for the same Circle. `md` here
+    // because these rows are 60px tall with their own padding overrides;
+    // Connect renders the same component at `sm` for its compact rows.
+    const mark = screen.getByTestId("one-location-circle-sms-mark");
+    expect(mark).toHaveAttribute("data-circle-mark", "sms");
+    expect(mark.className).toContain("bg-[#FF3B30]");
+    expect(mark.className).toContain("rounded-full");
+    expect(mark.className).toContain("h-9");
+    expect(mark.className).toContain("w-9");
   });
 
   it("uses a neutral identity for ordinary Circles", () => {

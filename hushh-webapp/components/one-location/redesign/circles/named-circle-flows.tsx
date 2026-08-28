@@ -56,6 +56,7 @@ import {
   CARD_SURFACE,
   MUTED_TEXT,
 } from "@/components/one-location/redesign/tokens";
+import { CircleSmsMark } from "@/components/one-location/redesign/circles/circle-sms-mark";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -463,27 +464,24 @@ export function CirclesSection({
               <SettingsRow
                 key={circle.id}
                 leading={
-                  <span
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center",
-                      isSmsCircle
-                        ? "rounded-full bg-[#FF3B30] text-[11px] font-bold leading-none tracking-[-0.2px] text-white"
-                        : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
-                    )}
-                    data-testid={
-                      isSmsCircle
-                        ? "one-location-circle-sms-mark"
-                        : "one-location-circle-neutral-mark"
-                    }
-                  >
-                    {isSmsCircle ? (
-                      "SMS"
-                    ) : showInitials ? (
-                      initials
-                    ) : (
-                      <UsersRound className="h-[17px] w-[17px]" />
-                    )}
-                  </span>
+                  isSmsCircle ? (
+                    // Connect's Circles list renders this same component at
+                    // `size="sm"`. It used to draw a Siren glyph in the indigo
+                    // well it gives every other Circle, so the one row that
+                    // behaves differently in an emergency looked like the rest.
+                    <CircleSmsMark size="md" />
+                  ) : (
+                    <span
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]"
+                      data-testid="one-location-circle-neutral-mark"
+                    >
+                      {showInitials ? (
+                        initials
+                      ) : (
+                        <UsersRound className="h-[17px] w-[17px]" />
+                      )}
+                    </span>
+                  )
                 }
                 title={circle.name}
                 description={
