@@ -191,4 +191,81 @@ describe("RiaService.savePickPackage sibling preservation", () => {
       }),
     );
   });
+
+  it("bounds and attributes advisor theses before PKM and share sync", async () => {
+    loadDomainDataMock.mockResolvedValue(null);
+    const { RiaService } = await import("@/lib/services/ria-service");
+    const longThesis = ` ${"A".repeat(2100)} `;
+
+    await RiaService.savePickPackage({
+      idToken: "id-token",
+      userId: "ria-user-1",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      top_picks: [
+        {
+          ticker: "NVDA",
+          tier: "ACE",
+          investment_thesis: longThesis,
+        },
+      ],
+      avoid_rows: [],
+      screening_sections: [],
+    });
+
+    const { plan } = await capturePlan();
+    const row = (plan.domainData.advisor_package as any).top_picks[0];
+    expect(row.investment_thesis).toHaveLength(2000);
+    expect(row.advisor_thesis).toMatchObject({
+      text: row.investment_thesis,
+      authored_by_user_id: "ria-user-1",
+      source: "ria_picks_editor",
+    });
+    expect(typeof row.advisor_thesis.updated_at).toBe("string");
+    const syncRequest = apiFetchMock.mock.calls.at(-1)?.[1];
+    const syncBody = JSON.parse(syncRequest.body);
+    expect(syncBody.top_picks[0]).toMatchObject({
+      investment_thesis: row.investment_thesis,
+      advisor_thesis: expect.objectContaining({
+        authored_by_user_id: "ria-user-1",
+        source: "ria_picks_editor",
+      }),
+    });
+  });
+
+  it("represents a removed advisor thesis as absent metadata before PKM and share sync", async () => {
+    loadDomainDataMock.mockResolvedValue(null);
+    const { RiaService } = await import("@/lib/services/ria-service");
+
+    await RiaService.savePickPackage({
+      idToken: "id-token",
+      userId: "ria-user-1",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      top_picks: [
+        {
+          ticker: "NVDA",
+          tier: "ACE",
+          investment_thesis: "   ",
+          advisor_thesis: {
+            text: "Prior advisor view",
+            authored_by_user_id: "ria-user-1",
+            source: "ria_picks_editor",
+            updated_at: "2026-08-27T00:00:00Z",
+          },
+        },
+      ],
+      avoid_rows: [],
+      screening_sections: [],
+    });
+
+    const { plan } = await capturePlan();
+    const row = (plan.domainData.advisor_package as any).top_picks[0];
+    expect(row.investment_thesis).toBeNull();
+    expect(row.advisor_thesis).toBeNull();
+    const syncRequest = apiFetchMock.mock.calls.at(-1)?.[1];
+    const syncBody = JSON.parse(syncRequest.body);
+    expect(syncBody.top_picks[0].investment_thesis).toBeNull();
+    expect(syncBody.top_picks[0].advisor_thesis).toBeNull();
+  });
 });

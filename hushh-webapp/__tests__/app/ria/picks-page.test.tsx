@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -646,5 +646,99 @@ describe("RiaPicksPage", () => {
         }),
       );
     });
+  });
+
+  it("bounds manually authored investment thesis text before saving", async () => {
+    mocks.useStaleResource.mockReturnValue(
+      buildResource({
+        data: {
+          package: {
+            top_picks: [
+              {
+                ticker: "NVDA",
+                company_name: "NVIDIA Corporation",
+                sector: "Technology",
+                tier: "ACE",
+                investment_thesis: "Compounding AI infrastructure demand",
+              },
+            ],
+            avoid_rows: [],
+            screening_sections: [
+              { section: "investable_requirements", rows: [] },
+              { section: "automatic_avoid_triggers", rows: [] },
+              { section: "the_math", rows: [] },
+            ],
+            package_note: null,
+          },
+        },
+      }),
+    );
+
+    render(<RiaPicksPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /my list/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    const editor = screen.getByTestId("ria-picks-inline-editor");
+    const thesisFields = await within(editor).findAllByPlaceholderText(
+      "Why this name belongs in the live debate universe",
+    );
+    fireEvent.change(thesisFields[0], {
+      target: {
+        value: ` ${"A".repeat(2100)} `,
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const call = mocks.riaService.savePickPackage.mock.calls.at(-1)?.[0];
+      expect(call.top_picks[0].investment_thesis).toBe("A".repeat(2000));
+    });
+  });
+
+  it("lets My list clear an existing investment thesis before saving", async () => {
+    mocks.useStaleResource.mockReturnValue(
+      buildResource({
+        data: {
+          package: {
+            top_picks: [
+              {
+                ticker: "NVDA",
+                company_name: "NVIDIA Corporation",
+                sector: "Technology",
+                tier: "ACE",
+                investment_thesis: "Compounding AI infrastructure demand",
+              },
+            ],
+            avoid_rows: [],
+            screening_sections: [
+              { section: "investable_requirements", rows: [] },
+              { section: "automatic_avoid_triggers", rows: [] },
+              { section: "the_math", rows: [] },
+            ],
+            package_note: null,
+          },
+        },
+      }),
+    );
+
+    render(<RiaPicksPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /my list/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    const editor = screen.getByTestId("ria-picks-inline-editor");
+    const thesisFields = await within(editor).findAllByPlaceholderText(
+      "Why this name belongs in the live debate universe",
+    );
+    fireEvent.change(thesisFields[0], { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const call = mocks.riaService.savePickPackage.mock.calls.at(-1)?.[0];
+      expect(call.top_picks[0]).toMatchObject({
+        ticker: "NVDA",
+        investment_thesis: "",
+      });
+    });
+    expect(screen.queryByText(/Investment thesis is required/i)).toBeNull();
   });
 });
