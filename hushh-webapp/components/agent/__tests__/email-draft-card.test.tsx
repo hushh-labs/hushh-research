@@ -139,14 +139,13 @@ describe("EmailDraftCard", () => {
     fireEvent.change(screen.getByTestId("one-email-draft-to"), {
       target: { value: "person@example.com" },
     });
-    fireEvent.change(screen.getByTestId("one-email-draft-message"), {
-      target: { value: "## Hello\n\n**Welcome** to the *Email Agent*.\n\n- Draft\n- Send" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Preview message" }));
-    expect(screen.getByTestId("one-email-rich-preview")).toHaveTextContent("Welcome");
-    expect(screen.getByTestId("one-email-rich-preview").querySelector("strong")).toHaveTextContent("Welcome");
+    const messageEditor = screen.getByTestId("one-email-draft-message");
+    messageEditor.innerHTML =
+      "<h2>Hello</h2><p><strong>Welcome</strong> to the <em>Email Agent</em>.</p><ul><li>Draft</li><li>Send</li></ul>";
+    fireEvent.input(messageEditor);
+    expect(messageEditor).toHaveTextContent("Welcome");
+    expect(messageEditor.querySelector("strong")).toHaveTextContent("Welcome");
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
     fireEvent.click(screen.getByTestId("one-email-draft-send"));
 
     await waitFor(() => expect(EmailDeliveryService.prepare).toHaveBeenCalledTimes(1));
@@ -180,11 +179,14 @@ describe("EmailDraftCard", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByTestId("one-email-rich-preview")).toBeInTheDocument());
-    const preview = screen.getByTestId("one-email-rich-preview");
-    expect(preview).toHaveTextContent("Just a quick reminder");
-    expect(preview).not.toHaveTextContent("\\n");
-    expect(preview.querySelector("strong")).toHaveTextContent("tomorrow at 5:00 PM");
+    await waitFor(() =>
+      expect(screen.getByTestId("one-email-draft-message")).toHaveTextContent(
+        "Just a quick reminder",
+      ),
+    );
+    const editor = screen.getByTestId("one-email-draft-message");
+    expect(editor).not.toHaveTextContent("\\n");
+    expect(editor.querySelector("strong")).toHaveTextContent("tomorrow at 5:00 PM");
     expect(screen.getByText("The project documents").closest("li")).toBeTruthy();
   });
 

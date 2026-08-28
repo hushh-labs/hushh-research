@@ -175,6 +175,7 @@ export async function streamAgentChat(input: {
   let text = "";
   let failure: Error | null = null;
   const toolNames = new Map<string, string>();
+  const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
     const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
@@ -224,10 +225,21 @@ export async function streamAgentChat(input: {
       toolNames.set(event.toolCallId, event.toolCallName);
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
-    onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) =>
-      handlers.onToolWaiting?.(toolPayload(event.toolCallId, toolCallName, toolCallArgs)),
-    onToolCallResultEvent: ({ event }) =>
-      handlers.onToolResult?.(toolPayload(event.toolCallId, toolNames.get(event.toolCallId) || "")),
+    onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      toolArgs.set(event.toolCallId, toolCallArgs);
+      handlers.onToolWaiting?.(
+        toolPayload(event.toolCallId, toolCallName, toolCallArgs),
+      );
+    },
+    onToolCallResultEvent: ({ event }) => {
+      const payload = toolPayload(
+        event.toolCallId,
+        toolNames.get(event.toolCallId) || "",
+        toolArgs.get(event.toolCallId) || {},
+      );
+      payload.raw.result = event.content;
+      handlers.onToolResult?.(payload);
+    },
     onRunFinishedEvent: (params) => {
       if (params.outcome === "interrupt") {
         for (const interrupt of params.interrupts) {

@@ -318,6 +318,15 @@ function getConsentRequiredPayload(
   };
 }
 
+function getGmailEmailDraftPayload(
+  event: AgentChatToolEvent | null,
+): { instruction: string } | null {
+  if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
+  const instruction =
+    typeof event.slots.request === "string" ? event.slots.request.trim() : "";
+  return instruction ? { instruction } : null;
+}
+
 function getConsentActionsPayload(
   event: SpecialistDirectiveEvent | null,
 ): ConsentActionsDirectivePayload | null {
@@ -1924,6 +1933,25 @@ export function AgentChatWorkspace({
     setEmailDraftOpen(true);
   };
 
+  const openGmailEmailDraftFromDirective = useCallback(
+    (event: AgentChatToolEvent, assistantMessageId: string): boolean => {
+      const payload = getGmailEmailDraftPayload(event);
+      if (!payload) return false;
+      if (!hasChatAccess) {
+        if (user) setVaultDialogOpen(true);
+        else router.push(ROUTES.LOGIN);
+        return true;
+      }
+      setEmailDraftInstruction(payload.instruction);
+      setEmailDraftInitialValue(null);
+      setEmailDraftAutoDraft(true);
+      setEmailDraftAnchorMessageId(assistantMessageId);
+      setEmailDraftOpen(true);
+      return true;
+    },
+    [hasChatAccess, router, user],
+  );
+
   const upsertMessageStreamEvent = (
     messageId: string,
     event: AgentVisibleStreamEvent,
@@ -3315,6 +3343,7 @@ export function AgentChatWorkspace({
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
+            openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);
             const visibleEvent = agentToolEventToVisibleStreamEvent(
               "result",
               toolEvent,
