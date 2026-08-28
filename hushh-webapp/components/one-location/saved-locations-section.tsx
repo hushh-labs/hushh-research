@@ -37,7 +37,10 @@ import {
   type SavedLocationAddressDetails,
 } from "@/lib/one-location/saved-location-address";
 
-import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
@@ -371,6 +374,26 @@ export function SavedLocationsSection() {
               input,
             });
         if (!isCurrentVaultSession(session)) return;
+        // Confirming a pin turns the live preview on, exactly as the onboarding
+        // save path already does.
+        //
+        // Saving a place is the one action in the product where the owner has
+        // just granted permission, let the device take a fix, dragged a pin to
+        // their own doorstep and named it -- and then landed back on a hub whose
+        // header switch read "Location off". Nothing here had ever gone through
+        // `activateMyLocation`, so `selfPreviewEnabled` stayed false; a person
+        // with no grants and no nearby presence has all three disjuncts behind
+        // `locationEnabled` false, and the screen contradicted what they had
+        // just done.
+        //
+        // Only the preview flag is written. `paused` is left exactly as it is,
+        // so this can never resume a Location the owner deliberately paused --
+        // `updateOneLocationControlState` already forces the preview back off
+        // while paused, which keeps this fail-closed rather than fail-friendly.
+        updateOneLocationControlState(userId, (current) => ({
+          ...current,
+          selfPreviewEnabled: true,
+        }));
         addressResolutionIdRef.current += 1;
         setLocations(sortSavedLocationsForDisplay(next));
         setSaveLocationModalOpen(false);
