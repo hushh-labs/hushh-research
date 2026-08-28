@@ -67,7 +67,7 @@ describe("navigation journeys", () => {
       // Both resolve one invitation off the person's own pending list.
       "location.accept_circle_invite",
       // Emergency contacts. Adding resolves against people ELIGIBLE to
-      // receive an SOS -- someone who has not finished their own Location
+      // receive an SOS -- someone who has not finished Location
       // setup cannot receive one, and adding them would build a list that
       // quietly does not work when it is needed. Removing resolves only
       // against the list itself, because matching the wider connection list

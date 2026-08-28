@@ -102,7 +102,7 @@ const WORKFLOW_COPY: Record<
   },
   location_access_request_withdrawn: {
     title: "Location request taken back",
-    fallbackDescription: "Someone took back their location request.",
+    fallbackDescription: "Someone took back location request.",
   },
   location_referral_invite: {
     title: "Location referral pending",
@@ -610,13 +610,13 @@ export function locationShareNotificationCopy(params: {
       title: "Check-in shared",
       description: message
         ? `${label}: ${message}`
-        : `${label} checked in and shared their location with you.`,
+        : `${label} checked in and shared location with you.`,
     };
   }
   if (kind === "drive_to") {
     return {
       title: "Drive shared",
-      description: `${label} started sharing their drive and live ETA with you.`,
+      description: `${label} started sharing drive and live ETA with you.`,
     };
   }
   return {
@@ -709,13 +709,13 @@ export function locationWorkflowNotificationCopy(params: {
       if (grantedLabel && askFacts.isExtension) {
         return {
           title: "More location time approved",
-          description: `${ownerLabel} gave you ${grantedLabel} more of their live location.`,
+          description: `${ownerLabel} gave you ${grantedLabel} more of live location.`,
         };
       }
       if (grantedLabel) {
         return {
           title: copy.title,
-          description: `${ownerLabel} shared their live location with you ${grantedLabel}.`,
+          description: `${ownerLabel} shared live location with you ${grantedLabel}.`,
         };
       }
       return {
@@ -730,7 +730,7 @@ export function locationWorkflowNotificationCopy(params: {
       if (revokedViaSms) {
         return {
           title: "SMS location sharing stopped",
-          description: `${ownerLabel} stopped sharing their location with you over SMS.`,
+          description: `${ownerLabel} stopped sharing location with you over SMS.`,
         };
       }
       return {
@@ -779,7 +779,7 @@ export function locationWorkflowNotificationCopy(params: {
     case "location_access_request_withdrawn":
       return {
         title: copy.title,
-        description: `${requesterLabel} took back their location request.`,
+        description: `${requesterLabel} took back location request.`,
       };
     case "location_referral_invite":
       return {

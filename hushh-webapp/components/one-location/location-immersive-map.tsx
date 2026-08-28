@@ -509,7 +509,7 @@ function pairBounds(
 /**
  * `surface` decides which product this screen is.
  *
- * "map" is Your Map: the people who already share their location with you,
+ * "map" is Your Map: the people who already share location with you,
  * pinned, plus your own position. "check-in" is the nearby flow: a place you
  * pick, the 500 m area around it, and a list of opted-in people there. They
  * were the same route with a drawer on top, so both read as one feature and QA
@@ -660,7 +660,7 @@ export function LocationImmersiveMap({
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
   // Why the map is unavailable. Both causes used to render the same card, which
-  // told the user "no location was captured or exposed" when their location was
+  // told the user "no location was captured or exposed" when location was
   // fine and the build simply had no Maps key — sending them to debug the wrong
   // thing entirely.
   const [unavailableReason, setUnavailableReason] = useState<

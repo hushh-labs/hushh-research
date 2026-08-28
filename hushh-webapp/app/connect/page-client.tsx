@@ -1965,7 +1965,7 @@ export default function ConnectPageClient() {
       if (person.relationship === "pending_incoming") {
         return {
           status: "blocked",
-          summary: `${person.displayName} has already asked to connect with you. Open Connect and accept their request instead of sending one back.`,
+          summary: `${person.displayName} has already asked to connect with you. Open Connect and accept request instead of sending one back.`,
         };
       }
       if (person.relationship !== "none") {

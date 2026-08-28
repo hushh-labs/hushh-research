@@ -4085,9 +4085,9 @@ class TestListAppActions:
         ordered = [r["action_id"] for r in result["results"]]
         assert "location.open_people" in ordered
         if "connect.open_people" in ordered:
-            assert ordered.index("location.open_people") < ordered.index(
-                "connect.open_people"
-            ), "the on-screen action must outrank the identically-aliased one"
+            assert ordered.index("location.open_people") < ordered.index("connect.open_people"), (
+                "the on-screen action must outrank the identically-aliased one"
+            )
 
         connect_state = {_STATE_SCREEN: "connect"}
         connect_state["hussh:voice_context"] = {
@@ -4100,9 +4100,9 @@ class TestListAppActions:
         ordered = [r["action_id"] for r in result["results"]]
         assert "connect.open_people" in ordered
         if "location.open_people" in ordered:
-            assert ordered.index("connect.open_people") < ordered.index(
-                "location.open_people"
-            ), "the same phrase must resolve the other way on the other screen"
+            assert ordered.index("connect.open_people") < ordered.index("location.open_people"), (
+                "the same phrase must resolve the other way on the other screen"
+            )
 
 
 class TestContractDrivenNavigationJourneys:

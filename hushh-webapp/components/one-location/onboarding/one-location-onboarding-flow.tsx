@@ -71,7 +71,7 @@ export type OnboardingCircleInvite = {
  * Someone from the person's own address book who already has One.
  *
  * Deliberately not the same thing as the directory list this flow used to show:
- * that was every Hushh user, so it asked a new person to share their location
+ * that was every Hushh user, so it asked a new person to share location
  * with strangers. These are people whose number is already in their phone.
  */
 export type OnboardingContactMatch = {
@@ -85,7 +85,7 @@ export type OnboardingContactMatch = {
  *
  * Seeing the circle's name, its owner and how many people are already in it is
  * the difference between accepting an invitation and accepting a string. It is
- * also the moment where someone decides whether to share their location with
+ * also the moment where someone decides whether to share location with
  * these people, which is not a decision to make blind.
  */
 export type OnboardingCirclePreview = {

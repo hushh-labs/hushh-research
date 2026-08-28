@@ -315,7 +315,7 @@ describe("One-Location share notification copy", () => {
       }),
     ).toEqual({
       title: "Drive shared",
-      description: "Alex started sharing their drive and live ETA with you.",
+      description: "Alex started sharing drive and live ETA with you.",
     });
   });
 });

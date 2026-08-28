@@ -2743,7 +2743,7 @@
         "accept their connection request",
         "accept the connection request from",
         "connect back with",
-        "accept their request to connect"
+        "accept request to connect"
       ],
       "search_keywords": [
         "accept",
@@ -2860,7 +2860,7 @@
         "decline their connection request",
         "decline the connection request from",
         "turn down their connection request",
-        "decline their request to connect"
+        "decline request to connect"
       ],
       "search_keywords": [
         "decline",
@@ -5240,7 +5240,7 @@
         "request",
         "location"
       ],
-      "meaning": "Opens the request composer, where you ask another person to share their location with you. If the person is already named in the same request (e.g. 'ask Alice where she is'), call select_ask_recipient directly instead -- it navigates here and selects them in one step.",
+      "meaning": "Opens the request composer, where you ask another person to share location with you. If the person is already named in the same request (e.g. 'ask Alice where she is'), call select_ask_recipient directly instead -- it navigates here and selects them in one step.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5335,7 +5335,7 @@
     {
       "action_id": "location.select_ask_recipient",
       "surface_id": "one_location",
-      "label": "Pick someone to ask for their location",
+      "label": "Pick someone to ask for location",
       "aliases": [
         "ask them",
         "pick someone to ask",
@@ -5423,7 +5423,7 @@
         "workflow_steps": [
           {
             "type": "action",
-            "label": "Pick someone to ask for their location",
+            "label": "Pick someone to ask for location",
             "failure_behavior": "stop",
             "action_id": "location.select_ask_recipient",
             "settlement_target": {
@@ -5461,7 +5461,7 @@
         "ask them now",
         "send my request",
         "confirm the request",
-        "ask for their location"
+        "send location request"
       ],
       "search_keywords": [
         "send",
@@ -5469,7 +5469,7 @@
         "confirm",
         "ask"
       ],
-      "meaning": "Sends a request to see their location. If one or more people are named in the same turn (e.g. 'ask Alice and Bob for their location'), it resolves and sends to them directly -- no need to select first. Otherwise it sends to whoever is already picked in the request composer, and never chooses who: if nobody is selected it stops and asks you to pick someone first.",
+      "meaning": "Sends a request to see location. If one or more people are named in the same turn (e.g. 'ask Alice and Bob for location'), it resolves and sends to them directly -- no need to select first. Otherwise it sends to whoever is already picked in the request composer, and never chooses who: if nobody is selected it stops and asks you to pick someone first.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5536,7 +5536,7 @@
           },
           {
             "name": "duration_hours",
-            "prompt": "For how long do you want their location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
+            "prompt": "For how long do you want location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
             "required": true,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
@@ -6580,7 +6580,7 @@
       "aliases": [
         "shared with me",
         "who is sharing with me",
-        "see their location",
+        "see location",
         "where are my people"
       ],
       "search_keywords": [
@@ -6589,7 +6589,7 @@
         "incoming",
         "location"
       ],
-      "meaning": "Opens the list of people who are currently sharing their location with you.",
+      "meaning": "Opens the list of people who are currently sharing location with you.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7710,7 +7710,7 @@
       "surface_id": "one_location",
       "label": "Approve a location request",
       "aliases": [
-        "approve their request",
+        "approve request",
         "let them see my location",
         "accept the request from",
         "say yes to"
@@ -7826,7 +7826,7 @@
       "surface_id": "one_location",
       "label": "Decline a location request",
       "aliases": [
-        "decline their request",
+        "decline request",
         "say no to",
         "deny the request from",
         "turn down"
@@ -8319,7 +8319,7 @@
         "contact",
         "add"
       ],
-      "meaning": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished their own Location setup can be added.",
+      "meaning": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished Location setup can be added.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

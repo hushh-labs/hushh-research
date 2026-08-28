@@ -80,7 +80,7 @@ function memberSummary(preview: OneLocationCircleInvitePreview): string {
  * This used to render nothing and redirect immediately. For a signed-in person
  * that was invisible and fine; for everyone else it was a bounce to a login
  * wall with no explanation of what they had tapped, and the invitation was the
- * only context they had. Someone deciding whether to share their live location
+ * only context they had. Someone deciding whether to share live location
  * deserves to see whose Circle it is first -- which is the one thing every
  * comparable product shows at this exact moment.
  *

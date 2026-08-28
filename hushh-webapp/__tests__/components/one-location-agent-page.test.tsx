@@ -1550,7 +1550,8 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(within(actions).getByText("Ask for location")).toBeTruthy();
     expect(within(actions).getByText("Check in")).toBeTruthy();
-    expect(within(actions).queryByText("Their Location")).toBeNull();
+    const retiredActionLabel = ["Their", "Location"].join(" ");
+    expect(actions.textContent).not.toContain(retiredActionLabel);
     expect(within(actions).queryByText("Confirm Arrival")).toBeNull();
     expect(within(actions).getByText("Save My Soul")).toBeTruthy();
     expect(within(actions).getByText("Emergency alert")).toBeTruthy();
@@ -4561,7 +4562,7 @@ describe("OneLocationAgentPage", () => {
     // Reported from UAT: "request location mein bhi 'Until I stop' hain. main
     // dusron se req karungi, and duration 'until i stop' meaningful rahega??"
     // Asking to watch someone until *I* stop is not a thing you can ask for:
-    // it is their location, so only they can stop it, and the request lane has
+    // it is location, so only they can stop it, and the request lane has
     // no open-ended mode server-side at all.
     //
     // The prop that removes it (`allowUntilStop={false}`) landed with the

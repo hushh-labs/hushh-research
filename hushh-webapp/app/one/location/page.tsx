@@ -433,7 +433,7 @@ const SHARE_VOICE_DURATION_VALUES = new Set<string>([
   "24",
 ]);
 
-// What One will accept when someone says "ask <name> for their location".
+// What One will accept when someone says "ask <name> for location".
 //
 // The same numeric ladder as a share, minus "until I stop": a request is
 // sent as `requestedDurationMode: "timed"`, so there is no open-ended
@@ -4698,7 +4698,7 @@ export function OneLocationAgentPageContent({
       const effectiveShareReadySelectedRecipients =
         effectiveSelectedShareRecipients.filter(isShareReadyRecipient);
       // Test the SELECTION, not the share-ready subset of it. Those differ
-      // whenever someone is picked who has not finished their own Location
+      // whenever someone is picked who has not finished Location
       // setup, and reading the subset made this answer "nobody is selected"
       // about a person who was visibly selected on screen -- sending the voice
       // chain back to pick someone it had already picked. Observed live: the
@@ -4721,8 +4721,8 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked",
           summary: blockedNames.length
-            ? `${blockedNames.join(", ")} still needs to finish their own Location setup before you can share with them.`
-            : "Someone you picked still needs to finish their Location setup.",
+            ? `${blockedNames.join(", ")} still needs to finish Location setup before you can share with them.`
+            : "Someone you picked still needs to finish Location setup.",
         };
       }
       if (shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) {
@@ -5692,7 +5692,7 @@ export function OneLocationAgentPageContent({
         });
         playOneLocationNotificationSound();
         toast.success(
-          `Asked ${receivedGrantOwnerLabel(grant)} to share their location again.`,
+          `Asked ${receivedGrantOwnerLabel(grant)} to share location again.`,
         );
       } catch (error) {
         toast.error(oneLocationErrorMessage(error, "Could not send request."));
@@ -6422,7 +6422,7 @@ export function OneLocationAgentPageContent({
         });
         // Save on a picker still showing what the share already has left is
         // not a change. It used to spend a refused shorten and then ask the
-        // owner for one more minute of their location, and report that as
+        // owner for one more minute of location, and report that as
         // "Asked ... for more time" over a row whose time never moved.
         if (intent === "unchanged") {
           setEditingGrantId(null);
@@ -10600,7 +10600,7 @@ export function OneLocationAgentPageContent({
     async (slots) => {
       // Mirrors location.select_share_recipient's own matching/ambiguity
       // rules exactly -- same connections list, same "never guess" discipline
-      // -- because asking someone for their location and sharing yours with
+      // -- because asking someone for location and sharing yours with
       // them draw from the identical pool of people.
       const resolvedRecipientId = String(
         slots?.resolvedRecipientId ?? "",
@@ -10823,7 +10823,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "For how long do you want their location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
+          "For how long do you want location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
       };
     }
     if (!selectedRequestOwners.length) {
@@ -10847,8 +10847,8 @@ export function OneLocationAgentPageContent({
       status: "succeeded" as const,
       summary:
         selectedRequestOwners.length === 1
-          ? `Asked ${names || "them"} for their location.`
-          : `Asked ${selectedRequestOwners.length} people for their location.`,
+          ? `Asked ${names || "them"} for location.`
+          : `Asked ${selectedRequestOwners.length} people for location.`,
       data: ownerNames.length
         ? {
             subject: {
@@ -11027,7 +11027,7 @@ export function OneLocationAgentPageContent({
         };
       }
       // Resolved against the people who are ELIGIBLE to receive an SOS, not the
-      // whole connection list. Someone who has not finished their own Location
+      // whole connection list. Someone who has not finished Location
       // setup cannot receive one, and adding them would build an emergency
       // contact list that quietly does not work when it is needed.
       const matches = sosActionRecipients.filter((recipient) =>

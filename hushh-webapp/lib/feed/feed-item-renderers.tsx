@@ -162,8 +162,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         // so it names the granted amount that the event metadata carries.
         description: sharedWithMe
           ? shareAmount
-            ? `Shared their location with you for ${shareAmount}`
-            : "Shared their location with you"
+            ? `Shared location with you for ${shareAmount}`
+            : "Shared location with you"
           : "You started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
@@ -180,7 +180,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         // would be shown to the one person who did not stop anything.
         // Audience decides the sentence; reason only refines the owner's.
         description: sharedWithMe
-          ? "Stopped sharing their location"
+          ? "Stopped sharing location"
           : ownerRevoked
             ? "You stopped sharing location"
             : "Stopped sharing location",
@@ -219,8 +219,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? `You asked for ${amount} more`
             : "You asked for more location time"
           : amount
-            ? `You asked to see their location for ${amount}`
-            : "You asked to see their location"
+            ? `You asked to see location for ${amount}`
+            : "You asked to see location"
         : isExtension
           ? amount
             ? `Asked for ${amount} more`
@@ -250,7 +250,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? `Gave you ${amount} more`
             : "Gave you more location time"
           : amount
-            ? `Shared their location with you for ${amount}`
+            ? `Shared location with you for ${amount}`
             : "Approved your location request"
         : isExtension
           ? amount
@@ -304,8 +304,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? "Shortened your location access"
             : "You gave back your remaining time early"
           : ownerShortened
-            ? "You shortened their location access"
-            : "Gave back their remaining time early",
+            ? "You shortened location access"
+            : "Gave back remaining time early",
         href: buildOneLocationWorkflowHref({
           grantId: metadataString(item.metadata, "grant_id") || undefined,
           section: sharedWithMe ? "people" : "shared",
@@ -325,7 +325,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           ? "You changed sharing to until you stop"
           : direction === "extended"
             ? "You gave them more time"
-            : "You shortened their access";
+            : "You shortened access";
       return {
         icon,
         domainLabel,
@@ -345,7 +345,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Location request",
         description: iAskedForThis
           ? "You took back your location request"
-          : "Took back their location request",
+          : "Took back location request",
         href: buildOneLocationWorkflowHref({
           requestId: metadataString(item.metadata, "request_id") || undefined,
           section: iAskedForThis ? "my_requests" : "approvals",

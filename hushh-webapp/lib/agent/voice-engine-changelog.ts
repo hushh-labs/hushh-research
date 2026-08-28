@@ -112,7 +112,7 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
     date: "2026-08-26",
     title: "Accept or decline a connection request, hands-free",
     description:
-      "Say \"accept their connection request\" or \"decline their request\" for a request waiting in your Feed -- no need to open it and tap. Asking to connect with someone who already asked you now points you straight to this instead of trying to send a second request.",
+      "Say \"accept their connection request\" or \"decline request\" for a request waiting in your Feed -- no need to open it and tap. Asking to connect with someone who already asked you now points you straight to this instead of trying to send a second request.",
   },
   {
     version: "1.6",

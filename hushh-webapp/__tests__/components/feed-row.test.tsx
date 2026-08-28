@@ -9,7 +9,7 @@ vi.mock("@/lib/feed/feed-item-renderers", () => ({
   presentFeedItem: (item: FeedItem) => ({
     icon: MapPin,
     domainLabel: "Location",
-    label: "Someone shared their location",
+    label: "Someone shared location",
     description: "A routine location share.",
     href: item.metadata.hrefEnabled ? "/one/location" : null,
   }),
@@ -76,7 +76,7 @@ describe("FeedRow", () => {
     );
 
     screen
-      .getByText("Someone shared their location")
+      .getByText("Someone shared location")
       .closest("button")
       ?.click();
     expect(onOpen).toHaveBeenCalledOnce();

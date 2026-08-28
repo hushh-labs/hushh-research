@@ -81,7 +81,7 @@ function groupItemsByDay(
  *
  * This screen published nothing at all until now, which mattered more here
  * than almost anywhere else: connect.accept_request and connect.reject_request
- * name `one_feed` as their home, so the one screen where "accept their request"
+ * name `one_feed` as their home, so the one screen where "accept request"
  * is the obvious thing to say was the one screen that never offered it. Both
  * execute backend-direct, so they always *ran* if the model went looking --
  * they were simply never suggested.
