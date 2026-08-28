@@ -2,14 +2,16 @@ import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
 import type { VoiceSurfaceActionDefinition } from "@/lib/voice/voice-types";
 
 // Wired in the generated gateway but with no real handler anywhere in the
-// runtime -- publishing it would offer a voice command guaranteed to fail.
+// runtime -- publishing one would offer a voice command guaranteed to fail.
 // Shared across every Location screen id (one_location, one_location_map,
 // one_location_check_in): these are the same underlying actions on each
 // screen, not per-screen exceptions, so the exclusion has to live in one
 // place or a new publishing site can silently reintroduce it.
-export const LOCATION_VOICE_ACTIONS_EXCLUDE_IDS = new Set<string>([
-  "location.checkout_nearby",
-]);
+//
+// location.checkout_nearby used to be here -- it now has a real handler in
+// nearby-check-in-sheet.tsx, so it was removed. Left empty rather than
+// deleted so the next genuinely handlerless action has an obvious home.
+export const LOCATION_VOICE_ACTIONS_EXCLUDE_IDS = new Set<string>([]);
 
 // Derives what a Location screen should publish directly from the generated
 // action gateway, so a new action becomes voice-reachable the moment it is

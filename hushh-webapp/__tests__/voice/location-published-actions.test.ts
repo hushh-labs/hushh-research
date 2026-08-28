@@ -45,23 +45,16 @@ describe("LOCATION_VOICE_ACTIONS stays in sync with the generated gateway", () =
     expect(LOCATION_VOICE_ACTIONS.length).toBeGreaterThan(25);
   });
 
-  it("deliberately excludes location.checkout_nearby -- it has no voice handler yet", () => {
-    // Wired in the contract, but its UI calls OneLocationService.checkoutNearby()
-    // directly with no useLocalOnboardingActionHandler registration anywhere.
-    // Publishing it would offer something guaranteed to fail. See the
-    // exclusion comment on LOCATION_VOICE_ACTIONS_EXCLUDE_IDS in
-    // lib/voice/location-voice-actions.ts, shared by every Location screen.
-    expect(LOCATION_VOICE_ACTIONS_EXCLUDE_IDS.has(CHECKOUT_NEARBY)).toBe(true);
+  it("includes location.checkout_nearby now that it has a real voice handler", () => {
+    // Used to be excluded: wired in the contract, but its UI called
+    // OneLocationService.checkoutNearby() directly with no
+    // useLocalOnboardingActionHandler registration anywhere. It now has one
+    // in nearby-check-in-sheet.tsx, so LOCATION_VOICE_ACTIONS_EXCLUDE_IDS no
+    // longer carries this id -- confirm both sides of that.
+    expect(LOCATION_VOICE_ACTIONS_EXCLUDE_IDS.has(CHECKOUT_NEARBY)).toBe(false);
     expect(LOCATION_VOICE_ACTIONS.some((action) => action.actionId === CHECKOUT_NEARBY)).toBe(
-      false,
+      true,
     );
-    // And confirm it's excluded because it's really wired-but-handlerless,
-    // not because it fell out of the surface's reachability entirely --
-    // otherwise this test would pass for the wrong reason.
-    const contractEntry = listKaiActionsForSurface({ screen: "one_location" }).find(
-      (action) => action.action_id === CHECKOUT_NEARBY,
-    );
-    expect(contractEntry?.execution_target.status).toBe("wired");
   });
 
   it("carries a short, non-empty purpose derived from the contract's meaning", () => {
@@ -130,6 +123,7 @@ describe("deriveLocationVoiceActions stays in sync for the map and check-in scre
         "location.open_map",
         "location.nearby_check_in",
         "location.confirm_nearby_check_in",
+        "location.checkout_nearby",
       ]),
     );
   });
@@ -139,25 +133,21 @@ describe("deriveLocationVoiceActions stays in sync for the map and check-in scre
     const publishedIds = new Set(actions.map((action) => action.actionId));
     expect(publishedIds).toEqual(expectedIdsFor("one_location_check_in"));
     expect(publishedIds).toEqual(
-      new Set(["location.nearby_check_in", "location.confirm_nearby_check_in"]),
+      new Set([
+        "location.nearby_check_in",
+        "location.confirm_nearby_check_in",
+        "location.checkout_nearby",
+      ]),
     );
   });
 
-  it("excludes location.checkout_nearby on both screens for the same reason as the hub", () => {
+  it("includes location.checkout_nearby on both screens now that it has a real handler", () => {
     for (const screen of ["one_location_map", "one_location_check_in"]) {
       const actions = deriveLocationVoiceActions(screen);
       expect(
         actions.some((action) => action.actionId === CHECKOUT_NEARBY),
-        `${screen} should not publish ${CHECKOUT_NEARBY}`,
-      ).toBe(false);
-      // Confirm it's excluded because it's really wired-but-handlerless on
-      // this screen too, not because it fell out of reachability entirely.
-      const contractEntry = listKaiActionsForSurface({ screen }).find(
-        (action) => action.action_id === CHECKOUT_NEARBY,
-      );
-      expect(contractEntry?.execution_target.status, `${screen}: ${CHECKOUT_NEARBY}`).toBe(
-        "wired",
-      );
+        `${screen} should publish ${CHECKOUT_NEARBY}`,
+      ).toBe(true);
     }
   });
 });
