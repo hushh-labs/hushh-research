@@ -156,7 +156,7 @@ function parseBlocks(value: string): EmailBlock[] {
           ? (lines[index] ?? "").match(/^\d+[.)]\s+(.+)$/)
           : (lines[index] ?? "").match(/^[-*•]\s+(.+)$/);
         if (!candidate) break;
-        const cleanText = (candidate[1] ?? "").replace(/^[-*•]\s*/, "").trim();
+        const cleanText = (candidate[1] ?? "").trim();
         items.push(cleanText);
         index += 1;
       }
@@ -261,7 +261,7 @@ export function richEmailHtmlFromMarkdown(value: string): string {
       if (block.kind === "list") {
         const tag = block.ordered ? "ol" : "ul";
         return `<${tag} style="${EMAIL_BLOCK_STYLES.list}">${block.items
-          .map((item) => `<li style="${EMAIL_BLOCK_STYLES.listItem}">${inlineHtml(item.replace(/^[-*•]\s*/, ""))}</li>`)
+          .map((item) => `<li style="${EMAIL_BLOCK_STYLES.listItem}">${inlineHtml(item)}</li>`)
           .join("")}</${tag}>`;
       }
       if (block.kind === "quote") {
@@ -315,7 +315,7 @@ export function EmailRichTextPreview({
               key={key}
             >
               {block.items.map((item, itemIndex) => {
-                const cleanItem = item.replace(/^[-*•]\s*/, "").trim();
+                const cleanItem = item.trim();
                 return (
                   <li className="pl-1" key={`${key}-${itemIndex}`}>
                     {inlineNodes(cleanItem, `${key}-${itemIndex}`)}

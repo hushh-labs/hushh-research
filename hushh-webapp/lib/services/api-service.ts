@@ -3126,189 +3126,6 @@ export class ApiService {
     });
   }
 
-  /**
-   * Stream a broad Agent text chat response.
-   *
-   * This is intentionally separate from Kai finance chat and the OpenAI realtime
-   * voice session. The backend uses Gemini and stores encrypted Agent history.
-   */
-  static async streamAgentChat(data: {
-    userId: string;
-    message: string;
-    conversationId?: string;
-    vaultOwnerToken: string;
-    pkmContext?: string;
-    screenContext?: Record<string, unknown> | null;
-    timezone?: string;
-    runtimeCredential?: string | null;
-    runtimeCredentialMode?: string | null;
-    runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
-    runtimeVertexProject?: string | null;
-    runtimeVertexLocation?: string | null;
-    delegateAgentId?: string | null;
-    delegateResult?: Record<string, unknown>;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        message: data.message,
-        conversation_id: data.conversationId,
-        pkm_context: data.pkmContext,
-        screen_context: data.screenContext || undefined,
-        timezone: data.timezone || undefined,
-        runtime_credential: data.runtimeCredential || undefined,
-        runtime_credential_mode: data.runtimeCredentialMode || undefined,
-        runtime_credential_transport:
-          data.runtimeCredentialTransport || undefined,
-        runtime_vertex_project: data.runtimeVertexProject || undefined,
-        runtime_vertex_location: data.runtimeVertexLocation || undefined,
-        delegate_agent_id: data.delegateAgentId || undefined,
-        delegate_result: data.delegateResult || undefined,
-      }),
-      signal: data.signal,
-    });
-  }
-
-  static async confirmAgentChatAction(data: {
-    directiveId: string;
-    userId: string;
-    conversationId: string;
-    actionId: string;
-    contextRevision: string;
-    trustedActivation: true;
-    vaultOwnerToken: string;
-  }): Promise<Response> {
-    return apiFetch(
-      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/confirm`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
-        body: JSON.stringify({
-          user_id: data.userId,
-          conversation_id: data.conversationId,
-          action_id: data.actionId,
-          context_revision: data.contextRevision,
-          trusted_activation: data.trustedActivation,
-        }),
-      },
-    );
-  }
-
-  static async consumeAgentChatAction(data: {
-    directiveId: string;
-    userId: string;
-    conversationId: string;
-    actionId: string;
-    contextRevision: string;
-    receipt: string;
-    vaultOwnerToken: string;
-  }): Promise<Response> {
-    return apiFetch(
-      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/consume`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
-        body: JSON.stringify({
-          user_id: data.userId,
-          conversation_id: data.conversationId,
-          action_id: data.actionId,
-          context_revision: data.contextRevision,
-          receipt: data.receipt,
-        }),
-      },
-    );
-  }
-
-  static async cancelAgentChatAction(data: {
-    directiveId: string;
-    userId: string;
-    conversationId: string;
-    actionId: string;
-    contextRevision: string;
-    reasonCode: string;
-    vaultOwnerToken: string;
-  }): Promise<Response> {
-    return apiFetch(
-      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/cancel`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
-        body: JSON.stringify({
-          user_id: data.userId,
-          conversation_id: data.conversationId,
-          action_id: data.actionId,
-          context_revision: data.contextRevision,
-          reason_code: data.reasonCode,
-        }),
-      },
-    );
-  }
-
-  static async settleAgentChatAction(data: {
-    directiveId: string;
-    userId: string;
-    receipt: string;
-    actionId: string;
-    contextRevision: string;
-    status: "succeeded" | "failed" | "cancelled";
-    reasonCode: string;
-    routeAfter?: string | null;
-    screenAfter?: string | null;
-    vaultOwnerToken: string;
-  }): Promise<Response> {
-    return apiFetch(
-      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/settle`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
-        body: JSON.stringify({
-          user_id: data.userId,
-          receipt: data.receipt,
-          action_id: data.actionId,
-          context_revision: data.contextRevision,
-          status: data.status,
-          reason_code: data.reasonCode,
-          route_after: data.routeAfter || undefined,
-          screen_after: data.screenAfter || undefined,
-        }),
-      },
-    );
-  }
-
-  /**
-   * Pre-vault informational/navigation-only One chat.
-   *
-   * This is the lower-privilege sibling of {@link streamAgentChat}. It powers
-   * the single agent bar before the vault is unlocked, including anonymous
-   * onboarding visitors. It never sends PKM or vault data, is not persisted,
-   * and the backend only forwards pure navigation actions. Firebase auth is
-   * attached when available (for per-user rate limiting); anonymous callers
-   * send no Authorization header, which the backend accepts on this route only.
-   */
-  static async streamAgentIntro(data: {
-    message: string;
-    screenContext?: Record<string, unknown> | null;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const firebaseIdToken = await this.getFirebaseToken();
-    return ApiService.apiFetchStream("/api/kai/agent/chat/intro/stream", {
-      method: "POST",
-      headers: firebaseIdToken
-        ? { Authorization: `Bearer ${firebaseIdToken}` }
-        : {},
-      body: JSON.stringify({
-        message: data.message,
-        screen_context: data.screenContext || undefined,
-      }),
-      signal: data.signal,
-    });
-  }
-
   static async createOneAdkRelaySession(data?: {
     signal?: AbortSignal;
   }): Promise<{
@@ -3444,7 +3261,7 @@ export class ApiService {
     if (data.limit) query.set("limit", String(data.limit));
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return apiFetch(
-      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
+      `/api/one/agent-chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
       {
         method: "GET",
         headers: {
@@ -3463,7 +3280,7 @@ export class ApiService {
     if (data.limit) query.set("limit", String(data.limit));
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return apiFetch(
-      `/api/kai/agent/chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
+      `/api/one/agent-chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
       {
         method: "GET",
         headers: {
@@ -3479,7 +3296,7 @@ export class ApiService {
     vaultOwnerToken: string;
   }): Promise<Response> {
     return apiFetch(
-      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
         method: "PATCH",
         headers: {
@@ -3495,7 +3312,7 @@ export class ApiService {
     vaultOwnerToken: string;
   }): Promise<Response> {
     return apiFetch(
-      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
         method: "DELETE",
         headers: {

@@ -101,7 +101,7 @@
       "action_id": "setup.skip_gmail",
       "label": "Skip Gmail setup",
       "meaning": "Leaves Gmail setup and returns to the setup hub without recording Gmail as complete.",
-      "aliases": ["skip gmail setup", "skip gmail", "not now"],
+      "aliases": ["skip gmail setup", "skip gmail"],
       "search_keywords": ["skip", "gmail", "not now"],
       "reachability": {
         "routes": ["/one/setup/gmail"],

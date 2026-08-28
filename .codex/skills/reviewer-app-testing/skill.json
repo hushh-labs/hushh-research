@@ -21,6 +21,7 @@
   ],
   "required_reads": [
     ".codex/skills/reviewer-app-testing/references/byok-reviewer-browser-contract.md",
+    ".codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md",
     "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
     "hushh-webapp/lib/testing/native-test.ts",
     "hushh-webapp/components/app-ui/native-test-bootstrap.tsx",
@@ -29,14 +30,18 @@
   ],
   "required_commands": [
     "./scripts/ci/reviewer-app-testing-check.sh",
-    "./bin/hushh codex route-task reviewer-app-rehearsal --text"
+    "./bin/hushh codex route-task reviewer-app-rehearsal --text",
+    "node .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs --help",
+    "consent-protocol/.venv/bin/python .codex/skills/reviewer-app-testing/scripts/reconcile-reviewer-identity.py --help"
   ],
   "verification_bundles": [
     {
       "id": "reviewer-app-testing",
       "commands": [
         "./scripts/ci/reviewer-app-testing-check.sh",
-        "./bin/hushh codex route-task reviewer-app-rehearsal --text"
+        "./bin/hushh codex route-task reviewer-app-rehearsal --text",
+        "node .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs --help",
+        "consent-protocol/.venv/bin/python .codex/skills/reviewer-app-testing/scripts/reconcile-reviewer-identity.py --help"
       ],
       "tests": [
         "node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs"

@@ -137,6 +137,10 @@ vi.mock("@/components/app-ui/surfaces", () => ({
     children,
     ...props
   }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SurfaceStack: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
 }));
 
 vi.mock("@/components/profile/settings-ui", () => ({
@@ -438,13 +442,17 @@ describe("RiaPicksPage", () => {
     render(<RiaPicksPage />);
 
     await screen.findByText("NVDA");
-    expect(screen.queryByRole("button", { name: /copy suggested list/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /copy suggested list/i }),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: /^upload$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /template/i })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
 
-    expect(screen.getByRole("button", { name: /copy suggested list/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /copy suggested list/i }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^upload$/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^template$/i })).toBeTruthy();
     expect(screen.queryByText("List source")).toBeNull();
@@ -460,9 +468,7 @@ describe("RiaPicksPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
 
-    expect(
-      await screen.findByText("Build your live package"),
-    ).toBeTruthy();
+    expect(await screen.findByText("Build your live package")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^edit$/i })).toBeTruthy();
     expect(
       screen.getAllByRole("button", { name: /copy suggested list/i }),
@@ -489,7 +495,9 @@ describe("RiaPicksPage", () => {
 
     await screen.findByText("NVDA");
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
-    fireEvent.click(screen.getByRole("button", { name: /copy suggested list/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /copy suggested list/i }),
+    );
 
     expect(mocks.riaService.savePickPackage).not.toHaveBeenCalled();
     expect(mocks.riaService.importPickCsv).not.toHaveBeenCalled();
@@ -531,7 +539,9 @@ describe("RiaPicksPage", () => {
 
     await screen.findByText("NVDA");
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
-    fireEvent.click(screen.getByRole("button", { name: /copy suggested list/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /copy suggested list/i }),
+    );
 
     expect(
       await screen.findByText(
@@ -600,6 +610,17 @@ describe("RiaPicksPage", () => {
         },
       },
     );
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "Explain the current portfolio view, key trade-offs, and what an investor should pressure-test in debate.",
+      ),
+      {
+        target: {
+          value:
+            "Pressure-test the margin-of-safety assumption against portfolio concentration.",
+        },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() => {
@@ -610,6 +631,8 @@ describe("RiaPicksPage", () => {
           vaultKey: "vault-key-1",
           vaultOwnerToken: "vault-owner-token-1",
           label: "Active advisor package",
+          investor_debate_thesis:
+            "Pressure-test the margin-of-safety assumption against portfolio concentration.",
           top_picks: expect.arrayContaining([
             expect.objectContaining({
               ticker: "NVDA",

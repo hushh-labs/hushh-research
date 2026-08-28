@@ -5403,6 +5403,63 @@
       "native_surface_id": "native-route-one-wallet-card"
     },
     {
+      "route_pattern": "/people/[personRef]",
+      "page_file": "app/people/[personRef]/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.people.person_profile",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.people.person_profile",
+        "purpose": "Help the signed-in viewer understand relationship, requestable information, grants, and request history without exposing private values.",
+        "screen": "one_person_profile",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": "people.profile.review_information_request",
+        "happy_path_action_ids": [
+          "people.profile.connect",
+          "people.profile.review_information_request",
+          "people.profile.cancel_connection_request",
+          "people.profile.remove_connection",
+          "people.profile.manage_consent"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the relationship, vault, or field-selection guard without implying access.",
+          "cancelled": "Respect the cancellation and preserve the current profile state.",
+          "failed": "Acknowledge the failure without claiming the request, connection, or consent changed.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Keep the profile open and explain that the action could not be verified.",
+          "route_mismatch": "Use only the verified public person profile route and its generated actions."
+        },
+        "completion_boundary": "Completion is spoken only after the browser settles the exact mounted action; information values still require a separate active grant and local decryption.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never infer or expose private information."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": [
+          "information_request_review"
+        ]
+      },
+      "canonical_screen": "one_person_profile",
+      "voice_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
+      "action_ids": [
+        "people.profile.cancel_connection_request",
+        "people.profile.connect",
+        "people.profile.manage_consent",
+        "people.profile.remove_connection",
+        "people.profile.review_information_request"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-person-profile"
+    },
+    {
       "route_pattern": "/pkm",
       "page_file": "app/pkm/page.tsx",
       "route_mode": "redirect",

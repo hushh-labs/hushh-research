@@ -45,6 +45,15 @@ CONSTRAINT_MIGRATIONS = (
     "180_one_location_circle_feed_durability.sql",
 )
 
+# Only these two ADD the constraint without NOT VALID, so only these two
+# actually scan existing rows -- and only these two can fail a replay. Every
+# other entry in CONSTRAINT_MIGRATIONS is a no-op against real data the
+# instant it runs, no matter what it lists.
+VALIDATING_CONSTRAINT_MIGRATIONS = (
+    "064_one_location_public_invites.sql",
+    "153_one_location_duration_changed_event.sql",
+)
+
 _CONSTRAINT_BLOCK = re.compile(
     r"ADD CONSTRAINT one_location_events_event_type_check CHECK \(\s*"
     r"event_type IN \((?P<values>.*?)\)",
@@ -94,6 +103,58 @@ def test_the_newest_constraint_migration_is_the_one_that_ships() -> None:
     assert (MIGRATIONS_DIR / newest).exists(), f"{newest} is missing"
     older = {int(name.split("_", 1)[0]) for name in CONSTRAINT_MIGRATIONS[:-1]}
     assert int(newest.split("_", 1)[0]) > max(older)
+
+
+def test_validating_migration_list_matches_which_files_actually_validate() -> None:
+    # If NOT VALID is ever added to 064/153, or dropped from one of the
+    # others, VALIDATING_CONSTRAINT_MIGRATIONS silently stops matching
+    # reality and the completeness check below stops guarding anything.
+    for name in CONSTRAINT_MIGRATIONS:
+        sql = (MIGRATIONS_DIR / name).read_text(encoding="utf-8")
+        block_start = sql.index("ADD CONSTRAINT one_location_events_event_type_check")
+        validates = "NOT VALID" not in sql[block_start : block_start + 4000]
+        expected = name in VALIDATING_CONSTRAINT_MIGRATIONS
+        assert validates == expected, (
+            f"{name}: NOT VALID presence changed -- update "
+            "VALIDATING_CONSTRAINT_MIGRATIONS to match"
+        )
+
+
+def test_every_emitted_event_type_is_allowed_by_every_validating_migration() -> None:
+    """The bug this file exists for, generalized past the newest migration.
+
+    `test_every_emitted_event_type_is_allowed_by_the_constraint` below only
+    checks the newest migration -- the one that actually ships a change to an
+    environment that already exists. But 064 and 153 add this same
+    constraint *without* NOT VALID, so replay validates their stale lists
+    against live data too, on every deploy, forever. A value can be complete
+    in 180 and still take UAT down the moment someone writes a row with it,
+    if 064 or 153 never learned about it. This is exactly the outage
+    `circle_member_added` / `location_circle_code_joined` /
+    `location_circle_member_invite_accepted` caused: added to 180 by the
+    Circle feed-durability migration, never backfilled into 064 or 153, and
+    real rows already carry the value the moment that code path runs.
+    """
+    emitted = {
+        event_type
+        for path in SERVICE_PATHS
+        for event_type in _EMITTED.findall(path.read_text(encoding="utf-8"))
+    }
+    assert "location_share_created" in emitted, (
+        "could not read event types out of one_location_agent_service; the "
+        "insert sites changed shape and this test needs updating"
+    )
+
+    for name in VALIDATING_CONSTRAINT_MIGRATIONS:
+        allowed = _allowed_types(name)
+        missing = sorted(emitted - allowed)
+        assert not missing, (
+            f"{missing} are written to one_location_events but {name} adds "
+            "the CHECK constraint without NOT VALID, so it validates against "
+            "live rows on every replay. Add them to the CHECK list in "
+            f"{name} -- otherwise the first row written with one of these "
+            "types permanently breaks that environment's migration replay."
+        )
 
 
 def test_every_emitted_event_type_is_allowed_by_the_constraint() -> None:

@@ -144,6 +144,10 @@ vi.mock("@/components/app-ui/surfaces", () => ({
     children,
     ...props
   }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SurfaceStack: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
 }));
 
 vi.mock("@/components/profile/settings-ui", () => ({

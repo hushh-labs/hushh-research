@@ -73,7 +73,7 @@
       "action_id": "setup.skip_calendar",
       "label": "Skip Calendar setup",
       "meaning": "Leaves Calendar setup and returns to the setup hub without recording Calendar as complete.",
-      "aliases": ["skip calendar setup", "skip calendar", "not now"],
+      "aliases": ["skip calendar setup", "skip calendar"],
       "search_keywords": ["skip", "calendar", "not now"],
       "reachability": {
         "routes": ["/one/setup/calendar"],

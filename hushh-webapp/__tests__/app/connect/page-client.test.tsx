@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,6 +30,40 @@ const mocks = vi.hoisted(() => ({
   // render would retrigger every effect keyed on it and spin forever, which
   // would say nothing about the page.
   user: { uid: "me", getIdToken: async () => "id-token" },
+  // Contact sync hides its control until it knows a source exists, and the
+  // probe below is what decides. jsdom has no `navigator.contacts`, so the real
+  // plugin answers "unavailable", the control never renders, and a suite that
+  // did not set this would assert nothing while staying green.
+  contactsPermissionState: "prompt" as "prompt" | "granted" | "unavailable",
+  syncContactSignals: vi.fn(),
+  toastInfo: vi.fn(),
+}));
+
+vi.mock("@/lib/capacitor", () => ({
+  HushhContacts: {
+    getPermissionState: async () => ({
+      state: mocks.contactsPermissionState,
+    }),
+    requestPermission: async () => ({ state: mocks.contactsPermissionState }),
+    readContacts: async () => ({
+      contacts: [],
+      sourcePlatform: "web",
+      limited: true,
+      truncated: false,
+      totalAvailable: 0,
+    }),
+    openAppSettings: async () => ({ opened: false }),
+  },
+}));
+
+// Only the network-facing call is replaced. `describeContactSyncOutcome` and
+// the error types stay real, because they are what turn a result into the copy
+// and the remedy a person is actually shown.
+vi.mock("@/lib/one-location/contact-signals", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/one-location/contact-signals")
+  >()),
+  syncOneLocationContactSignals: mocks.syncContactSignals,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -86,7 +121,14 @@ vi.mock("@/components/connect/nearby-directories", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: mocks.toastSuccess, error: mocks.toastError },
+  toast: {
+    success: mocks.toastSuccess,
+    error: mocks.toastError,
+    // A third branch the sync flow uses: no matches at all, and the
+    // "unavailable" failure. Without it the mock throws instead of the test
+    // asserting anything.
+    info: mocks.toastInfo,
+  },
 }));
 
 // The ladder itself (native sheet -> Web Share -> clipboard) is proved in
@@ -301,7 +343,9 @@ describe("Connect — People", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
-    expect(await screen.findByRole("button", { name: "Loading…" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Loading…" }),
+    ).toBeTruthy();
 
     act(() => {
       window.dispatchEvent(
@@ -373,6 +417,94 @@ describe("Connect — People", () => {
     expect(
       mocks.listConnectionsPage.mock.calls.map(([options]) => options.page),
     ).toEqual([1, 2, 3, 1, 2]);
+  });
+
+  it("refreshes My connections from the visible refresh control", async () => {
+    const refreshedPageOne = deferred<TestConnectionPage>();
+    let firstPageCallCount = 0;
+    mocks.listConnectionsPage.mockImplementation(async (_options) => {
+      firstPageCallCount += 1;
+      if (firstPageCallCount > 1) return refreshedPageOne.promise;
+      return {
+        items: [
+          {
+            connectionId: "c-current",
+            userId: "u-current",
+            displayName: "Current Person",
+            photoUrl: null,
+          },
+        ],
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+        audience: "all",
+      };
+    });
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("Current Person")).toBeTruthy();
+    expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1);
+
+    // Refresh is a control, not part of the heading text. It used to be a
+    // child of the `title` node, which SettingsGroup renders inside an element
+    // carrying `role="heading"` -- a button there is folded into the heading's
+    // accessible name and is never offered as something to press. The two
+    // assertions below are what keep it out: the heading's name is the plain
+    // text, and the button is not a descendant of it.
+    const connectionsHeading = screen
+      .getAllByRole("heading")
+      .find((node) => node.textContent?.includes("connections"));
+    expect(connectionsHeading).toBeTruthy();
+    expect(
+      connectionsHeading?.contains(
+        screen.getByRole("button", { name: "Refresh contacts" }),
+      ),
+    ).toBe(false);
+    expect(connectionsHeading?.textContent).not.toContain("Refresh");
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh contacts" }));
+
+    await waitFor(() =>
+      expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(2),
+    );
+    const refreshingButton = screen.getByRole("button", {
+      name: "Refresh contacts",
+    }) as HTMLButtonElement;
+    expect(refreshingButton.disabled).toBe(true);
+    expect(refreshingButton).toHaveAttribute("aria-busy", "true");
+
+    fireEvent.click(refreshingButton);
+    expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      refreshedPageOne.resolve({
+        items: [
+          {
+            connectionId: "c-refreshed",
+            userId: "u-refreshed",
+            displayName: "Refreshed Person",
+            photoUrl: null,
+          },
+        ],
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+        audience: "all",
+      });
+      await refreshedPageOne.promise;
+    });
+
+    expect(await screen.findByText("Refreshed Person")).toBeTruthy();
+    expect(screen.queryByText("Current Person")).toBeNull();
+    const refreshButton = screen.getByRole("button", {
+      name: "Refresh contacts",
+    }) as HTMLButtonElement;
+    expect(refreshButton.disabled).toBe(false);
+    expect(refreshButton).toHaveAttribute("aria-busy", "false");
+    expect(mocks.listConnectionsPage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, limit: 50, audience: "all" }),
+    );
   });
 
   it("restarts paging after removing a connection loaded beyond page 1", async () => {
@@ -490,6 +622,59 @@ describe("Connect — People", () => {
     // hasMore is true in the fixture, so forward is offered and back is not.
     expect(screen.getByText("Next").closest("button")?.disabled).toBe(false);
     expect(screen.getByText("Prev").closest("button")?.disabled).toBe(true);
+  });
+
+  it("reads heading, then instruction, then the field they describe", async () => {
+    // QA, on a phone: "people ke neeche supporting line is search by name, but
+    // search bar upar hai". The field was rendered ABOVE the "People" heading,
+    // so the sentence telling you how to use it ("Search by name.") appeared
+    // UNDERNEATH the box it was instructing -- pointing backwards at a control
+    // the reader had already scrolled past -- and the field itself arrived
+    // before anything on screen had said what it searched.
+    render(<ConnectPageClient />);
+
+    const supporting = await screen.findByText("Search by name.");
+    const heading = screen.getByRole("heading", { name: "People", level: 2 });
+    const field = screen.getByLabelText("Search people");
+
+    // DOCUMENT_POSITION_FOLLOWING: the argument comes AFTER the node.
+    expect(
+      heading.compareDocumentPosition(supporting) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      supporting.compareDocumentPosition(field) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // And still above the rows it filters, rather than pushed under them.
+    expect(
+      field.compareDocumentPosition(screen.getByText("Person 0")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps the pager on one line, with the page number under the size", async () => {
+    // QA, on a phone: "sarein cheezein scattered dekh rahi -- per page, prev
+    // next ek line mein la sakte". The row was `flex-col ... sm:flex-row`, so
+    // on every shipped phone width it broke into "Page 1 - Per page [8]" and a
+    // separate right-aligned "Prev Next" underneath.
+    render(<ConnectPageClient />);
+
+    const row = await screen.findByTestId("connect-pager-row");
+    // One line: the size control and the two buttons that use it are siblings
+    // in the same row, not two stacked blocks.
+    expect(row.className).not.toContain("flex-col");
+    expect(within(row).getByText("Per page")).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Prev" })).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Next" })).toBeTruthy();
+
+    // "Page 1" is a reading of the list, not a way to change it, so it sits
+    // directly under the control rather than leading the row.
+    const status = within(row).getByText("Page 1");
+    const sizeLine = screen.getByLabelText("People per page").parentElement;
+    expect(sizeLine).not.toBeNull();
+    expect(status.previousElementSibling).toBe(sizeLine);
+    expect(status.className).toContain("text-[11px]");
   });
 
   it("asks the server for the page the reader moved to", async () => {
@@ -1940,5 +2125,169 @@ describe("Connect — Circles", () => {
     ).toBeTruthy();
     // No navigation: the inner strip does not touch the URL.
     expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A whole `OneLocationContactSignalResult` with nothing matched.
+ *
+ * Written out in full rather than trimmed to the fields the sheet happens to
+ * read today. `__tests__/` sits outside the tsconfig `include`, so
+ * `tsc --noEmit` never compiles this file: a missing field fails at render
+ * time, or worse, silently does not.
+ */
+function emptyContactSyncResult() {
+  return {
+    matches: [],
+    matchedUserIds: [],
+    totalContacts: 0,
+    readContactCount: 0,
+    checkedContactCount: 0,
+    matchedContactCount: 0,
+    unmatchedContactCount: 0,
+    uncheckedContactCount: 0,
+    uncheckableContactCount: 0,
+    excludedSelfContactCount: 0,
+    lookupLimitedContactCount: 0,
+    lookupLimitExceeded: false,
+    inviteCandidateCount: 0,
+    autoConnectedCount: 0,
+    alreadyConnectedCount: 0,
+    requestRequiredCount: 0,
+    suppressedCount: 0,
+    unknownContactCount: 0,
+    completedBatchCount: 0,
+    totalBatchCount: 0,
+    mutationOutcomeUnknown: false,
+    sourcePlatform: "web" as const,
+    limited: false,
+    truncated: false,
+    partial: false,
+    region: null,
+  };
+}
+
+describe("Connect — contact sync", () => {
+  // Offered where an address book helps: People. Not on RIAs, where somebody
+  // is found by their verified profile rather than by being in your phone,
+  // and not on "Around you", which is third-party directories and never
+  // reaches this section at all.
+
+  it("offers Sync contacts on People", async () => {
+    mocks.listConnections.mockResolvedValue([]);
+    render(<ConnectPageClient />);
+
+    expect(
+      await screen.findByRole("button", { name: "Sync contacts" }),
+    ).toBeTruthy();
+  });
+
+  it("does not offer it on the RIAs tab", async () => {
+    mocks.listConnections.mockResolvedValue([]);
+    render(<ConnectPageClient />);
+
+    await screen.findByRole("button", { name: "Sync contacts" });
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Sync contacts" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("hides it when no contact source is reachable", async () => {
+    // A desktop browser with no picker and no Google client configured. A
+    // button whose only function is to explain that it cannot work is worse
+    // than no button.
+    mocks.contactsPermissionState = "unavailable";
+    mocks.listConnections.mockResolvedValue([]);
+    try {
+      render(<ConnectPageClient />);
+
+      await screen.findByRole("heading", { name: "People" });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Sync contacts" }),
+        ).toBeNull(),
+      );
+    } finally {
+      // A plain string on the hoisted object, so `vi.clearAllMocks()` does not
+      // touch it. Without the finally, a failure above takes the contact
+      // source away from every test that runs after this one.
+      mocks.contactsPermissionState = "prompt";
+    }
+  });
+
+  it("keeps the control out of the section heading", async () => {
+    // The rule Refresh follows too. Inside an element with role="heading" a
+    // button is folded into the heading's accessible name and is never
+    // offered as something to press.
+    mocks.listConnections.mockResolvedValue([]);
+    render(<ConnectPageClient />);
+
+    const sync = await screen.findByRole("button", {
+      name: "Sync contacts",
+    });
+    const heading = screen.getByRole("heading", { name: "People" });
+
+    expect(heading.contains(sync)).toBe(false);
+    expect(heading.textContent).not.toContain("Sync");
+  });
+
+  it("refuses a second read while one is already running", async () => {
+    mocks.listConnections.mockResolvedValue([]);
+    let release: (value: unknown) => void = () => {};
+    mocks.syncContactSignals.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    render(<ConnectPageClient />);
+    const button = await screen.findByRole("button", {
+      name: "Sync contacts",
+    });
+
+    // Both taps inside ONE act, so React has not committed between them and
+    // the fiber still carries disabled={false}. Without that React drops the
+    // second click before the handler runs, and the disabled attribute alone
+    // passes this test -- which it did: deleting the in-flight ref changed
+    // nothing until this was written properly. The attribute cannot be the
+    // guard in any case, because the "Check more" and "Sync again" remedies
+    // re-enter through a sonner toast button that carries no disabled at all.
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+
+    expect(mocks.syncContactSignals).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Sync contacts" }),
+      ).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Sync contacts",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      release(emptyContactSyncResult());
+    });
+
+    // The sheet is half of what this change puts on Connect. Without these,
+    // deleting its mount breaks no test in this file.
+    expect(await screen.findByText("Contact sync results")).toBeTruthy();
+    expect(
+      screen.getByText("No Hushh accounts matched in this sync."),
+    ).toBeTruthy();
+    expect(mocks.toastInfo.mock.calls[0][0]).toBe(
+      "No Hushh users matched this time",
+    );
   });
 });

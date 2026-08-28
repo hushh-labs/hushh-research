@@ -11,6 +11,11 @@ import {
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
+  CONNECT_PAGER_BUTTON_CLASSNAME,
+  CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
+  CONNECT_PAGER_ROW_CLASSNAME,
+  CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME,
+  CONNECT_PAGE_STATUS_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
   CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
@@ -683,5 +688,181 @@ test.describe("Connect list rows", () => {
     expect(Math.abs(cancel.width - 72)).toBeLessThanOrEqual(0.5);
     expect(cancel.width).toBeLessThanOrEqual(connect.width + 0.5);
     expect(cancel.height).toBeLessThanOrEqual(32.5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. The Connect pager, at the foot of the directory card
+// ---------------------------------------------------------------------------
+
+/**
+ * QA, on a phone: "sarein cheezein scattered dekh rahi -- page 1 . per page,
+ * prev next in next line. per page, prev next ek line mein la sakte."
+ *
+ * The row was `flex flex-col ... sm:flex-row`, and `sm:` is 640px, so on every
+ * width the App Store actually ships to it stacked: "Page 1 - Per page [8]"
+ * across the top, and a right-aligned "Prev  Next" on a second line under it.
+ * Four fragments, three alignments, one card.
+ *
+ * Putting them back on one line is only safe if they FIT on one line at 320px,
+ * which is a browser question. The JSDOM sibling proves the row still renders
+ * without `flex-col`; it measures every box as 0x0 and would pass just as
+ * happily on a row that overflowed the card by 40px.
+ */
+const PAGER_BEFORE_ROW_CLASSNAME =
+  "flex flex-col gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between";
+
+/** The pager button as the screen composes it, through the real variants. */
+const pagerButtonClass = () =>
+  cn(
+    buttonVariants({ variant: "default", size: "sm" }),
+    CONNECT_PAGER_BUTTON_CLASSNAME,
+    CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
+  );
+
+const PAGER_CANDIDATES = [
+  ...CONNECT_PAGER_ROW_CLASSNAME.split(/\s+/),
+  ...PAGER_BEFORE_ROW_CLASSNAME.split(/\s+/),
+  ...CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME.split(/\s+/),
+  ...CONNECT_PAGE_STATUS_CLASSNAME.split(/\s+/),
+  ...pagerButtonClass().split(/\s+/),
+  "flex",
+  "min-w-0",
+  "flex-col",
+  "flex-wrap",
+  "items-start",
+  "items-center",
+  "justify-end",
+  "gap-0.5",
+  "gap-2",
+  "gap-2.5",
+  "shrink-0",
+  "min-h-9",
+  "h-1",
+  "w-1",
+  "rounded-full",
+  "tabular-nums",
+  "whitespace-nowrap",
+  "ui-text-helper-text",
+  "text-[color:var(--app-secondary-label)]",
+  "bg-[color:var(--app-tertiary-label)]",
+];
+
+/**
+ * The select trigger stands in as a plain box carrying the trigger's own class
+ * string. That is faithful for geometry and only for geometry: the width and
+ * height this row has to budget for are both fixed on the trigger itself, so
+ * whatever Radix renders inside it cannot change the number measured here.
+ */
+const pagerBody = () => `<div data-testid="pager-row" class="${CONNECT_PAGER_ROW_CLASSNAME}">
+  <div data-testid="pager-size" class="flex min-w-0 flex-col items-start gap-0.5">
+    <div data-testid="pager-size-line" class="flex items-center gap-2">
+      <span class="ui-text-helper-text whitespace-nowrap text-[color:var(--app-secondary-label)]">Per page</span>
+      <div data-testid="pager-select" class="${CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME}">8</div>
+    </div>
+    <span data-testid="pager-status" class="${CONNECT_PAGE_STATUS_CLASSNAME}">Page 1</span>
+  </div>
+  <div data-testid="pager-actions" class="flex shrink-0 items-center justify-end gap-2">
+    <button data-testid="pager-prev" class="${pagerButtonClass()}">Prev</button>
+    <button data-testid="pager-next" class="${pagerButtonClass()}">Next</button>
+  </div>
+</div>`;
+
+/** The same pager exactly as it shipped, for the mutation check. */
+const pagerBodyBefore = () => `<div data-testid="pager-row" class="${PAGER_BEFORE_ROW_CLASSNAME}">
+  <div data-testid="pager-size" class="flex min-h-9 flex-wrap items-center gap-2.5">
+    <span data-testid="pager-status" class="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">Page 1</span>
+    <span class="h-1 w-1 rounded-full bg-[color:var(--app-tertiary-label)]"></span>
+    <span class="ui-text-helper-text text-[color:var(--app-secondary-label)]">Per page</span>
+    <div data-testid="pager-select" class="h-8 min-h-8 w-[74px] rounded-2xl text-[15px] font-medium leading-5"></div>
+  </div>
+  <div data-testid="pager-actions" class="flex min-h-9 items-center justify-end gap-2">
+    <button data-testid="pager-prev" class="${pagerButtonClass()}">Prev</button>
+    <button data-testid="pager-next" class="${pagerButtonClass()}">Next</button>
+  </div>
+</div>`;
+
+const fontSizeOf = (page: Page, selector: string) =>
+  page.evaluate(
+    (sel) =>
+      parseFloat(
+        getComputedStyle(document.querySelector(sel) as Element).fontSize,
+      ),
+    selector,
+  );
+
+test.describe("Connect pager", () => {
+  for (const width of PHONE_WIDTHS) {
+    test(`size control and Prev/Next share one line at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(
+        await buildFixture("connect-pager", pagerBody(), PAGER_CANDIDATES),
+      );
+      await awaitProductFont(page);
+      await fontsReady(page);
+
+      const row = await boxOf(page, '[data-testid="pager-row"]');
+      const sizeLine = await boxOf(page, '[data-testid="pager-size-line"]');
+      const actions = await boxOf(page, '[data-testid="pager-actions"]');
+      const status = await boxOf(page, '[data-testid="pager-status"]');
+
+      // Side by side, not stacked: the buttons start after the size control
+      // ends, and the two boxes overlap vertically.
+      expect(actions.left, "buttons start after the size control").toBeGreaterThan(
+        sizeLine.right,
+      );
+      expect(actions.top, "same line, not the next one").toBeLessThan(
+        sizeLine.bottom,
+      );
+      expect(sizeLine.top).toBeLessThan(actions.bottom);
+
+      // And it fits. This is the whole reason the select and the buttons gave
+      // up padding; at 320px the old geometry would not have.
+      expect(
+        actions.right,
+        `pager overflows at ${width}px`,
+      ).toBeLessThanOrEqual(row.right + 0.5);
+      expect(row.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX + 1);
+      expect(row.left).toBeGreaterThanOrEqual(PAGE_PADDING_PX - 1);
+
+      // "Page 1" reads as the status under the control, not as a fifth item
+      // competing on the line.
+      expect(status.top, "page number sits under the size control").toBeGreaterThanOrEqual(
+        sizeLine.bottom - 0.5,
+      );
+      expect(status.left).toBeLessThanOrEqual(sizeLine.left + 0.5);
+
+      const statusSize = await fontSizeOf(page, '[data-testid="pager-status"]');
+      const labelSize = await fontSizeOf(page, '[data-testid="pager-size-line"] span');
+      expect(statusSize, "status is quieter than the label above it").toBeLessThan(
+        labelSize,
+      );
+    });
+  }
+
+  test("the version QA photographed really did stack", async ({ page }) => {
+    // Mutation check. `sm:` is 640px, so at 375 the shipped row was in its
+    // `flex-col` state and the buttons landed on a second line. Without this,
+    // the assertions above could be passing on a rule incapable of failing.
+    await page.setViewportSize({ width: 375, height: 844 });
+    await page.goto(
+      await buildFixture(
+        "connect-pager-before",
+        pagerBodyBefore(),
+        PAGER_CANDIDATES,
+      ),
+    );
+    await awaitProductFont(page);
+    await fontsReady(page);
+
+    const sizeLine = await boxOf(page, '[data-testid="pager-size"]');
+    const actions = await boxOf(page, '[data-testid="pager-actions"]');
+
+    expect(
+      actions.top,
+      "the shipped pager put Prev/Next on their own line",
+    ).toBeGreaterThanOrEqual(sizeLine.bottom);
   });
 });

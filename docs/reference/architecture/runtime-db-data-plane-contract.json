@@ -75,6 +75,12 @@
       "job_id": "marketplace_retention_report"
     },
     {
+      "family_id": "one_person_information_requests",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "person_information_request_retention_report"
+    },
+    {
       "family_id": "one_email_kyc_workflow",
       "owner": "iam-consent-governance",
       "mode": "report_only",
@@ -180,14 +186,31 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "agent_chat_conversations",
-        "agent_chat_messages"
+        "agent_chat_messages",
+        "one_adk_sessions"
       ],
-      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly",
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly",
       "retention_policy": "Retain while account exists or until the user deletes an Agent chat conversation.",
       "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
       "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"
+    },
+    {
+      "id": "one_person_information_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_information_request_bundles",
+        "one_information_request_items"
+      ],
+      "primary_access_path": "Authenticated person-profile and Agent One workflows that prepare, create, inspect, cancel, expire, revoke, and export viewer-to-owner consent requests using opaque consumer scope references.",
+      "retention_policy": "Pending bundles persist until resolved or expired; terminal bundle and item metadata remains only for the bounded consent-audit and replay window before compaction.",
+      "deletion_behavior": "Cancel pending bundles before account deletion where possible, then delete bundles and items where the deleting account is requester or owner; canonical consent audit receipts remain governed by their separate audit retention contract.",
+      "trust_boundary": "Stores requester/owner principals, opaque scope references, purpose, duration, status, and timestamps. It stores no requested information values, decrypted exports, vault keys, raw Firebase identifiers in consumer responses, or standing access; a pending request grants nothing.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_request"
     },
     {
       "id": "one_action_directive_authority",

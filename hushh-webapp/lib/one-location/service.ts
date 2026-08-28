@@ -7,11 +7,7 @@ import {
 } from "@/lib/one-location/location-bus";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
-import {
-  ApiError,
-  apiErrorCode,
-  apiJson,
-} from "@/lib/services/api-client";
+import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 import type {
   ActionResult,
   LocationChatResponse,
@@ -203,6 +199,37 @@ function captureFailure(state: { error: string | null }): Error {
   return new Error(state.error ?? "Could not get your location.");
 }
 
+/**
+ * Read a paged payload's list HERE, at the boundary, rather than leaving it to
+ * the caller.
+ *
+ * Every caller hands the list straight to a React state updater --
+ * `setPagedRecipientsByUserId((current) => { for (const row of result.items)
+ * ... })`. React invokes those updaters AFTER the awaited call has returned,
+ * which is outside the caller's own `try`/`catch` and outside any `.catch()` on
+ * the promise. So a payload with no list never reaches the handler written for
+ * exactly that case: it escapes as an unhandled render error and takes the
+ * whole page down. `/one/location` died this way on `result.items is not
+ * iterable` when a backend answered 200 with the unpaged `{ recipients: [...] }`
+ * shape that this same route also returns.
+ *
+ * It throws rather than coercing to an empty page -- unlike the
+ * `eligibleConnections ?? []` read further down -- and the difference is
+ * deliberate. Every caller's catch keeps the LAST GOOD page; an empty array
+ * would replace it. On a screen whose only job is choosing people, "no one" is
+ * a worse answer than "that read failed", because it looks like data.
+ */
+function pagedItems<T>(payload: { items?: T[] } | null, endpoint: string): T[] {
+  if (!Array.isArray(payload?.items)) {
+    throw new ApiError(
+      `Malformed paged response from ${endpoint}: expected an "items" array.`,
+      200,
+      payload,
+    );
+  }
+  return payload.items;
+}
+
 export class OneLocationService {
   static async getPermissionState() {
     return HushhLocation.getPermissionState();
@@ -275,7 +302,10 @@ export class OneLocationService {
     // a location we do not have, and until now the two were indistinguishable
     // to every caller on this surface — which is what put "turn on location"
     // in front of people whose location was perfectly well known.
-    if (snapshot && withinAge(snapshot.capturedAt, CAPTURE_STALE_FALLBACK_MAX_AGE_MS)) {
+    if (
+      snapshot &&
+      withinAge(snapshot.capturedAt, CAPTURE_STALE_FALLBACK_MAX_AGE_MS)
+    ) {
       return toPlainPoint(snapshot);
     }
 
@@ -368,7 +398,6 @@ export class OneLocationService {
   static async stopBackgroundShare(): Promise<void> {
     return HushhLocation.stopBackgroundShare();
   }
-
 
   static async registerRecipientKey(params: {
     vaultOwnerToken: string;
@@ -508,10 +537,17 @@ export class OneLocationService {
       limit: String(params.limit ?? 50),
     });
     if (params.query?.trim()) search.set("query", params.query.trim());
-    return apiJson<OneLocationRecipientPage>(
-      `/api/one/location/recipients?${search.toString()}`,
-      { headers: authHeaders(params.vaultOwnerToken) },
-    );
+    const endpoint = `/api/one/location/recipients?${search.toString()}`;
+    const payload = await apiJson<Partial<OneLocationRecipientPage>>(endpoint, {
+      headers: authHeaders(params.vaultOwnerToken),
+    });
+    const items = pagedItems(payload, "/api/one/location/recipients");
+    return {
+      items,
+      page: Math.max(1, Number(payload.page ?? params.page ?? 1)),
+      hasMore: Boolean(payload.hasMore),
+      totalCount: Math.max(0, Number(payload.totalCount ?? items.length)),
+    };
   }
 
   static async listCircles(
@@ -558,10 +594,18 @@ export class OneLocationService {
       limit: String(params.limit ?? 50),
     });
     if (params.query?.trim()) search.set("query", params.query.trim());
-    return apiJson<OneLocationCircleMemberPage>(
-      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/members?${search.toString()}`,
+    const route = `/api/one/location/circles/${encodeURIComponent(params.circleId)}/members`;
+    const payload = await apiJson<Partial<OneLocationCircleMemberPage>>(
+      `${route}?${search.toString()}`,
       { headers: authHeaders(params.vaultOwnerToken) },
     );
+    const items = pagedItems(payload, route);
+    return {
+      items,
+      page: Math.max(1, Number(payload.page ?? params.page ?? 1)),
+      hasMore: Boolean(payload.hasMore),
+      totalCount: Math.max(0, Number(payload.totalCount ?? items.length)),
+    };
   }
 
   /**
@@ -842,7 +886,10 @@ export class OneLocationService {
       remainingCapacity: Math.max(0, Number(response.remainingCapacity ?? 0)),
       page: Math.max(1, Number(response.page ?? params.page ?? 1)),
       hasMore: Boolean(response.hasMore),
-      totalCount: Math.max(0, Number(response.totalCount ?? eligibleConnections.length)),
+      totalCount: Math.max(
+        0,
+        Number(response.totalCount ?? eligibleConnections.length),
+      ),
     };
   }
 
@@ -978,7 +1025,9 @@ export class OneLocationService {
   }
 
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
-  static async getMapState(vaultOwnerToken: string): Promise<OneLocationMapState> {
+  static async getMapState(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationMapState> {
     return apiJson<OneLocationMapState>("/api/one/location/map-state", {
       headers: authHeaders(vaultOwnerToken),
     });
@@ -1774,7 +1823,8 @@ export class OneLocationService {
     clientOperationId?: string;
   }): Promise<OneLocationGrant> {
     const clientOperationId =
-      params.clientOperationId || newLocationMutationOperationId("loc_duration");
+      params.clientOperationId ||
+      newLocationMutationOperationId("loc_duration");
     const response = await apiJsonWithRetry<{ grant: OneLocationGrant }>(
       `/api/one/location/grants/${encodeURIComponent(params.grantId)}/duration`,
       {
@@ -1809,9 +1859,10 @@ export class OneLocationService {
         body: JSON.stringify({
           ownerUserId: params.ownerUserId,
           message: params.message,
-          requestedDurationHours: Number.isFinite(durationHours) && durationHours > 0
-            ? durationHours
-            : undefined,
+          requestedDurationHours:
+            Number.isFinite(durationHours) && durationHours > 0
+              ? durationHours
+              : undefined,
           requestedDurationMode: params.requestedDurationMode || undefined,
           extendsGrantId: params.extendsGrantId || undefined,
         }),
@@ -1848,9 +1899,10 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           approvalMode: params.approvalMode,
-          durationHours: Number.isFinite(durationHours) && durationHours > 0
-            ? durationHours
-            : undefined,
+          durationHours:
+            Number.isFinite(durationHours) && durationHours > 0
+              ? durationHours
+              : undefined,
           durationMode: params.durationMode || undefined,
           // Preserve 0 so the backend rejects a malformed/stale automatic
           // context. Omitting it would downgrade the same call to an explicit

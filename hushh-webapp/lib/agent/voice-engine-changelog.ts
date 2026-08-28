@@ -18,6 +18,41 @@ export type VoiceEngineChangelogEntry = {
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   {
     version: "1.6",
+    date: "2026-08-28",
+    title: "Fixed: a few \"open X\" requests before sign-in said they weren't available",
+    description:
+      "On the very first screen, before your vault is unlocked, asking to open certain Hussh screens could say they weren't available even though they were. Voice now only offers what it can actually open there.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Fixed: \"stop sharing\" now actually stops sharing",
+    description:
+      "Saying \"stop sharing\" with no name attached used to just open the list of who could see you -- nothing stopped. It now pauses your location right away, the same as tapping pause yourself.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Fixed: a few Location and Connect commands could pick the wrong one",
+    description:
+      "Some phrasing -- \"send it\" while sharing or asking, a nameless \"connect with someone\", a bare \"accept\" or \"decline\" near a circle invite -- could land on the wrong action or do nothing. Each of these now points at exactly one thing.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-27",
+    title: "Voice commands are more consistent on close or urgent phrasing",
+    description:
+      "The same request said two different ways -- like \"save me\" versus \"trigger sos\" -- could go to different places, or nowhere. Voice now checks a wider set of matches before guessing, so close wording lands on the same result reliably.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-27",
+    title: "Fixed: some \"open X\" voice commands went quiet on busy screens",
+    description:
+      "Saying things like \"open voice settings\" or \"open my feed\" could stop working once a screen had enough of its own commands, like Location. Navigation commands now work from every screen, all the time.",
+  },
+  {
+    version: "1.6",
     date: "2026-08-26",
     title: "Set what \"help\" does in an emergency",
     description:
