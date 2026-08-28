@@ -52,10 +52,40 @@ export async function POST(request: NextRequest) {
     upstream.provider = "lmstudio";
   }
 
-  const path = sessionId
-    ? `/api/sessions/${encodeURIComponent(sessionId)}/chat`
+  // Establish a real Hermes session rather than firing one-off completions.
+  // A session is what gives the thread continuity on the agent side: the same
+  // transcript, the same memory, and a session id the UI can keep using. A
+  // stateless /v1/chat/completions call would answer once and forget, which is
+  // not a conversation with the agent, just a query against its model.
+  let activeSessionId = sessionId;
+  if (!activeSessionId) {
+    try {
+      const created = await fetch(`${config.baseUrl}/api/sessions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (created.ok) {
+        const session = await created.json().catch(() => ({}));
+        activeSessionId = String(
+          session?.session_id || session?.id || session?.session?.id || "",
+        );
+      }
+    } catch {
+      // Fall through: a turn without a session still answers, it just does not
+      // carry continuity. Better a degraded answer than a hard failure.
+      activeSessionId = "";
+    }
+  }
+
+  const path = activeSessionId
+    ? `/api/sessions/${encodeURIComponent(activeSessionId)}/chat`
     : "/v1/chat/completions";
-  const payload = sessionId
+  const payload = activeSessionId
     ? upstream
     : {
         model: onDevice ? "local-model" : undefined,
@@ -98,7 +128,7 @@ export async function POST(request: NextRequest) {
       requestId,
       {
         text: String(text || ""),
-        sessionId: data?.session_id || sessionId || null,
+        sessionId: data?.session_id || activeSessionId || null,
         runtime: {
           provider: data?.runtime?.provider ?? null,
           model: data?.runtime?.model ?? data?.model ?? null,

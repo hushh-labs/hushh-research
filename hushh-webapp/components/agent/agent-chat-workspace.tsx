@@ -4518,7 +4518,7 @@ export function AgentChatWorkspace({
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  This Mac
+                  One Puppy
                 </button>
               </div>
               {statusText && chatTarget === "cloud" ? (

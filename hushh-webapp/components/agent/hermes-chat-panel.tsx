@@ -97,7 +97,7 @@ export function HermesChatPanel({ className }: { className?: string }) {
         },
       ]);
     } catch {
-      setError("No Hermes agent is answering on this machine.");
+      setError("One Puppy is not answering on this machine.");
     } finally {
       setSending(false);
     }
@@ -109,7 +109,7 @@ export function HermesChatPanel({ className }: { className?: string }) {
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
       <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5 text-xs">
         <Laptop className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="font-medium">This Mac</span>
+        <span className="font-medium">One Puppy</span>
         <span
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5",
@@ -152,13 +152,13 @@ export function HermesChatPanel({ className }: { className?: string }) {
         {!connected && status ? (
           <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
             {status.message ||
-              "No Hermes agent is answering on this machine."}
+              "One Puppy is not answering on this machine."}
           </p>
         ) : null}
         {connected && turns.length === 0 ? (
           <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Ask the agent running on this machine. Its answers are generated
-            here, and this conversation stays separate from One.
+            Ask One Puppy, the agent running on this machine. Its answers are
+            generated here, and this conversation stays separate from One.
           </p>
         ) : null}
         <div className="flex flex-col gap-3">
@@ -210,7 +210,7 @@ export function HermesChatPanel({ className }: { className?: string }) {
           disabled={!connected || sending}
           rows={1}
           placeholder={
-            connected ? "Ask this machine…" : "Hermes is not connected"
+            connected ? "Ask One Puppy…" : "One Puppy is not connected"
           }
           className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-border/70 bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-60"
         />
@@ -219,7 +219,7 @@ export function HermesChatPanel({ className }: { className?: string }) {
           size="icon"
           onClick={() => void send()}
           disabled={!connected || sending || !draft.trim()}
-          aria-label="Send to this machine"
+          aria-label="Send to One Puppy"
         >
           <Send className="size-4" />
         </Button>
