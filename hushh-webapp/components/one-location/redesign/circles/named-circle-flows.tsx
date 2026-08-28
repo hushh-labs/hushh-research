@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import {
   Check,
   Copy,
@@ -280,52 +281,70 @@ export function CirclesSection({
 
   return (
     <div className="space-y-3" data-testid="one-location-named-circles">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex w-full items-center justify-between gap-4">
         <h2 className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
           Circles
         </h2>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              aria-label="Add Circle"
-              className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+        <div
+          className={cn(
+            "relative flex-none overflow-visible",
+            "[&_[data-radix-popper-content-wrapper]]:!absolute",
+            "[&_[data-radix-popper-content-wrapper]]:!bottom-auto",
+            "[&_[data-radix-popper-content-wrapper]]:!left-auto",
+            "[&_[data-radix-popper-content-wrapper]]:!right-0",
+            "[&_[data-radix-popper-content-wrapper]]:!top-full",
+            "[&_[data-radix-popper-content-wrapper]]:!z-[212]",
+            "[&_[data-radix-popper-content-wrapper]]:!mt-2",
+            "[&_[data-radix-popper-content-wrapper]]:!transform-none",
+          )}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label="Add Circle"
+                className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+              >
+                <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuPrimitive.Content
+              data-slot="dropdown-menu-content"
+              side="bottom"
+              align="end"
+              alignOffset={0}
+              sideOffset={0}
+              collisionPadding={12}
+              className="z-[212] min-w-[12rem] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 text-[color:var(--app-primary-label)] shadow-[var(--app-card-shadow-standard)] outline-none dark:shadow-none"
             >
-              <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            sideOffset={8}
-            className="w-[186px] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
-          >
-            <DropdownMenuItem
-              onSelect={onCreate}
-              data-voice-control-id="one-location-action-create-circle"
-              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-            >
-              <Plus
-                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                aria-hidden="true"
-              />
-              Create Circle
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={onJoin}
-              data-voice-control-id="one-location-action-join-circle"
-              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-            >
-              <KeyRound
-                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                aria-hidden="true"
-              />
-              Join with code
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuItem
+                onSelect={onCreate}
+                data-voice-control-id="one-location-action-create-circle"
+                className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
+              >
+                <Plus
+                  className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                  aria-hidden="true"
+                />
+                Create Circle
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={onJoin}
+                data-voice-control-id="one-location-action-join-circle"
+                className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
+              >
+                <KeyRound
+                  className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                  aria-hidden="true"
+                />
+                Join with code
+              </DropdownMenuItem>
+            </DropdownMenuPrimitive.Content>
+          </DropdownMenu>
+        </div>
       </div>
 
       {incomingInvitesError ? (
