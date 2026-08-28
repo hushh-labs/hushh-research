@@ -9,6 +9,7 @@ import {
   PuppyModelPicker,
   type ModelSelection,
 } from "@/components/agent/puppy-model-picker";
+import { fetchPuppyStatus, type PuppyStatus } from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,14 +32,6 @@ interface PuppyTurn {
   activity?: string[];
 }
 
-interface PuppyStatus {
-  connected: boolean;
-  reason?: string;
-  message?: string;
-  model?: string | null;
-  busy?: boolean;
-}
-
 export function HermesChatPanel({ className }: { className?: string }) {
   const [status, setStatus] = useState<PuppyStatus | null>(null);
   const [turns, setTurns] = useState<PuppyTurn[]>([]);
@@ -50,12 +43,9 @@ export function HermesChatPanel({ className }: { className?: string }) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const loadStatus = useCallback(async () => {
-    try {
-      const response = await fetch("/api/hermes/status", { cache: "no-store" });
-      setStatus(await response.json());
-    } catch {
-      setStatus({ connected: false, reason: "unreachable" });
-    }
+    // Through the service layer, not a raw fetch: not-running is an ordinary
+    // state and every surface should render the same one.
+    setStatus(await fetchPuppyStatus());
   }, []);
 
   useEffect(() => {

@@ -9,6 +9,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  assignPuppyModel,
+  fetchPuppyModelOptions,
+  type PuppyModelOptions,
+} from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,25 +29,7 @@ import { cn } from "@/lib/utils";
  *     omitted the alternatives could not show what choosing one gives up.
  */
 
-interface PickerModel {
-  id: string;
-  supportsReasoning: boolean;
-}
-
-interface PickerProvider {
-  id: string;
-  name: string;
-  onDevice: boolean;
-  models: PickerModel[];
-}
-
-interface PickerPayload {
-  configured: boolean;
-  reachable?: boolean;
-  providers: PickerProvider[];
-  current?: { model: string; provider: string };
-  reasoningEfforts?: string[];
-}
+type PickerPayload = PuppyModelOptions;
 
 export interface ModelSelection {
   provider: string;
@@ -74,10 +61,7 @@ export function PuppyModelPicker({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/hermes/models", { cache: "no-store" });
-      setPayload((await response.json()) as PickerPayload);
-    } catch {
-      setPayload({ configured: true, reachable: false, providers: [] });
+      setPayload(await fetchPuppyModelOptions());
     } finally {
       setLoading(false);
     }
@@ -92,23 +76,12 @@ export function PuppyModelPicker({
       setApplying(`${provider}:${model}`);
       setError("");
       try {
-        const response = await fetch("/api/hermes/models", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            provider,
-            model,
-            reasoningEffort: effort,
-            confirmExpensive,
-          }),
+        const result = await assignPuppyModel({
+          provider,
+          model,
+          reasoningEffort: effort,
+          confirmExpensive,
         });
-        const result = (await response.json()) as {
-          ok?: boolean;
-          confirmRequired?: boolean;
-          confirmMessage?: string;
-          error?: string;
-          onDevice?: boolean;
-        };
         if (result.confirmRequired) {
           // Hermes flags a per-token model as a question, not an error. Ask it
           // rather than answering on the owner's behalf.
@@ -134,8 +107,6 @@ export function PuppyModelPicker({
         setPayload((prior) =>
           prior ? { ...prior, current: { provider, model } } : prior,
         );
-      } catch {
-        setError("Puppy One is not answering on this machine.");
       } finally {
         setApplying("");
       }
