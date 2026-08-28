@@ -153,7 +153,6 @@ export async function prepareNaturalLanguagePkm(params: {
   }
 
   const ingestionId = createIngestionId();
-  const startedAt = performance.now();
   // Structured exports from other assistants commonly arrive as numbered or
   // Markdown sections. Preserve every line while packing a bounded number of
   // sections into each semantic-agent call, so the agent's eight-card limit

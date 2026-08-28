@@ -2668,6 +2668,7 @@ export default function RiaPicksPage() {
       },
     }),
     [
+      activePackage.investor_debate_thesis,
       category,
       editing,
       hasUnsavedChanges,
