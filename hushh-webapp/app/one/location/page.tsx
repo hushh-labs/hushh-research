@@ -13081,6 +13081,12 @@ export function OneLocationAgentPageContent({
           onLocateMe={locateMeForSavedLocation}
           onPickExactLocation={handlePickExactSavedLocation}
           startWithMapPicker
+          // This is a STEP of onboarding, not a sheet over a screen. Without
+          // it the surface sat at z-600/601 under a takeover that has since
+          // moved to z-[9000], and what showed above it was the app's back
+          // arrow, avatar and Now / People / Links strip -- navigation that
+          // does nothing yet, over a step nobody has finished.
+          takeover
           collectAddressDetails
           deferredUntilVault={!vaultKey || !vaultOwnerToken}
           initialAccuracyM={saveLocationPoint?.accuracyM}

@@ -42,8 +42,13 @@ import {
   SHEET_PLAIN_SHELL_CLASSNAME,
   SHEET_PRESENTATION_QUERY,
   SHEET_SURFACE_CLASSNAME,
+  SHEET_TAKEOVER_DETAILS_TOP_CLASSNAME,
+  SHEET_TAKEOVER_PLAIN_TOP_CLASSNAME,
+  SHEET_TAKEOVER_SURFACE_CLASSNAME,
   STEP_DOT_REACHED_CLASSNAME,
   STEP_DOT_UPCOMING_CLASSNAME,
+  TAKEOVER_OVERLAY_Z_CLASSNAME,
+  TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
@@ -350,6 +355,16 @@ export type SaveLocationModalProps = {
   onPickExactLocation?: (picked: PickedLocation) => void;
   /** Open directly on the map instead of making the owner find an extra CTA. */
   startWithMapPicker?: boolean;
+  /**
+   * Present this as an onboarding STEP rather than as a sheet over a screen.
+   *
+   * Full height, square corners, and layered above the onboarding takeover, so
+   * none of the app's chrome -- back arrow, avatar, the Now / People / Links
+   * strip -- is visible above a step the person has not finished. Off
+   * everywhere else: saving a place from Settings is a sheet over a screen you
+   * are coming back to, and that screen SHOULD stay visible behind it.
+   */
+  takeover?: boolean;
   /** Follow pin confirmation with the complete entrance/address detail step. */
   collectAddressDetails?: boolean;
   /** Pre-select a category when editing an existing saved place. */
@@ -498,6 +513,7 @@ export function SaveLocationModal({
   onLocateMe,
   onPickExactLocation,
   startWithMapPicker = false,
+  takeover = false,
   collectAddressDetails = false,
   initialCategory = null,
   existingLocations = [],
@@ -938,7 +954,7 @@ export function SaveLocationModal({
   // presentations, so moving to the shared sheet primitive does not quietly
   // move this surface to a different layer.
   const surfaceOverlayClassName = cn(
-    "z-[600]",
+    takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : "z-[600]",
     nativeMapShowing
       ? // The native map is not part of the page: @capacitor/google-maps draws
         // it BELOW the WebView and the WebView is punched through to reveal it.
@@ -965,6 +981,27 @@ export function SaveLocationModal({
   // lift never actually rendered.
   const surfaceShadowClassName =
     "!shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),0_8px_20px_-8px_rgba(16,24,40,0.24)] dark:!shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)]";
+
+  /**
+   * One string or the other, never one layered over the other. See
+   * `SHEET_TAKEOVER_SURFACE_CLASSNAME` for why a merge cannot be trusted to
+   * erase the 92% cap.
+   */
+  const surfaceGeometryClassName = takeover
+    ? SHEET_TAKEOVER_SURFACE_CLASSNAME
+    : SHEET_SURFACE_CLASSNAME;
+  /**
+   * The status bar and notch, applied AFTER the pane's own padding: a `p-5`
+   * merged in later would take the `pt-` with it.
+   */
+  const surfaceTakeoverTopClassName = takeover
+    ? detailsPaneActive
+      ? SHEET_TAKEOVER_DETAILS_TOP_CLASSNAME
+      : SHEET_TAKEOVER_PLAIN_TOP_CLASSNAME
+    : undefined;
+  const surfaceZClassName = takeover
+    ? TAKEOVER_SURFACE_Z_CLASSNAME
+    : "z-[601]";
 
   const surfaceChildren = (
     <>
@@ -1610,11 +1647,12 @@ export function SaveLocationModal({
             if (interactionBusy || flowStep === "map") event.preventDefault();
           }}
           className={cn(
-            "z-[601]",
-            SHEET_SURFACE_CLASSNAME,
+            surfaceZClassName,
+            surfaceGeometryClassName,
             surfaceEdgeClassName,
             surfacePaddingClassName,
             surfaceShadowClassName,
+            surfaceTakeoverTopClassName,
           )}
         >
           {surfaceChildren}
@@ -1642,7 +1680,8 @@ export function SaveLocationModal({
           if (interactionBusy || flowStep === "map") event.preventDefault();
         }}
         className={cn(
-          "z-[601] rounded-[20px] border",
+          surfaceZClassName,
+          "rounded-[20px] border",
           DIALOG_SURFACE_CLASSNAME,
           surfaceEdgeClassName,
           surfacePaddingClassName,
