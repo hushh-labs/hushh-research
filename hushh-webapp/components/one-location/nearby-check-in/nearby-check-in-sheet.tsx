@@ -1882,32 +1882,13 @@ export function NearbyCheckInSheet({
     }
   };
 
-  // checkout() has no "must be checked in" guard of its own -- today that is
-  // only enforced by the Check out button rendering solely inside the
-  // `state.presence ? (...) : null` branch below. A voice trigger bypasses
-  // that branch entirely, so the guard has to live here instead.
-  useLocalOnboardingActionHandler("location.checkout_nearby", async () => {
-    if (!ownerId || !vaultOwnerToken) {
-      return {
-        status: "blocked" as const,
-        summary: "Unlock One first to check out.",
-      };
-    }
-    if (!state.presence) {
-      return {
-        status: "blocked" as const,
-        summary: "You're not checked in anywhere right now.",
-      };
-    }
-    if (mutationInFlightRef.current) {
-      return {
-        status: "blocked" as const,
-        summary: "Already checking out -- one moment.",
-      };
-    }
-    await checkout();
-    return { status: "succeeded" as const, summary: "You're checked out." };
-  });
+  // No voice handler for location.checkout_nearby lives here, deliberately.
+  // It is in BACKEND_DIRECT_ACTION_IDS (consent-protocol's action_tools.py),
+  // so the backend mutates through the service layer directly and never parks
+  // a client directive for a local handler to pick up -- a handler registered
+  // here could not fire. One briefly existed on the mistaken reading that a
+  // missing local handler meant the action was broken; a backend-direct action
+  // needs no frontend registration at all.
 
   const connect = async (attendee: OneLocationNearbyAttendee) => {
     if (
