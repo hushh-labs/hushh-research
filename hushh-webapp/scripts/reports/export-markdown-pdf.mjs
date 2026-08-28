@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -139,6 +139,38 @@ function rewriteShareableLinks(markdown, inputPath) {
     /\[([^\]]+)\]\((?!https?:\/\/|#)([^)\s]+\.md(?:#[^)]+)?)\)/g,
     (_match, label, href) => `[${label}](${toGitHubBlobUrl(href, inputDir)})`,
   );
+}
+
+const IMAGE_MEDIA_TYPES = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+};
+
+/**
+ * Turn `![alt](local/path.png)` into a data URI so the rendered page is
+ * self-contained. Playwright renders from `setContent`, which has no base
+ * directory, so a relative path would resolve against nothing and the image
+ * would silently be missing -- the failure mode this inlining exists to prevent.
+ * A path that cannot be read is left exactly as written, so a broken reference
+ * shows up in the output rather than disappearing.
+ */
+function inlineLocalImages(markdown, baseDir) {
+  return markdown.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (whole, alt, src) => {
+    if (/^(https?:|data:)/i.test(src)) return whole;
+    const resolved = path.resolve(baseDir, src);
+    const mediaType = IMAGE_MEDIA_TYPES[path.extname(resolved).toLowerCase()];
+    if (!mediaType || !existsSync(resolved)) return whole;
+    try {
+      const encoded = readFileSync(resolved).toString("base64");
+      return `![${alt}](data:${mediaType};base64,${encoded})`;
+    } catch {
+      return whole;
+    }
+  });
 }
 
 function renderInline(markdown) {
@@ -461,6 +493,25 @@ export function renderMarkdown(markdown) {
   };
 
   for (const line of lines) {
+    // A line that is only an image becomes a figure. Screenshots are how a report
+    // shows what a screen actually did rather than asserting it, and without this
+    // the exporter printed the raw markdown, which reads as a broken document.
+    // `inlineLocalImages` has already turned any local path into a data URI, so the
+    // rendered page stays self-contained.
+    const blockImage = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(line.trim());
+    if (blockImage) {
+      flushParagraph();
+      closeLists();
+      flushTable();
+      const alt = escapeHtml(blockImage[1]);
+      html.push(
+        `<figure class="pdf-figure"><img src="${escapeHtml(blockImage[2])}" alt="${alt}" />` +
+          (alt ? `<figcaption>${alt}</figcaption>` : "") +
+          `</figure>`,
+      );
+      continue;
+    }
+
     const tableDirective = /^<!--\s*pdf:table=([a-z-]+)\s*-->$/.exec(line.trim());
     if (tableDirective) {
       flushParagraph();
@@ -1130,6 +1181,26 @@ export async function buildHtml(markdown, { documentTitle, displayTitle, subtitl
         margin: 0;
       }
 
+      .pdf-figure {
+        break-inside: avoid;
+        margin: 18px 0 24px;
+      }
+
+      .pdf-figure img {
+        border: 1px solid var(--separator);
+        border-radius: 8px;
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+
+      .pdf-figure figcaption {
+        color: var(--fg-tertiary);
+        font-size: 8.6px;
+        line-height: 1.45;
+        margin-top: 7px;
+      }
+
       .pdf-fact-rail,
       .pdf-metric-list {
         break-inside: avoid;
@@ -1746,7 +1817,10 @@ export async function buildHtml(markdown, { documentTitle, displayTitle, subtitl
 }
 
 async function renderPdf({ input, output, html: htmlOutput, title, subtitle, theme, profile }) {
-  const markdown = rewriteShareableLinks(await readFile(input, "utf8"), input);
+  const markdown = inlineLocalImages(
+    rewriteShareableLinks(await readFile(input, "utf8"), input),
+    path.dirname(path.resolve(input)),
+  );
   const formatter = await resolveFormatter(theme, profile);
   const displayTitle = visibleTitle(title);
   const html = await buildHtml(markdown, { documentTitle: title, displayTitle, subtitle, formatter });

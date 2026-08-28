@@ -149,7 +149,13 @@ export async function createReviewerSessionHarness({
     };
   }
 
-  async function waitForUnlock(page, unlockTimeoutMs = timeoutMs) {
+  // `requireVaultUnlocked: false` is for a FIRST-RUN account, which has no vault to
+  // unlock. The bridge deliberately refuses to create one (it reports `vault_error`
+  // rather than minting a vault for a fixture), so a fresh-user journey has to stop
+  // at `authenticated` and drive the visible "Set a lock" dialog itself. Insisting on
+  // `vault_unlocked` there would fail every genuinely fresh run, which is exactly the
+  // journey a first-run rehearsal exists to walk.
+  async function waitForUnlock(page, unlockTimeoutMs = timeoutMs, { requireVaultUnlocked = true } = {}) {
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
     const unlockInput = page.locator("#unlock-passphrase");
     // The submit control renders "Unlock" (and "Unlocking..." while busy). This
@@ -164,7 +170,11 @@ export async function createReviewerSessionHarness({
     // Shown when the vault offers passkey/biometric first; clicking it reveals the
     // passphrase field the harness actually drives.
     const passphraseFallback = page.locator('[data-testid="vault-use-passphrase-instead"]');
-    const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
+    // A fresh account legitimately has no vault, so `vault_error` is the expected
+    // report there rather than a failure to abort on.
+    const terminalFailures = requireVaultUnlocked
+      ? new Set(["auth_error", "uid_mismatch", "vault_error"])
+      : new Set(["auth_error", "uid_mismatch"]);
     const deadline = Date.now() + unlockTimeoutMs;
     let reviewerLoginSubmitted = false;
     let manualPassphraseFilled = false;
@@ -185,6 +195,17 @@ export async function createReviewerSessionHarness({
     while (Date.now() < deadline) {
       const bootstrap = await safeBootstrapState();
       if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
+      // First-run: signed in as the right person, off the login screen, and the
+      // vault dialog is the caller's to drive.
+      if (
+        !requireVaultUnlocked &&
+        bootstrap.userMatches &&
+        bootstrap.state &&
+        bootstrap.state !== "waiting_vault_user" &&
+        !bootstrap.path.startsWith("/login")
+      ) {
+        return;
+      }
       if (terminalFailures.has(bootstrap.state)) {
         throw new Error(
           `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
@@ -226,13 +247,24 @@ export async function createReviewerSessionHarness({
     );
   }
 
+  // Set by openSession when the caller opted into a first-run walk. A person who has
+  // no vault yet never reaches `vault_unlocked`, so continuity for them means "still
+  // signed in and not being asked to unlock", not "still holding a key they were
+  // never given". Without this the navigation helper reported a failure on every
+  // first-run hop -- an oracle raising a false alarm, which is as damaging as one
+  // that cannot fail, because it teaches the reader to discount real findings.
+  let firstRunSession = false;
+
   async function assertVaultContinuity(page, label) {
     const unlockVisible = await page.locator("#unlock-passphrase").isVisible().catch(() => false);
     if (unlockVisible) throw new Error(`${label} lost the reviewer vault key.`);
     const state = await page.evaluate(
       () => window.__HUSHH_NATIVE_TEST__?.bootstrapState || ""
     );
-    if (state && state !== "vault_unlocked") {
+    const acceptable = firstRunSession
+      ? new Set(["vault_unlocked", "authenticated"])
+      : new Set(["vault_unlocked"]);
+    if (state && !acceptable.has(state)) {
       throw new Error(`${label} changed vault bootstrap state to ${state}.`);
     }
   }
@@ -253,7 +285,8 @@ export async function createReviewerSessionHarness({
     await assertVaultContinuity(page, href);
   }
 
-  async function openSession(browser, redirect) {
+  async function openSession(browser, redirect, { requireVaultUnlocked = true } = {}) {
+    firstRunSession = !requireVaultUnlocked;
     const maxAttempts = 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
@@ -264,12 +297,16 @@ export async function createReviewerSessionHarness({
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
       const capture = attachMemoryOnlyCapture(page);
-      await installBridge(page);
+      // With no vault to open, handing the bridge a passphrase makes its auto-unlock
+      // run and report `vault_error` (it refuses to CREATE a vault for a fixture).
+      // Withholding it leaves bootstrap at `authenticated` so the caller can drive
+      // the real "Set a lock" dialog, which is the first-run experience itself.
+      await installBridge(page, { includePassphrase: requireVaultUnlocked });
       try {
         await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
           waitUntil: "domcontentloaded",
         });
-        await waitForUnlock(page, attemptTimeoutMs);
+        await waitForUnlock(page, attemptTimeoutMs, { requireVaultUnlocked });
         // The bridge reports `vault_unlocked` while /login is still resolving
         // its redirect. Returning here hands the caller a page with a pending
         // navigation that silently clobbers their first navigateInApp, which
