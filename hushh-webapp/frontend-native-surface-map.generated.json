@@ -148,6 +148,14 @@
       "file": "app/api/developer/[...path]/route.ts"
     },
     {
+      "template": "/api/hermes/chat",
+      "file": "app/api/hermes/chat/route.ts"
+    },
+    {
+      "template": "/api/hermes/status",
+      "file": "app/api/hermes/status/route.ts"
+    },
+    {
       "template": "/api/iam/{path*}",
       "file": "app/api/iam/[...path]/route.ts"
     },
@@ -6836,6 +6844,60 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/puppy",
+      "page_file": "app/one/puppy/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/puppy/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.puppy",
+          "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally without inventing a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/setup",
       "page_file": "app/one/setup/page.tsx",
       "physical_page_exists": true,
@@ -9170,5 +9232,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "84159309469abf98274ff381a7c670c6f35f31509c7374ef66e0840804c6bbe3"
+  "content_sha256": "5806b6a04751b2be2d565d0a1a7da8e4e5a3cfc4ac5f9d77d1dee36626169af7"
 }

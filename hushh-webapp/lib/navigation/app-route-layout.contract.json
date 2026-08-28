@@ -861,6 +861,41 @@
     }
   },
   {
+    "route": "/one/puppy",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/puppy/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.puppy",
+      "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    }
+  },
+  {
     "route": "/connected-systems",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route only launches the canonical /one/connected-systems surface.",
@@ -4317,7 +4352,9 @@
       ]
     },
     "interactionLayerPolicy": {
-      "allowedFamilies": ["information_request_review"]
+      "allowedFamilies": [
+        "information_request_review"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.people.person_profile",

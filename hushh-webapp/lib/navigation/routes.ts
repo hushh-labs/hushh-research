@@ -131,6 +131,8 @@ export const ROUTES = {
   ONE_MARKETPLACE: "/one/marketplace",
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
+  /** Puppy One: the agent running on the owner's own machine. */
+  ONE_PUPPY: "/one/puppy",
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
