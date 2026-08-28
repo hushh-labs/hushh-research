@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { EmailRichTextComposer } from "@/components/agent/email-rich-text";
+import { EmailRichTextComposer, EmailRichTextPreview } from "@/components/agent/email-rich-text";
 
 describe("EmailRichTextComposer End-to-End Live DOM Verification", () => {
   beforeEach(() => {
@@ -54,5 +54,42 @@ describe("EmailRichTextComposer End-to-End Live DOM Verification", () => {
     expect(editor.innerHTML).toContain("<li");
 
     console.log("REAL COMPOSER OUTPUT HTML:", editor.innerHTML);
+  });
+});
+
+describe("EmailRichTextPreview Dual-Mode Rendering", () => {
+  it("renders hand-edited HTML string cleanly as sanitized DOM elements, not raw visible tags", () => {
+    const htmlValue = '<p style="margin:0 0 16px">Hi <strong>John</strong>, here is the report:</p><ul style="margin:0 0 16px;padding-left:24px"><li style="margin:0 0 8px">Item A</li></ul><script>alert("xss")</script>';
+    const { container } = render(<EmailRichTextPreview value={htmlValue} />);
+
+    // 1. Confirms strong element is parsed into a real DOM node
+    const strongEl = screen.getByText("John");
+    expect(strongEl.tagName).toBe("STRONG");
+
+    // 2. Confirms list item is a real DOM node
+    const liEl = screen.getByText("Item A");
+    expect(liEl.tagName).toBe("LI");
+
+    // 3. Confirms script tag was sanitized out
+    expect(container.querySelector("script")).toBeNull();
+
+    // 4. Confirms raw HTML tags are NOT leaked as visible text in body
+    expect(container.textContent).not.toContain('<p style="margin');
+    expect(container.textContent).not.toContain('<script>');
+  });
+
+  it("renders untouched AI Markdown draft via parseBlocks without regression", () => {
+    const markdownValue = "## Meeting Summary\n\n- Discussed Q3 budget\n- Approved campaign";
+    const { container } = render(<EmailRichTextPreview value={markdownValue} />);
+
+    // 1. Confirms heading level 2
+    const h2El = screen.getByRole("heading", { level: 2 });
+    expect(h2El.textContent).toBe("Meeting Summary");
+
+    // 2. Confirms Markdown list elements rendered via parseBlocks
+    const listItems = screen.getAllByRole("listitem");
+    expect(listItems).toHaveLength(2);
+    expect(listItems[0]?.textContent).toBe("Discussed Q3 budget");
+    expect(listItems[1]?.textContent).toBe("Approved campaign");
   });
 });
