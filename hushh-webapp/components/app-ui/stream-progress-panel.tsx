@@ -188,7 +188,7 @@ export function AppStreamPanel({
   progressItems = [],
   thinkingItems = [],
   thinkingContent,
-  thinkingTitle = "Working notes",
+  thinkingTitle = "Reasoning",
   evidenceItems = [],
   evidenceTitle = "Consulted specialists",
   response,
@@ -235,7 +235,7 @@ export function AppStreamPanel({
             ) : null}
             {progressItems.length > 0 ? (
               <AppStreamSection
-                title="Progress"
+                title="Activity"
                 items={progressItems}
                 count={progressItems.length}
                 defaultOpen
@@ -282,8 +282,8 @@ export function AppStreamPanel({
         {hasResponse ? (
           <div
             className={cn(
-              "rounded-xl border border-border/60 bg-background/70 px-3 py-3 text-sm leading-6",
-              isError && "border-destructive/30 bg-destructive/10 text-destructive"
+              "px-1 text-sm leading-6",
+              isError && "text-destructive"
             )}
             aria-live={isStreaming ? "polite" : undefined}
           >

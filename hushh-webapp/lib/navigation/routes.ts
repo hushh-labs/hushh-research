@@ -55,8 +55,15 @@ export function isKaiMarketPathname(value: string | null | undefined): boolean {
   return financeRoutePathname(value) === KAI_MARKET_PATH;
 }
 
+export function buildPersonProfileRoute(personRef: string): string {
+  const normalized = String(personRef || "").trim();
+  if (!normalized) throw new Error("A public person reference is required.");
+  return `/people/${encodeURIComponent(normalized)}`;
+}
+
 export const ROUTES = {
   HOME: "/",
+  PERSON_PROFILE: "/people/[personRef]",
   /** Canonical public knowledge workspace; root remains anonymous onboarding. */
   WELCOME: "/welcome",
   ONE_HOME: "/one",

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-02",
-  "total_routes": 117,
-  "native_required_routes": 102,
+  "generated_at": "2026-08-27",
+  "total_routes": 118,
+  "native_required_routes": 103,
   "excluded_routes": 10,
   "routes": [
     {
@@ -1233,6 +1233,20 @@
       "allowedDataStates": [
         "loaded",
         "empty-valid"
+      ]
+    },
+    {
+      "route": "/people/[personRef]",
+      "classification": "native-required-functional",
+      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "expectedMarker": "native-route-person-profile",
+      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "autoReviewerLogin": false,
+      "expectedAuth": "public",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "unavailable-valid"
       ]
     },
     {

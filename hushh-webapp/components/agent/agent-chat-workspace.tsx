@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type ClipboardEvent as ReactClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -32,7 +33,6 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
-  UserRound,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -76,6 +76,8 @@ import {
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { useAuth } from "@/hooks/use-auth";
+import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
+import { AvatarBubble } from "@/lib/morphy-ux/ui";
 import {
   executeAgentGatewayAction,
   executeTrustedActivationGatewayAction,
@@ -88,13 +90,14 @@ import {
   getPkmAutoSaveCards,
   getPkmConfirmationCards,
   getIgnoredPkmCards,
+  isReservedPkmCard,
   loadAgentPkmContext,
   peekAgentPkmContext,
-  previewAgentPkmMemory,
   warmAgentPkmContext,
   type AgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
+import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
   loadAgentPkmAutoSavePolicy,
@@ -116,12 +119,8 @@ import {
   requestAgentConversation,
 } from "@/lib/agent/agent-voice-settings";
 import {
-  cancelAgentChatAction,
-  confirmAgentChatAction,
-  consumeAgentChatAction,
   deleteAgentChatConversation,
   renameAgentChatConversation,
-  settleAgentChatAction,
   streamAgentChat,
   streamAgentIntro,
   type AgentChatConversation,
@@ -157,7 +156,6 @@ import {
   type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { resolveGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
@@ -321,13 +319,11 @@ function getConsentRequiredPayload(
 }
 
 function getGmailEmailDraftPayload(
-  event: SpecialistDirectiveEvent | null,
+  event: AgentChatToolEvent | null,
 ): { instruction: string } | null {
-  if (!event || event.directive.kind !== "prompt") return null;
-  const payload = event.directive.payload as Record<string, unknown>;
-  if (payload.kind !== "gmail_email_draft") return null;
+  if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
   const instruction =
-    typeof payload.instruction === "string" ? payload.instruction.trim() : "";
+    typeof event.slots.request === "string" ? event.slots.request.trim() : "";
   return instruction ? { instruction } : null;
 }
 
@@ -897,6 +893,8 @@ function AgentThinkingDots() {
 
 function AgentBubble({
   message,
+  userAvatarUrl,
+  userInitials = "YO",
   onRetry,
   retryDisabled = false,
   busyConsentItemId = null,
@@ -908,6 +906,8 @@ function AgentBubble({
   onPendingConsentDetails,
 }: {
   message: AgentMessage;
+  userAvatarUrl?: string | null;
+  userInitials?: string;
   onRetry?: () => void;
   retryDisabled?: boolean;
   busyConsentItemId?: string | null;
@@ -929,16 +929,14 @@ function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = message.streamEvents ?? [];
-  // Preserve the normal turn stream panel for every assistant response so
-  // Working Notes and Sources remain available. Calendar proposal status is
-  // the narrow exception: it has its own explicit confirmation lifecycle.
+  // Use the activity surface only while a turn is active or when the settled
+  // turn has safe, inspectable activity. Plain completed answers stay readable.
   const hasStreamContent =
+    isStreaming ||
     streamEvents.length > 0 ||
-    Boolean(message.thought?.trim()) ||
-    Boolean(message.sources?.length) ||
-    Boolean(message.text.trim());
+    Boolean(message.sources?.length);
   const shouldRenderStreamPanel =
-    !isUser && hasStreamContent && !message.renderAsPlainAssistantMessage;
+    !isUser && !isError && hasStreamContent && !message.renderAsPlainAssistantMessage;
   const animated = useAnimatedAssistantText(
     message.text,
     !isUser && isStreaming,
@@ -987,8 +985,10 @@ function AgentBubble({
 
   return (
     <div
+      data-message-role={message.role}
+      data-message-status={message.status}
       className={cn(
-        "motion-step-enter flex w-full",
+        "motion-step-enter flex w-full items-start gap-2",
         isUser ? "justify-end" : "justify-start",
       )}
     >
@@ -1011,7 +1011,7 @@ function AgentBubble({
                 ? "rounded-2xl bg-muted/50 px-4 py-3 text-foreground"
                 : "px-0 py-1 text-foreground",
             isError &&
-              "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive",
+              "rounded-2xl border border-destructive/20 bg-destructive/[0.06] px-4 py-2.5 text-foreground",
           )}
         >
           {isUser ? (
@@ -1047,6 +1047,8 @@ function AgentBubble({
           <span>{message.timestamp}</span>
           {showResponseActions ? (
             <div className="flex items-center gap-1">
+              {!isError ? (
+                <>
               <button
                 type="button"
                 onClick={handleCopy}
@@ -1098,6 +1100,8 @@ function AgentBubble({
               >
                 <ThumbsDown className="h-3.5 w-3.5" />
               </button>
+                </>
+              ) : null}
               {onRetry ? (
                 <button
                   type="button"
@@ -1147,31 +1151,14 @@ function AgentBubble({
         ) : null}
       </div>
       {isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.56)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-          <UserRound className="h-3.5 w-3.5" />
-        </div>
+        <span className="mt-0.5 shrink-0" data-testid="agent-chat-self-avatar">
+          <AvatarBubble
+            initials={userInitials}
+            imageUrl={userAvatarUrl}
+            size={30}
+          />
+        </span>
       ) : null}
-    </div>
-  );
-}
-
-function AgentPkmActivityLine({ item }: { item: AgentPkmActivity }) {
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 items-center gap-2 pl-11 pr-2 text-xs",
-        item.status === "error"
-          ? "text-destructive/80"
-          : "text-muted-foreground",
-      )}
-      aria-live="polite"
-    >
-      {item.status === "streaming" ? (
-        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-current" />
-      ) : (
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" />
-      )}
-      <span className="min-w-0 break-words">{item.text}</span>
     </div>
   );
 }
@@ -1275,6 +1262,7 @@ export function AgentChatWorkspace({
   const [input, setInput] = useState("");
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerLong, setComposerLong] = useState(false);
+  const [composerPurpose, setComposerPurpose] = useState<"memory" | "chat" | null>(null);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
     string | null
@@ -1325,7 +1313,6 @@ export function AgentChatWorkspace({
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
-  const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
   const [pkmAutoSavePolicy, setPkmAutoSavePolicy] =
     useState<AgentPkmAutoSavePolicy>(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
   // A specialist (e.g. agent_location) can return a directive that must be
@@ -1663,7 +1650,7 @@ export function AgentChatWorkspace({
     if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
-    return "Ready";
+    return null;
   }, [
     authLoading,
     activeActionRun,
@@ -1814,7 +1801,6 @@ export function AgentChatWorkspace({
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
     setPkmReviews([]);
-    setPkmActivity([]);
     updateConversationId(null);
     setConversations([]);
     setHistoryActionPendingId(null);
@@ -1845,7 +1831,6 @@ export function AgentChatWorkspace({
     setInput("");
     setIsLoadingHistory(false);
     setPkmReviews([]);
-    setPkmActivity([]);
     setPendingAppAction(null);
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
@@ -1949,10 +1934,7 @@ export function AgentChatWorkspace({
   };
 
   const openGmailEmailDraftFromDirective = useCallback(
-    (
-      event: SpecialistDirectiveEvent,
-      assistantMessageId: string,
-    ): boolean => {
+    (event: AgentChatToolEvent, assistantMessageId: string): boolean => {
       const payload = getGmailEmailDraftPayload(event);
       if (!payload) return false;
       if (!hasChatAccess) {
@@ -1963,8 +1945,6 @@ export function AgentChatWorkspace({
       setEmailDraftInstruction(payload.instruction);
       setEmailDraftInitialValue(null);
       setEmailDraftAutoDraft(true);
-      // Keep delivery activity after the assistant response that opened this
-      // reviewed draft. Later user turns can continue without reordering it.
       setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
       return true;
@@ -2289,7 +2269,6 @@ export function AgentChatWorkspace({
       setEmailDraftInitialValue(null);
       setEmailDraftAnchorMessageId(null);
       setEmailDeliveryHistory([]);
-      setPkmActivity([]);
       setPkmReviews([]);
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
@@ -2787,38 +2766,24 @@ export function AgentChatWorkspace({
       if (latestVisibleTurnIdRef.current !== debugTurnId) return;
       const cleanText = messageText.trim();
       if (!cleanText) {
-        if (pkmStatusItemId) {
-          setPkmActivity((current) =>
-            current.filter((item) => item.id !== pkmStatusItemId),
-          );
-          pkmStatusItemId = null;
-        }
+        if (pkmStatusItemId) upsertTurnStreamEvent({
+          id: pkmStatusItemId,
+          label: "Memory",
+          message: "No new information needed saving.",
+          status: "done",
+          createdAtMs: Date.now(),
+        });
         return;
       }
-      if (pkmStatusItemId) {
-        setPkmActivity((current) =>
-          current.map((item) =>
-            item.id === pkmStatusItemId
-              ? {
-                  ...item,
-                  text: cleanText,
-                  status,
-                }
-              : item,
-          ),
-        );
-        return;
-      }
-      const nextStatusItemId = `pkm-status-${turnId}`;
+      const nextStatusItemId = pkmStatusItemId || `pkm-status-${turnId}`;
       pkmStatusItemId = nextStatusItemId;
-      setPkmActivity((current) => [
-        ...current.slice(-4),
-        {
-          id: nextStatusItemId,
-          text: cleanText,
-          status,
-        },
-      ]);
+      upsertTurnStreamEvent({
+        id: nextStatusItemId,
+        label: "Memory",
+        message: cleanText,
+        status: status === "error" ? "error" : status === "done" ? "done" : "running",
+        createdAtMs: Date.now(),
+      });
     };
 
     const toolResultStatus = (
@@ -2864,22 +2829,31 @@ export function AgentChatWorkspace({
       upsertPkmStatusMessage("Checking what belongs in Memory...", "streaming");
 
       try {
-        const preview = await previewAgentPkmMemory({
+        const preview = await prepareNaturalLanguagePkm({
           userId,
           message: sourceText,
           currentDomains: turnPkmContext.domains,
           vaultOwnerToken: token,
+          source: "agent_chat_explicit_memory",
+          onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
+            upsertPkmStatusMessage(
+              phase === "prepared"
+                ? `Organized ${cardCount} memory ${cardCount === 1 ? "section" : "sections"} for review.`
+                : `Organizing memory ${Math.min(chunkIndex + 1, chunkCount)} of ${chunkCount}…`,
+              phase === "prepared" ? "done" : "streaming",
+            );
+          },
         });
         const confirmationCards = getPkmConfirmationCards(preview.cards);
         const ignoredCards = getIgnoredPkmCards(preview.cards);
 
         appendDebugEvent(debugTurnId, "pkm_tool_preview_result", {
-          model: preview.model,
-          used_fallback: preview.used_fallback,
+          model: preview.preview.model,
+          used_fallback: preview.preview.used_fallback,
           total_cards: preview.cards.length,
           confirmation_count: confirmationCards.length,
           ignored_count: ignoredCards.length,
-          preview_summary: preview.preview_summary || null,
+          preview_summary: preview.preview.preview_summary || null,
           cards: preview.cards,
         });
 
@@ -3028,83 +3002,30 @@ export function AgentChatWorkspace({
         toolEvent.callId || `${toolEvent.actionId || "unknown"}-${turnId}`;
       if (executedToolCalls.has(callKey)) return;
       if (toolEvent.execution !== "frontend" || !toolEvent.actionId) return;
-      const directiveId = toolEvent.directiveId;
-      const conversationId = toolEvent.conversationId;
-      const contextRevision = toolEvent.contextRevision;
-      if (!directiveId || !conversationId || !contextRevision) return;
-      setPendingAppAction({
-        event: toolEvent,
-        cancel: async () => {
-          if (
-            !toolEvent.directiveId ||
-            !toolEvent.conversationId ||
-            !toolEvent.contextRevision
-          ) {
-            return;
-          }
-          await cancelAgentChatAction({
-            directiveId: toolEvent.directiveId,
-            userId,
-            conversationId: toolEvent.conversationId,
-            actionId: toolEvent.actionId!,
-            contextRevision: toolEvent.contextRevision,
-            reasonCode: "user_cancelled",
-            vaultOwnerToken: token!,
-          });
-        },
-        authorize: async () => {
-          if (executedToolCalls.has(callKey)) {
-            throw new Error("This action was already consumed.");
-          }
-          const confirmation = await confirmAgentChatAction({
-            directiveId,
-            userId,
-            conversationId,
-            actionId: toolEvent.actionId!,
-            contextRevision,
-            trustedActivation: true,
-            vaultOwnerToken: token!,
-          });
-          await consumeAgentChatAction({
-            directiveId,
-            userId,
-            conversationId,
-            actionId: toolEvent.actionId!,
-            contextRevision,
-            receipt: confirmation.receipt,
-            vaultOwnerToken: token!,
-          });
-          return confirmation.receipt;
-        },
-        execute: async (receipt) => {
-          if (!receipt) {
-            throw new Error(
-              "This action needs a fresh confirmation before it can run.",
-            );
-          }
-          if (executedToolCalls.has(callKey)) {
-            throw new Error("This action was already consumed.");
-          }
-          executedToolCalls.add(callKey);
-          const result = await executeFrontendTool(toolEvent);
-          const succeeded = ["succeeded", "started", "noop"].includes(
-            result.status,
-          );
-          await settleAgentChatAction({
-            directiveId,
-            userId,
-            receipt,
-            actionId: toolEvent.actionId!,
-            contextRevision,
-            status: succeeded ? "succeeded" : "failed",
-            reasonCode: succeeded
-              ? "completed"
-              : result.reason || result.status,
-            vaultOwnerToken: token!,
-          });
-          return result;
-        },
-      });
+      const aguiResume =
+        toolEvent.raw.protocol === "ag-ui" && typeof toolEvent.raw.resume === "function"
+          ? (toolEvent.raw.resume as (status: "resolved" | "cancelled", payload?: unknown) => Promise<void>)
+          : null;
+      if (aguiResume) {
+        setPendingAppAction({
+          event: toolEvent,
+          cancel: () => aguiResume("cancelled", { reason: "user_cancelled" }),
+          authorize: async () => `agui:${toolEvent.callId}`,
+          execute: async () => {
+            if (executedToolCalls.has(callKey)) {
+              throw new Error("This action was already completed.");
+            }
+            executedToolCalls.add(callKey);
+            const result = await executeFrontendTool(toolEvent);
+            await aguiResume("resolved", {
+              status: result.status,
+              summary: result.resultSummary,
+              actionId: result.actionId,
+            });
+            return result;
+          },
+        });
+      }
     };
 
     const runPkmMemoryCapture = async (
@@ -3133,11 +3054,21 @@ export function AgentChatWorkspace({
       );
 
       try {
-        const preview = await previewAgentPkmMemory({
+        const preview = await prepareNaturalLanguagePkm({
           userId,
           message: text,
           currentDomains: pkmContext.domains,
           vaultOwnerToken: token,
+          source: "agent_chat_memory_capture",
+          onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
+            if (signal.aborted) return;
+            upsertPkmStatusMessage(
+              phase === "prepared"
+                ? `Checked ${cardCount} memory ${cardCount === 1 ? "section" : "sections"}.`
+                : `Organizing memory ${Math.min(chunkIndex + 1, chunkCount)} of ${chunkCount}…`,
+              phase === "prepared" ? "done" : "streaming",
+            );
+          },
         });
         if (signal.aborted) return;
         const cards = preview.cards;
@@ -3153,14 +3084,14 @@ export function AgentChatWorkspace({
         const ignoredCards = getIgnoredPkmCards(cards);
 
         appendDebugEvent(debugTurnId, "pkm_memory_preview_result", {
-          model: preview.model,
-          used_fallback: preview.used_fallback,
+          model: preview.preview.model,
+          used_fallback: preview.preview.used_fallback,
           total_cards: cards.length,
           auto_save_count: autoSaveCards.length,
           auto_save_enabled: pkmAutoSavePolicy.enabled,
           confirmation_count: confirmationCards.length,
           ignored_count: ignoredCards.length,
-          preview_summary: preview.preview_summary || null,
+          preview_summary: preview.preview.preview_summary || null,
           cards,
         });
 
@@ -3249,7 +3180,6 @@ export function AgentChatWorkspace({
       ];
     });
     latestVisibleTurnIdRef.current = debugTurnId;
-    setPkmActivity([]);
     setIsChatLoading(true);
     setIsStreaming(true);
 
@@ -3272,7 +3202,6 @@ export function AgentChatWorkspace({
 
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current = streamAbortController;
-    let specialistDirectiveReceived = false;
     const pkmContextStartedAt = performance.now();
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
@@ -3375,11 +3304,6 @@ export function AgentChatWorkspace({
         return;
       }
 
-      const runtimeConnection = await resolveGeminiRuntimeConnection({
-        userId,
-        vaultKey,
-        vaultOwnerToken: token,
-      });
       const streamResult = await streamAgentChat({
         userId,
         message: text,
@@ -3391,11 +3315,6 @@ export function AgentChatWorkspace({
           state: useAgentVoiceState.getState().oneVoiceState,
           lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
-        runtimeCredentialMode: runtimeConnection.mode,
-        runtimeCredential: runtimeConnection.credential,
-        runtimeCredentialTransport: runtimeConnection.transport,
-        runtimeVertexProject: runtimeConnection.vertexProject,
-        runtimeVertexLocation: runtimeConnection.vertexLocation,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
@@ -3424,6 +3343,7 @@ export function AgentChatWorkspace({
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
+            openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);
             const visibleEvent = agentToolEventToVisibleStreamEvent(
               "result",
               toolEvent,
@@ -3448,43 +3368,6 @@ export function AgentChatWorkspace({
               sources,
             }));
           },
-          onSpecialistDirective: (event) => {
-            if (streamAbortController.signal.aborted) return;
-            specialistDirectiveReceived = true;
-            // Store the directive as a pending card in the current message
-            // stream. Security-sensitive: never auto-run an "action"; require
-            // an explicit click on the rendered card.
-            appendDebugEvent(debugTurnId, "specialist_directive", event);
-            flushAssistantDelta();
-            setIsChatLoading(false);
-            setIsStreaming(false);
-            if (openGmailEmailDraftFromDirective(event, assistantMessageId)) {
-              updateMessage(assistantMessageId, (message) => ({
-                ...message,
-                text: message.text.trim() ? message.text : event.message || "",
-                status: "done",
-              }));
-              return;
-            }
-            if (getConsentActionsPayload(event)) {
-              updateMessage(assistantMessageId, (message) => ({
-                ...message,
-                text: message.text.trim() ? message.text : event.message || "",
-                status: "done",
-                specialistDirective: event,
-                streamEvents: [],
-              }));
-              return;
-            }
-            setMessages((current) =>
-              current.flatMap((message) => {
-                if (message.id !== assistantMessageId) return [message];
-                if (!message.text.trim()) return [];
-                return [{ ...message, status: "done", streamEvents: [] }];
-              }),
-            );
-            setPendingSpecialistDirective(event);
-          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
@@ -3494,7 +3377,6 @@ export function AgentChatWorkspace({
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               status: "done",
-              streamEvents: [],
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -3528,10 +3410,9 @@ export function AgentChatWorkspace({
           text:
             message.text || "I couldn't generate a response. Please try again.",
           status: "done",
-          streamEvents: [],
         };
       });
-      if (!specialistDirectiveReceived && !pkmAddToolHandled) {
+      if (!pkmAddToolHandled) {
         const pkmAbortController = new AbortController();
         pkmAbortControllersRef.current.add(pkmAbortController);
         void runPkmMemoryCapture(
@@ -3634,27 +3515,19 @@ export function AgentChatWorkspace({
     streamAbortControllerRef.current = streamAbortController;
 
     try {
-      const runtimeConnection = await resolveGeminiRuntimeConnection({
-        userId,
-        vaultKey,
-        vaultOwnerToken: token,
-      });
       const streamResult = await streamAgentChat({
         userId,
-        message: "",
+        message:
+          result.detail ||
+          result.display ||
+          `The requested action ${result.status}.`,
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
-        delegateResult: result,
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
           lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
-        runtimeCredentialMode: runtimeConnection.mode,
-        runtimeCredential: runtimeConnection.credential,
-        runtimeCredentialTransport: runtimeConnection.transport,
-        runtimeVertexProject: runtimeConnection.vertexProject,
-        runtimeVertexLocation: runtimeConnection.vertexLocation,
         signal: streamAbortController.signal,
         // Handler set is intentionally reduced. A delegate_result turn is
         // serviced by the backend delegation branch (Task 6), which never
@@ -3684,38 +3557,6 @@ export function AgentChatWorkspace({
               ...message,
               sources,
             }));
-          },
-          onSpecialistDirective: (event) => {
-            if (streamAbortController.signal.aborted) return;
-            appendDebugEvent(debugTurnId, "specialist_directive", event);
-            flushAssistantDelta();
-            setIsChatLoading(false);
-            setIsStreaming(false);
-            if (openGmailEmailDraftFromDirective(event, assistantMessageId)) {
-              updateMessage(assistantMessageId, (message) => ({
-                ...message,
-                text: message.text.trim() ? message.text : event.message || "",
-                status: "done",
-              }));
-              return;
-            }
-            if (getConsentActionsPayload(event)) {
-              updateMessage(assistantMessageId, (message) => ({
-                ...message,
-                text: message.text.trim() ? message.text : event.message || "",
-                status: "done",
-                specialistDirective: event,
-              }));
-              return;
-            }
-            setMessages((current) =>
-              current.flatMap((message) => {
-                if (message.id !== assistantMessageId) return [message];
-                if (!message.text.trim()) return [];
-                return [{ ...message, status: "done" }];
-              }),
-            );
-            setPendingSpecialistDirective(event);
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -4038,6 +3879,109 @@ export function AgentChatWorkspace({
     enqueueWorkspaceOperation(operation);
   };
 
+  const enqueueMemoryImport = (textInput: string) => {
+    const sourceText = textInput.trim();
+    if (!sourceText) return;
+    enqueueWorkspaceOperation({
+      id: `memory-import-${crypto.randomUUID()}`,
+      run: async () => {
+        const token = getVaultOwnerToken();
+        if (!user?.uid || !vaultKey || !token) {
+          toast.error("Unlock your vault before reviewing a Memory import.");
+          return;
+        }
+        const turnId = `memory-import-${Date.now()}`;
+        const assistantMessageId = `${turnId}-assistant`;
+        appendMessage({
+          id: `${turnId}-user`,
+          role: "user",
+          text: "Review this pasted profile for Memory",
+          timestamp: formatNow(),
+          status: "done",
+          ephemeral: true,
+        });
+        appendMessage({
+          id: assistantMessageId,
+          role: "assistant",
+          text: "",
+          timestamp: formatNow(),
+          status: "streaming",
+          ephemeral: true,
+          streamEvents: [{
+            id: `${turnId}-activity`,
+            label: "Memory",
+            message: "Organizing the pasted profile into reviewable sections…",
+            status: "running",
+            createdAtMs: Date.now(),
+          }],
+        });
+        setIsChatLoading(true);
+        try {
+          const context = await loadAgentPkmContext({
+            userId: user.uid,
+            message: sourceText,
+            vaultOwnerToken: token,
+            vaultKey,
+          });
+          const prepared = await prepareNaturalLanguagePkm({
+            userId: user.uid,
+            message: sourceText,
+            currentDomains: context.domains,
+            vaultOwnerToken: token,
+            source: "agent_chat_profile_import",
+            onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
+              upsertMessageStreamEvent(assistantMessageId, {
+                id: `${turnId}-activity`,
+                label: "Memory",
+                message: phase === "prepared"
+                  ? `Organized ${cardCount} sections for review.`
+                  : `Organizing section group ${Math.min(chunkIndex + 1, chunkCount)} of ${chunkCount}…`,
+                status: phase === "prepared" ? "done" : "running",
+                createdAtMs: Date.now(),
+              });
+            },
+          });
+          const reviewableCards = prepared.cards.filter(
+            (card) => !isReservedPkmCard(card) && card.write_mode !== "do_not_save",
+          );
+          if (!reviewableCards.length) {
+            throw new Error("No durable profile details were found to review.");
+          }
+          setPkmReviews((current) => [
+            ...current,
+            {
+              id: `${turnId}-review`,
+              turnId,
+              sourceMessage: sourceText,
+              cards: reviewableCards,
+              saving: false,
+            },
+          ]);
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            text: `I organized ${reviewableCards.length} memory ${reviewableCards.length === 1 ? "section" : "sections"}. Review the destination, sensitivity, and sharing posture before saving.`,
+            status: "done",
+          }));
+        } catch (error) {
+          upsertMessageStreamEvent(assistantMessageId, {
+            id: `${turnId}-activity`,
+            label: "Memory",
+            message: "The profile could not be prepared safely.",
+            status: "error",
+            createdAtMs: Date.now(),
+          });
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            text: error instanceof Error ? error.message : "The profile could not be prepared safely.",
+            status: "error",
+          }));
+        } finally {
+          setIsChatLoading(false);
+        }
+      },
+    });
+  };
+
   const editQueuedPrompt = (id: string, textInput: string) => {
     const text = textInput.trim();
     if (!text) return;
@@ -4147,7 +4091,21 @@ export function AgentChatWorkspace({
     if (!text || isLoadingHistory || isVoiceConnecting || voiceActive) return;
     setInput("");
     setComposerExpanded(false);
+    const purpose = composerPurpose;
+    setComposerPurpose(null);
+    if (purpose === "memory") {
+      enqueueMemoryImport(text);
+      return;
+    }
     enqueuePrompt(text);
+  };
+
+  const handleComposerPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = event.clipboardData.getData("text");
+    if (pasted.length >= 1_200 || pasted.split(/\r?\n/).length >= 12) {
+      setComposerPurpose("memory");
+      setComposerExpanded(true);
+    }
   };
 
   handoffPromptSubmitRef.current = async (prompt: string) => {
@@ -4206,6 +4164,11 @@ export function AgentChatWorkspace({
     () => formatAgentDisplayName(user?.displayName, user?.email),
     [user?.displayName, user?.email],
   );
+  const userAvatarUrl = useEffectiveAvatarUrl();
+  const userInitials = useMemo(() => {
+    const value = displayName === "there" ? "You" : displayName;
+    return value.slice(0, 2).toUpperCase();
+  }, [displayName]);
   const hasStartedConversation = messages.some(
     (message) => message.id !== "agent-greeting",
   );
@@ -4264,7 +4227,6 @@ export function AgentChatWorkspace({
       return;
     }
     setPkmReviews([]);
-    setPkmActivity([]);
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
@@ -4375,13 +4337,11 @@ export function AgentChatWorkspace({
   const composerActionRail = (
     <>
       {agentVoiceEnabled ? (
-        <Button
+        <ShellActionSurface
           type="button"
-          variant="ghost"
-          size="icon"
           data-native-voice-control-id="one_voice_agent_chat_start"
           data-testid="one-voice-agent-chat-start"
-          className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[color:var(--app-accent-deep)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[color:var(--app-accent-deep)]"
+          className="text-[rgba(0,0,0,0.50)] max-sm:text-[color:var(--app-accent-deep)] dark:text-zinc-400 dark:max-sm:text-[color:var(--app-accent-deep)]"
           disabled={!canToggleVoice}
           onClick={() => {
             void startConversationalVoice();
@@ -4390,17 +4350,16 @@ export function AgentChatWorkspace({
           title="Start voice mode"
         >
           <Mic className="h-4 w-4" />
-        </Button>
+        </ShellActionSurface>
       ) : null}
-      <Button
+      <ShellActionSurface
         type="submit"
-        size="icon"
-        className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:enabled:bg-[color:var(--app-accent)] max-sm:enabled:text-[color:var(--app-accent-fg)] max-sm:enabled:shadow-[var(--app-accent-ring)] max-sm:enabled:hover:bg-[color:var(--app-accent-hover)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[color:var(--app-accent)] dark:max-sm:enabled:text-[color:var(--app-accent-fg)]"
+        className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
         disabled={!canSend}
         aria-label="Send message"
       >
         <Send className="h-4 w-4" />
-      </Button>
+      </ShellActionSurface>
     </>
   );
 
@@ -4522,9 +4481,15 @@ export function AgentChatWorkspace({
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              <span className="hidden rounded-md border border-border bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
-                {statusText}
-              </span>
+              {statusText ? (
+                <span
+                  className="hidden text-xs font-medium text-muted-foreground sm:inline-flex"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {statusText}
+                </span>
+              ) : null}
               {isPopover ? (
                 <ShellActionSurface
                   variant="icon"
@@ -4596,6 +4561,8 @@ export function AgentChatWorkspace({
                   ) : (
                     <AgentBubble
                       message={message}
+                      userAvatarUrl={userAvatarUrl}
+                      userInitials={userInitials}
                       retryDisabled={isChatLoading || isStreaming}
                       onRetry={
                         message.id === latestRetryableAssistantId
@@ -4686,10 +4653,6 @@ export function AgentChatWorkspace({
                     />
                   ))}
                 </Fragment>
-              ))}
-
-              {pkmActivity.map((item) => (
-                <AgentPkmActivityLine key={item.id} item={item} />
               ))}
 
               {pkmReviews.map((review) => (
@@ -5425,6 +5388,44 @@ export function AgentChatWorkspace({
                 </div>
               ) : (
                 <>
+                  {composerPurpose ? (
+                    <div
+                      className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-soft)] px-3 py-2 text-xs"
+                      role="status"
+                      aria-live="polite"
+                      data-testid="agent-chat-paste-purpose"
+                    >
+                      <span className="font-medium text-foreground">
+                        Long paste detected — choose where it belongs.
+                      </span>
+                      <div className="inline-flex items-center gap-1 rounded-lg bg-background/70 p-1">
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md px-2.5 py-1.5 font-medium transition-colors",
+                            composerPurpose === "memory"
+                              ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => setComposerPurpose("memory")}
+                        >
+                          Review for Memory
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md px-2.5 py-1.5 font-medium transition-colors",
+                            composerPurpose === "chat"
+                              ? "bg-foreground text-background"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => setComposerPurpose("chat")}
+                        >
+                          Send as chat
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   {composerExpanded ? (
                     <div
                       data-testid="agent-chat-composer-expanded"
@@ -5436,6 +5437,7 @@ export function AgentChatWorkspace({
                         aria-label="Expanded message One"
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
+                        onPaste={handleComposerPaste}
                         onKeyDown={(event) => {
                           if (
                             event.key !== "Enter" ||
@@ -5485,6 +5487,7 @@ export function AgentChatWorkspace({
                           aria-label="Message One"
                           value={input}
                           onChange={(event) => setInput(event.target.value)}
+                          onPaste={handleComposerPaste}
                           onKeyDown={(event) => {
                             if (
                               event.key !== "Enter" ||

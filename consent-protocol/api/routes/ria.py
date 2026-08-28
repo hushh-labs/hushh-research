@@ -182,6 +182,7 @@ class RIAPicksParseRequest(BaseModel):
 class RIAPicksSyncRequest(BaseModel):
     label: str | None = Field(None, max_length=256)
     package_note: str | None = Field(None, max_length=1000)
+    investor_debate_thesis: str | None = Field(None, max_length=2000)
     top_picks: list[dict] = Field(default_factory=list, max_length=5000)
     avoid_rows: list[dict] = Field(default_factory=list, max_length=5000)
     screening_sections: list[dict] = Field(default_factory=list, max_length=100)
@@ -925,6 +926,7 @@ async def upload_ria_picks(
             firebase_uid,
             label=payload.label,
             package_note=payload.package_note,
+            investor_debate_thesis=payload.investor_debate_thesis,
             top_picks=payload.top_picks,
             avoid_rows=payload.avoid_rows,
             screening_sections=payload.screening_sections,

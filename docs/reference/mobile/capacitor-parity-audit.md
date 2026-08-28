@@ -76,6 +76,12 @@ Current inventory policy:
 
 Nested route families are classified explicitly even when they render through a shared web workspace. The profile family uses `/one/profile/<panel>` routes with the shared `native-route-profile` marker; dynamic detail identifiers remain query-backed fixtures in `native-route-inventory.json` so Capacitor static export does not require unbounded dynamic paths.
 
+The consent-aware public person surface is the narrow exception. Its sole
+product route remains `/people/[personRef]`; Capacitor emits one inert UUID
+fixture to include the dynamic client bundle, then resolves the actual opaque
+reference through the shared native-aware API transport. No public identity,
+scope metadata, grant, or plaintext value is compiled into the application.
+
 ## Browser API Policy
 
 Route-facing code must not directly own browser-only APIs when a shared wrapper should exist.

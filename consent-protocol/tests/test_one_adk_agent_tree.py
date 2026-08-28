@@ -36,6 +36,7 @@ from hushh_mcp.one_adk.action_tools import (
     _journey_slots,
     _navigation_journey_definition,
     continue_app_goal,
+    discover_person_information,
     get_location_circle_members,
     list_app_actions,
     list_location_shared_with_me,
@@ -128,6 +129,7 @@ class TestAgentTreeShape:
             "propose_calendar_event",
             "propose_calendar_reschedule",
             "propose_calendar_cancellation",
+            "discover_person_information",
         } <= tool_names
         assert "ask_connections_agent" not in tool_names
         assert "ask_gmail_agent" not in tool_names
@@ -211,6 +213,20 @@ class TestAgentTreeShape:
         assert agent.model is turn_model
         assert finance_tool.agent.model is turn_model
         assert investor_tool.agent.model is turn_model
+
+    def test_text_runtime_import_is_credential_independent_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("TESTING", "true")
+        monkeypatch.setattr(
+            _tree,
+            "build_managed_gemini_adk_model",
+            lambda *_args, **_kwargs: pytest.fail("CI collection must not resolve Vertex ADC"),
+        )
+
+        agent = build_one_text_agent()
+
+        assert agent.model == _tree._SPECIALIST_MODEL
 
     def test_byok_live_registry_rejects_models_outside_the_matrix(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1458,9 +1474,7 @@ class TestBackendDirectCheckoutNearby:
                 OneLocationNearbyPresenceService, "checkout", autospec=True
             ) as checkout_mock,
         ):
-            result = await run_app_action(
-                "location.checkout_nearby", {}, _tool_context(state)
-            )
+            result = await run_app_action("location.checkout_nearby", {}, _tool_context(state))
         assert result["status"] == "completed"
         assert "checked you out" in result["message"].lower()
         checkout_mock.assert_called_once()
@@ -2936,7 +2950,9 @@ class TestBackendDirectActionResultSubject:
             ),
             patch.object(OneLocationCircleService, "leave_circle", autospec=True),
         ):
-            await run_app_action("location.leave_circle", {"circle": "family"}, _tool_context(state))
+            await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
         assert self._parked_subject(state, "location.leave_circle") is None
 
     @pytest.mark.asyncio
@@ -3028,9 +3044,7 @@ class TestBackendDirectActionResultSubject:
             ),
             patch.object(ConnectionsService, "create_request", autospec=True),
         ):
-            await run_app_action(
-                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
-            )
+            await run_app_action("connect.send_request", {"person": "Sarah"}, _tool_context(state))
         assert self._parked_subject(state, "connect.send_request") == {"name": "Sarah Chen"}
 
     @pytest.mark.asyncio
@@ -3492,7 +3506,9 @@ class TestBackendDirectLocationReadTools:
                 OneLocationAgentService,
                 "list_active_owner_grants",
                 autospec=True,
-                side_effect=OneLocationAgentError("LOCATION_STATE_UNAVAILABLE", "Try again shortly."),
+                side_effect=OneLocationAgentError(
+                    "LOCATION_STATE_UNAVAILABLE", "Try again shortly."
+                ),
             ),
         ):
             result = await list_my_location_shares(_tool_context(state))
@@ -3552,6 +3568,86 @@ class TestBackendDirectConnectionReadTools:
         assert result["status"] == "ok"
         assert result["connections"][0]["displayName"] == "Sarah"
         assert list_mock.call_args.kwargs == {"user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_discovers_exact_opaque_scopes_for_one_connected_person(self):
+        state = self._authorized_state()
+        profile = {
+            "displayName": "Sarah Chen",
+            "relationship": {"status": "connected"},
+            "requestableScopes": [
+                {
+                    "scopeRef": "psr_opaque",
+                    "label": "Employment status",
+                    "description": "Current employment standing",
+                    "domain": "professional",
+                    "sensitivity": "confidential",
+                },
+                {
+                    "scopeRef": "psr_other",
+                    "label": "Favorite cuisine",
+                    "domain": "food",
+                    "sensitivity": "standard",
+                },
+            ],
+        }
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {
+                        "displayName": "Sarah Chen",
+                        "publicPersonRef": "11111111-1111-4111-8111-111111111111",
+                    }
+                ],
+            ),
+            patch(
+                "hushh_mcp.one_adk.action_tools.PersonProfileService.get_viewer_profile",
+                new=AsyncMock(return_value=profile),
+            ),
+        ):
+            result = await discover_person_information(
+                "Sarah", _tool_context(state), "professional"
+            )
+        assert result["status"] == "ok"
+        assert result["person"]["profilePath"].startswith("/people/")
+        assert result["requestableScopes"] == [
+            {
+                "scopeRef": "psr_opaque",
+                "label": "Employment status",
+                "description": "Current employment standing",
+                "domain": "professional",
+                "sensitivity": "confidential",
+            }
+        ]
+        assert "attr." not in str(result)
+
+    @pytest.mark.asyncio
+    async def test_information_discovery_requires_an_unambiguous_connection(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {"displayName": "Alex Kim", "publicPersonRef": "ref-1"},
+                    {"displayName": "Alex Singh", "publicPersonRef": "ref-2"},
+                ],
+            ),
+            patch(
+                "hushh_mcp.one_adk.action_tools.PersonProfileService.get_viewer_profile",
+                new=AsyncMock(),
+            ) as profile_mock,
+        ):
+            result = await discover_person_information("Alex", _tool_context(state))
+        assert result["status"] == "needs_clarification"
+        assert "Alex Kim" in result["message"]
+        profile_mock.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_list_pending_connection_requests_defaults_to_incoming(self):
@@ -4638,14 +4734,21 @@ def test_no_wired_action_is_a_dead_end_from_a_foreign_screen():
     end -- One has nothing to offer and says so, which reads as the app
     refusing to do something it can plainly do.
 
-    The allowlist is the OTP flow, and it is correct: a verification code
-    belongs to the screen showing it, and "start the code journey from
-    somewhere else" is not a thing anyone can mean.
+    The allowlist contains controls whose subject exists only in the mounted
+    screen context: OTP fields and actions phrased around "this person" on an
+    already-open profile. Cross-screen person requests use the named-person
+    Connect and information-discovery journeys instead; guessing a profile
+    reference here would be an authority bug.
     """
     from hushh_mcp.one_adk.action_tools import _reachability
     from hushh_mcp.services.action_gateway import list_action_gateway_actions
 
     SCREEN_BOUND_BY_DESIGN = {
+        "people.profile.cancel_connection_request",
+        "people.profile.connect",
+        "people.profile.manage_consent",
+        "people.profile.remove_connection",
+        "people.profile.review_information_request",
         "phone_mandate.close_country_picker",
         "phone_mandate.select_country",
         "phone_mandate.submit_code",

@@ -57,7 +57,7 @@ import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
@@ -2405,6 +2405,11 @@ export default function ConnectPageClient() {
                               connection.displayName || connection.userId
                             }
                             density="compact"
+                            onClick={
+                              connection.publicPersonRef
+                                ? () => router.push(buildPersonProfileRoute(connection.publicPersonRef!))
+                                : undefined
+                            }
                             trailing={
                               <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
                                 {pendingRemoveId === connection.connectionId ? (
@@ -2420,9 +2425,10 @@ export default function ConnectPageClient() {
                                       disabled={
                                         busyId === connection.connectionId
                                       }
-                                      onClick={() =>
-                                        void handleRemove(connection)
-                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void handleRemove(connection);
+                                      }}
                                     >
                                       {busyId === connection.connectionId
                                         ? "Removing…"
@@ -2439,7 +2445,10 @@ export default function ConnectPageClient() {
                                       disabled={
                                         busyId === connection.connectionId
                                       }
-                                      onClick={() => setPendingRemoveId(null)}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setPendingRemoveId(null);
+                                      }}
                                     >
                                       Cancel
                                     </Button>
@@ -2450,11 +2459,12 @@ export default function ConnectPageClient() {
                                     variant="none"
                                     effect="fade"
                                     size="sm"
-                                    onClick={() =>
+                                    onClick={(event) => {
+                                      event.stopPropagation();
                                       setPendingRemoveId(
                                         connection.connectionId,
-                                      )
-                                    }
+                                      );
+                                    }}
                                     aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
                                     className={cn(
                                       CONNECT_INLINE_BUTTON_CLASSNAME,
@@ -2772,6 +2782,11 @@ export default function ConnectPageClient() {
                                   ) : undefined
                                 }
                                 density="compact"
+                                onClick={
+                                  !isSelectionMode && person.publicPersonRef
+                                    ? () => router.push(buildPersonProfileRoute(person.publicPersonRef!))
+                                    : undefined
+                                }
                                 trailing={
                                   isSelectionMode ? (
                                     // A disabled checkbox alone said nothing about WHY.
@@ -2867,9 +2882,10 @@ export default function ConnectPageClient() {
                                       )}
                                       loading={busyId === person.userId}
                                       aria-label={`Cancel your request to ${title}`}
-                                      onClick={() =>
-                                        void cancelConnectionRequest(person)
-                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void cancelConnectionRequest(person);
+                                      }}
                                     >
                                       {busyId === person.userId ? (
                                         <Loader2
@@ -2893,7 +2909,10 @@ export default function ConnectPageClient() {
                                       disabled={
                                         cta.disabled || busyId === person.userId
                                       }
-                                      onClick={() => void handleConnect(person)}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void handleConnect(person);
+                                      }}
                                     >
                                       {busyId === person.userId
                                         ? "Sending..."
