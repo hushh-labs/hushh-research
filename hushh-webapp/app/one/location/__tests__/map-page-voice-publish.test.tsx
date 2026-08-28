@@ -56,6 +56,7 @@ describe("Location map page publishes voice metadata", () => {
     const actionIds = metadata.actions.map((action) => action.actionId).sort();
     expect(actionIds).toEqual(
       [
+        "location.checkout_nearby",
         "location.confirm_nearby_check_in",
         "location.nearby_check_in",
         "location.open_check_in",
