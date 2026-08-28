@@ -32,10 +32,14 @@ import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import {
+  MAP_CONSENT_HEADER_CLASSNAME,
+  MAP_CONSENT_ICON_CLASSNAME,
   MAP_CONSENT_PANEL_BOTTOM_PADDING,
   MAP_CONSENT_PANEL_CLASSNAME,
+  MAP_CONSENT_SUPPORTING_CLASSNAME,
   MAP_CONSENT_SUPPORTING_LINE,
   MAP_CONSENT_TITLE,
+  MAP_CONSENT_TITLE_CLASSNAME,
   MAP_RENDERER_CLASSNAME,
   MAP_SURFACE_CLASSNAME,
 } from "@/components/one-location/map-consent-panel-layout";
@@ -2912,8 +2916,23 @@ export function LocationImmersiveMap({
           data-testid="one-location-map-disclosure"
           style={{ paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING }}
         >
-          <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-          <h1 className="mt-3 text-xl font-semibold">{MAP_CONSENT_TITLE}</h1>
+          {/* One row. The pin used to sit alone above the heading with `mt-3`
+              under it -- a small outline glyph stranded in the corner of the
+              sheet, then the title on the next line. The geometry is in
+              `map-consent-panel-layout.ts` so this and the browser layout spec
+              measure the same strings; the colours stay here because the
+              fixture must not compile theme tokens. */}
+          <div
+            className={MAP_CONSENT_HEADER_CLASSNAME}
+            data-testid="one-location-map-disclosure-header"
+          >
+            <MapPin
+              aria-hidden
+              strokeWidth={2.25}
+              className={`${MAP_CONSENT_ICON_CLASSNAME} text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]`}
+            />
+            <h1 className={MAP_CONSENT_TITLE_CLASSNAME}>{MAP_CONSENT_TITLE}</h1>
+          </div>
           {/*
             This is the renderer-consent gate: accepting it writes
             GOOGLE_MAPS_RENDERER_CONSENT_VERSION. That record is unchanged —
@@ -2938,7 +2957,10 @@ export function LocationImmersiveMap({
             has to grow again, it belongs on Location Settings beside the other
             one, not back in this paragraph.
           */}
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          <p
+            className={`${MAP_CONSENT_SUPPORTING_CLASSNAME} text-muted-foreground`}
+            data-testid="map-consent-support"
+          >
             {MAP_CONSENT_SUPPORTING_LINE}
           </p>
           <Button

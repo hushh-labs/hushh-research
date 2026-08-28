@@ -64,6 +64,48 @@ export const MAP_CONSENT_PANEL_DIALOG_MIN_WIDTH_PX = 768;
 export const MAP_CONSENT_PANEL_DIALOG_WIDTH_PX = 430;
 
 /**
+ * The pin and the title, on one line.
+ *
+ * Reported on the first-run view: the icon sat on its own line above the
+ * heading (`<MapPin class="h-6 w-6">` then `<h1 class="mt-3 …">`), which left a
+ * small thin glyph stranded in the panel's top-left corner with 12px of empty
+ * sheet under it and the heading below that. Two stacked leading elements for
+ * one four-word title read as a layout that lost a row rather than a header.
+ *
+ * They are one row now. `items-center` rather than `items-baseline`: the pin is
+ * a symbol, not a letterform, and baseline-aligning a glyph whose visual mass
+ * hangs below its own baseline pushed it low against the cap line.
+ *
+ * `mt-3` is gone with the stack, so the supporting line's `mt-2` is now
+ * measured from the header row. The panel is sized by its content and is
+ * therefore about a row shorter, which the layout spec spends on map.
+ *
+ * Split into three exported strings rather than one because the icon and the
+ * heading also carry theme classes the fixture must not compile -- see the
+ * note at the top of this file.
+ */
+export const MAP_CONSENT_HEADER_CLASSNAME = "flex items-center gap-2.5";
+
+/** The pin. `shrink-0` so a narrow sheet squeezes the title, never the glyph. */
+export const MAP_CONSENT_ICON_CLASSNAME = "h-6 w-6 shrink-0";
+
+/**
+ * The heading.
+ *
+ * `mt-3` removed. `text-xl font-semibold` is kept verbatim and is deliberately
+ * inert in the app: `app/globals.css` locks every `h1` to the foundation
+ * title-1 token with `!important`, so this pair only has an effect in the
+ * layout fixture, which compiles utilities without the app's base layer. It
+ * stays so the fixture measures a heading of a plausible size instead of a UA
+ * default, and so removing the global lock later does not silently drop this
+ * screen's heading to body copy.
+ */
+export const MAP_CONSENT_TITLE_CLASSNAME = "text-xl font-semibold";
+
+/** The supporting line, still one rendered line at 320px. */
+export const MAP_CONSENT_SUPPORTING_CLASSNAME = "mt-2 text-sm leading-6";
+
+/**
  * The only two strings under the title.
  *
  * Exported so the copy contract test asserts the shipped constant rather than a
