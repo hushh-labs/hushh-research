@@ -249,6 +249,10 @@ class TestRIAPicksSyncRequest:
         with pytest.raises(ValidationError):
             RIAPicksSyncRequest(package_note="n" * 1001)
 
+    def test_investor_debate_thesis_too_long_raises(self):
+        with pytest.raises(ValidationError):
+            RIAPicksSyncRequest(investor_debate_thesis="n" * 2001)
+
 
 # ---------------------------------------------------------------------------
 # RIAInviteTarget

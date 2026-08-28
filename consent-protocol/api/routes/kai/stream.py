@@ -456,12 +456,16 @@ async def _merge_ria_pick_package_context(
     normalized_screening = _normalize_advisor_screening_criteria(screening_sections)
     if normalized_screening:
         merged_context["screening_criteria"] = normalized_screening
+    investor_debate_thesis = str(package.get("investor_debate_thesis") or "").strip()[:2000]
     merged_context["advisor_pick_package"] = {
         "source": normalized_source,
         "top_picks_count": len(top_rows) if isinstance(top_rows, list) else 0,
         "avoid_count": len(avoid_rows) if isinstance(avoid_rows, list) else 0,
         "screening_section_count": len(normalized_screening),
         "package_note": package.get("package_note") if isinstance(package, dict) else None,
+        # This remains in the live, authorized run context only. Do not add it
+        # to source lineage, run checkpoints, event payloads, or history.
+        "investor_debate_thesis": investor_debate_thesis or None,
     }
     return merged_context
 

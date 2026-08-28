@@ -867,7 +867,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # It fired once per barge-in, not once per directive -- there
                 # is a single call site and the browser only sends `interrupt`
                 # from its own speech-over-playback path.
-                await websocket.send_text(_safe_json_dumps({"serverContent": {"interrupted": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"interrupted": True}})
+                )
                 continue
             if message.get("type") == "app_context" or "appContext" in message:
                 context_payload = message.get("appContext")
@@ -1548,7 +1550,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             close_reason = "unknown_tool_call"
             logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
             await websocket.send_text(
-                _safe_json_dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
+                _safe_json_dumps(
+                    {"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}}
+                )
             )
             return
         except Exception as runtime_error:  # noqa: BLE001 - the browser must be told
@@ -1611,10 +1615,14 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 time_left = getattr(go_away, "time_left", None)
                 logger.info("one_adk_live_go_away time_left=%s", str(time_left)[:32])
                 await websocket.send_text(
-                    _safe_json_dumps({"goAway": {"timeLeft": str(time_left) if time_left else None}})
+                    _safe_json_dumps(
+                        {"goAway": {"timeLeft": str(time_left) if time_left else None}}
+                    )
                 )
             if getattr(event, "interrupted", False):
-                await websocket.send_text(_safe_json_dumps({"serverContent": {"interrupted": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"interrupted": True}})
+                )
             input_tx = getattr(event, "input_transcription", None)
             if input_tx is not None and getattr(input_tx, "text", None):
                 if not getattr(event, "partial", False):
@@ -1861,7 +1869,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
             if getattr(event, "turn_complete", False):
                 turn_count += 1
-                await websocket.send_text(_safe_json_dumps({"serverContent": {"turnComplete": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"turnComplete": True}})
+                )
 
     up = asyncio.create_task(pump_browser_to_queue())
     down = asyncio.create_task(pump_events_to_browser())

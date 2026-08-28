@@ -189,6 +189,11 @@ class RateLimits:
     # Agent chat - moderate limit
     AGENT_CHAT = "30/minute"  # noqa: S105
 
+    # Public person identity is intentionally tiny, but it is also an anonymous
+    # lookup surface. Keep it below directory browse rates so opaque-reference
+    # guessing cannot become a high-throughput identity oracle.
+    PUBLIC_PERSON_PROFILE_READ = "30/minute"  # noqa: S105
+
     # Human-entered Circle codes are deliberately short enough to type. Keep
     # resolve/join attempts in their own authenticated-user bucket so guessing
     # cannot consume unrelated consent budgets. RATE_LIMIT_STORAGE_URI remains

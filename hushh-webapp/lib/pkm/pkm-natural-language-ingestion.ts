@@ -9,7 +9,8 @@ import {
 } from "@/lib/agent/agent-pkm-memory";
 import type { PkmWriteAuthorization } from "@/lib/personal-knowledge-model/mutation-plan";
 
-const MAX_PROPOSAL_MESSAGE_CHARS = 10_000;
+const MAX_PROPOSAL_MESSAGE_CHARS = 6_000;
+const MAX_STRUCTURED_SECTIONS_PER_CHUNK = 6;
 const MIN_RETRY_CHUNK_CHARS = 96;
 const MAX_PROPOSAL_CHUNKS = 32;
 
@@ -18,6 +19,21 @@ export type PkmNaturalLanguageIngestionResult = {
   previews: AgentPkmPreviewResponse[];
   chunkCount: number;
   save: AgentPkmSaveResult;
+};
+
+export type PkmNaturalLanguagePreparationResult = {
+  preview: AgentPkmPreviewResponse;
+  previews: AgentPkmPreviewResponse[];
+  cards: AgentPkmPreviewCard[];
+  chunkCount: number;
+  ingestionId: string;
+};
+
+export type PkmNaturalLanguagePreparationProgress = {
+  phase: "preparing" | "splitting" | "prepared";
+  chunkIndex: number;
+  chunkCount: number;
+  cardCount: number;
 };
 
 type PkmIngestionLogFields = {
@@ -63,6 +79,51 @@ function splitText(text: string, maximumLength: number): string[] {
   return chunks.filter(Boolean);
 }
 
+function splitStructuredText(text: string): string[] {
+  const lines = text.trim().split(/\r?\n/);
+  const sections: string[] = [];
+  let current: string[] = [];
+  const beginsSection = (line: string) =>
+    /^\s*(?:#{1,6}\s+|\d{1,3}[.)]\s+\S)/.test(line);
+  for (const line of lines) {
+    if (beginsSection(line) && current.some((item) => item.trim())) {
+      sections.push(current.join("\n").trim());
+      current = [];
+    }
+    current.push(line);
+  }
+  if (current.some((item) => item.trim())) sections.push(current.join("\n").trim());
+  if (sections.length <= 1) return splitText(text, MAX_PROPOSAL_MESSAGE_CHARS);
+
+  const chunks: string[] = [];
+  let pending: string[] = [];
+  let pendingLength = 0;
+  const flush = () => {
+    if (!pending.length) return;
+    chunks.push(pending.join("\n\n").trim());
+    pending = [];
+    pendingLength = 0;
+  };
+  for (const section of sections) {
+    if (section.length > MAX_PROPOSAL_MESSAGE_CHARS) {
+      flush();
+      chunks.push(...splitText(section, MAX_PROPOSAL_MESSAGE_CHARS));
+      continue;
+    }
+    const nextLength = pendingLength + (pending.length ? 2 : 0) + section.length;
+    if (
+      pending.length >= MAX_STRUCTURED_SECTIONS_PER_CHUNK ||
+      nextLength > MAX_PROPOSAL_MESSAGE_CHARS
+    ) {
+      flush();
+    }
+    pending.push(section);
+    pendingLength += (pending.length > 1 ? 2 : 0) + section.length;
+  }
+  flush();
+  return chunks;
+}
+
 function splitRecommendedPreview(preview: AgentPkmPreviewResponse): boolean {
   return preview.preview_summary?.split_recommended === true;
 }
@@ -78,15 +139,14 @@ function splitRecommendedPreview(preview: AgentPkmPreviewResponse): boolean {
  * Structured writers must not call this. They already have a typed domain
  * contract and must not send decrypted domain data back through an LLM.
  */
-export async function ingestNaturalLanguagePkm(params: {
+export async function prepareNaturalLanguagePkm(params: {
   userId: string;
   message: string;
   currentDomains: string[];
-  vaultKey: string;
   vaultOwnerToken: string;
   source: string;
-  confirmation: PkmWriteAuthorization;
-}): Promise<PkmNaturalLanguageIngestionResult> {
+  onProgress?: (progress: PkmNaturalLanguagePreparationProgress) => void;
+}): Promise<PkmNaturalLanguagePreparationResult> {
   const message = params.message.trim();
   if (!message) {
     throw new Error("A memory import needs some text to process.");
@@ -94,7 +154,11 @@ export async function ingestNaturalLanguagePkm(params: {
 
   const ingestionId = createIngestionId();
   const startedAt = performance.now();
-  const queue = splitText(message, MAX_PROPOSAL_MESSAGE_CHARS);
+  // Structured exports from other assistants commonly arrive as numbered or
+  // Markdown sections. Preserve every line while packing a bounded number of
+  // sections into each semantic-agent call, so the agent's eight-card limit
+  // cannot silently swallow the tail of a large profile import.
+  const queue = splitStructuredText(message);
   const previews: AgentPkmPreviewResponse[] = [];
   const cards: AgentPkmPreviewCard[] = [];
   logIngestion("started", {
@@ -102,6 +166,12 @@ export async function ingestNaturalLanguagePkm(params: {
     source: params.source,
     chunk_count: queue.length,
     message_chars: message.length,
+  });
+  params.onProgress?.({
+    phase: "preparing",
+    chunkIndex: 0,
+    chunkCount: queue.length,
+    cardCount: 0,
   });
 
   for (let index = 0; index < queue.length; index += 1) {
@@ -134,6 +204,12 @@ export async function ingestNaturalLanguagePkm(params: {
         chunk_index: index + 2,
         message_chars: chunk.length,
       });
+      params.onProgress?.({
+        phase: "splitting",
+        chunkIndex: Math.max(0, index),
+        chunkCount: queue.length,
+        cardCount: cards.length,
+      });
       continue;
     }
     previews.push(preview);
@@ -150,15 +226,50 @@ export async function ingestNaturalLanguagePkm(params: {
       message_chars: chunk.length,
       card_count: preview.cards.length,
     });
+    params.onProgress?.({
+      phase: "preparing",
+      chunkIndex: index + 1,
+      chunkCount: queue.length,
+      cardCount: cards.length,
+    });
   }
 
   if (cards.length === 0 || previews.length === 0) {
     throw new Error("We couldn't find saveable personal details in this import.");
   }
 
+  params.onProgress?.({
+    phase: "prepared",
+    chunkIndex: previews.length,
+    chunkCount: previews.length,
+    cardCount: cards.length,
+  });
+  return {
+    preview: previews[0]!,
+    previews,
+    cards,
+    chunkCount: previews.length,
+    ingestionId,
+  };
+}
+
+export async function ingestNaturalLanguagePkm(params: {
+  userId: string;
+  message: string;
+  currentDomains: string[];
+  vaultKey: string;
+  vaultOwnerToken: string;
+  source: string;
+  confirmation: PkmWriteAuthorization;
+  onProgress?: (progress: PkmNaturalLanguagePreparationProgress) => void;
+}): Promise<PkmNaturalLanguageIngestionResult> {
+  const startedAt = performance.now();
+  const prepared = await prepareNaturalLanguagePkm(params);
+  const message = params.message.trim();
+
   const save = await addToPKM({
     userId: params.userId,
-    cards,
+    cards: prepared.cards,
     sourceMessage: message,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
@@ -166,14 +277,19 @@ export async function ingestNaturalLanguagePkm(params: {
     confirmation: params.confirmation,
   });
   logIngestion("completed", {
-    ingestion_id: ingestionId,
+    ingestion_id: prepared.ingestionId,
     source: params.source,
-    chunk_count: previews.length,
-    card_count: cards.length,
+    chunk_count: prepared.previews.length,
+    card_count: prepared.cards.length,
     saved: save.saved,
     failed: save.failed,
     duration_ms: Math.round(performance.now() - startedAt),
   });
 
-  return { preview: previews[0]!, previews, chunkCount: previews.length, save };
+  return {
+    preview: prepared.preview,
+    previews: prepared.previews,
+    chunkCount: prepared.chunkCount,
+    save,
+  };
 }

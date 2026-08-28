@@ -1,5 +1,6 @@
-import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import { ApiService } from "@/lib/services/api-service";
+import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 
 export type AgentChatMessage = {
   id: string;
@@ -63,48 +64,12 @@ export type AgentChatStreamHandlers = {
   onToken?: (token: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onError?: (message: string) => void;
-  onSpecialistDirective?: (event: SpecialistDirectiveEvent) => void;
   onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
 };
 
-// A fresh Agent runtime may need to resolve the vault-backed runtime contract
-// and prepare the first persisted turn before FastAPI can open the SSE
-// response. The Next proxy permits this route for two minutes; keep the
-// browser-side guard finite, but do not reject a healthy cold start at 10s.
-const SSE_OPEN_TIMEOUT_MS = 45_000;
-const SSE_FIRST_MEANINGFUL_TIMEOUT_MS = 25_000;
-const SSE_INACTIVITY_TIMEOUT_MS = 45_000;
-
-async function openAgentChatStream(
-  opener: (signal: AbortSignal) => Promise<Response>,
-  externalSignal?: AbortSignal,
-): Promise<Response> {
-  const controller = new AbortController();
-  const abortFromCaller = () => controller.abort(externalSignal?.reason);
-  externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        controller.abort("agent_chat_open_timeout");
-        reject(new Error("Agent chat did not open in time. Please retry."));
-      }, SSE_OPEN_TIMEOUT_MS);
-    });
-    return await Promise.race([opener(controller.signal), timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-    externalSignal?.removeEventListener("abort", abortFromCaller);
-  }
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function parseJsonPayload(data: string): Record<string, unknown> {
-  const parsed = JSON.parse(data) as unknown;
-  return asRecord(parsed) || {};
 }
 
 function readString(record: Record<string, unknown>, key: string): string {
@@ -112,11 +77,10 @@ function readString(record: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function readRecord(record: Record<string, unknown>, key: string): Record<string, unknown> {
-  return asRecord(record[key]) || {};
-}
+const GENERIC_AGENT_CHAT_ERROR =
+  "One couldn't complete that response. Please try again.";
 
-function formatAgentChatErrorMessage(message: string, code?: string): string {
+export function formatAgentChatErrorMessage(message: string, code?: string): string {
   if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
     return "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini.";
   }
@@ -132,7 +96,14 @@ function formatAgentChatErrorMessage(message: string, code?: string): string {
   if (code === "AGENT_RUNTIME_EMPTY_RESPONSE") {
     return "One did not receive a response from the configured model. Please try again.";
   }
-  return message || "Agent chat failed. Please try again.";
+  if (code === "DATABASE_UNAVAILABLE" || code === "DATABASE_EXECUTION_ERROR") {
+    return "One's conversation history is temporarily unavailable. Please try again.";
+  }
+  // AG-UI RunErrorEvent.message may be derived from str(exception). Database
+  // drivers append SQL and bound values there, so unknown runtime text is
+  // never consumer-safe. Only explicitly mapped codes cross this boundary.
+  void message;
+  return GENERIC_AGENT_CHAT_ERROR;
 }
 
 function resolveBrowserTimeZone(): string | undefined {
@@ -144,83 +115,6 @@ function resolveBrowserTimeZone(): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEvent {
-  return {
-    callId: readString(payload, "call_id"),
-    directiveId: readString(payload, "directive_id") || null,
-    conversationId: readString(payload, "conversation_id") || null,
-    contextRevision: readString(payload, "context_revision") || null,
-    expiresAt: readString(payload, "expires_at") || null,
-    actionId: readString(payload, "action_id") || null,
-    label: readString(payload, "label"),
-    execution: readString(payload, "execution"),
-    slots: readRecord(payload, "slots"),
-    message: readString(payload, "message"),
-    reason: readString(payload, "reason") || null,
-    status: readString(payload, "status") || undefined,
-    requiresConfirmation: payload.requires_confirmation === true,
-    trustedActivationRequired: payload.trusted_activation_required === true,
-    raw: payload,
-  };
-}
-
-export async function confirmAgentChatAction(input: {
-  directiveId: string;
-  userId: string;
-  conversationId: string;
-  actionId: string;
-  contextRevision: string;
-  trustedActivation: true;
-  vaultOwnerToken: string;
-}): Promise<{ receipt: string; expiresAt: string }> {
-  const response = await ApiService.confirmAgentChatAction(input);
-  if (!response.ok) throw new Error(await readError(response));
-  const payload = (await response.json()) as { receipt: string; expires_at: string };
-  return { receipt: payload.receipt, expiresAt: payload.expires_at };
-}
-
-export async function consumeAgentChatAction(input: {
-  directiveId: string;
-  userId: string;
-  conversationId: string;
-  actionId: string;
-  contextRevision: string;
-  receipt: string;
-  vaultOwnerToken: string;
-}): Promise<void> {
-  const response = await ApiService.consumeAgentChatAction(input);
-  if (!response.ok) throw new Error(await readError(response));
-}
-
-export async function cancelAgentChatAction(input: {
-  directiveId: string;
-  userId: string;
-  conversationId: string;
-  actionId: string;
-  contextRevision: string;
-  reasonCode: string;
-  vaultOwnerToken: string;
-}): Promise<void> {
-  const response = await ApiService.cancelAgentChatAction(input);
-  if (!response.ok) throw new Error(await readError(response));
-}
-
-export async function settleAgentChatAction(input: {
-  directiveId: string;
-  userId: string;
-  receipt: string;
-  actionId: string;
-  contextRevision: string;
-  status: "succeeded" | "failed" | "cancelled";
-  reasonCode: string;
-  routeAfter?: string | null;
-  screenAfter?: string | null;
-  vaultOwnerToken: string;
-}): Promise<void> {
-  const response = await ApiService.settleAgentChatAction(input);
-  if (!response.ok) throw new Error(await readError(response));
 }
 
 async function readError(response: Response): Promise<string> {
@@ -245,236 +139,129 @@ export async function streamAgentChat(input: {
   vaultOwnerToken: string;
   pkmContext?: string;
   screenContext?: Record<string, unknown> | null;
-  runtimeCredential?: string | null;
-  runtimeCredentialMode?: string | null;
-  runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
-  runtimeVertexProject?: string | null;
-  runtimeVertexLocation?: string | null;
-  delegateAgentId?: string | null;
-  delegateResult?: Record<string, unknown>;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   const timezone = resolveBrowserTimeZone();
-  const response = await openAgentChatStream((signal) => ApiService.streamAgentChat({
-    userId: input.userId,
-    message: input.message,
-    conversationId: input.conversationId || undefined,
-    vaultOwnerToken: input.vaultOwnerToken,
-    pkmContext: input.pkmContext,
-    screenContext: input.screenContext,
-    ...(timezone ? { timezone } : {}),
-    runtimeCredential: input.runtimeCredential,
-    runtimeCredentialMode: input.runtimeCredentialMode,
-    runtimeCredentialTransport: input.runtimeCredentialTransport,
-    runtimeVertexProject: input.runtimeVertexProject,
-    runtimeVertexLocation: input.runtimeVertexLocation,
-    delegateAgentId: input.delegateAgentId,
-    delegateResult: input.delegateResult,
-    signal,
-  }), input.signal);
-
-  return consumeAgentChatStream(response, input.handlers ?? {}, { signal: input.signal });
-}
-
-/**
- * Shared SSE consumer for the Agent chat event protocol (start / token /
- * tool_* / complete / error). Used by both the vault-gated full chat and the
- * pre-vault informational chat, which speak the exact same wire protocol.
- */
-export async function consumeAgentChatStream(
-  response: Response,
-  handlers: AgentChatStreamHandlers,
-  options?: {
-    signal?: AbortSignal;
-    inactivityTimeoutMs?: number;
-    firstMeaningfulTimeoutMs?: number;
-  }
-): Promise<{ conversationId: string | null; model: string | null; text: string }> {
-  if (!response.ok) {
-    throw new Error(await readError(response));
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new Error("Agent chat stream did not include a response body.");
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let conversationId = response.headers.get("X-Agent-Conversation-Id");
-  let model = response.headers.get("X-Agent-Model");
+  const threadId = input.conversationId || crypto.randomUUID();
+  const handlers = input.handlers ?? {};
+  const availableActionIds = (() => {
+    const screen = input.screenContext || {};
+    const nested = asRecord(screen.one_voice_context);
+    const raw = nested?.available_action_ids ?? screen.available_action_ids;
+    return Array.isArray(raw) ? raw.filter((value): value is string => typeof value === "string") : [];
+  })();
+  const tools: Tool[] = availableActionIds.flatMap((actionId) => {
+    const action = getKaiActionById(actionId);
+    if (!action) return [];
+    const encoded = btoa(unescape(encodeURIComponent(actionId)))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/g, "");
+    return [{
+      name: `hussh_action_${encoded}`,
+      description: `${action.label}: ${action.meaning}`,
+      parameters: action.goal?.slot_schema || { type: "object", properties: {}, additionalProperties: false },
+      metadata: { actionId },
+    }];
+  });
+  const agent = new HttpAgent({
+    url: "/api/one/agent-chat",
+    threadId,
+    headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+    initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
+    fetch: (_url, init) => ApiService.apiFetchStream("/api/one/agent-chat", init),
+  });
   let text = "";
-  let streamError: string | null = null;
-
-  const handleFrame = (event: string, data: string): boolean => {
-    let payload: Record<string, unknown>;
-    try {
-      payload = parseJsonPayload(data);
-    } catch {
-      streamError = "Agent chat stream returned malformed information. Please retry.";
-      handlers?.onError?.(streamError);
-      return true;
-    }
-    if (event === "start") {
-      conversationId = readString(payload, "conversation_id") || conversationId;
-      model = readString(payload, "model") || model;
-      handlers?.onStart?.({
-        conversationId: conversationId || "",
-        model: model || undefined,
-      });
-      // The backend only emits `start` after it has authenticated the request,
-      // resolved the runtime, and prepared the conversation. It is therefore
-      // meaningful liveness, even if model token generation starts later.
-      return true;
-    }
-    if (event === "token") {
-      const token = readString(payload, "token");
-      if (token) {
-        text += token;
-        handlers?.onToken?.(token);
-      }
-      return Boolean(readString(payload, "token"));
-    }
-    if (event === "thought") {
-      const thought = readString(payload, "text");
-      if (thought) handlers?.onThought?.(thought);
-      return true;
-    }
-    if (event === "tool_start") {
-      handlers?.onToolStart?.(normalizeToolEvent(payload));
-      return true;
-    }
-    if (event === "tool_waiting") {
-      handlers?.onToolWaiting?.(normalizeToolEvent(payload));
-      return true;
-    }
-    if (event === "tool_result") {
-      handlers?.onToolResult?.(normalizeToolEvent(payload));
-      return true;
-    }
-    if (event === "complete") {
-      conversationId = readString(payload, "conversation_id") || conversationId;
-      model = readString(payload, "model") || model;
-      handlers?.onComplete?.({
-        conversationId: conversationId || "",
-        model: model || undefined,
-      });
-      return true;
-    }
-    if (event === "error") {
-      streamError = formatAgentChatErrorMessage(
-        readString(payload, "message"),
-        readString(payload, "code") || undefined
-      );
-      handlers?.onError?.(streamError);
-      return true;
-    }
-    if (event === "specialist_directive") {
-      const p = payload as Record<string, unknown>;
-      const directive = (p.directive ?? {}) as Record<string, unknown>;
-      handlers?.onSpecialistDirective?.({
-        delegateAgentId: String(p.delegate_agent_id ?? ""),
-        directive: {
-          kind: (directive.kind === "prompt" ? "prompt" : "action"),
-          payload: (directive.payload ?? {}) as Record<string, unknown>,
+  let failure: Error | null = null;
+  const toolNames = new Map<string, string>();
+  const interruptsByToolCall = new Map<string, string>();
+  const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
+    const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
+    const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
+    return {
+      callId,
+      directiveId: null,
+      conversationId: threadId,
+      contextRevision: null,
+      expiresAt: null,
+      actionId: typeof actionId === "string" ? actionId : null,
+      label: action?.label || name,
+      execution: "frontend",
+      slots: args,
+      message: action?.meaning || "One requested an app action.",
+      requiresConfirmation: action?.execution_policy === "confirm_required",
+      trustedActivationRequired: action?.activation_policy === "trusted_activation_required",
+      raw: {
+        protocol: "ag-ui",
+        toolName: name,
+        args,
+        resume: async (status: "resolved" | "cancelled", payload?: unknown) => {
+          const interruptId = interruptsByToolCall.get(callId);
+          if (!interruptId) throw new Error("This Agent One action is no longer resumable.");
+          await agent.runAgent({
+            tools,
+            context: [],
+            forwardedProps: {
+              timezone,
+              pkmContext: input.pkmContext,
+              screenContext: input.screenContext,
+            },
+            resume: [{ interruptId, status, payload }],
+          }, subscriber);
         },
-        message: String(p.message ?? ""),
-        stateChanged: Boolean(p.state_changed),
-      });
-      return true;
-    }
-    if (event === "sources") {
-      const raw = Array.isArray(payload.sources) ? payload.sources : [];
-      const sources: AgentSource[] = raw
-        .map((entry) => asRecord(entry))
-        .filter((r): r is Record<string, unknown> => r !== null)
-        .map((r) => ({
-          agentId: readString(r, "agent_id"),
-          label: readString(r, "label"),
-          reason: readString(r, "reason"),
-        }));
-      handlers?.onSources?.(sources);
-      return true;
-    }
-    return false;
+      },
+    };
   };
-
-  const inactivityTimeoutMs = options?.inactivityTimeoutMs ?? SSE_INACTIVITY_TIMEOUT_MS;
-  const firstMeaningfulTimeoutMs =
-    options?.firstMeaningfulTimeoutMs ?? SSE_FIRST_MEANINGFUL_TIMEOUT_MS;
-  const firstMeaningfulDeadline = Date.now() + firstMeaningfulTimeoutMs;
-  let sawMeaningfulEvent = false;
-
-  // Race each read against an inactivity deadline so a silently dead connection
-  // rejects instead of hanging the UI indefinitely. The watchdog is reset on
-  // every chunk by virtue of being re-armed for the next read.
-  const readWithWatchdog = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<never>((_, reject) => {
-      const waitMs = sawMeaningfulEvent
-        ? inactivityTimeoutMs
-        : Math.max(0, firstMeaningfulDeadline - Date.now());
-      timer = setTimeout(() => {
-        reject(
-          new Error(
-            sawMeaningfulEvent
-              ? "Agent chat stream stalled. Please try again."
-              : "One did not respond in time. Please retry.",
-          ),
-        );
-      }, waitMs);
-    });
-    try {
-      return await Promise.race([reader.read(), timeout]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+  const subscriber: AgentSubscriber = {
+    onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
+    onTextMessageContentEvent: ({ event }) => {
+      text += event.delta;
+      handlers.onToken?.(event.delta);
+    },
+    onReasoningMessageContentEvent: ({ event }) => handlers.onThought?.(event.delta),
+    onToolCallStartEvent: ({ event }) => {
+      toolNames.set(event.toolCallId, event.toolCallName);
+      handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
+    },
+    onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) =>
+      handlers.onToolWaiting?.(toolPayload(event.toolCallId, toolCallName, toolCallArgs)),
+    onToolCallResultEvent: ({ event }) =>
+      handlers.onToolResult?.(toolPayload(event.toolCallId, toolNames.get(event.toolCallId) || "")),
+    onRunFinishedEvent: (params) => {
+      if (params.outcome === "interrupt") {
+        for (const interrupt of params.interrupts) {
+          if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
+        }
+      }
+      handlers.onComplete?.({ conversationId: threadId });
+    },
+    onRunErrorEvent: ({ event }) => {
+      failure = new Error(formatAgentChatErrorMessage(event.message || ""));
+      handlers.onError?.(failure.message);
+    },
+    onRunFailed: ({ error }) => {
+      failure = new Error(formatAgentChatErrorMessage(error.message || ""));
+      handlers.onError?.(failure.message);
+    },
   };
-
-  while (true) {
-    if (options?.signal?.aborted) {
-      await reader.cancel();
-      throw new DOMException("Aborted", "AbortError");
-    }
-
-    let result: ReadableStreamReadResult<Uint8Array>;
-    try {
-      result = await readWithWatchdog();
-    } catch (error) {
-      await reader.cancel().catch(() => undefined);
-      throw error;
-    }
-    const { done, value } = result;
-    if (done) break;
-    const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), buffer);
-    buffer = parsed.remainder;
-    for (const frame of parsed.events) {
-      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
-    }
+  const abort = () => agent.abortRun();
+  input.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    await agent.runAgent({
+      tools,
+      context: [],
+      forwardedProps: {
+        timezone,
+        pkmContext: input.pkmContext,
+        screenContext: input.screenContext,
+      },
+    }, subscriber);
+  } finally {
+    input.signal?.removeEventListener("abort", abort);
   }
-
-  const flushed = decoder.decode();
-  if (flushed) {
-    const parsed = parseSSEBlocks(flushed, buffer);
-    buffer = parsed.remainder;
-    for (const frame of parsed.events) {
-      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
-    }
-  }
-
-  if (buffer.trim()) {
-    const parsed = parseSSEBlocks("\n\n", buffer);
-    for (const frame of parsed.events) {
-      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
-    }
-  }
-
-  if (streamError) {
-    throw new Error(streamError);
-  }
-
-  return { conversationId, model, text };
+  if (failure) throw failure;
+  return { conversationId: threadId, model: null, text };
 }
 
 /**
@@ -490,12 +277,46 @@ export async function streamAgentIntro(input: {
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
-  const response = await openAgentChatStream((signal) => ApiService.streamAgentIntro({
-    message: input.message,
-    screenContext: input.screenContext,
-    signal,
-  }), input.signal);
-  return consumeAgentChatStream(response, input.handlers ?? {}, { signal: input.signal });
+  const threadId = crypto.randomUUID();
+  const handlers = input.handlers ?? {};
+  const agent = new HttpAgent({
+    url: "/api/one/agent-chat",
+    threadId,
+    initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
+    fetch: (_url, init) => ApiService.apiFetchStream("/api/one/agent-chat", init),
+  });
+  let text = "";
+  let failure: Error | null = null;
+  const subscriber: AgentSubscriber = {
+    onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
+    onTextMessageContentEvent: ({ event }) => {
+      text += event.delta;
+      handlers.onToken?.(event.delta);
+    },
+    onReasoningMessageContentEvent: ({ event }) => handlers.onThought?.(event.delta),
+    onRunFinishedEvent: () => handlers.onComplete?.({ conversationId: threadId }),
+    onRunErrorEvent: ({ event }) => {
+      failure = new Error(formatAgentChatErrorMessage(event.message || ""));
+      handlers.onError?.(failure.message);
+    },
+    onRunFailed: ({ error }) => {
+      failure = new Error(formatAgentChatErrorMessage(error.message || ""));
+      handlers.onError?.(failure.message);
+    },
+  };
+  const abort = () => agent.abortRun();
+  input.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    await agent.runAgent({
+      tools: [],
+      context: [],
+      forwardedProps: { screenContext: input.screenContext, timezone: resolveBrowserTimeZone() },
+    }, subscriber);
+  } finally {
+    input.signal?.removeEventListener("abort", abort);
+  }
+  if (failure) throw failure;
+  return { conversationId: threadId, model: null, text };
 }
 
 export async function listAgentChatConversations(input: {

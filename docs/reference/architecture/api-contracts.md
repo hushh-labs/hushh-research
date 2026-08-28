@@ -445,7 +445,7 @@ auth-required response.
 | GET    | `/api/ria/clients/{investor_user_id}`                      | Advisor-facing relationship detail, including explicit scoped grants                                                                                                                                   |
 | GET    | `/api/ria/workspace/{investor_user_id}`                    | Advisor workspace over investor-consented data plus relationship-share status                                                                                                                          |
 | GET    | `/api/ria/picks`                                           | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable                                                                                        |
-| POST   | `/api/ria/picks`                                           | Sync an already encrypted `ria.advisor_package` projection to currently authorized explicit Picks share artifacts                                                                                      |
+| POST   | `/api/ria/picks`                                           | Sync the owner PKM-derived `ria.advisor_package`, including its bounded investor debate thesis, to currently authorized explicit Picks share artifacts; the thesis is available only to a selected investor source during a live debate run |
 | GET    | `/api/kai/market/insights/{user_id}`                       | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata                                                                                                            |
 | GET    | `/api/one/connections/directory`                           | Paginated, privacy-filtered Connect directory; display-name search only, with masked email/phone labels when available so same-name candidates remain distinguishable without exposing raw identifiers |
 | GET    | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal                                                                                                                       |
@@ -560,16 +560,17 @@ activated only after its declared MCP tools and operation response contracts
 pass; CRUD descriptors additionally pass an isolated create/read/update/read/
 delete/absent lifecycle with cleanup.
 
-#### Kai Chat
+#### Kai Chat and Agent One AG-UI
 
 | Method | Path                                                  | Description                                                                                                                                                   |
 | ------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/kai/chat`                                       | Conversational Kai endpoint                                                                                                                                   |
-| POST   | `/api/kai/agent/chat/stream`                          | Gemini-backed Agent text chat SSE stream; emits `token` plus live `tool_start` / `tool_waiting` / `tool_result` events and stores encrypted text history only |
-| GET    | `/api/kai/agent/chat/conversations/{user_id}`         | List recent encrypted Agent chat conversations for the vault owner                                                                                            |
-| PATCH  | `/api/kai/agent/chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
-| DELETE | `/api/kai/agent/chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages                                                                      |
-| GET    | `/api/kai/agent/chat/history/{conversation_id}`       | Read decrypted Agent chat history for the authenticated conversation owner                                                                                    |
+| POST   | `/api/one/agent-chat`                                 | Canonical AG-UI `RunAgentInput` endpoint; emits only official run, text, reasoning, tool, state, interrupt, and terminal events; authenticated ADK sessions are encrypted at rest |
+| GET    | `/api/one/agent-chat/capabilities`                    | Official AG-UI capability projection for the request's authenticated or pre-vault runtime tier                                                                       |
+| GET    | `/api/one/agent-chat/conversations/{user_id}`         | List recent encrypted Agent chat conversations for the vault owner                                                                                            |
+| PATCH  | `/api/one/agent-chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
+| DELETE | `/api/one/agent-chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages                                                                      |
+| GET    | `/api/one/agent-chat/history/{conversation_id}`       | Read decrypted Agent chat history for the authenticated conversation owner                                                                                    |
 | POST   | `/api/one/adk/relay-session`                          | Mint a short-lived opaque One ADK live relay ticket over HTTPS so Firebase bearer tokens are not placed in WebSocket URLs                                     |
 | WS     | `/api/one/adk/live`                                   | One ADK live relay WebSocket; bridges the browser wire envelope onto `Runner.run_live` (the only full-duplex voice transport)                                 |
 | GET    | `/api/kai/chat/history/{conversation_id}`             | Conversation history                                                                                                                                          |

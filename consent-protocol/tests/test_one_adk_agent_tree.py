@@ -36,6 +36,7 @@ from hushh_mcp.one_adk.action_tools import (
     _journey_slots,
     _navigation_journey_definition,
     continue_app_goal,
+    discover_person_information,
     get_location_circle_members,
     list_app_actions,
     list_location_shared_with_me,
@@ -128,6 +129,7 @@ class TestAgentTreeShape:
             "propose_calendar_event",
             "propose_calendar_reschedule",
             "propose_calendar_cancellation",
+            "discover_person_information",
         } <= tool_names
         assert "ask_connections_agent" not in tool_names
         assert "ask_gmail_agent" not in tool_names
@@ -1458,9 +1460,7 @@ class TestBackendDirectCheckoutNearby:
                 OneLocationNearbyPresenceService, "checkout", autospec=True
             ) as checkout_mock,
         ):
-            result = await run_app_action(
-                "location.checkout_nearby", {}, _tool_context(state)
-            )
+            result = await run_app_action("location.checkout_nearby", {}, _tool_context(state))
         assert result["status"] == "completed"
         assert "checked you out" in result["message"].lower()
         checkout_mock.assert_called_once()
@@ -2936,7 +2936,9 @@ class TestBackendDirectActionResultSubject:
             ),
             patch.object(OneLocationCircleService, "leave_circle", autospec=True),
         ):
-            await run_app_action("location.leave_circle", {"circle": "family"}, _tool_context(state))
+            await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
         assert self._parked_subject(state, "location.leave_circle") is None
 
     @pytest.mark.asyncio
@@ -3028,9 +3030,7 @@ class TestBackendDirectActionResultSubject:
             ),
             patch.object(ConnectionsService, "create_request", autospec=True),
         ):
-            await run_app_action(
-                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
-            )
+            await run_app_action("connect.send_request", {"person": "Sarah"}, _tool_context(state))
         assert self._parked_subject(state, "connect.send_request") == {"name": "Sarah Chen"}
 
     @pytest.mark.asyncio
@@ -3492,7 +3492,9 @@ class TestBackendDirectLocationReadTools:
                 OneLocationAgentService,
                 "list_active_owner_grants",
                 autospec=True,
-                side_effect=OneLocationAgentError("LOCATION_STATE_UNAVAILABLE", "Try again shortly."),
+                side_effect=OneLocationAgentError(
+                    "LOCATION_STATE_UNAVAILABLE", "Try again shortly."
+                ),
             ),
         ):
             result = await list_my_location_shares(_tool_context(state))
@@ -3552,6 +3554,86 @@ class TestBackendDirectConnectionReadTools:
         assert result["status"] == "ok"
         assert result["connections"][0]["displayName"] == "Sarah"
         assert list_mock.call_args.kwargs == {"user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_discovers_exact_opaque_scopes_for_one_connected_person(self):
+        state = self._authorized_state()
+        profile = {
+            "displayName": "Sarah Chen",
+            "relationship": {"status": "connected"},
+            "requestableScopes": [
+                {
+                    "scopeRef": "psr_opaque",
+                    "label": "Employment status",
+                    "description": "Current employment standing",
+                    "domain": "professional",
+                    "sensitivity": "confidential",
+                },
+                {
+                    "scopeRef": "psr_other",
+                    "label": "Favorite cuisine",
+                    "domain": "food",
+                    "sensitivity": "standard",
+                },
+            ],
+        }
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {
+                        "displayName": "Sarah Chen",
+                        "publicPersonRef": "11111111-1111-4111-8111-111111111111",
+                    }
+                ],
+            ),
+            patch(
+                "hushh_mcp.one_adk.action_tools.PersonProfileService.get_viewer_profile",
+                new=AsyncMock(return_value=profile),
+            ),
+        ):
+            result = await discover_person_information(
+                "Sarah", _tool_context(state), "professional"
+            )
+        assert result["status"] == "ok"
+        assert result["person"]["profilePath"].startswith("/people/")
+        assert result["requestableScopes"] == [
+            {
+                "scopeRef": "psr_opaque",
+                "label": "Employment status",
+                "description": "Current employment standing",
+                "domain": "professional",
+                "sensitivity": "confidential",
+            }
+        ]
+        assert "attr." not in str(result)
+
+    @pytest.mark.asyncio
+    async def test_information_discovery_requires_an_unambiguous_connection(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {"displayName": "Alex Kim", "publicPersonRef": "ref-1"},
+                    {"displayName": "Alex Singh", "publicPersonRef": "ref-2"},
+                ],
+            ),
+            patch(
+                "hushh_mcp.one_adk.action_tools.PersonProfileService.get_viewer_profile",
+                new=AsyncMock(),
+            ) as profile_mock,
+        ):
+            result = await discover_person_information("Alex", _tool_context(state))
+        assert result["status"] == "needs_clarification"
+        assert "Alex Kim" in result["message"]
+        profile_mock.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_list_pending_connection_requests_defaults_to_incoming(self):

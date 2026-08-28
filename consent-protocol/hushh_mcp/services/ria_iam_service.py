@@ -6645,10 +6645,18 @@ class RIAIAMService:
         avoid_rows: list[dict[str, Any]],
         screening_sections: list[dict[str, Any]],
         package_note: str | None,
+        investor_debate_thesis: str | None,
     ) -> dict[str, Any]:
+        normalized_investor_debate_thesis = str(investor_debate_thesis or "").strip()
+        if len(normalized_investor_debate_thesis) > 2000:
+            raise RIAIAMPolicyError(
+                "Investor debate context must be 2,000 characters or fewer",
+                status_code=400,
+            )
         return {
             "package_version": 1,
             "package_note": str(package_note or "").strip() or None,
+            "investor_debate_thesis": normalized_investor_debate_thesis or None,
             "avoid_rows": avoid_rows,
             "screening_sections": screening_sections,
         }
@@ -6662,6 +6670,7 @@ class RIAIAMService:
                 {"section": section_key, "rows": []} for section_key in _RIA_SCREENING_SECTION_ORDER
             ],
             "package_note": None,
+            "investor_debate_thesis": None,
         }
 
     def _normalize_pick_package(
@@ -6671,6 +6680,7 @@ class RIAIAMService:
         avoid_rows: list[dict[str, Any]],
         screening_sections: list[dict[str, Any]],
         package_note: str | None,
+        investor_debate_thesis: str | None,
     ) -> dict[str, Any]:
         normalized_top_picks = self._normalize_top_pick_rows(top_picks)
         normalized_avoid_rows = self._normalize_avoid_rows(
@@ -6686,6 +6696,7 @@ class RIAIAMService:
                 avoid_rows=normalized_avoid_rows,
                 screening_sections=normalized_screening_sections,
                 package_note=package_note,
+                investor_debate_thesis=investor_debate_thesis,
             ),
         }
 
@@ -6702,6 +6713,7 @@ class RIAIAMService:
             raw_screening_sections if isinstance(raw_screening_sections, list) else []
         )
         package_note = str(metadata.get("package_note") or "").strip() or None
+        investor_debate_thesis = str(metadata.get("investor_debate_thesis") or "").strip() or None
         normalized_sections = [
             {
                 "section": str(section.get("section") or section.get("key") or "").strip(),
@@ -6723,6 +6735,7 @@ class RIAIAMService:
             "avoid_rows": [dict(row) for row in avoid_rows if isinstance(row, dict)],
             "screening_sections": normalized_sections,
             "package_note": package_note,
+            "investor_debate_thesis": investor_debate_thesis,
         }
 
     @staticmethod
@@ -6745,11 +6758,13 @@ class RIAIAMService:
         avoid_rows = package.get("avoid_rows")
         screening_sections = package.get("screening_sections")
         package_note = str(package.get("package_note") or "").strip()
+        investor_debate_thesis = str(package.get("investor_debate_thesis") or "").strip()
         return bool(
             (isinstance(top_picks, list) and len(top_picks) > 0)
             or (isinstance(avoid_rows, list) and len(avoid_rows) > 0)
             or self._count_screening_rows(screening_sections) > 0
             or package_note
+            or investor_debate_thesis
         )
 
     def _build_pick_package_projection(self, package: dict[str, Any]) -> dict[str, Any]:
@@ -6758,6 +6773,9 @@ class RIAIAMService:
             avoid_rows=self._coerce_package_rows(package.get("avoid_rows")),
             screening_sections=self._coerce_package_rows(package.get("screening_sections")),
             package_note=str(package.get("package_note") or "").strip() or None,
+            investor_debate_thesis=(
+                str(package.get("investor_debate_thesis") or "").strip() or None
+            ),
         )
         return self._normalize_pick_package_response(
             normalized["top_picks"],
@@ -7065,6 +7083,7 @@ class RIAIAMService:
         *,
         label: str | None,
         package_note: str | None,
+        investor_debate_thesis: str | None,
         top_picks: list[dict[str, Any]] | None,
         avoid_rows: list[dict[str, Any]] | None,
         screening_sections: list[dict[str, Any]] | None,
@@ -7077,6 +7096,7 @@ class RIAIAMService:
                 "avoid_rows": self._coerce_package_rows(avoid_rows),
                 "screening_sections": self._coerce_package_rows(screening_sections),
                 "package_note": package_note,
+                "investor_debate_thesis": investor_debate_thesis,
             }
         )
         conn = await self._conn()
@@ -7156,6 +7176,7 @@ class RIAIAMService:
             avoid_rows=self._coerce_package_rows(avoid_rows),
             screening_sections=self._coerce_package_rows(screening_sections),
             package_note=package_note,
+            investor_debate_thesis=None,
         )
         return self._normalize_pick_package_response(
             package["top_picks"],

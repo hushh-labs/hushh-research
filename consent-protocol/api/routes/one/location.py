@@ -731,11 +731,7 @@ def get_location_sos_voice_preference(
     full bulk fetch.
     """
     try:
-        return {
-            "preference": _service().get_sos_voice_preference(
-                user_id=_user_id(token_data)
-            )
-        }
+        return {"preference": _service().get_sos_voice_preference(user_id=_user_id(token_data))}
     except Exception as exc:
         raise _handle_error(exc) from exc
 

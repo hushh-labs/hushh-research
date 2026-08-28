@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 181,
+  "expected_migration_version": 185,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -56,8 +56,44 @@
       "contact_sync_consent_enabled_at",
       "contact_sync_consent_rule_version",
       "contact_sync_consent_contract_version",
+      "public_person_ref",
+      "public_profile_status",
       "created_at",
       "updated_at"
+    ],
+    "one_adk_sessions": [
+      "app_name",
+      "user_id",
+      "session_id",
+      "payload_ciphertext",
+      "payload_iv",
+      "payload_tag",
+      "payload_algorithm",
+      "revision",
+      "created_at",
+      "updated_at"
+    ],
+    "one_information_request_bundles": [
+      "bundle_id",
+      "requester_user_id",
+      "subject_user_id",
+      "requester_principal",
+      "idempotency_hash",
+      "request_fingerprint",
+      "purpose",
+      "duration_seconds",
+      "connector_key_id",
+      "created_at",
+      "cancelled_at"
+    ],
+    "one_information_request_items": [
+      "bundle_id",
+      "request_id",
+      "scope_ref",
+      "scope",
+      "label",
+      "sensitivity",
+      "created_at"
     ],
     "actor_identity_cache": [
       "user_id",
