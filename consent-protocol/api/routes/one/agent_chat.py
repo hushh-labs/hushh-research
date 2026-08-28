@@ -239,7 +239,7 @@ async def conversation_history(
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    messages = []
+    messages: list[dict[str, object]] = []
     for event in session.events:
         text = _event_text(event)
         if not text or event.author not in {"user", "one"}:
