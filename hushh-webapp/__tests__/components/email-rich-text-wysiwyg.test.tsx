@@ -80,7 +80,7 @@ describe("EmailRichTextPreview Dual-Mode Rendering", () => {
 
   it("renders untouched AI Markdown draft via parseBlocks without regression", () => {
     const markdownValue = "## Meeting Summary\n\n- Discussed Q3 budget\n- Approved campaign";
-    const { container } = render(<EmailRichTextPreview value={markdownValue} />);
+    render(<EmailRichTextPreview value={markdownValue} />);
 
     // 1. Confirms heading level 2
     const h2El = screen.getByRole("heading", { level: 2 });
