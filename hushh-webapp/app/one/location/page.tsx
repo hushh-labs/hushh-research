@@ -85,7 +85,8 @@ import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
 } from "@/lib/voice/voice-action-card";
-import { getKaiActionById, listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -630,17 +631,6 @@ export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
  * Every id here exists in `page.voice-action-contract.json`; nothing describes
  * a capability the gateway does not carry.
  */
-// location.checkout_nearby is wired in the generated gateway but has no
-// useLocalOnboardingActionHandler registration anywhere -- its own UI button
-// calls OneLocationService.checkoutNearby() directly, bypassing the voice
-// path entirely. Publishing it would offer something that always fails,
-// which is worse than not offering it. Excluded until it has a real handler
-// (tracked separately); every other exclusion below is enforced by the
-// filter, not a second hand-list to keep in sync.
-const LOCATION_VOICE_ACTIONS_EXCLUDE_IDS = new Set<string>([
-  "location.checkout_nearby",
-]);
-
 // Derived from the generated action gateway, not hand-typed. This used to be
 // a manually maintained list and it drifted out of sync with the real,
 // contract-authored action set three times -- once documented below, twice
@@ -649,32 +639,18 @@ const LOCATION_VOICE_ACTIONS_EXCLUDE_IDS = new Set<string>([
 // deriving it means a new Location action becomes reachable the moment it is
 // added to the contract, with no second edit to forget.
 //
+// The derivation itself (including the location.checkout_nearby exclusion --
+// it has no useLocalOnboardingActionHandler registration anywhere, so
+// publishing it would offer something guaranteed to fail) lives in
+// lib/voice/location-voice-actions.ts, shared with the map and check-in
+// routes so the exclusion has exactly one home instead of one per screen.
+//
 // prioritizeAvailableActionIds still ranks and caps this exactly as before
 // (route actions are cap-exempt; local handlers compete for the 14-slot
 // cap and lose ties to whichever SUBVIEW_ACTION_BOOST entry matches the
 // current subview) -- this only changes what becomes a CANDIDATE, not how
 // candidates are ranked once the list is bigger.
-export const LOCATION_VOICE_ACTIONS = listKaiActionsForSurface({
-  screen: "one_location",
-})
-  .filter(
-    (action) =>
-      action.execution_target.status === "wired" &&
-      (action.execution_target.path === "local_handler" ||
-        action.execution_target.path === "route") &&
-      action.execution_policy !== "manual_only" &&
-      !LOCATION_VOICE_ACTIONS_EXCLUDE_IDS.has(action.action_id),
-  )
-  .map((action) => ({
-    id: action.action_id,
-    actionId: action.action_id,
-    label: action.label,
-    // First sentence only: the contract's `meaning` is full multi-sentence
-    // prose written for the model's semantic assessment, not a short
-    // one-liner. This field is consumed as a terse purpose string elsewhere
-    // in this surface's metadata, matching the previous hand-written style.
-    purpose: action.meaning.split(/(?<=[.!?])\s/)[0] || action.meaning,
-  }));
+export const LOCATION_VOICE_ACTIONS = deriveLocationVoiceActions("one_location");
 
 const LOCATION_VOICE_CONTROLS = [
   {
@@ -9743,6 +9719,27 @@ export function OneLocationAgentPageContent({
     void refresh().catch(() => null);
     return { status: "succeeded", summary: "Location refreshed." };
   });
+  // Wired in the generated gateway as execution_target.path: "control" -- a
+  // dropdown item the person taps directly, not a route or a distinct
+  // local_handler-named function. handleSyncContactSignal already catches
+  // its own failures internally (a device permission denial, a browser
+  // blocking the Contact Picker without a direct tap) and reports them
+  // through a toast + contactSignal error state, never throwing -- a voice
+  // trigger degrades the same way a keyboard-activated tap already would,
+  // not a new failure mode.
+  useLocalOnboardingActionHandler("location.find_contacts", async () => {
+    if (!auth.user?.getIdToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Sign in before syncing contacts.",
+      };
+    }
+    await handleSyncContactSignal();
+    return {
+      status: "started" as const,
+      summary: "Checking your contacts against Hushh.",
+    };
+  });
   const showInitialSkeleton =
     !loadError &&
     !state &&
@@ -13084,6 +13081,12 @@ export function OneLocationAgentPageContent({
           onLocateMe={locateMeForSavedLocation}
           onPickExactLocation={handlePickExactSavedLocation}
           startWithMapPicker
+          // This is a STEP of onboarding, not a sheet over a screen. Without
+          // it the surface sat at z-600/601 under a takeover that has since
+          // moved to z-[9000], and what showed above it was the app's back
+          // arrow, avatar and Now / People / Links strip -- navigation that
+          // does nothing yet, over a step nobody has finished.
+          takeover
           collectAddressDetails
           deferredUntilVault={!vaultKey || !vaultOwnerToken}
           initialAccuracyM={saveLocationPoint?.accuracyM}

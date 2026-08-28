@@ -15,6 +15,8 @@ import {
   SHEET_HEADER_CLASSNAME,
   SHEET_LAYOUT_WIDTHS,
   SHEET_SURFACE_CLASSNAME,
+  SHEET_TAKEOVER_DETAILS_TOP_CLASSNAME,
+  SHEET_TAKEOVER_SURFACE_CLASSNAME,
 } from "../components/one-location/onboarding/save-location-sheet-layout";
 
 /**
@@ -41,7 +43,9 @@ import {
  */
 
 /** Compile just the utilities this fixture uses, with the real Tailwind. */
-async function buildFixture(): Promise<string> {
+async function buildFixture({
+  takeover = false,
+}: { takeover?: boolean } = {}): Promise<string> {
   // Playwright runs from the webapp root (its config lives there).
   const webappRoot = process.cwd();
   const { compile } = (await import(
@@ -73,9 +77,18 @@ async function buildFixture(): Promise<string> {
   // components/ui/sheet.tsx, plus the surface contract this sheet adds on top.
   // Hand-writing a `max-w-[420px]` here is exactly what the fixture used to do,
   // which is why it measured a floating card and reported it as correct.
-  const sheetPositioning =
-    "fixed inset-x-0 bottom-[var(--kb-height,0px)] h-auto flex min-h-0 flex-col rounded-t-[24px] border-t";
-  const shell = `${sheetPositioning} ${SHEET_SURFACE_CLASSNAME}`;
+  //
+  // The takeover lane drops the rounded top edge and the top border because
+  // tailwind-merge removes them in the app: `rounded-none` and `border-0` from
+  // `SHEET_TAKEOVER_SURFACE_CLASSNAME` land in the same merge groups. This
+  // fixture concatenates raw strings, so leaving them in would measure a
+  // cascade the app never renders.
+  const sheetPositioning = takeover
+    ? "fixed inset-x-0 bottom-[var(--kb-height,0px)] h-auto flex min-h-0 flex-col"
+    : "fixed inset-x-0 bottom-[var(--kb-height,0px)] h-auto flex min-h-0 flex-col rounded-t-[24px] border-t";
+  const shell = takeover
+    ? `${sheetPositioning} ${SHEET_TAKEOVER_SURFACE_CLASSNAME} ${SHEET_TAKEOVER_DETAILS_TOP_CLASSNAME}`
+    : `${sheetPositioning} ${SHEET_SURFACE_CLASSNAME}`;
   const row = "flex items-center gap-2";
   const button = "relative flex h-9 w-9 shrink-0 items-center justify-center";
   const title =
@@ -416,5 +429,61 @@ test.describe("Save-location address sheet layout", () => {
     });
     // Anything under 255 and the field behind it shows through the button.
     expect(alpha).toBe(255);
+  });
+});
+
+/**
+ * The same surface as an onboarding STEP.
+ *
+ * QA photographed the pin step with the app's back arrow, avatar and the
+ * Now / People / Links strip sitting above it: "onboarding screen mein yeh nav
+ * bar dikhna hi nahi chahiye". A bottom sheet capped at 92% of the screen can
+ * never cover the top 8%, and that 8% is where the app's chrome lives.
+ *
+ * This is the half a class assertion cannot reach. The JSDOM sibling proves
+ * the surface renders `max-h-none` and `top-0`; only a browser can prove that
+ * the box those produce actually starts at y=0 -- and the first attempt did
+ * NOT, because tailwind-merge could not parse the 92% cap and left both
+ * classes standing.
+ */
+test.describe("Save-location surface as an onboarding takeover", () => {
+  for (const width of SHEET_FULL_BLEED_WIDTHS) {
+    test(`covers the whole screen at ${width}px`, async ({ page }) => {
+      const height = 844;
+      await page.setViewportSize({ width, height });
+      await page.goto(await buildFixture({ takeover: true }));
+      await awaitProductFont(page);
+
+      const surface = await boxOf(page, "save-location-modal");
+
+      // Nothing of the app is left showing above it.
+      expect(surface.y, `top edge at ${width}px`).toBeLessThanOrEqual(0.5);
+      expect(surface.height, `height at ${width}px`).toBeGreaterThanOrEqual(
+        height - 0.5,
+      );
+      // Still full-bleed, as the bottom sheet already was.
+      expect(surface.x).toBeLessThanOrEqual(0.5);
+      expect(surface.width).toBeGreaterThanOrEqual(width - 0.5);
+    });
+  }
+
+  test("the bottom sheet it replaces really did leave the top showing", async ({
+    page,
+  }) => {
+    // Mutation check. Without it the assertions above could be passing on a
+    // rule incapable of failing -- and this is the exact gap QA photographed.
+    const height = 844;
+    await page.setViewportSize({ width: 390, height });
+    await page.goto(await buildFixture());
+    await awaitProductFont(page);
+
+    const surface = await boxOf(page, "save-location-modal");
+
+    // 92% of 844 is 776, so ~68px of app chrome stayed visible above it.
+    expect(
+      surface.y,
+      "the shipped sheet started well below the top of the screen",
+    ).toBeGreaterThan(32);
+    expect(surface.height).toBeLessThan(height);
   });
 });

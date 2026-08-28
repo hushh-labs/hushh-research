@@ -171,6 +171,7 @@ export function SettingsGroup({
   title,
   titleAction,
   description,
+  toolbar,
   children,
   embedded = false,
   separatorInset,
@@ -197,6 +198,17 @@ export function SettingsGroup({
    */
   titleAction?: ReactNode;
   description?: ReactNode;
+  /**
+   * A control that acts on THIS group's rows -- a search field over the list
+   * it filters, for instance. It sits between the heading and the card, so the
+   * heading that names the list and the sentence explaining how to use it are
+   * both read before the control they describe. Placed above the heading, the
+   * field arrived before anything had said what it searched, and the
+   * supporting line ("Search by name.") ended up UNDER the box it was
+   * instructing -- pointing backwards at a control the reader had already
+   * passed.
+   */
+  toolbar?: ReactNode;
   children: ReactNode;
   embedded?: boolean;
   /**
@@ -272,6 +284,19 @@ export function SettingsGroup({
             // 320px.
             <div className="shrink-0">{titleAction}</div>
           ) : null}
+        </div>
+      ) : null}
+      {toolbar ? (
+        <div
+          data-slot="settings-group-toolbar"
+          className={cn(
+            "mb-3",
+            // Without a heading above it there is no `mt-7` to sit under, so
+            // the control would hug whatever preceded the group.
+            !(eyebrow || title || description) && "mt-7",
+          )}
+        >
+          {toolbar}
         </div>
       ) : null}
       {shell}

@@ -23,7 +23,19 @@ export type KaiActionDelegateAgentId =
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
-      path: "kai_command" | "voice_tool" | "route" | "local_handler";
+      path:
+        | "kai_command"
+        | "voice_tool"
+        | "route"
+        | "local_handler"
+        // A UI control the person taps directly (a menu item, a segmented
+        // toggle) rather than a named route or local_handler function.
+        // agent-action-runtime.ts's executor already dispatches this the
+        // same way as local_handler -- it falls through to the same
+        // resolveLocalOnboardingHandler registry for any path that isn't
+        // explicitly "route" -- so a real handler registered under the
+        // action id is all a "control" action needs to actually run.
+        | "control";
       target: string;
       params?: Record<string, unknown>;
     }
@@ -285,7 +297,8 @@ function validateExecutionTarget(
       (path !== "kai_command" &&
         path !== "voice_tool" &&
         path !== "route" &&
-        path !== "local_handler") ||
+        path !== "local_handler" &&
+        path !== "control") ||
       !target
     ) {
       return null;

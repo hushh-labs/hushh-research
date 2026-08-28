@@ -80,6 +80,11 @@ import {
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 import {
+  CONNECT_PAGER_BUTTON_CLASSNAME,
+  CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
+  CONNECT_PAGER_ROW_CLASSNAME,
+  CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME,
+  CONNECT_PAGE_STATUS_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
   CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
@@ -309,8 +314,6 @@ const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 const CONNECT_ROW_ACTION_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
-const CONNECT_PAGER_BUTTON_CLASSNAME =
-  "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 const CONNECT_REFRESH_BUTTON_CLASSNAME =
@@ -2500,120 +2503,6 @@ export default function ConnectPageClient() {
                     ) : null}
 
                     <div className="space-y-4">
-                      {/* No `w-full` here any more, and it is load-bearing: this row
-                  bleeds to the page gutters with a negative inline margin, and
-                  `width: 100%` resolves against the text column, so the margin
-                  only slid the row 16px left instead of widening it. A block
-                  flex container fills its containing block on its own, and with
-                  `auto` the margins can do their job. `cn` is tailwind-merge, so
-                  a later `w-full` would have beaten anything the constant said.
-                  Held by e2e/connect-sticky-header.layout.spec.ts. */}
-                      <div
-                        data-testid="connect-search-row"
-                        className={cn(
-                          CONNECT_STICKY_SEARCH_CLASSNAME,
-                          "flex items-center gap-2",
-                        )}
-                      >
-                        <div className="relative flex-1">
-                          <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
-                            <SearchIcon className="h-4.5 w-4.5" />
-                          </span>
-                          <Input
-                            ref={searchInputRef}
-                            type="text"
-                            value={query}
-                            onChange={(event) => setQuery(event.target.value)}
-                            placeholder={CONNECT_SEARCH_PLACEHOLDER}
-                            aria-label="Search people"
-                            data-voice-control-id="one-connect-search"
-                            className={cn(
-                              CONNECT_SEARCH_INPUT_CLASSNAME,
-                              query
-                                ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
-                                : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
-                            )}
-                            enterKeyHint="search"
-                            onKeyDown={(event) => {
-                              // iOS soft-keyboard "return" must dismiss the keyboard;
-                              // blurring the field is what actually closes it in the
-                              // Capacitor webview (there is no form submit here).
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                event.currentTarget.blur();
-                              }
-                            }}
-                            onFocus={(event) => {
-                              // Keyboard-dismiss "on drag": the first scroll/drag while
-                              // the field is focused blurs it, so an open keyboard never
-                              // locks the results out of view. Scoped to this field's
-                              // focus lifecycle and cleaned up on blur.
-                              const field = event.currentTarget;
-                              // Scroll the field into view above the on-screen keyboard.
-                              // Tapping it otherwise leaves it hidden behind the keyboard
-                              // until the user manually scrolls up. The delay lets the
-                              // keyboard animate in so the shrunken viewport is measured.
-                              window.setTimeout(() => {
-                                field.scrollIntoView({
-                                  block: "center",
-                                  behavior: "smooth",
-                                });
-                              }, 300);
-                              const dismiss = () => field.blur();
-                              window.addEventListener("touchmove", dismiss, {
-                                passive: true,
-                                once: true,
-                              });
-                              field.addEventListener(
-                                "blur",
-                                () =>
-                                  window.removeEventListener(
-                                    "touchmove",
-                                    dismiss,
-                                  ),
-                                { once: true },
-                              );
-                            }}
-                          />
-                          {query ? (
-                            <button
-                              type="button"
-                              aria-label="Clear search"
-                              onClick={() => {
-                                setQuery("");
-                                searchInputRef.current?.focus();
-                              }}
-                              className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
-                            >
-                              <X className="h-5 w-5" strokeWidth={2.4} />
-                            </button>
-                          ) : null}
-                        </div>
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fill"
-                          size="sm"
-                          className={CONNECT_SELECT_TOGGLE_CLASSNAME}
-                          disabled={loading || people.length === 0}
-                          aria-label={
-                            isSelectionMode
-                              ? "Cancel selecting people"
-                              : "Select many people"
-                          }
-                          onClick={() => {
-                            setIsSelectionMode((current) => !current);
-                            setSelectedPeople(new Map());
-                            setShowLimitBanner(false);
-                          }}
-                        >
-                          {/* "Select many", not "Select": this enters multi-select,
-                      and a lone "Select" reads as picking the one thing you are
-                      looking at. The visible label and the accessible name now
-                      say the same thing. */}
-                          {isSelectionMode ? "Cancel" : "Select many"}
-                        </Button>
-                      </div>
                       <SettingsGroup
                         title={CONNECT_TAB_LABEL[tab]}
                         // People only. This one JSX node also renders the RIAs
@@ -2667,6 +2556,129 @@ export default function ConnectPageClient() {
                           )
                         }
                         separatorInset
+                        // The search row belongs to THIS list, so it is read after
+                        // the heading that names the list -- not before it. It used
+                        // to sit above "People", which put the sentence that
+                        // instructs it ("Search by name.") underneath the box it
+                        // instructs, and gave the reader a field before anything on
+                        // screen had said what it searched. It still pins under the
+                        // tab strips on scroll; it just no longer arrives first.
+                        toolbar={
+                        /* No `w-full` here any more, and it is load-bearing: this row
+                    bleeds to the page gutters with a negative inline margin, and
+                    `width: 100%` resolves against the text column, so the margin
+                    only slid the row 16px left instead of widening it. A block
+                    flex container fills its containing block on its own, and with
+                    `auto` the margins can do their job. `cn` is tailwind-merge, so
+                    a later `w-full` would have beaten anything the constant said.
+                    Held by e2e/connect-sticky-header.layout.spec.ts. */
+                        <div
+                          data-testid="connect-search-row"
+                          className={cn(
+                            CONNECT_STICKY_SEARCH_CLASSNAME,
+                            "flex items-center gap-2",
+                          )}
+                        >
+                          <div className="relative flex-1">
+                            <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                              <SearchIcon className="h-4.5 w-4.5" />
+                            </span>
+                            <Input
+                              ref={searchInputRef}
+                              type="text"
+                              value={query}
+                              onChange={(event) => setQuery(event.target.value)}
+                              placeholder={CONNECT_SEARCH_PLACEHOLDER}
+                              aria-label="Search people"
+                              data-voice-control-id="one-connect-search"
+                              className={cn(
+                                CONNECT_SEARCH_INPUT_CLASSNAME,
+                                query
+                                  ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
+                                  : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+                              )}
+                              enterKeyHint="search"
+                              onKeyDown={(event) => {
+                                // iOS soft-keyboard "return" must dismiss the keyboard;
+                                // blurring the field is what actually closes it in the
+                                // Capacitor webview (there is no form submit here).
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  event.currentTarget.blur();
+                                }
+                              }}
+                              onFocus={(event) => {
+                                // Keyboard-dismiss "on drag": the first scroll/drag while
+                                // the field is focused blurs it, so an open keyboard never
+                                // locks the results out of view. Scoped to this field's
+                                // focus lifecycle and cleaned up on blur.
+                                const field = event.currentTarget;
+                                // Scroll the field into view above the on-screen keyboard.
+                                // Tapping it otherwise leaves it hidden behind the keyboard
+                                // until the user manually scrolls up. The delay lets the
+                                // keyboard animate in so the shrunken viewport is measured.
+                                window.setTimeout(() => {
+                                  field.scrollIntoView({
+                                    block: "center",
+                                    behavior: "smooth",
+                                  });
+                                }, 300);
+                                const dismiss = () => field.blur();
+                                window.addEventListener("touchmove", dismiss, {
+                                  passive: true,
+                                  once: true,
+                                });
+                                field.addEventListener(
+                                  "blur",
+                                  () =>
+                                    window.removeEventListener(
+                                      "touchmove",
+                                      dismiss,
+                                    ),
+                                  { once: true },
+                                );
+                              }}
+                            />
+                            {query ? (
+                              <button
+                                type="button"
+                                aria-label="Clear search"
+                                onClick={() => {
+                                  setQuery("");
+                                  searchInputRef.current?.focus();
+                                }}
+                                className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
+                              >
+                                <X className="h-5 w-5" strokeWidth={2.4} />
+                              </button>
+                            ) : null}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="none"
+                            effect="fill"
+                            size="sm"
+                            className={CONNECT_SELECT_TOGGLE_CLASSNAME}
+                            disabled={loading || people.length === 0}
+                            aria-label={
+                              isSelectionMode
+                                ? "Cancel selecting people"
+                                : "Select many people"
+                            }
+                            onClick={() => {
+                              setIsSelectionMode((current) => !current);
+                              setSelectedPeople(new Map());
+                              setShowLimitBanner(false);
+                            }}
+                          >
+                            {/* "Select many", not "Select": this enters multi-select,
+                        and a lone "Select" reads as picking the one thing you are
+                        looking at. The visible label and the accessible name now
+                        say the same thing. */}
+                            {isSelectionMode ? "Cancel" : "Select many"}
+                          </Button>
+                        </div>
+                        }
                       >
                         {loading ? (
                           <SettingsRow
@@ -2913,39 +2925,60 @@ export default function ConnectPageClient() {
                           })
                         )}
                         {people.length > 0 || currentPage > 1 ? (
-                          <div className="flex flex-col gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex min-h-9 flex-wrap items-center gap-2.5">
-                              <span className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">
+                          /* One row, not two stacked fragments. "Page 1", a
+                             dot, "Per page", a select, and then Prev/Next
+                             dropped onto a second line read as four unrelated
+                             things scattered at the bottom of the card. The
+                             control and the buttons that use it now share a
+                             line -- how much you are reading at on the left,
+                             the way through the list on the right -- and the
+                             page number drops under the control as the quiet
+                             status it is, rather than leading a row it does
+                             not act on. */
+                          <div
+                            className={CONNECT_PAGER_ROW_CLASSNAME}
+                            data-testid="connect-pager-row"
+                          >
+                            <div className="flex min-w-0 flex-col items-start gap-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="ui-text-helper-text whitespace-nowrap text-[color:var(--app-secondary-label)]">
+                                  Per page
+                                </span>
+                                <Select
+                                  value={String(pageSize)}
+                                  onValueChange={(value) =>
+                                    setPageSize(Number(value))
+                                  }
+                                >
+                                  <SelectTrigger
+                                    size="sm"
+                                    aria-label="People per page"
+                                    className={CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME}
+                                  >
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {PAGE_SIZE_OPTIONS.map((size) => (
+                                      <SelectItem
+                                        key={size}
+                                        value={String(size)}
+                                      >
+                                        {size}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {/* Status, not a control: it sits under the thing
+                                  it describes, one step down in size and
+                                  colour, so the row above stays the only line
+                                  with anything to press. */}
+                              <span className={CONNECT_PAGE_STATUS_CLASSNAME}>
                                 Page {currentPage}
                               </span>
-                              <span className="h-1 w-1 rounded-full bg-[color:var(--app-tertiary-label)]" />
-                              <span className="ui-text-helper-text text-[color:var(--app-secondary-label)]">
-                                Per page
-                              </span>
-                              <Select
-                                value={String(pageSize)}
-                                onValueChange={(value) =>
-                                  setPageSize(Number(value))
-                                }
-                              >
-                                <SelectTrigger
-                                  size="sm"
-                                  aria-label="People per page"
-                                  className="h-8 min-h-8 w-[74px] rounded-2xl text-[15px] font-medium leading-5"
-                                >
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {PAGE_SIZE_OPTIONS.map((size) => (
-                                    <SelectItem key={size} value={String(size)}>
-                                      {size}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
                             </div>
                             <div
-                              className="flex min-h-9 items-center justify-end gap-2"
+                              className="flex shrink-0 items-center justify-end gap-2"
                               aria-live="polite"
                             >
                               <Button
@@ -2955,7 +2988,7 @@ export default function ConnectPageClient() {
                                 size="sm"
                                 className={cn(
                                   CONNECT_PAGER_BUTTON_CLASSNAME,
-                                  "min-w-[44px] px-3",
+                                  CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
                                 )}
                                 disabled={loading || currentPage <= 1}
                                 onClick={() => goToPage(currentPage - 1)}
@@ -2969,7 +3002,7 @@ export default function ConnectPageClient() {
                                 size="sm"
                                 className={cn(
                                   CONNECT_PAGER_BUTTON_CLASSNAME,
-                                  "min-w-[44px] px-3",
+                                  CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
                                 )}
                                 disabled={loading || !hasMore}
                                 onClick={() => goToPage(currentPage + 1)}

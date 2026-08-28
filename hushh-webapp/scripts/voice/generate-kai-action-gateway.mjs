@@ -49,39 +49,27 @@ const GLOBAL_NAV_ACTION_IDS = new Set([
   "route.one_feed",
 ]);
 
-// Alias collisions that exist today, are NOT part of the current fix batch
-// (issues #6081-#6085), and are deliberately allowed to keep the build green.
-// Each is a real pair the collision guard below would otherwise reject --
-// remove an entry here in the same PR that actually resolves it. Tracked in a
-// follow-up issue rather than fixed here because none of them share this
-// batch's failure shape (a `+90` exact-alias-match risk/no-op risk); most
-// look like two adjacent, low-stakes ways to reach nearly the same place.
-const KNOWN_ALIAS_COLLISIONS = new Set([
-  // route.one_connect (open Connect) vs location.add_connections (also opens
-  // Connect, from Location's own "you need a connection first" dead end) --
-  // same destination either way, not investigated further.
-  "add people::location.add_connections::route.one_connect",
-  "connect with someone::location.add_connections::route.one_connect",
-  "find people::location.add_connections::route.one_connect",
-  // Both onboarding-vault-creation steps in the same flow; not investigated.
-  "finish setting up::setup.hub_master_ack::vault.setup_open",
-  "set up my vault::setup.hub_master_ack::vault.setup_open",
-  // route.one_connect vs its own People tab -- adjacent destinations.
-  "my connections::connect.open_people::route.one_connect",
-  // Generic per-step dismiss word shared across every setup screen that has
-  // one; only two of the seven collide here because collision detection is
-  // pairwise -- the other five share it too. Not investigated.
-  "not now::setup.skip_calendar::setup.skip_gmail",
-  // Two ways back to Analysis history; not investigated.
-  "open analysis history::analysis.back_to_history::route.analysis_history",
-  // Deliberate compat alias for the RIA workspace route, not a real gap.
-  "open ria workspace::route.ria_home::route.ria_workspace_compat",
-  // location.chat.turn delegates to the Location specialist for status/Q&A;
-  // its overlap with direct actions on the same words is likely benign
-  // (the specialist has the same information) but not investigated.
-  "stop sharing my location::location.chat.turn::location.pause_updates",
-  "who can see me right now::location.chat.turn::location.open_active_shares",
-  "who can see my location::location.chat.turn::location.open_people",
+// Alias collisions the guard below is allowed to ignore. Empty, and meant to
+// stay that way: an entry here is a known-broken pair kept only long enough
+// for a follow-up PR to resolve it, never a permanent exemption. The 12
+// pre-existing pairs seeded when this guard was introduced (#6081-#6085) were
+// all retired in the PR that emptied this set -- each resolved by removing the
+// shared alias from whichever action had the weaker claim to it, so a bare
+// phrase now resolves to exactly one action.
+const KNOWN_ALIAS_COLLISIONS = new Set([]);
+
+// The frontend gateway parser (lib/voice/kai-action-gateway.ts) only knows
+// how to keep an action whose execution_target.path is one of these -- any
+// other value makes it drop the whole action, silently, everywhere (#6122:
+// location.find_contacts and ria.clients.switch_to_nearby vanished this way
+// for a release before anyone noticed). Failing the build here means a
+// typo'd or newly-invented path is caught at authoring time instead.
+const KNOWN_EXECUTION_TARGET_PATHS = new Set([
+  "kai_command",
+  "voice_tool",
+  "route",
+  "local_handler",
+  "control",
 ]);
 
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
@@ -471,6 +459,17 @@ function normalizeExecutionTarget(raw, actionId) {
     if (!pathValue || !target) {
       throw new Error(
         `${actionId}: wired execution_target requires path and target`,
+      );
+    }
+    if (!KNOWN_EXECUTION_TARGET_PATHS.has(pathValue)) {
+      throw new Error(
+        `${actionId}: execution_target.path "${pathValue}" is not one of ` +
+          `${[...KNOWN_EXECUTION_TARGET_PATHS].join(", ")} -- the frontend ` +
+          `gateway parser silently drops the entire action for an ` +
+          `unrecognized path (see kai-action-gateway.ts's ` +
+          `validateExecutionTarget). Add the new path to ` +
+          `KNOWN_EXECUTION_TARGET_PATHS here and to the matching union in ` +
+          `kai-action-gateway.ts if it is genuinely new.`,
       );
     }
     const normalized = {
@@ -1018,4 +1017,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { validateAliasCollisions, KNOWN_ALIAS_COLLISIONS, GLOBAL_NAV_ACTION_IDS };
+export {
+  validateAliasCollisions,
+  KNOWN_ALIAS_COLLISIONS,
+  GLOBAL_NAV_ACTION_IDS,
+  normalizeExecutionTarget,
+  KNOWN_EXECUTION_TARGET_PATHS,
+};

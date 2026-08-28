@@ -1466,6 +1466,63 @@ describe("SaveLocationModal", () => {
       }
     });
 
+    it("stays a bottom sheet, under the app's own layers, by default", () => {
+      // Saving a place from Settings is a sheet over a screen you are coming
+      // back to, and that screen is SUPPOSED to stay visible behind it. The
+      // takeover geometry must not leak into this lane.
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} />);
+        const surface = screen.getByTestId("save-location-modal");
+
+        expect(surface.className).toContain("z-[601]");
+        expect(surface.className).not.toContain("z-[9101]");
+        expect(surface.className).not.toContain("top-0");
+        expect(surface.className).not.toContain("max-h-none");
+      } finally {
+        restore();
+      }
+    });
+
+    it("covers the app's chrome when it is an onboarding step", () => {
+      // QA, photographing the pin step: the back arrow, the avatar and the
+      // Now / People / Links strip were sitting above it -- "onboarding screen
+      // mein yeh nav bar dikhna hi nahi chahiye".
+      //
+      // Two halves to that. The surface reached only 92% of the screen from
+      // the bottom, so the top was never its to cover; and it was pinned at
+      // z-600/601 against an onboarding takeover that has since moved to
+      // z-[9000], so it was being painted UNDER the screen it belongs to.
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} takeover />);
+        const surface = screen.getByTestId("save-location-modal");
+
+        // Above the z-[9000] takeover, not below it.
+        expect(surface.className).toContain("z-[9101]");
+        expect(surface.className).not.toContain("z-[601]");
+
+        // Top of the screen to just above the keyboard: `top-0` joins the
+        // primitive's `bottom-[var(--kb-height,0px)]`, and the 92% cap is
+        // erased rather than left to win on stylesheet order.
+        expect(surface.className).toContain("top-0");
+        expect(surface.className).toContain("max-h-none");
+        expect(surface.className).not.toContain(
+          "max-h-[calc((100dvh-var(--kb-height,0px))*0.92)]",
+        );
+        expect(surface.className).toContain("bottom-[var(--kb-height,0px)]");
+
+        // A surface that reaches the top has to clear the status bar itself.
+        expect(surface.className).toContain(
+          "pt-[calc(env(safe-area-inset-top,0px)+20px)]",
+        );
+        // Nothing left to round against, and no edge to draw.
+        expect(surface.className).toContain("rounded-none");
+      } finally {
+        restore();
+      }
+    });
+
     it("makes the step rail the drag surface, without a second handle", () => {
       const restore = asPhone();
       try {

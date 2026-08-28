@@ -2062,7 +2062,6 @@
       "aliases": [
         "open connect",
         "connect",
-        "my connections",
         "find people",
         "add people",
         "add a connection",
@@ -6900,11 +6899,8 @@
       "label": "Add people to share location with",
       "aliases": [
         "add connections",
-        "add people",
         "i have no connections",
-        "no one to share with",
-        "find people",
-        "connect with someone"
+        "no one to share with"
       ],
       "search_keywords": [
         "add",
@@ -12321,8 +12317,7 @@
       "label": "Skip Calendar setup",
       "aliases": [
         "skip calendar setup",
-        "skip calendar",
-        "not now"
+        "skip calendar"
       ],
       "search_keywords": [
         "skip",
@@ -12541,8 +12536,7 @@
       "label": "Skip CRM setup",
       "aliases": [
         "skip CRM setup",
-        "skip CRM",
-        "not now"
+        "skip CRM"
       ],
       "search_keywords": [
         "skip",
@@ -12866,8 +12860,7 @@
       "label": "Skip KYC setup",
       "aliases": [
         "skip kyc setup",
-        "skip email setup",
-        "not now"
+        "skip email setup"
       ],
       "search_keywords": [
         "skip",
@@ -13078,8 +13071,7 @@
       "label": "Skip Finance setup",
       "aliases": [
         "skip finance setup",
-        "skip finance",
-        "not now"
+        "skip finance"
       ],
       "search_keywords": [
         "skip",
@@ -13407,8 +13399,7 @@
       "label": "Skip Gmail setup",
       "aliases": [
         "skip gmail setup",
-        "skip gmail",
-        "not now"
+        "skip gmail"
       ],
       "search_keywords": [
         "skip",
@@ -14081,8 +14072,7 @@
       "label": "Skip Location setup",
       "aliases": [
         "skip location setup",
-        "skip location",
-        "not now"
+        "skip location"
       ],
       "search_keywords": [
         "skip",
@@ -14292,8 +14282,7 @@
       "surface_id": "one_setup_ria",
       "label": "Skip RIA setup",
       "aliases": [
-        "skip ria setup",
-        "not now"
+        "skip ria setup"
       ],
       "search_keywords": [
         "skip",
@@ -18730,7 +18719,6 @@
       "surface_id": "ria_workspace_compat",
       "label": "Open RIA Workspace Compatibility Route",
       "aliases": [
-        "open ria workspace",
         "open legacy ria workspace",
         "open client workspace link"
       ],
@@ -18981,12 +18969,9 @@
       "surface_id": "one_specialist_turns",
       "label": "Ask Location",
       "aliases": [
-        "who can see me right now",
-        "who can see my location",
         "show who can see me",
         "start sharing my location",
         "share my location with",
-        "stop sharing my location",
         "where am i",
         "check in here"
       ],
@@ -19666,8 +19651,7 @@
       "surface_id": "kai_analysis_controls",
       "label": "Back to Analysis History",
       "aliases": [
-        "back to history",
-        "open analysis history"
+        "back to history"
       ],
       "search_keywords": [
         "analysis",
@@ -21427,9 +21411,7 @@
       "label": "Finish setup",
       "aliases": [
         "i'm done setting up",
-        "finish setup",
-        "finish setting up",
-        "set up my vault"
+        "finish setup"
       ],
       "search_keywords": [
         "finish",

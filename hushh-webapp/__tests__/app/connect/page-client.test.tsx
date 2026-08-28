@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -621,6 +622,59 @@ describe("Connect — People", () => {
     // hasMore is true in the fixture, so forward is offered and back is not.
     expect(screen.getByText("Next").closest("button")?.disabled).toBe(false);
     expect(screen.getByText("Prev").closest("button")?.disabled).toBe(true);
+  });
+
+  it("reads heading, then instruction, then the field they describe", async () => {
+    // QA, on a phone: "people ke neeche supporting line is search by name, but
+    // search bar upar hai". The field was rendered ABOVE the "People" heading,
+    // so the sentence telling you how to use it ("Search by name.") appeared
+    // UNDERNEATH the box it was instructing -- pointing backwards at a control
+    // the reader had already scrolled past -- and the field itself arrived
+    // before anything on screen had said what it searched.
+    render(<ConnectPageClient />);
+
+    const supporting = await screen.findByText("Search by name.");
+    const heading = screen.getByRole("heading", { name: "People", level: 2 });
+    const field = screen.getByLabelText("Search people");
+
+    // DOCUMENT_POSITION_FOLLOWING: the argument comes AFTER the node.
+    expect(
+      heading.compareDocumentPosition(supporting) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      supporting.compareDocumentPosition(field) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // And still above the rows it filters, rather than pushed under them.
+    expect(
+      field.compareDocumentPosition(screen.getByText("Person 0")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps the pager on one line, with the page number under the size", async () => {
+    // QA, on a phone: "sarein cheezein scattered dekh rahi -- per page, prev
+    // next ek line mein la sakte". The row was `flex-col ... sm:flex-row`, so
+    // on every shipped phone width it broke into "Page 1 - Per page [8]" and a
+    // separate right-aligned "Prev Next" underneath.
+    render(<ConnectPageClient />);
+
+    const row = await screen.findByTestId("connect-pager-row");
+    // One line: the size control and the two buttons that use it are siblings
+    // in the same row, not two stacked blocks.
+    expect(row.className).not.toContain("flex-col");
+    expect(within(row).getByText("Per page")).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Prev" })).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Next" })).toBeTruthy();
+
+    // "Page 1" is a reading of the list, not a way to change it, so it sits
+    // directly under the control rather than leading the row.
+    const status = within(row).getByText("Page 1");
+    const sizeLine = screen.getByLabelText("People per page").parentElement;
+    expect(sizeLine).not.toBeNull();
+    expect(status.previousElementSibling).toBe(sizeLine);
+    expect(status.className).toContain("text-[11px]");
   });
 
   it("asks the server for the page the reader moved to", async () => {
