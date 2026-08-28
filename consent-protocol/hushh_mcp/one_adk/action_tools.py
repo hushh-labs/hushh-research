@@ -1487,9 +1487,11 @@ async def discover_person_information(
                     "status": "needs_clarification",
                     "message": (
                         "More than one connection matched. Ask which person they mean: "
-                        f"{ambiguous_match_names(unresolved.matches, lambda item: str(
-                                item.get('displayName') or ''
-                            ))}."
+                        f"{
+                            ambiguous_match_names(
+                                unresolved.matches, lambda item: str(item.get('displayName') or '')
+                            )
+                        }."
                     ),
                 }
             return {
