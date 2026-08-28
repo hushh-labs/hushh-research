@@ -995,7 +995,10 @@ Plugins requiring camelCase transformation: PersonalKnowledgeModel, Kai.
 8. Update app navigation truth when needed: `hushh-webapp/lib/navigation/routes.ts`
 9. Verify route/docs alignment: `bash scripts/ci/docs-parity-check.sh`
 
-See [Architecture: Tri-Flow](./architecture.md#tri-flow-architecture) for the full pattern.
+See [Tri-flow parity](../mobile/tri-flow-parity.md) for the full pattern, the
+declaration contract, and the gates that enforce it. (This previously pointed at
+`./architecture.md#tri-flow-architecture`, an anchor that does not exist — the
+invariant was named in ~17 docs and defined in none.)
 
 ---
 
