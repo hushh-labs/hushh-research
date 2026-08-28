@@ -31,6 +31,7 @@ import {
   type RiaClientAccess,
   type RiaClientListResponse,
 } from "@/lib/services/ria-service";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
@@ -151,6 +152,15 @@ export default function RiaClientsPage() {
     [clientItems, clientsResource.loading]
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
+
+  // Wired in the generated gateway as execution_target.path: "control" --
+  // the segmented Connected/Nearby toggle the person taps directly, not a
+  // route or a named function. The executor already dispatches "control"
+  // through this same handler registry; it just needed one registered.
+  useLocalOnboardingActionHandler("ria.clients.switch_to_nearby", () => {
+    setView("nearby");
+    return { status: "succeeded" as const, summary: "Showing nearby clients." };
+  });
 
   if (personaLoading) return null;
   if (riaCapability === "setup") {

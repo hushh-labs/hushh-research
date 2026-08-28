@@ -9719,6 +9719,27 @@ export function OneLocationAgentPageContent({
     void refresh().catch(() => null);
     return { status: "succeeded", summary: "Location refreshed." };
   });
+  // Wired in the generated gateway as execution_target.path: "control" -- a
+  // dropdown item the person taps directly, not a route or a distinct
+  // local_handler-named function. handleSyncContactSignal already catches
+  // its own failures internally (a device permission denial, a browser
+  // blocking the Contact Picker without a direct tap) and reports them
+  // through a toast + contactSignal error state, never throwing -- a voice
+  // trigger degrades the same way a keyboard-activated tap already would,
+  // not a new failure mode.
+  useLocalOnboardingActionHandler("location.find_contacts", async () => {
+    if (!auth.user?.getIdToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Sign in before syncing contacts.",
+      };
+    }
+    await handleSyncContactSignal();
+    return {
+      status: "started" as const,
+      summary: "Checking your contacts against Hushh.",
+    };
+  });
   const showInitialSkeleton =
     !loadError &&
     !state &&

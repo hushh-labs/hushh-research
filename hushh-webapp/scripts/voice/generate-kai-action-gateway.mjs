@@ -84,6 +84,20 @@ const KNOWN_ALIAS_COLLISIONS = new Set([
   "who can see my location::location.chat.turn::location.open_people",
 ]);
 
+// The frontend gateway parser (lib/voice/kai-action-gateway.ts) only knows
+// how to keep an action whose execution_target.path is one of these -- any
+// other value makes it drop the whole action, silently, everywhere (#6122:
+// location.find_contacts and ria.clients.switch_to_nearby vanished this way
+// for a release before anyone noticed). Failing the build here means a
+// typo'd or newly-invented path is caught at authoring time instead.
+const KNOWN_EXECUTION_TARGET_PATHS = new Set([
+  "kai_command",
+  "voice_tool",
+  "route",
+  "local_handler",
+  "control",
+]);
+
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
 const AGENT_PERSONAS = new Set([
   "one",
@@ -471,6 +485,17 @@ function normalizeExecutionTarget(raw, actionId) {
     if (!pathValue || !target) {
       throw new Error(
         `${actionId}: wired execution_target requires path and target`,
+      );
+    }
+    if (!KNOWN_EXECUTION_TARGET_PATHS.has(pathValue)) {
+      throw new Error(
+        `${actionId}: execution_target.path "${pathValue}" is not one of ` +
+          `${[...KNOWN_EXECUTION_TARGET_PATHS].join(", ")} -- the frontend ` +
+          `gateway parser silently drops the entire action for an ` +
+          `unrecognized path (see kai-action-gateway.ts's ` +
+          `validateExecutionTarget). Add the new path to ` +
+          `KNOWN_EXECUTION_TARGET_PATHS here and to the matching union in ` +
+          `kai-action-gateway.ts if it is genuinely new.`,
       );
     }
     const normalized = {
@@ -1018,4 +1043,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { validateAliasCollisions, KNOWN_ALIAS_COLLISIONS, GLOBAL_NAV_ACTION_IDS };
+export {
+  validateAliasCollisions,
+  KNOWN_ALIAS_COLLISIONS,
+  GLOBAL_NAV_ACTION_IDS,
+  normalizeExecutionTarget,
+  KNOWN_EXECUTION_TARGET_PATHS,
+};
