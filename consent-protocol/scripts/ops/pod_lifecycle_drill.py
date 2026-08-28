@@ -89,6 +89,12 @@ class LifecycleFleet(Protocol):
         owner's cloud is NOT deleted -- that is what the rebuild reattaches to."""
         ...
 
+    async def identity(self, pod_url: str) -> dict[str, Any]:
+        """What the pod says its identity is: at least ``podKeyId`` and
+        ``podKeyDurable``. Optional -- a fleet that cannot report identity simply
+        omits this and the drill records identity as unchecked rather than failing."""
+        ...
+
 
 # --------------------------------------------------------------------------- #
 # The result, JSON-serialisable for the scheduled workflow's artifact.
@@ -102,17 +108,44 @@ class DrillResult:
     recalled: int
     negative_control_clean: bool
     stages: list[str] = field(default_factory=list)
+    # Identity across the death. None means the fleet does not report identity, so
+    # the drill records it as unchecked rather than silently passing it.
+    identity_before: str | None = None
+    identity_after: str | None = None
+    identity_durable: bool | None = None
+
+    @property
+    def identity_checked(self) -> bool:
+        return self.identity_before is not None or self.identity_after is not None
+
+    @property
+    def identity_preserved(self) -> bool:
+        """The pod came back as the SAME agent, and says so durably.
+
+        Both halves are required. Equal key ids on a pod that reports
+        ``podKeyDurable: false`` is not durability -- it is two ephemeral pods that
+        happened to agree, which is the claim the whole check exists to reject.
+        """
+        return (
+            self.identity_checked
+            and self.identity_before is not None
+            and self.identity_before == self.identity_after
+            and self.identity_durable is True
+        )
 
     @property
     def passed(self) -> bool:
         # Every fact recalled after the service died, the pod demonstrably knew
         # the facts BEFORE it died (so recall-after is survival, not a fresh
         # coincidence), and a never-taught keyword surfaced nothing.
-        return (
+        memory_ok = (
             self.learned_before_death
             and self.recalled == self.horizon_size
             and self.negative_control_clean
         )
+        # Identity is only allowed to be silent, never allowed to be wrong: a fleet
+        # that reports identity at all must have preserved it.
+        return memory_ok and (self.identity_preserved if self.identity_checked else True)
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), "passed": self.passed}
@@ -147,11 +180,22 @@ async def run_drill(
     learned_before_death = _hit(first_kw, first_fact, pre)
     stages.append(f"learned_before_death={learned_before_death}")
 
+    identity_before = await _identity_key(fleet, url)
+    if identity_before is not None:
+        stages.append(f"identity before death={identity_before}")
+
     await fleet.kill(hushh_id)  # 1 -> 0: the compute is gone
     stages.append("killed the service")
 
     url = await fleet.provision(hushh_id)  # 0 -> 1 for the SAME owner
     stages.append(f"rebuilt {url}")
+
+    # The identity half of "the same agent came back". Memory can survive on a pod
+    # that re-minted its keys, and that pod is a different agent wearing the old
+    # agent's memories -- which is why this is asserted separately from recall.
+    identity_after, identity_durable = await _identity(fleet, url)
+    if identity_after is not None:
+        stages.append(f"identity after rebuild={identity_after} durable={identity_durable}")
 
     recalled = 0
     for keyword, fact in horizon:
@@ -169,7 +213,32 @@ async def run_drill(
         recalled=recalled,
         negative_control_clean=negative_control_clean,
         stages=stages,
+        identity_before=identity_before,
+        identity_after=identity_after,
+        identity_durable=identity_durable,
     )
+
+
+async def _identity(fleet: Any, pod_url: str) -> tuple[str | None, bool | None]:
+    """Ask the pod who it is. A fleet that cannot answer leaves identity unchecked;
+    a fleet that answers badly must not be read as an answer, so a failure here is
+    recorded as unknown rather than swallowed into a pass."""
+    reader = getattr(fleet, "identity", None)
+    if reader is None:
+        return None, None
+    try:
+        payload = await reader(pod_url) or {}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[drill] identity read failed: {type(exc).__name__}: {exc}")
+        return None, None
+    key_id = payload.get("podKeyId") or payload.get("podPublicKey")
+    durable = payload.get("podKeyDurable")
+    return (str(key_id) if key_id else None), (bool(durable) if durable is not None else None)
+
+
+async def _identity_key(fleet: Any, pod_url: str) -> str | None:
+    key_id, _durable = await _identity(fleet, pod_url)
+    return key_id
 
 
 def _hit(keyword: str, fact: str, recalled: list[str]) -> bool:
@@ -189,6 +258,12 @@ def render_report(result: DrillResult) -> str:
         f"  learned before death:  {result.learned_before_death}",
         f"  recalled after death:  {result.recalled}/{result.horizon_size}",
         f"  negative control:      {'clean' if result.negative_control_clean else 'LEAKED'}",
+        (
+            f"  identity:              {'PRESERVED' if result.identity_preserved else 'CHANGED'}"
+            f" (durable={result.identity_durable})"
+            if result.identity_checked
+            else "  identity:              not reported by this fleet"
+        ),
         f"  verdict:               {'PASS' if result.passed else 'FAIL'}",
     ]
     for stage in result.stages:
@@ -211,10 +286,18 @@ class InMemoryFleet:
     lifecycle that does not preserve the agent.
     """
 
-    def __init__(self, *, loses_state_on_kill: bool = False) -> None:
+    def __init__(
+        self, *, loses_state_on_kill: bool = False, remints_identity_on_kill: bool = False
+    ) -> None:
         self._loses_state_on_kill = loses_state_on_kill
+        # A pod that re-mints its keys on rebuild keeps the memories and loses the
+        # agent: the same records, now held by a identity nobody consented to. The
+        # drill has to fail that, so the fake has to be able to do it.
+        self._remints_identity_on_kill = remints_identity_on_kill
         # owner -> {keyword: fact}. This is the durable state, NOT the service.
         self._durable: dict[str, dict[str, str]] = {}
+        # owner -> durable identity key, minted once and recovered on rebuild.
+        self._identity: dict[str, str] = {}
         # pod_url -> owner, so a turn knows whose memory it reads.
         self._live_urls: dict[str, str] = {}
         self._counter = 0
@@ -222,9 +305,14 @@ class InMemoryFleet:
     async def provision(self, hushh_id: str) -> str:
         self._durable.setdefault(hushh_id, {})  # reattach if it already exists
         self._counter += 1
+        self._identity.setdefault(hushh_id, f"podk_{hushh_id.lower()}_{self._counter}")
         url = f"https://one-pod-{hushh_id.lower()}-{self._counter}.run.app"
         self._live_urls[url] = hushh_id
         return url
+
+    async def identity(self, pod_url: str) -> dict[str, Any]:
+        owner = self._live_urls[pod_url]
+        return {"podKeyId": self._identity[owner], "podKeyDurable": True}
 
     async def teach(self, pod_url: str, keyword: str, fact: str) -> None:
         owner = self._live_urls[pod_url]
@@ -240,6 +328,8 @@ class InMemoryFleet:
         self._live_urls = {u: o for u, o in self._live_urls.items() if o != hushh_id}
         if self._loses_state_on_kill:
             self._durable.pop(hushh_id, None)  # the broken lifecycle
+        if self._remints_identity_on_kill:
+            self._identity.pop(hushh_id, None)  # the same memories, a new agent
 
 
 # --------------------------------------------------------------------------- #
@@ -259,11 +349,70 @@ class GcpFleet:
     deleted.
     """
 
-    def __init__(self, *, project: str, region: str, consent_token: str) -> None:
+    def __init__(
+        self, *, project: str, region: str, consent_token: str = "", user_id: str = ""
+    ) -> None:
         self._project = project
         self._region = region
         self._consent_token = consent_token
+        self._user_id = user_id
         self._service_names: dict[str, str] = {}
+        self._owner_bound = False
+
+    # -- the owner binding a live turn cannot do without ---------------------- #
+    #
+    # A freshly provisioned pod REFUSES a turn until an owner is bound to it, and
+    # this is the step that made the live drill unrunnable while looking finished.
+    # The pod does not verify consent locally: it asks the hub, the hub resolves
+    # the caller's HusshID from `personal_agent_registry`, and the pod then
+    # requires that HusshID to equal its own. So a live turn needs BOTH a registry
+    # row mapping this throwaway owner to the pod's HusshID AND a pkm.read grant
+    # whose ledger row makes the token read as active. Neither is optional, and
+    # neither is something the drill can skip and still be testing the real path.
+
+    async def prepare_owner(self, hushh_id: str) -> None:
+        """Bind the throwaway owner to this HusshID and mint its pkm.read grant."""
+        if not self._user_id:
+            raise RuntimeError("live drill needs --user-id to bind an owner to the pod")
+        from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
+            PersonalAgentGrantService,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+            PersonalAgentRegistryRepo,
+        )
+
+        repo = PersonalAgentRegistryRepo()
+        await repo.upsert(
+            user_id=self._user_id,
+            hushh_id=hushh_id,
+            phone_e164_hash=f"drill-{hushh_id}",
+            status="provisioned",
+            backend="gcp",
+            external_agent_id=self._service_names.get(hushh_id, ""),
+        )
+        self._owner_bound = True
+        if not self._consent_token:
+            grant = await PersonalAgentGrantService().issue_or_reuse_standing_pkm_read(
+                self._user_id
+            )
+            token = grant.get("token") if isinstance(grant, dict) else getattr(grant, "token", "")
+            if not token:
+                raise RuntimeError("could not mint the pkm.read grant for the drill owner")
+            self._consent_token = str(token)
+
+    async def cleanup_owner(self) -> None:
+        """Revoke the grant and drop the throwaway registry row. Best effort: a
+        stranded row is an operational cost, never a reason to fail a green run."""
+        if not self._owner_bound:
+            return
+        try:
+            from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
+                PersonalAgentGrantService,
+            )
+
+            await PersonalAgentGrantService().revoke_standing_pkm_read(self._user_id)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[drill] consent revoke skipped: {type(exc).__name__}")
 
     def _backend(self) -> Any:
         from hushh_mcp.services.gcp_backend import GcpBackend  # noqa: PLC0415
@@ -295,6 +444,11 @@ class GcpFleet:
         url = (((svc.get("status") or {}).get("url")) or "").strip()
         if not url:
             raise RuntimeError(f"provisioned pod {name} exposed no URL")
+        # Re-bind on every provision, including the rebuild: the registry row has
+        # to name the service that is serving NOW, or the hub answers the pod's
+        # consent check for a host that no longer exists.
+        if self._user_id:
+            await self.prepare_owner(hushh_id)
         return url
 
     async def teach(self, pod_url: str, keyword: str, fact: str) -> None:
@@ -308,6 +462,29 @@ class GcpFleet:
         name = self._service_names.get(hushh_id)
         if name:
             await asyncio.to_thread(self._run_client().delete_service, name)
+
+    async def identity(self, pod_url: str) -> dict[str, Any]:
+        """Read ``GET /pod/public-key``, the pod's own statement of who it is.
+
+        ``podKeyDurable`` is served by the pod and, until this drill read it, was
+        consumed by nothing -- reported but unverified, which is the same shape as
+        the gap that made identity ephemeral in the first place.
+        """
+        import requests  # noqa: PLC0415
+
+        from hushh_mcp.services.operator_identity import mint_operator_id_token  # noqa: PLC0415
+
+        def _get() -> dict[str, Any]:
+            resp = requests.get(
+                f"{pod_url.rstrip('/')}/pod/public-key",
+                headers={"Authorization": f"Bearer {mint_operator_id_token(pod_url)}"},
+                timeout=45,
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"identity read HTTP {resp.status_code}: {resp.text[:160]}")
+            return dict(resp.json() or {})
+
+        return await asyncio.to_thread(_get)
 
     async def teardown(self) -> list[str]:
         """Best-effort deletion of the last service provisioned for each owner --
@@ -326,27 +503,25 @@ class GcpFleet:
 
     def _turn(self, pod_url: str, message: str) -> str:
         import requests  # noqa: PLC0415
-        from google.auth.transport.requests import Request  # noqa: PLC0415
-        from google.oauth2 import service_account  # noqa: PLC0415
 
-        from hushh_mcp.services.gcp_run_client import load_operator_credentials  # noqa: PLC0415
+        from hushh_mcp.services.operator_identity import mint_operator_id_token  # noqa: PLC0415
 
-        creds = load_operator_credentials()
-        info = getattr(creds, "_service_account_info", None) or {}
-        id_creds = service_account.IDTokenCredentials.from_service_account_info(
-            info, target_audience=pod_url
-        )
-        id_creds.refresh(Request())
         resp = requests.post(
             f"{pod_url.rstrip('/')}/api/one/pod/turn",
             json={"message": message},
             headers={
-                "Authorization": f"Bearer {id_creds.token}",
+                "Authorization": f"Bearer {mint_operator_id_token(pod_url)}",
                 "X-Consent-Token": self._consent_token,
                 "Content-Type": "application/json",
             },
             timeout=120,
         )
+        if resp.status_code != 200:
+            # A refusal here is the drill's most common real failure, and its body
+            # carries the only useful sentence (a 403 consent refusal reads nothing
+            # like a 502 model error). Losing it turns a diagnosable run into "the
+            # pod said no".
+            raise RuntimeError(f"pod turn HTTP {resp.status_code}: {resp.text[:200]}")
         body = resp.json() or {}
         return str(body.get("text") or "")
 
@@ -372,7 +547,19 @@ def _self_test() -> int:
         print("SELF-TEST FAILED: a state-LOSING lifecycle wrongly passed the drill")
         return 1
 
-    print("\nSELF-TEST PASSED: the drill passes a preserving lifecycle and fails a losing one.")
+    # And the identity half: a pod that keeps the memories but re-mints its keys is
+    # a different agent holding someone's records, which must not read as a pass.
+    reminted = asyncio.run(
+        run_drill(InMemoryFleet(remints_identity_on_kill=True), hushh_id="HA1DRILLREMINT")
+    )
+    if reminted.passed:
+        print("SELF-TEST FAILED: a pod that re-minted its identity wrongly passed the drill")
+        return 1
+
+    print(
+        "\nSELF-TEST PASSED: the drill passes a preserving lifecycle and fails both a "
+        "state-losing one and an identity-re-minting one."
+    )
     return 0
 
 
@@ -385,6 +572,11 @@ def main() -> int:
     ap.add_argument("--project", help="GCP project for the live drill")
     ap.add_argument("--region", default="us-central1")
     ap.add_argument("--owner", help="throwaway HusshID for the live drill")
+    ap.add_argument(
+        "--user-id",
+        help="throwaway owner user_id to bind to the pod (the drill mints its own "
+        "pkm.read grant unless --consent-token is supplied)",
+    )
     ap.add_argument("--consent-token", help="pkm.read grant for the live pod turns")
     ap.add_argument("--report-path", help="write the drill result JSON here (for CI artifacts)")
     args = ap.parse_args()
@@ -397,11 +589,16 @@ def main() -> int:
             )
         return code
 
-    if not args.project or not args.owner or not args.consent_token:
-        print("live drill needs --project, --owner, and --consent-token")
+    if not args.project or not args.owner or not (args.user_id or args.consent_token):
+        print("live drill needs --project, --owner, and one of --user-id / --consent-token")
         return 2
 
-    fleet = GcpFleet(project=args.project, region=args.region, consent_token=args.consent_token)
+    fleet = GcpFleet(
+        project=args.project,
+        region=args.region,
+        consent_token=args.consent_token or "",
+        user_id=args.user_id or "",
+    )
     try:
         result = asyncio.run(run_drill(fleet, hushh_id=args.owner))
         print(render_report(result))
@@ -409,9 +606,12 @@ def main() -> int:
             Path(args.report_path).write_text(json.dumps(result.to_dict(), indent=2))
         return 0 if result.passed else 1
     finally:
+        # Everything this run created comes down, in the order that cannot strand
+        # a billed resource: the pod first, then the owner it was bound to.
         removed = asyncio.run(fleet.teardown())
         if removed:
             print(f"[drill] tore down {len(removed)} service(s): {', '.join(removed)}")
+        asyncio.run(fleet.cleanup_owner())
 
 
 if __name__ == "__main__":

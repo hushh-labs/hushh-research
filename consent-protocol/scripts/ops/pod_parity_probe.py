@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -89,83 +88,6 @@ def render_report(diff: ParityDiff, *, prompt: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def mint_pod_id_token(audience: str) -> str:
-    """A Google-signed ID token whose audience is the pod URL, from the operator
-    identity, in whatever environment the probe's live capture is run.
-
-    The capture is operator-run, and the operator's credential differs by
-    environment, so three sources are tried in order and the FIRST that yields a
-    token wins -- the caller never has to know which one it was:
-
-      1. ``GCP_DEPLOY_SA_KEY_B64`` -- an explicit operator key in the env (CI and
-         some operator shells). Decoded exactly as ``load_operator_credentials``
-         decodes it, then minted with ``IDTokenCredentials``.
-      2. the attached identity or a ``GOOGLE_APPLICATION_CREDENTIALS`` key file,
-         via ``fetch_id_token`` -- the hub on Cloud Run, or a key-file operator.
-      3. ``gcloud auth print-identity-token --audiences=<url>`` -- a local
-         operator workstation, where the operator SA is gcloud's ACTIVE account
-         (a legacy key) but ``GCP_DEPLOY_SA_KEY_B64`` is unset and ADC is a USER
-         credential that cannot mint an audience-bound ID token.
-
-    Source 3 is the path this probe used to lack: it assumed source 1 and read
-    ``creds._service_account_info`` -- an attribute the loaded credential does not
-    carry -- so live capture crashed with a ``MalformedError`` the moment the key
-    was absent, which is the ordinary posture on an operator workstation.
-    """
-    errors: list[str] = []
-
-    raw = os.getenv("GCP_DEPLOY_SA_KEY_B64", "")
-    if raw:
-        try:
-            import base64  # noqa: PLC0415
-            import json  # noqa: PLC0415
-
-            from google.auth.transport.requests import Request  # noqa: PLC0415
-            from google.oauth2 import service_account  # noqa: PLC0415
-
-            info = json.loads(base64.b64decode(raw))
-            idc = service_account.IDTokenCredentials.from_service_account_info(
-                info, target_audience=audience
-            )
-            idc.refresh(Request())
-            if idc.token:
-                return str(idc.token)
-        except Exception as exc:  # noqa: BLE001 - try the next source, name this one
-            errors.append(f"env-key: {type(exc).__name__}")
-
-    try:
-        import google.auth.transport.requests  # noqa: PLC0415
-        import google.oauth2.id_token  # noqa: PLC0415
-
-        token = google.oauth2.id_token.fetch_id_token(
-            google.auth.transport.requests.Request(), audience
-        )
-        if token:
-            return str(token)
-    except Exception as exc:  # noqa: BLE001 - user ADC cannot do this; fall through
-        errors.append(f"attached: {type(exc).__name__}")
-
-    try:
-        import subprocess  # noqa: PLC0415
-
-        out = subprocess.run(  # noqa: S603
-            ["gcloud", "auth", "print-identity-token", "--audiences", audience],  # noqa: S607
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        token = (out.stdout or "").strip()
-        if token:
-            return token
-        errors.append(f"gcloud: rc={out.returncode} {(out.stderr or '').strip()[:80]}")
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"gcloud: {type(exc).__name__}")
-
-    raise RuntimeError(
-        "could not mint a pod ID token from any operator source: " + "; ".join(errors)
-    )
-
-
 def capture_pod_turn(
     *, pod_url: str, prompt: str, consent_token: str, session: Any = None
 ) -> dict[str, Any]:
@@ -177,8 +99,10 @@ def capture_pod_turn(
     """
     import requests  # noqa: PLC0415
 
+    from hushh_mcp.services.operator_identity import mint_operator_id_token  # noqa: PLC0415
+
     client = session or requests
-    token = mint_pod_id_token(pod_url)
+    token = mint_operator_id_token(pod_url)
     resp = client.post(
         f"{pod_url.rstrip('/')}/api/one/pod/turn",
         json={"message": prompt},
@@ -241,7 +165,16 @@ def main() -> int:
     ap.add_argument("--pod-url", help="live pod URL to probe")
     ap.add_argument("--prompt", default="Analyze NVIDIA")
     ap.add_argument("--consent-token", help="pkm.read grant for the pod turn")
-    ap.add_argument("--hub-frames", help="path to a JSON file of captured hub frames")
+    ap.add_argument(
+        "--hub-frames",
+        help="path to the captured hub turn: either a JSON array of frames, or an "
+        'object {"frames": [...], "grounded": bool}',
+    )
+    ap.add_argument(
+        "--hub-grounded",
+        choices=("true", "false"),
+        help="whether the HUB's answer was grounded, when the frames file does not say",
+    )
     args = ap.parse_args()
 
     if args.self_test:
@@ -252,13 +185,29 @@ def main() -> int:
         print("(or run --self-test for the offline pipeline check)")
         return 2
 
+    captured = json.loads(Path(args.hub_frames).read_text())
+    # The hub's grounding has to come from the HUB. Deriving it from the pod's own
+    # answer -- which this did -- makes the two sides agree by construction, so the
+    # grounding comparison could never fail and the score silently overstated what
+    # had been checked. An oracle that cannot fail proves nothing, so an unstated
+    # hub grounding is a refusal rather than a guess.
+    if isinstance(captured, dict):
+        hub_frames = list(captured.get("frames") or [])
+        hub_grounded = captured.get("grounded")
+    else:
+        hub_frames = list(captured)
+        hub_grounded = None
+    if args.hub_grounded is not None:
+        hub_grounded = args.hub_grounded == "true"
+    if hub_grounded is None:
+        print("the hub's grounding is unknown: pass --hub-grounded, or record")
+        print('"grounded" in the frames file. It must never be read off the pod.')
+        return 2
+
     pod_turn = capture_pod_turn(
         pod_url=args.pod_url, prompt=args.prompt, consent_token=args.consent_token
     )
-    hub_frames = json.loads(Path(args.hub_frames).read_text())
-    diff = classify_pair(
-        pod_turn=pod_turn, hub_frames=hub_frames, hub_grounded=bool(pod_turn.get("grounded"))
-    )
+    diff = classify_pair(pod_turn=pod_turn, hub_frames=hub_frames, hub_grounded=bool(hub_grounded))
     print(render_report(diff, prompt=args.prompt))
     return 0 if diff.at_parity else 1
 

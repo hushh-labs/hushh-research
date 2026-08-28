@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from hushh_mcp.observability.parity_oracle import EquivalenceMode
+from hushh_mcp.services.operator_identity import mint_operator_id_token
 
 _PROBE = Path(__file__).resolve().parents[1] / "scripts" / "ops" / "pod_parity_probe.py"
 _spec = importlib.util.spec_from_file_location("pod_parity_probe", _PROBE)
@@ -84,9 +85,11 @@ def test_the_report_renders_without_error():
 
 
 # --------------------------------------------------------------------------- #
-# The operator ID-token minter falls back across environments. The probe used to
-# assume an env key and crash without one; these pin the fallback ORDER so a live
-# capture works on an operator workstation (gcloud), not only where the key is set.
+# The operator ID-token minter falls back across environments. Two ops scripts
+# each grew a copy that read an attribute the credential does not carry, so both
+# worked only where an explicit key was exported and crashed everywhere else.
+# One shared minter now backs the probe's live capture; these pin its fallback
+# ORDER so a live run works on an operator workstation, not only in CI.
 # --------------------------------------------------------------------------- #
 
 
@@ -111,7 +114,7 @@ def test_the_minter_falls_back_to_gcloud_when_no_key_and_no_attached_identity(mo
     monkeypatch.setattr(idt, "fetch_id_token", _boom)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _FakeProc(stdout="TOKEN-FROM-GCLOUD\n"))
 
-    assert probe.mint_pod_id_token("https://pod.example") == "TOKEN-FROM-GCLOUD"
+    assert mint_operator_id_token("https://pod.example") == "TOKEN-FROM-GCLOUD"
 
 
 def test_the_minter_moves_past_an_unusable_env_key_rather_than_crashing(monkeypatch):
@@ -125,7 +128,7 @@ def test_the_minter_moves_past_an_unusable_env_key_rather_than_crashing(monkeypa
     monkeypatch.setattr(idt, "fetch_id_token", _boom)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _FakeProc(stdout="TOKEN-FROM-GCLOUD"))
 
-    assert probe.mint_pod_id_token("https://pod.example") == "TOKEN-FROM-GCLOUD"
+    assert mint_operator_id_token("https://pod.example") == "TOKEN-FROM-GCLOUD"
 
 
 def test_the_minter_raises_naming_every_source_when_all_fail(monkeypatch):
@@ -140,7 +143,62 @@ def test_the_minter_raises_naming_every_source_when_all_fail(monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _FakeProc(returncode=1, stderr="reauth"))
 
     with pytest.raises(RuntimeError) as excinfo:
-        probe.mint_pod_id_token("https://pod.example")
+        mint_operator_id_token("https://pod.example")
     message = str(excinfo.value)
     assert "attached" in message
     assert "gcloud" in message
+
+
+def test_the_hub_grounding_is_never_read_off_the_pod():
+    """The defect this closes: the probe derived the HUB's grounding from the POD's
+    own answer, so the two agreed by construction and the grounding comparison could
+    never fail. A score with an unfalsifiable dimension overstates what was checked."""
+    source = _PROBE.read_text(encoding="utf-8")
+    assert 'hub_grounded=bool(pod_turn.get("grounded"))' not in source, (
+        "the hub's grounding is being taken from the pod again"
+    )
+    assert "--hub-grounded" in source, "there is no way to state the hub's grounding"
+
+
+def test_a_live_run_refuses_rather_than_guessing_an_unstated_hub_grounding(tmp_path, capsys):
+    frames = tmp_path / "frames.json"
+    frames.write_text('[{"event": "token", "data": {"text": "hi"}}]')
+    import sys
+
+    argv = sys.argv
+    sys.argv = [
+        "probe",
+        "--pod-url",
+        "https://pod.example",
+        "--consent-token",
+        "t",
+        "--hub-frames",
+        str(frames),
+    ]
+    try:
+        assert probe.main() == 2
+    finally:
+        sys.argv = argv
+    assert "never be read off the pod" in capsys.readouterr().out
+
+
+def test_the_frames_file_may_carry_the_hub_grounding_itself(tmp_path):
+    """A captured hub turn that records its own grounding needs no extra flag, which
+    is what makes the honest path the convenient one."""
+    frames = tmp_path / "frames.json"
+    frames.write_text('{"frames": [{"event": "token", "data": {"text": "hi"}}], "grounded": true}')
+    import json as _json
+
+    captured = _json.loads(frames.read_text())
+    assert captured["grounded"] is True
+    assert isinstance(captured["frames"], list)
+
+
+def test_the_live_capture_uses_the_shared_minter_rather_than_a_private_copy():
+    """The defect being prevented: a second copy of the token logic drifting from
+    this one. The probe must resolve its token through the shared module."""
+    source = _PROBE.read_text(encoding="utf-8")
+    assert "operator_identity import mint_operator_id_token" in source
+    assert "_service_account_info" not in source, (
+        "the probe is reading an attribute the operator credential does not carry"
+    )
