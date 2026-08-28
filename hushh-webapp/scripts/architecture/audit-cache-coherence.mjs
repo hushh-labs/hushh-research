@@ -238,6 +238,7 @@ function routeCacheKeys(route) {
     return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
+  if (route === "/one/profile/security/devices") return ["TRUSTED_DEVICES"];
   if (route === "/pkm")
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/gmail")

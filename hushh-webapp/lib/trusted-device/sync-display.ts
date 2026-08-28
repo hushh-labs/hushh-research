@@ -38,13 +38,18 @@ export function deriveSyncDisplay(
   nowMs: number,
 ): SyncDisplay {
   if (device.status === "active") {
+    // "Trusted", not "Active": status only says this device is still authorized
+    // (not revoked). It is NOT a liveness signal -- the server has no channel
+    // telling it whether the agent is running right now, and last_synced_at only
+    // moves when the device pulls the sync channel. Saying "Active" next to a
+    // two-day-old sync reads as "reachable now", which the data cannot support.
     if (device.last_synced_at != null) {
       return {
-        label: `Active · last synced ${formatRelativeTime(device.last_synced_at, nowMs)}`,
+        label: `Trusted · last synced ${formatRelativeTime(device.last_synced_at, nowMs)}`,
         tone: "active",
       };
     }
-    return { label: "Active · not yet synced", tone: "neutral" };
+    return { label: "Trusted · not yet synced", tone: "neutral" };
   }
 
   if (device.status === "revoked") {
