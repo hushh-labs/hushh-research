@@ -218,7 +218,6 @@ export function RiaPicksList({
       null,
     [activeSourceId, availableSources],
   );
-  const displaySource = activeSource ?? availableSources[0] ?? null;
 
   const sectors = useMemo(
     () =>
