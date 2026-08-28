@@ -1,32 +1,33 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HttpAgent } from "@ag-ui/client";
 import { Laptop, Loader2, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * Chat with the Hermes agent running on this machine.
+ * Chat with Puppy One, the agent running on the owner's own machine.
  *
- * Deliberately its own thread, not a mode of the cloud One conversation: this
- * is a different agent, with a different model and a different memory, doing
- * its work on the user's own hardware. Mixing those turns into the cloud
- * transcript would make the transcript lie about where each answer came from.
+ * Streams through AG-UI rather than awaiting a whole response: the server
+ * route translates Hermes's own SSE vocabulary into AG-UI frames, so this
+ * panel drives a stock HttpAgent and inherits the same token-delta and
+ * tool-activity semantics the cloud agent uses, instead of growing a second
+ * streaming stack that would drift from it.
  *
- * The loopback key never reaches this component -- it talks only to our own
- * origin, and a Next route handler on this machine holds the key and makes the
- * loopback call.
+ * The loopback key never reaches this component. It talks only to our own
+ * origin; a Next route handler on this machine holds the key.
  */
 
-interface HermesTurn {
+interface PuppyTurn {
   id: string;
   role: "user" | "assistant";
   text: string;
-  runtime?: { provider: string | null; model: string | null } | null;
+  activity?: string[];
 }
 
-interface HermesStatus {
+interface PuppyStatus {
   connected: boolean;
   reason?: string;
   message?: string;
@@ -35,13 +36,13 @@ interface HermesStatus {
 }
 
 export function HermesChatPanel({ className }: { className?: string }) {
-  const [status, setStatus] = useState<HermesStatus | null>(null);
-  const [turns, setTurns] = useState<HermesTurn[]>([]);
+  const [status, setStatus] = useState<PuppyStatus | null>(null);
+  const [turns, setTurns] = useState<PuppyTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [onDevice, setOnDevice] = useState(true);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const sessionRef = useRef<string>("");
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -61,7 +62,15 @@ export function HermesChatPanel({ className }: { className?: string }) {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns.length, sending]);
+  }, [turns, sending]);
+
+  const appendDelta = useCallback((assistantId: string, delta: string) => {
+    setTurns((prior) =>
+      prior.map((turn) =>
+        turn.id === assistantId ? { ...turn, text: turn.text + delta } : turn,
+      ),
+    );
+  }, []);
 
   async function send() {
     const message = draft.trim();
@@ -69,33 +78,52 @@ export function HermesChatPanel({ className }: { className?: string }) {
     setDraft("");
     setError("");
     setSending(true);
-    const userTurn: HermesTurn = {
-      id: `u-${Date.now()}`,
-      role: "user",
-      text: message,
-    };
-    setTurns((prior) => [...prior, userTurn]);
+
+    const assistantId = `a-${Date.now()}`;
+    setTurns((prior) => [
+      ...prior,
+      { id: `u-${Date.now()}`, role: "user", text: message },
+      { id: assistantId, role: "assistant", text: "", activity: [] },
+    ]);
+
     try {
-      const response = await fetch("/api/hermes/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, sessionId, onDevice }),
+      const agent = new HttpAgent({
+        url: "/api/hermes/chat/stream",
+        initialMessages: [
+          { id: crypto.randomUUID(), role: "user", content: message },
+        ],
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setError(payload?.message || "Hermes could not answer.");
-        return;
-      }
-      if (payload?.sessionId) setSessionId(String(payload.sessionId));
-      setTurns((prior) => [
-        ...prior,
+      await agent.runAgent(
+        { forwardedProps: { sessionId: sessionRef.current, onDevice } },
         {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          text: String(payload?.text || ""),
-          runtime: payload?.runtime ?? null,
+          onTextMessageContentEvent: ({ event }) => {
+            appendDelta(assistantId, String(event.delta ?? ""));
+          },
+          onToolCallStartEvent: ({ event }) => {
+            const label = String(event.toolCallName ?? "tool");
+            setTurns((prior) =>
+              prior.map((turn) =>
+                turn.id === assistantId
+                  ? { ...turn, activity: [...(turn.activity ?? []), label] }
+                  : turn,
+              ),
+            );
+          },
+          onRunStartedEvent: ({ event }) => {
+            // Hermes uses the session id as the run id, so keeping it gives the
+            // next turn continuity in the same conversation.
+            const runId = String(
+              (event as unknown as { runId?: string }).runId ?? "",
+            );
+            if (runId) sessionRef.current = runId;
+          },
+          onRunErrorEvent: ({ event }) => {
+            setError(
+              String(event.message ?? "") || "Puppy One could not answer.",
+            );
+          },
         },
-      ]);
+      );
     } catch {
       setError("Puppy One is not answering on this machine.");
     } finally {
@@ -150,14 +178,13 @@ export function HermesChatPanel({ className }: { className?: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {!connected && status ? (
           <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-            {status.message ||
-              "Puppy One is not answering on this machine."}
+            {status.message || "Puppy One is not answering on this machine."}
           </p>
         ) : null}
         {connected && turns.length === 0 ? (
           <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Ask Puppy One, the agent running on this machine. Its answers are
-            generated here, and this conversation stays separate from One.
+            Ask Puppy One. Its answers are generated on this machine, and this
+            conversation stays separate from One.
           </p>
         ) : null}
         <div className="flex flex-col gap-3">
@@ -171,28 +198,21 @@ export function HermesChatPanel({ className }: { className?: string }) {
                   : "self-start bg-muted/60",
               )}
             >
+              {turn.activity && turn.activity.length > 0 ? (
+                <p className="mb-1.5 text-[11px] text-muted-foreground">
+                  {turn.activity.join(" · ")}
+                </p>
+              ) : null}
               <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {turn.text}
               </p>
-              {turn.runtime?.model ? (
-                // Show the runtime that actually ran rather than asserting it.
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {turn.runtime.provider === "lmstudio"
-                    ? `on this machine · ${turn.runtime.model}`
-                    : turn.runtime.model}
-                </p>
+              {turn.role === "assistant" && sending && !turn.text ? (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
               ) : null}
             </div>
           ))}
-          {sending ? (
-            <div className="self-start rounded-2xl bg-muted/60 px-3.5 py-2.5">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : null}
         </div>
-        {error ? (
-          <p className="mt-3 text-sm text-destructive">{error}</p>
-        ) : null}
+        {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
         <div ref={endRef} />
       </div>
 
