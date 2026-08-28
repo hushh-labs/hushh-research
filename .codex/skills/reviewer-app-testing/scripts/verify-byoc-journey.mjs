@@ -553,6 +553,24 @@ try {
     await assertRoute("/one/setup/cloud", "native-route-one-setup-cloud");
   });
 
+  await step("cloud-tier-choice", async () => {
+    // The page stopped assuming own-cloud: it now opens on a two-door chooser, and
+    // the project-id input only exists once "own" is picked. This verifier waited
+    // for that input on arrival, so it failed against a WORKING app -- the stale
+    // runbook defect, in executable form. Assert the chooser, then take the door.
+    const chooser = page.locator('[data-testid="cloud-tier-choice"]');
+    const own = page.locator('[data-testid="cloud-tier-own"]');
+    try {
+      await chooser.waitFor({ state: "visible", timeout: Math.min(timeoutMs, 60_000) });
+    } catch {
+      fail(CLASS.DOMAIN, "The cloud page never rendered its tier chooser.");
+    }
+    if (!(await own.isVisible().catch(() => false))) {
+      fail(CLASS.DOMAIN, "The tier chooser did not offer the own-cloud door.");
+    }
+    await own.click();
+  });
+
   await step("cloud-card-render", async () => {
     const input = page.locator('[data-testid="byoc-project-id-input"]');
     try {

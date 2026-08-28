@@ -152,9 +152,18 @@ export async function createReviewerSessionHarness({
   async function waitForUnlock(page, unlockTimeoutMs = timeoutMs) {
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
     const unlockInput = page.locator("#unlock-passphrase");
-    const unlockButton = page
-      .getByRole("button", { name: /unlock with passphrase/i })
-      .first();
+    // The submit control renders "Unlock" (and "Unlocking..." while busy). This
+    // used to match a longer phrase that appears nowhere in the product, so the
+    // locator resolved to nothing, `isEnabled()` threw, the `.catch(() => false)`
+    // below swallowed it, and the manual-unlock fallback was dead code: any run
+    // where the auto-bootstrap did not fire waited out the whole timeout and then
+    // reported a state it had never tried to fix. The guard in
+    // `reviewer-route-bootstrap-contract.test.ts` now pins this against the vault's
+    // own source, so a selector and the control it targets cannot drift apart.
+    const unlockButton = page.getByRole("button", { name: /^unlock/i }).first();
+    // Shown when the vault offers passkey/biometric first; clicking it reveals the
+    // passphrase field the harness actually drives.
+    const passphraseFallback = page.locator('[data-testid="vault-use-passphrase-instead"]');
     const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
     const deadline = Date.now() + unlockTimeoutMs;
     let reviewerLoginSubmitted = false;
@@ -185,6 +194,16 @@ export async function createReviewerSessionHarness({
       if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
         await reviewerButton.click({ noWaitAfter: true });
         reviewerLoginSubmitted = true;
+      }
+
+      // If the vault is offering passkey/biometric, the passphrase field is not on
+      // screen yet. Reveal it first, or the block below never sees its input.
+      if (
+        !manualUnlockSubmitted &&
+        !(await unlockInput.isVisible().catch(() => false)) &&
+        (await passphraseFallback.isVisible().catch(() => false))
+      ) {
+        await passphraseFallback.click({ noWaitAfter: true }).catch(() => undefined);
       }
 
       if (!manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
