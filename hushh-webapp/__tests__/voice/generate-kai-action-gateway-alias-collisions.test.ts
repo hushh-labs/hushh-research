@@ -75,14 +75,29 @@ describe("validateAliasCollisions", () => {
   });
 
   it("does not throw for a pair explicitly listed in KNOWN_ALIAS_COLLISIONS", () => {
-    expect(KNOWN_ALIAS_COLLISIONS.size).toBeGreaterThan(0);
-    const [firstKey] = KNOWN_ALIAS_COLLISIONS;
-    const [alias, first, second] = (firstKey as string).split("::");
-    const actions = [
-      action({ action_id: first as string, surface_id: "shared_surface", aliases: [alias as string] }),
-      action({ action_id: second as string, surface_id: "shared_surface", aliases: [alias as string] }),
-    ];
-    expect(() => validateAliasCollisions(actions)).not.toThrow();
+    // Seeds its own entry rather than borrowing a real one: the allowlist is
+    // empty in the steady state (see the test below), so a test that read
+    // from it would have nothing to read.
+    const key = "shared phrase::test.a::test.b";
+    KNOWN_ALIAS_COLLISIONS.add(key);
+    try {
+      const actions = [
+        action({ action_id: "test.a", surface_id: "shared_surface", aliases: ["shared phrase"] }),
+        action({ action_id: "test.b", surface_id: "shared_surface", aliases: ["shared phrase"] }),
+      ];
+      expect(() => validateAliasCollisions(actions)).not.toThrow();
+    } finally {
+      KNOWN_ALIAS_COLLISIONS.delete(key);
+    }
+  });
+
+  it("has an empty allowlist -- an entry is a tracked exception, not a permanent one", () => {
+    // The 12 pairs seeded when this guard was introduced have all been
+    // retired. A non-empty set here means someone allowlisted a new
+    // collision instead of resolving it; that is allowed only as a
+    // deliberate, short-lived step with a follow-up issue, so this failing
+    // is the prompt to check that such an issue exists.
+    expect([...KNOWN_ALIAS_COLLISIONS]).toEqual([]);
   });
 
   it("is case-insensitive when comparing aliases", () => {
