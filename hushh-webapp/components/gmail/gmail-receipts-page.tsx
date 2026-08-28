@@ -1262,7 +1262,7 @@ export default function GmailReceiptsPage({
         });
         setReceiptMemorySaveState("idle");
         setReceiptMemoryArtifact(artifact);
-        setReceiptMemoryMessage("Saving your shopping summary to memory...");
+        setReceiptMemoryMessage(null);
       } catch (error) {
         console.error(
           "[ProfileReceiptsPage] Failed to build receipt summary:",
@@ -1326,7 +1326,7 @@ export default function GmailReceiptsPage({
       }
 
       setReceiptMemorySaveState("saving");
-      setReceiptMemoryMessage("Saving your shopping summary to memory...");
+      setReceiptMemoryMessage(null);
       try {
         const existingContext =
           await PkmDomainResourceService.prepareDomainWriteContext({
@@ -1774,12 +1774,17 @@ export default function GmailReceiptsPage({
                   disabled={receiptMemorySaveState === "saving"}
                   className="w-full sm:w-auto"
                 >
-                  {receiptMemorySaveState === "saving"
-                    ? "Saving summary…"
-                    : "Save shopping summary"}
+                  {receiptMemorySaveState === "saving" ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving summary…
+                    </>
+                  ) : (
+                    "Save shopping summary"
+                  )}
                 </Button>
               ) : null}
-              {receiptMemoryMessage ? (
+              {receiptMemoryMessage && receiptMemorySaveState !== "saving" ? (
                 <p className="text-xs text-muted-foreground">
                   {receiptMemoryMessage}
                 </p>
@@ -1870,6 +1875,43 @@ export default function GmailReceiptsPage({
               density="compact"
               stickyHeader
               tableClassName="min-w-[720px]"
+              rowClassName={() =>
+                "border-b border-border/60 hover:bg-muted/40 transition-colors"
+              }
+              renderMobileCard={(receipt) => (
+                <SurfaceInset
+                  key={receipt.id}
+                  className="space-y-2.5 rounded-xl border border-border/70 bg-card p-3.5 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {receipt.merchant_name ||
+                          receipt.from_name ||
+                          "Unknown merchant"}
+                      </p>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0 text-xs font-medium">
+                      {formatAmount(receipt.currency, receipt.amount)}
+                    </Badge>
+                  </div>
+                  {receipt.subject ? (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {receipt.subject}
+                    </p>
+                  ) : null}
+                  <div className="flex items-center justify-between border-t border-border/50 pt-2 text-[11.5px] text-muted-foreground">
+                    <span>
+                      {formatDate(receipt.receipt_date || receipt.gmail_internal_date)}
+                    </span>
+                    {receipt.order_id ? (
+                      <span className="max-w-[150px] truncate font-mono text-[11px]">
+                        Order: {receipt.order_id}
+                      </span>
+                    ) : null}
+                  </div>
+                </SurfaceInset>
+              )}
             />
           ) : null}
 
