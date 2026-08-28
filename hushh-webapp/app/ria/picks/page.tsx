@@ -149,6 +149,7 @@ const TIER_COMMAND_OPTIONS: CommandPickerOption[] = TIER_OPTIONS.map(
     description: `${tier} conviction band`,
   }),
 );
+const RIA_PICK_THESIS_MAX_LENGTH = 2000;
 
 const DEFAULT_AVOID_CATEGORIES = [
   "Governance",
@@ -186,6 +187,10 @@ function generateId(prefix: string) {
     return `${prefix}-${crypto.randomUUID()}`;
   }
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeAdvisorThesisInput(value: string): string {
+  return value.trim().slice(0, RIA_PICK_THESIS_MAX_LENGTH);
 }
 
 function createTopPickRow(seed?: Partial<RiaPickRow>): DraftTopPickRow {
@@ -328,7 +333,7 @@ function draftToPayload(
       company_name: row.company_name.trim(),
       sector: row.sector.trim(),
       tier: row.tier.trim().toUpperCase(),
-      investment_thesis: row.investment_thesis.trim(),
+      investment_thesis: normalizeAdvisorThesisInput(row.investment_thesis),
       tier_rank: index + 1,
     })),
     avoid_rows: draft.avoid_rows.map((row) => ({
@@ -1013,6 +1018,7 @@ function TopPicksEditor({
                       onSave={(value) =>
                         onRowChange(row.id, "investment_thesis", value)
                       }
+                      maxLength={RIA_PICK_THESIS_MAX_LENGTH}
                       triggerClassName="min-h-[56px] px-3 py-2.5"
                       previewClassName="line-clamp-2 text-xs leading-5"
                     />
@@ -1097,6 +1103,7 @@ function TopPicksEditor({
                       onSave={(value) =>
                         onRowChange(row.id, "investment_thesis", value)
                       }
+                      maxLength={RIA_PICK_THESIS_MAX_LENGTH}
                       triggerClassName="min-h-[56px] px-3 py-2.5"
                       previewClassName="line-clamp-2 text-xs leading-5"
                     />
@@ -2259,8 +2266,7 @@ export default function RiaPicksPage() {
           issues.push("Ticker appears more than once in Top picks.");
         }
         if (!row.tier.trim()) issues.push("Tier is required.");
-        if (!row.investment_thesis.trim())
-          issues.push("Investment thesis is required.");
+        const thesis = normalizeAdvisorThesisInput(row.investment_thesis);
         if (issues.length > 0) {
           rowErrors[row.id] = issues;
         } else {
@@ -2274,7 +2280,7 @@ export default function RiaPicksPage() {
             String(metadata?.sector_primary || metadata?.sector || "").trim() ||
             row.sector.trim(),
           tier: row.tier.trim().toUpperCase(),
-          investment_thesis: row.investment_thesis.trim(),
+          investment_thesis: thesis,
         };
       }),
     );

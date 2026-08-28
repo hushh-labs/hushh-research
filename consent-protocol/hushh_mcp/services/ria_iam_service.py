@@ -72,6 +72,7 @@ _IAM_SCHEMA_READY_CACHE = False
 _RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
 _RIA_PICKS_PKM_DOMAIN = "ria"
 _RIA_PICKS_PKM_PATH = "advisor_package"
+_RIA_PICK_THESIS_MAX_LENGTH = 2000
 _PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
 
 
@@ -6492,6 +6493,34 @@ class RIAIAMService:
             return []
         return [dict(row) for row in rows if isinstance(row, dict)]
 
+    @staticmethod
+    def _normalize_ria_pick_thesis_text(value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text[:_RIA_PICK_THESIS_MAX_LENGTH] if text else None
+
+    @staticmethod
+    def _build_ria_advisor_thesis(
+        *,
+        text: str | None,
+        provider_user_id: str | None = None,
+        updated_at: str | None = None,
+        existing: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        thesis_text = RIAIAMService._normalize_ria_pick_thesis_text(
+            text or (existing or {}).get("text")
+        )
+        author = str(provider_user_id or (existing or {}).get("authored_by_user_id") or "").strip()
+        source = str((existing or {}).get("source") or "ria_picks_editor").strip()
+        timestamp = str(updated_at or (existing or {}).get("updated_at") or "").strip()
+        if not thesis_text or not author or source != "ria_picks_editor" or not timestamp:
+            return None
+        return {
+            "text": thesis_text,
+            "authored_by_user_id": author,
+            "source": "ria_picks_editor",
+            "updated_at": timestamp,
+        }
+
     def _normalize_top_pick_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         symbol_master = get_symbol_master_service()
         normalized_rows: list[dict[str, Any]] = []
@@ -6512,12 +6541,16 @@ class RIAIAMService:
                 )
                 continue
             tier = str(row.get("tier") or "").strip().upper()
-            thesis = str(row.get("investment_thesis") or "").strip()
+            advisor_thesis = row.get("advisor_thesis")
+            existing_advisor_thesis = advisor_thesis if isinstance(advisor_thesis, dict) else None
+            has_investment_thesis_field = "investment_thesis" in row
+            thesis = self._normalize_ria_pick_thesis_text(
+                row.get("investment_thesis")
+                if has_investment_thesis_field
+                else (existing_advisor_thesis or {}).get("text")
+            )
             if not tier:
                 row_errors.append(f"Top picks row {index}: tier is required")
-                continue
-            if not thesis:
-                row_errors.append(f"Top picks row {index}: investment_thesis is required")
                 continue
             normalized_rows.append(
                 {
@@ -6533,6 +6566,12 @@ class RIAIAMService:
                     "conviction_weight": row.get("conviction_weight"),
                     "recommendation_bias": row.get("recommendation_bias"),
                     "investment_thesis": thesis,
+                    "advisor_thesis": self._build_ria_advisor_thesis(
+                        text=thesis,
+                        existing=existing_advisor_thesis
+                        if not has_investment_thesis_field
+                        else None,
+                    ),
                     "fcf_billions": row.get("fcf_billions"),
                 }
             )
@@ -6767,7 +6806,13 @@ class RIAIAMService:
             or investor_debate_thesis
         )
 
-    def _build_pick_package_projection(self, package: dict[str, Any]) -> dict[str, Any]:
+    def _build_pick_package_projection(
+        self,
+        package: dict[str, Any],
+        *,
+        provider_user_id: str | None = None,
+        updated_at: str | None = None,
+    ) -> dict[str, Any]:
         normalized = self._normalize_pick_package(
             top_picks=self._coerce_package_rows(package.get("top_picks")),
             avoid_rows=self._coerce_package_rows(package.get("avoid_rows")),
@@ -6777,10 +6822,37 @@ class RIAIAMService:
                 str(package.get("investor_debate_thesis") or "").strip() or None
             ),
         )
-        return self._normalize_pick_package_response(
+        projected = self._normalize_pick_package_response(
             normalized["top_picks"],
             normalized["package_metadata"],
         )
+        if provider_user_id:
+            stamped_at = updated_at or datetime.now(timezone.utc).isoformat()
+            top_picks = []
+            for row in projected.get("top_picks") or []:
+                if not isinstance(row, dict):
+                    continue
+                existing = row.get("advisor_thesis")
+                existing_thesis = existing if isinstance(existing, dict) else {}
+                has_investment_thesis_field = "investment_thesis" in row
+                thesis = self._normalize_ria_pick_thesis_text(
+                    row.get("investment_thesis")
+                    if has_investment_thesis_field
+                    else existing_thesis.get("text")
+                )
+                top_picks.append(
+                    {
+                        **row,
+                        "investment_thesis": thesis,
+                        "advisor_thesis": self._build_ria_advisor_thesis(
+                            text=thesis,
+                            provider_user_id=provider_user_id,
+                            updated_at=stamped_at,
+                        ),
+                    }
+                )
+            projected["top_picks"] = top_picks
+        return projected
 
     def _build_pick_package_summary(
         self,
@@ -6982,7 +7054,12 @@ class RIAIAMService:
         ria_profile_id = str(relationship["ria_profile_id"])
         prior_artifact = await conn.fetchrow(
             """
-            SELECT artifact_projection, artifact_metadata, source_data_version, source_manifest_revision
+            SELECT
+              artifact_projection,
+              artifact_metadata,
+              source_data_version,
+              source_manifest_revision,
+              updated_at
             FROM ria_pick_share_artifacts
             WHERE ria_profile_id = $1::uuid
               AND grant_key = $2
@@ -7003,7 +7080,11 @@ class RIAIAMService:
             artifact_projection = self._parse_metadata(
                 prior_artifact_payload.get("artifact_projection")
             )
-            package_projection = self._build_pick_package_projection(artifact_projection)
+            package_projection = self._build_pick_package_projection(
+                artifact_projection,
+                provider_user_id=provider_user_id,
+                updated_at=self._serialize_datetime_value(prior_artifact_payload.get("updated_at")),
+            )
             artifact_metadata = self._parse_metadata(
                 prior_artifact_payload.get("artifact_metadata")
             )
@@ -7097,7 +7178,9 @@ class RIAIAMService:
                 "screening_sections": self._coerce_package_rows(screening_sections),
                 "package_note": package_note,
                 "investor_debate_thesis": investor_debate_thesis,
-            }
+            },
+            provider_user_id=user_id,
+            updated_at=datetime.now(timezone.utc).isoformat(),
         )
         conn = await self._conn()
         try:
