@@ -1145,192 +1145,185 @@ function ContactsScreen({
       {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
           under the clock and battery on every notched iPhone -- reachable
           only by guessing where they were. */}
-      <header className="min-h-16 shrink-0 px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)] lg:px-10">
-        <div className="mx-auto flex w-full max-w-[1040px] items-center justify-between">
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={navigationDisabled}
-            className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-            aria-label="Go back"
-          >
-            <ArrowLeft className="h-6 w-6" />
-          </button>
-          <OnboardingSkipButton
-            onClick={onSkip}
-            disabled={navigationDisabled}
-          />
-        </div>
+      <header className="flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={navigationDisabled}
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+          aria-label="Go back"
+        >
+          <ArrowLeft className="h-6 w-6" />
+        </button>
+        <OnboardingSkipButton onClick={onSkip} disabled={navigationDisabled} />
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 lg:px-10 lg:pb-6">
-        <div className="mx-auto w-full max-w-[1040px] lg:grid lg:min-h-full lg:grid-cols-[minmax(0,0.92fr)_minmax(390px,480px)] lg:items-center lg:gap-14">
-          <div className="lg:max-w-[430px]">
-            <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)] lg:h-16 lg:w-16 lg:rounded-[22px]">
-              <UserPlus className="h-7 w-7 lg:h-8 lg:w-8" strokeWidth={2} />
-            </span>
-            <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)] lg:mt-6">
-              Find your people
-            </h1>
-            <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)] lg:max-w-[360px]">
-              {primed
-                ? "Find people already on One."
-                : state.kind === "matched"
-                  ? "Connected matches are ready. You can request the rest."
-                  : "You can always find people later from the People tab."}
-            </p>
-          </div>
+      <main className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+        <div className="mx-auto flex w-full max-w-[520px] flex-col">
+          <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+            <UserPlus className="h-7 w-7" strokeWidth={2} />
+          </span>
+          <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
+            Find your people
+          </h1>
+          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+            {primed
+              ? "Find people from your contacts already on One."
+              : state.kind === "matched"
+                ? "Connected matches are ready. You can request the rest."
+                : "You can always find people later from the People tab."}
+          </p>
 
-          <div className="lg:flex lg:w-full lg:justify-center">
-            {primed ? (
-              <>
-                <div className="mt-7 w-full rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)] lg:mt-0 lg:max-w-[430px] lg:p-7">
-                  {state.kind === "busy" ? (
-                    <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
-                      <Loader2 className="h-5 w-5 animate-spin" /> Checking your
-                      contacts
-                    </div>
-                  ) : (
-                    <div className="flex min-h-32 flex-col justify-center gap-4">
-                      <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
-                        Connect contacts to see who's here.
-                      </p>
-                      <div className="mx-auto w-full max-w-[280px]">
-                        <PrimaryButton onClick={onSync} disabled={leaving}>
-                          {source === "google"
-                            ? "Connect contacts"
-                            : "Find contacts"}
-                        </PrimaryButton>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : null}
-
-            {state.kind === "matched" ? (
-              <ul
-                className="mt-6 space-y-2"
-                data-testid="onboarding-contact-matches"
-              >
-                {visibleMatches.map((match) => {
-                  const added = addedUserIds.includes(match.userId);
-                  const adding = addingUserIds.includes(match.userId);
-                  const connected = match.connectionStatus === "connected";
-                  const requestRequired =
-                    match.connectionStatus === "request_required";
-                  return (
-                    <li
-                      key={match.userId}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+          {primed ? (
+            <>
+              <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-white p-6 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+                {state.kind === "busy" ? (
+                  <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+                    <Loader2 className="h-5 w-5 animate-spin" /> Checking your
+                    contacts
+                  </div>
+                ) : (
+                  <div className="flex min-h-28 flex-col items-center justify-center gap-4 text-center">
+                    <p className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                      Connect contacts to see who is already here.
+                    </p>
+                    <PrimaryButton
+                      className="mx-auto max-w-[360px]"
+                      onClick={onSync}
+                      disabled={leaving}
                     >
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
-                        <span className="min-w-0 truncate">
-                          {match.displayName}
-                        </span>
-                        {connected ? <ContactSourceBadge /> : null}
+                      Find contacts
+                    </PrimaryButton>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
+
+          {state.kind === "matched" ? (
+            <ul
+              className="mt-6 space-y-2"
+              data-testid="onboarding-contact-matches"
+            >
+              {visibleMatches.map((match) => {
+                const added = addedUserIds.includes(match.userId);
+                const adding = addingUserIds.includes(match.userId);
+                const connected = match.connectionStatus === "connected";
+                const requestRequired =
+                  match.connectionStatus === "request_required";
+                return (
+                  <li
+                    key={match.userId}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
+                      <span className="min-w-0 truncate">
+                        {match.displayName}
                       </span>
-                      {requestRequired ? (
-                        <button
-                          type="button"
-                          onClick={() => onAdd(match.userId)}
-                          disabled={added || adding || leaving}
-                          className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
-                        >
-                          {adding ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : added ? (
-                            <Check className="h-4 w-4" strokeWidth={2.5} />
-                          ) : null}
-                          {added ? "Requested" : adding ? "Sending" : "Request"}
-                        </button>
-                      ) : (
-                        <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
-                          {connected ? (
-                            <Check className="h-4 w-4 text-emerald-600" />
-                          ) : null}
-                          {connected ? "Connected" : "Not connected"}
-                        </span>
-                      )}
-                    </li>
-                  );
-                })}
-                {visibleMatches.length < matches.length ? (
-                  <li className="flex flex-col items-center gap-2 pt-2">
-                    <span className="text-xs text-[#73777f]" aria-live="polite">
-                      Showing {visibleMatches.length} of {matches.length}
+                      {connected ? <ContactSourceBadge /> : null}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setVisibleMatchCount((current) =>
-                          Math.min(current + MATCH_PAGE_SIZE, matches.length),
-                        )
-                      }
-                      className="press-scale min-h-11 rounded-full border border-[#e4e6e9] px-5 text-sm font-semibold dark:border-white/[0.08]"
-                    >
-                      Show more
-                    </button>
+                    {requestRequired ? (
+                      <button
+                        type="button"
+                        onClick={() => onAdd(match.userId)}
+                        disabled={added || adding || leaving}
+                        className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                      >
+                        {adding ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : added ? (
+                          <Check className="h-4 w-4" strokeWidth={2.5} />
+                        ) : null}
+                        {added ? "Requested" : adding ? "Sending" : "Request"}
+                      </button>
+                    ) : (
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
+                        {connected ? (
+                          <Check className="h-4 w-4 text-emerald-600" />
+                        ) : null}
+                        {connected ? "Connected" : "Not connected"}
+                      </span>
+                    )}
                   </li>
-                ) : null}
-              </ul>
-            ) : null}
-
-            {state.kind === "none" ? (
-              <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-                <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
-                  {state.partial
-                    ? "None of the contacts you shared are on One yet."
-                    : "None of your contacts are on One yet."}
-                </p>
-                <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
-                  Your circle code is on the next screen — send it to whoever
-                  you want here.
-                </p>
-              </div>
-            ) : null}
-
-            {state.kind === "failed" ? (
-              <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-                <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
-                  {state.message}
-                </p>
-                {state.canOpenSettings ? (
+                );
+              })}
+              {visibleMatches.length < matches.length ? (
+                <li className="flex flex-col items-center gap-2 pt-2">
+                  <span className="text-xs text-[#73777f]" aria-live="polite">
+                    Showing {visibleMatches.length} of {matches.length}
+                  </span>
                   <button
                     type="button"
-                    onClick={onOpenSettings}
-                    className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                    onClick={() =>
+                      setVisibleMatchCount((current) =>
+                        Math.min(current + MATCH_PAGE_SIZE, matches.length),
+                      )
+                    }
+                    className="press-scale min-h-11 rounded-full border border-[#e4e6e9] px-5 text-sm font-semibold dark:border-white/[0.08]"
                   >
-                    Open Settings
+                    Show more
                   </button>
-                ) : null}
-                {source === "google" ? (
-                  <button
-                    type="button"
-                    onClick={onSync}
-                    disabled={leaving}
-                    className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-                  >
-                    Try again
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+                </li>
+              ) : null}
+            </ul>
+          ) : null}
+
+          {state.kind === "none" ? (
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                {state.partial
+                  ? "None of the contacts you shared are on One yet."
+                  : "None of your contacts are on One yet."}
+              </p>
+              <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+                Your circle code is on the next screen — send it to whoever you
+                want here.
+              </p>
+            </div>
+          ) : null}
+
+          {state.kind === "failed" ? (
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                {state.message}
+              </p>
+              {state.canOpenSettings ? (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Open Settings
+                </button>
+              ) : null}
+              {source === "google" ? (
+                <button
+                  type="button"
+                  onClick={onSync}
+                  disabled={leaving}
+                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Try again
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-      </div>
+      </main>
 
-      <footer className="mx-auto w-full max-w-[1040px] shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 lg:flex lg:justify-end lg:px-10 lg:pt-0">
+      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
         {/* Always present, whatever happened above. Declining contacts, finding
             nobody, or a plugin failure must never be a dead end. */}
-        <PrimaryButton
-          onClick={onContinue}
-          disabled={navigationDisabled}
-          inverse={primed && state.kind === "idle"}
-          className="lg:max-w-[480px]"
-        >
-          {state.kind === "idle" ? "Not now" : "Continue"}
-        </PrimaryButton>
+        <div className="mx-auto w-full max-w-[520px]">
+          <PrimaryButton
+            className={primed && state.kind === "idle" ? "max-w-none" : ""}
+            onClick={onContinue}
+            disabled={navigationDisabled}
+            inverse={primed && state.kind === "idle"}
+          >
+            {state.kind === "idle" ? "Not now" : "Continue"}
+          </PrimaryButton>
+        </div>
       </footer>
     </div>
   );

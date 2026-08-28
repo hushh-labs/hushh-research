@@ -26,6 +26,7 @@ from typing import Any, cast
 
 from hushh_mcp.onboarding_contract import SETUP_CAPABILITY_IDS
 from hushh_mcp.services.action_gateway import (
+    AVAILABLE_ACTION_IDS_CAP,
     get_action_gateway_action,
     is_navigation_action,
 )
@@ -34,9 +35,10 @@ from hushh_mcp.services.route_orchestration_index import resolve_route_orchestra
 logger = logging.getLogger(__name__)
 
 LIVE_CONTEXT_STRING_CAP = 64
-# Mirrors the frontend AVAILABLE_ACTION_IDS_CAP in
-# hushh-webapp/lib/voice/screen-context-builder.ts; keep in sync.
-LIVE_CONTEXT_ARRAY_CAP = 18
+# Mirrors the frontend's derived AVAILABLE_ACTION_IDS_CAP in
+# hushh-webapp/lib/voice/screen-context-builder.ts via the shared Python
+# constant of the same name in action_gateway.py; keep both in sync.
+LIVE_CONTEXT_ARRAY_CAP = AVAILABLE_ACTION_IDS_CAP
 LIVE_MODULE_CAP = 10
 LIVE_CAPABILITY_CAP = 10
 ONBOARDING_PHASES = frozenset(

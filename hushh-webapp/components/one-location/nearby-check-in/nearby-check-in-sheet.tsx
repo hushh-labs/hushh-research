@@ -1882,6 +1882,33 @@ export function NearbyCheckInSheet({
     }
   };
 
+  // checkout() has no "must be checked in" guard of its own -- today that is
+  // only enforced by the Check out button rendering solely inside the
+  // `state.presence ? (...) : null` branch below. A voice trigger bypasses
+  // that branch entirely, so the guard has to live here instead.
+  useLocalOnboardingActionHandler("location.checkout_nearby", async () => {
+    if (!ownerId || !vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Unlock One first to check out.",
+      };
+    }
+    if (!state.presence) {
+      return {
+        status: "blocked" as const,
+        summary: "You're not checked in anywhere right now.",
+      };
+    }
+    if (mutationInFlightRef.current) {
+      return {
+        status: "blocked" as const,
+        summary: "Already checking out -- one moment.",
+      };
+    }
+    await checkout();
+    return { status: "succeeded" as const, summary: "You're checked out." };
+  });
+
   const connect = async (attendee: OneLocationNearbyAttendee) => {
     if (
       !ownerId ||

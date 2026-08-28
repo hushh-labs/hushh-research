@@ -33,7 +33,7 @@ import {
 } from "@/components/app-ui/command-fields";
 import { DataTable } from "@/components/app-ui/data-table";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { SurfaceCard, SurfaceCardContent, SurfaceInset } from "@/components/app-ui/surfaces";
+import { SurfaceCard, SurfaceCardContent, SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
 import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
 import { TemplatePreviewModal } from "@/components/ria/template-preview-modal";
@@ -2357,7 +2357,7 @@ export default function RiaPicksPage() {
   return (
     <AppPageShell
       as="main"
-      width="expanded"
+      width="standard"
       nativeTest={{
         routeId: "/ria/picks",
         marker: "native-route-ria-picks",
@@ -2371,7 +2371,7 @@ export default function RiaPicksPage() {
         errorMessage: picksResource.error,
       }}
     >
-      <AppPageHeaderRegion>
+      <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
           eyebrow={isDebateView ? RIA_COPY.debate.eyebrow : RIA_COPY.picks.eyebrow}
           title={isDebateView ? RIA_COPY.debate.title : RIA_COPY.picks.title}
@@ -2386,8 +2386,8 @@ export default function RiaPicksPage() {
       <AppPageContentRegion>
         {/* Debate is a read-only config preview — swiping should scroll it, not
             hop to the adjacent RIA tab, so the pane opts out of route-swipe. */}
-        <div
-          className="flex flex-col gap-6"
+        <SurfaceStack
+          className="gap-6"
           {...(isDebateView ? { "data-no-route-swipe": "" } : {})}
         >
           <div data-testid="ria-picks-primary">
@@ -2903,7 +2903,7 @@ export default function RiaPicksPage() {
           ) : null}
           </>
           )}
-        </div>
+        </SurfaceStack>
       </AppPageContentRegion>
     </AppPageShell>
   );

@@ -1,7 +1,7 @@
 {
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "one_intro",
-  "surface_title": "Meet your agents",
+  "surface_title": "Claim your One",
   "docs_references": [
     "docs/reference/one/one-voice-runtime-architecture.md",
     "docs/reference/one/one-voice-onboarding-journey.md"
@@ -19,10 +19,9 @@
   "actions": [
     {
       "action_id": "onboarding.claim_one",
-      "label": "Meet your agents",
+      "label": "Claim your One",
       "meaning": "Continues from One's public welcome screen to sign in and begin setup.",
       "aliases": [
-        "meet your agents",
         "claim your one",
         "claim my one",
         "claim one",
@@ -60,7 +59,7 @@
           {
             "type": "action",
             "action_id": "onboarding.claim_one",
-            "label": "Meet your agents",
+            "label": "Claim your One",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/login",

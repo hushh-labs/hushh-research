@@ -75,6 +75,7 @@ from hushh_mcp.one_adk.specialist_availability import (
 )
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
 from hushh_mcp.services.action_gateway import (
+    AVAILABLE_ACTION_IDS_CAP,
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
@@ -301,10 +302,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "for a visible action, asking about the current screen, continuing the "
     "conversation, or expressing genuine ambiguity. When they clearly ask for "
     "a currently available, low-risk visible control whose exact generated id is "
-    "in the active inventory, call run_app_action with that id immediately. Use "
-    "list_app_actions only to retrieve bounded generated candidates when the exact "
-    "id is uncertain; it is not semantic authority and never decides what the "
-    "person meant. Do this before greeting, explaining who "
+    "in the active inventory, call run_app_action with that id immediately. "
+    "Otherwise -- whenever their own words do not closely echo one of the visible "
+    "labels, including short, ambiguous, or urgent phrasing -- call list_app_actions "
+    "first with their own words, every time, rather than judging whether you feel "
+    "certain; it is not semantic authority and never decides what the person meant, "
+    "only what candidates you get to choose from. Do this before greeting, explaining who "
     "you are, or narrating onboarding. Do not infer controls from page text, and "
     "do not offer a screen-bound action from another screen. An action with an "
     "authored journey is NOT screen-bound: start_app_goal opens the screen it "
@@ -394,8 +397,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "It opens a preview only; never start the debate until the person explicitly "
     "confirms from that preview. "
     "For other app actions (opening a workspace tab), call "
-    "run_app_action "
-    "with the exact action id, using list_app_actions first when unsure. "
+    "run_app_action with the exact action id. Call list_app_actions first unless "
+    "their words are already a close match to one of the visible labels -- do not "
+    "rely on a feeling of confidence. "
     "Actions owned by a specialist must go through that specialist's ask_ "
     "tool; run_app_action will redirect you if needed. Use google_search when "
     "the user needs fresh public information from the web. Answer general "
@@ -611,10 +615,11 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "CURRENT screen. If resolve_onboarding_goal returns selected_action_id, call "
     "start_app_goal for an authored journey or run_app_action for a single-screen action. "
     "Never turn an explicit Apple or Google request back into a generic provider "
-    "question after its destination is accepted. When the exact "
-    "generated id is uncertain, call list_app_actions (it returns only actions "
-    "valid for the current screen) and pick from that, rather than naming a "
-    "step from another screen. For example, do not bring up phone "
+    "question after its destination is accepted. Whenever the person's own words "
+    "are not a close match to one of the visible labels, call list_app_actions (it "
+    "returns only actions valid for the current screen) and pick from that, rather "
+    "than naming a step from another screen or guessing an id you are not directly "
+    "looking at. For example, do not bring up phone "
     "verification unless the user is actually on the phone screen. While "
     "someone is still finishing setup, be proactive rather than waiting to be "
     "asked: after you open a screen or complete a step, briefly name ONE next "
@@ -667,7 +672,7 @@ def _one_runtime_instruction(context: Any) -> str:
     verified_action_ids = (
         [
             str(action_id).strip()
-            for action_id in available_action_ids[:18]
+            for action_id in available_action_ids[:AVAILABLE_ACTION_IDS_CAP]
             if isinstance(action_id, str) and str(action_id).strip()
         ]
         if isinstance(available_action_ids, list)
@@ -711,12 +716,12 @@ def _one_runtime_instruction(context: Any) -> str:
         ]
 
     # Render every executable id the browser published (bounded upstream at
-    # 18 by the app_context sanitizer). Rendering fewer than the allowlist
-    # previously made ids 11+ executable but invisible, which read as
-    # "actions not detected" in conversation.
+    # AVAILABLE_ACTION_IDS_CAP by the app_context sanitizer). Rendering fewer
+    # than the allowlist previously made ids 11+ executable but invisible,
+    # which read as "actions not detected" in conversation.
     action_lines: list[str] = []
     rendered_ids: set[str] = set()
-    for action_id in prompt_action_ids[:18]:
+    for action_id in prompt_action_ids[:AVAILABLE_ACTION_IDS_CAP]:
         entry = get_action_gateway_action(str(action_id))
         if entry is None:
             continue
@@ -738,12 +743,14 @@ def _one_runtime_instruction(context: Any) -> str:
                 if unrendered
                 else ""
             )
-            + "\nFirst assess meaning semantically. For a clear request matching one "
-            "of these controls, call run_app_action with that exact id. A clear "
+            + "\nFirst check whether the person's own words closely echo one of the "
+            "labels above. If so, call run_app_action with that exact id. A clear "
             "provider request selects its exact Apple or Google action; never "
-            "replace it with a generic provider explanation. Use list_app_actions "
-            "only to retrieve bounded candidates when the id is uncertain. Do not "
-            "call open_screen or google_search instead of a matching current control."
+            "replace it with a generic provider explanation. If their words do not "
+            "clearly echo one of these labels -- including short, ambiguous, or "
+            "urgent phrasing -- call list_app_actions with their own words first, "
+            "every time, rather than guessing from a label that only partly fits. "
+            "Do not call open_screen or google_search instead of a matching current control."
         )
 
     layer_instruction = ""
@@ -1299,6 +1306,34 @@ async def ask_consent_agent(
     return result
 
 
+def _intro_navigable(entry: dict[str, Any] | None, action_id: str) -> bool:
+    """True only for what run_intro_navigation_action will actually run.
+
+    A single predicate shared by both functions below, so the catalog
+    list_intro_navigation_actions offers can never drift from what the
+    executor accepts. It used to be narrower here (route.* prefix + policy +
+    status) than in the list function (is_navigation_action alone, a
+    deliberately broader union used elsewhere for the main, post-vault
+    list_app_actions), so 45 of 77 "navigable" ids were listed as candidates
+    and then always rejected -- including every location.open_*/setup.open_*
+    action, none of which belongs pre-vault. Narrowing the list to this
+    predicate (rather than widening the executor to match the old list) is
+    the safe direction: run_intro_navigation_action's own contract is that it
+    "can never turn an informational pre-vault turn into a vault, consent, or
+    mutation action," which a wider executor would break.
+    """
+    if entry is None:
+        return False
+    policy = str(entry.get("risk", {}).get("execution_policy") or "")
+    status = str(entry.get("execution_target", {}).get("status") or "")
+    return (
+        action_id.startswith("route.")
+        and is_navigation_action(entry)
+        and policy == "allow_direct"
+        and status == "wired"
+    )
+
+
 async def run_intro_navigation_action(action_id: str, tool_context: ToolContext) -> dict[str, Any]:
     """Offer one low-risk route action from One's anonymous, pre-vault surface.
 
@@ -1308,15 +1343,7 @@ async def run_intro_navigation_action(action_id: str, tool_context: ToolContext)
     """
     clean_id = str(action_id or "").strip()
     entry = get_action_gateway_action(clean_id)
-    policy = str((entry or {}).get("risk", {}).get("execution_policy") or "")
-    status = str((entry or {}).get("execution_target", {}).get("status") or "")
-    if (
-        entry is None
-        or not clean_id.startswith("route.")
-        or not is_navigation_action(entry)
-        or policy != "allow_direct"
-        or status != "wired"
-    ):
+    if not _intro_navigable(entry, clean_id):
         return {
             "status": "unavailable",
             "message": "That action is not available before the vault is unlocked.",
@@ -1327,9 +1354,9 @@ async def run_intro_navigation_action(action_id: str, tool_context: ToolContext)
 async def list_intro_navigation_actions() -> dict[str, Any]:
     """List the generated, directly-wired routes available before vault unlock.
 
-    This is a bounded catalog, not a classifier. One uses it only when the
-    action id is uncertain; semantic interpretation of the user's request
-    remains in the model.
+    This is a bounded catalog, not a classifier. Call it first whenever the
+    person's words are not already a close match to a route you already know
+    -- semantic interpretation of what they meant still belongs to the model.
     """
     results = [
         {
@@ -1338,7 +1365,7 @@ async def list_intro_navigation_actions() -> dict[str, Any]:
             "meaning": str(entry.get("meaning") or ""),
         }
         for entry in list_action_gateway_actions()
-        if is_navigation_action(entry)
+        if _intro_navigable(entry, str(entry.get("action_id") or ""))
     ]
     return {"status": "ok", "results": results[:32]}
 
@@ -1372,7 +1399,9 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
             "do not force a workflow or interpret words with fixed keyword rules. "
             "When the user clearly asks to open a Hussh screen, call "
             "run_intro_navigation_action with one exact generated route.* action id. "
-            "Call list_intro_navigation_actions only when the action id is uncertain. "
+            "Call list_intro_navigation_actions first unless their words are already a "
+            "close match to a route id you already know -- do not rely on a feeling "
+            "of confidence. "
             "Never claim access to personal information, PKM, "
             "email, location, consent records, CRM records, or any completed action. "
             "For protected or mutating work, explain that unlocking the vault and the "

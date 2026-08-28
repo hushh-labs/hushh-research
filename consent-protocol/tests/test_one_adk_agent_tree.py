@@ -55,6 +55,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_PENDING_DIRECTIVE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
+    _intro_navigable,
     _one_runtime_instruction,
     _specialist_turn,
     ask_consent_agent,
@@ -62,6 +63,7 @@ from hushh_mcp.one_adk.agent_tree import (
     build_one_root_agent,
     build_one_text_agent,
     get_one_runner,
+    list_intro_navigation_actions,
     open_gmail_email_draft,
     open_screen,
 )
@@ -141,6 +143,47 @@ class TestAgentTreeShape:
         assert tool_names == {"run_intro_navigation_action", "list_intro_navigation_actions"}
         assert "do not force a workflow" in agent.instruction
 
+    def test_pre_vault_head_no_longer_uses_the_uncertain_self_assessment_gate(self):
+        # Replaces #6087: "Call list_intro_navigation_actions only when the
+        # action id is uncertain" -- the same brittle self-assessment gate
+        # already fixed for list_app_actions in PR #6071, just in this
+        # separate static instruction that fix didn't touch.
+        agent = build_one_intro_text_agent()
+        assert "when the action id is uncertain" not in agent.instruction
+        assert (
+            "Call list_intro_navigation_actions first unless their words are "
+            "already a close match" in agent.instruction
+        )
+
+    @pytest.mark.asyncio
+    async def test_every_listed_intro_route_is_accepted_by_the_executor(self):
+        # #6086: list_intro_navigation_actions used to filter only by
+        # is_navigation_action, a broader test than run_intro_navigation_action's
+        # own predicate (route.* prefix + allow_direct + wired). 45 of 77 ids
+        # were listed as candidates and then always rejected. Both functions
+        # now share _intro_navigable, so this invariant holds by construction
+        # -- asserted directly so a future regression fails here, not in UAT.
+        listing = await list_intro_navigation_actions()
+        assert listing["status"] == "ok"
+        assert listing["results"], "expected at least one pre-vault route to be listed"
+        for result in listing["results"]:
+            entry = get_action_gateway_action(result["action_id"])
+            assert _intro_navigable(entry, result["action_id"]), (
+                f"{result['action_id']} is listed by list_intro_navigation_actions "
+                "but would be rejected by run_intro_navigation_action"
+            )
+
+    def test_intro_navigable_rejects_a_route_shaped_id_missing_the_prefix(self):
+        # The concrete casualty #6086 was filed against: onboarding.continue,
+        # auth.sign_in_open, and vault.setup_open are all wired/allow_direct
+        # and reachable via execution_target.path == "route" (the OTHER half
+        # of is_navigation_action's union), but none starts with "route.".
+        for action_id in ("onboarding.continue", "auth.sign_in_open", "vault.setup_open"):
+            entry = get_action_gateway_action(action_id)
+            assert entry is not None, f"{action_id} missing from the gateway"
+            assert entry.get("execution_target", {}).get("path") == "route"
+            assert not _intro_navigable(entry, action_id)
+
     def test_isolated_google_search_uses_the_text_model(self):
         agent = build_one_root_agent()
         search_tool = next(
@@ -199,6 +242,18 @@ class TestAgentTreeShape:
         assert "Never call yourself Kai" in ONE_IDENTITY_INSTRUCTION
         assert "Visible controls take priority over introductions" in ONE_IDENTITY_INSTRUCTION
         assert "list_app_actions" in ONE_IDENTITY_INSTRUCTION
+        # Replaces "call list_app_actions when the exact id is uncertain": a
+        # confidence judgment that swung on wording, not a checkable rule.
+        # Two-turn table-stakes regression: "save me" and "trigger sos"
+        # should not diverge on whether the model felt certain about either.
+        assert (
+            "call list_app_actions first with their own words, every time, "
+            "rather than judging whether you feel certain" in ONE_IDENTITY_INSTRUCTION
+        )
+        assert (
+            "Call list_app_actions first unless their words are already a "
+            "close match to one of the visible labels" in ONE_IDENTITY_INSTRUCTION
+        )
         assert "correlated app action settlement" in ONE_IDENTITY_INSTRUCTION
         assert "Conversation comes before workflow" in ONE_IDENTITY_INSTRUCTION
         assert "so what?" in ONE_IDENTITY_INSTRUCTION
@@ -209,6 +264,12 @@ class TestAgentTreeShape:
         assert "Gmail receipt sync and inbox search are paused" in ONE_IDENTITY_INSTRUCTION
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
         assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
+        # Onboarding's own instance of the same rule (replaces "When the
+        # exact generated id is uncertain, call list_app_actions").
+        assert (
+            "Whenever the person's own words are not a close match to one of "
+            "the visible labels, call list_app_actions" in ONE_IDENTITY_INSTRUCTION
+        )
 
     def test_identity_instruction_carries_persona_grounding(self):
         # Durable north-star + principle grounding is folded into the shared
@@ -261,7 +322,14 @@ class TestAgentTreeShape:
         assert "ACTIVE ROUTE PLAYBOOK" in instruction
         assert "Terms => auth.open_terms" in instruction
         assert "Do not call open_screen" in instruction
-        assert "First assess meaning semantically" in instruction
+        assert (
+            "First check whether the person's own words closely echo one of the "
+            "labels above" in instruction
+        )
+        assert (
+            "call list_app_actions with their own words first, every time, "
+            "rather than guessing from a label that only partly fits" in instruction
+        )
 
     def test_runtime_instruction_warns_when_voice_control_is_off(self):
         # Gate 1/Gate 2 refuse every actual tool call while voice is off, but
@@ -354,7 +422,7 @@ class TestAgentTreeShape:
         assert "Continue with Apple => auth.sign_in_apple" in instruction
         assert "Continue with Google => auth.sign_in_google" in instruction
         assert "clear provider request selects its exact Apple or Google action" in instruction
-        assert "list_app_actions only to retrieve bounded candidates" in instruction
+        assert "call list_app_actions with their own words first, every time" in instruction
         assert "genuinely ambiguous" in instruction
 
     def test_finance_instruction_distinguishes_an_unlocked_empty_portfolio(self):

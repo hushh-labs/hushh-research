@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   BadgeCheck,
+  BookUser,
   Loader2,
   Lock,
+  RefreshCw,
   Search as SearchIcon,
   Share2,
   UserRound,
@@ -51,6 +53,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequireAuth } from "@/hooks/use-auth";
+import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -137,7 +141,9 @@ const CONNECT_SEARCH_QUERY_STORAGE_KEY = "hushh:connect:people-search-query";
 export function readStoredConnectSearchQuery(): string {
   if (typeof window === "undefined") return "";
   try {
-    return window.sessionStorage.getItem(CONNECT_SEARCH_QUERY_STORAGE_KEY) ?? "";
+    return (
+      window.sessionStorage.getItem(CONNECT_SEARCH_QUERY_STORAGE_KEY) ?? ""
+    );
   } catch {
     return "";
   }
@@ -163,6 +169,61 @@ export function writeStoredConnectSearchQuery(query: string): void {
  */
 const CONNECT_STRIP_COMPACT_PADDING =
   "[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5";
+
+/**
+ * The pinned header: both tab strips, and nothing else.
+ *
+ * `--top-shell-live-height` rather than `top-0` -- the scroll root clears the
+ * top bar with a spacer rather than padding, so `top-0` sticks a strip to the
+ * scrollport edge, which the fixed bar overlays. Same token the feed's sticky
+ * day dividers use.
+ *
+ * The negative inline margin is what makes the background reach the page
+ * gutters. Without it, rows scroll past visibly in the 16-24px either side of a
+ * header that is supposed to be covering them.
+ *
+ * `bg-background`, at full opacity, NOT `bg-background/85`. Fifteen percent of a
+ * roster row is still a roster row: names and avatars read straight through the
+ * strips at phone width, which is the "list scrolls behind the header" this
+ * fixes. The blur went with it -- it has nothing left to blur, and it cost a
+ * compositing layer on every scroll frame.
+ *
+ * `::before` continues that same material UP over `--top-fade-active`, the band
+ * where the fixed top mask dissolves to fully transparent. The header pins at
+ * the mask's last visible pixel, so that band is chrome-coloured at the top and
+ * clear glass at the bottom -- and rows slid through it in plain sight, between
+ * the bar and the strips, which is the other half of the same report. Covering
+ * it means the tail dissolves over empty page instead, exactly as it does when
+ * the page has not been scrolled.
+ *
+ * Height only under `data-pinned`: an absolutely positioned box with no height
+ * and empty content is 0px tall, so the cover exists and measures nothing until
+ * the header is really pinned. It has to be conditional. At rest this header
+ * sits `--page-header-section-gap` below the page title -- 10px at compact
+ * density -- and an unconditional 22px band would take a bite out of "Connect".
+ *
+ * Held by e2e/connect-sticky-header.layout.spec.ts.
+ */
+const CONNECT_STICKY_HEADER_CLASSNAME =
+  "sticky top-[var(--top-shell-live-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-3 bg-background px-[var(--page-inline-gutter-standard)] pb-3 pt-2 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:bg-background data-[pinned=true]:before:h-[calc(var(--top-fade-active,0px)+1px)] sm:space-y-4";
+
+/**
+ * The search row pins UNDER the header, not with it.
+ *
+ * This field searches the directory, and the directory is what sits below it --
+ * `My connections` is above. Lifting it into the header would fix a control to
+ * the top of a screen where the first thing under it is a list the field does
+ * not filter. Pinned in place instead, it arrives exactly when its own results
+ * do and stays for as long as they are on screen.
+ *
+ * The offset is the live top shell plus whatever the header above measured, so
+ * a two-strip header and a one-strip header both land it in the right place.
+ *
+ * Opaque for the same reason the header above it is: at 85% the directory rows
+ * this field filters read straight through it as they scroll past.
+ */
+const CONNECT_STICKY_SEARCH_CLASSNAME =
+  "sticky top-[calc(var(--top-shell-live-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] py-2";
 
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
@@ -252,6 +313,8 @@ const CONNECT_PAGER_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
+const CONNECT_REFRESH_BUTTON_CLASSNAME =
+  "h-8 min-h-8 w-8 min-w-8 rounded-full p-0 text-muted-foreground hover:text-foreground disabled:opacity-70";
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 8;
@@ -479,6 +542,9 @@ export default function ConnectPageClient() {
     count: number;
   }>({ loading: true, error: null, count: 0 });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const connectStackRef = useRef<HTMLDivElement | null>(null);
+  const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
+  const stickyPinSentinelRef = useRef<HTMLDivElement | null>(null);
   const [query, setQuery] = useState<string>(readStoredConnectSearchQuery);
   useEffect(() => {
     writeStoredConnectSearchQuery(query);
@@ -512,6 +578,84 @@ export default function ConnectPageClient() {
     offeredHandles: string[];
   } | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  /**
+   * Publish the pinned header's height so the search row can sit under it.
+   *
+   * Measured rather than assumed: the header is one strip on Circles and two
+   * everywhere else, and a strip's own height moves with the type scale and the
+   * breakpoint. A hard-coded offset is right at exactly one width.
+   *
+   * Written to the page's own stack, not `documentElement`, so it inherits down
+   * to the search row and to nothing else, and leaves with the page.
+   */
+  useEffect(() => {
+    const header = stickyHeaderRef.current;
+    const stack = connectStackRef.current;
+    if (!header || !stack) return;
+    const publish = () => {
+      stack.style.setProperty(
+        "--connect-sticky-header-height",
+        `${Math.ceil(header.getBoundingClientRect().height)}px`,
+      );
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [surface]);
+  /**
+   * Say whether the header is actually pinned, so its cover can be conditional.
+   *
+   * The cover is a band of page background continuing UP from the header over
+   * `--top-fade-active` -- the strip where the fixed top mask dissolves to
+   * nothing and rows were sliding through it in plain sight. Pinned, that band
+   * belongs to the chrome. At rest it is the gap under the "Connect" title,
+   * `--page-header-section-gap`, which is 10px at this page's density -- so an
+   * unconditional cover would sit on the title instead of on the mask's tail.
+   *
+   * An observer rather than a scroll handler: this fires twice per visit, at
+   * the pin boundary, instead of measuring on every frame the way the top app
+   * bar's own collapse tracking has to.
+   *
+   * `rootMargin` is the header's resolved `top`, read back rather than
+   * recomputed. `--top-shell-live-height` is a calc of six tokens declared at
+   * route-shell scope; anything here that re-derived it would be a second copy
+   * to keep in step with `signed-in-shell-content-offset.ts`.
+   */
+  useEffect(() => {
+    const header = stickyHeaderRef.current;
+    const sentinel = stickyPinSentinelRef.current;
+    if (!header || !sentinel) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const scrollRoot = document.querySelector<HTMLElement>(
+      '[data-app-scroll-root="true"]',
+    );
+    let observer: IntersectionObserver | null = null;
+    const attach = () => {
+      observer?.disconnect();
+      const pinnedAt = Math.max(
+        0,
+        Math.round(Number.parseFloat(getComputedStyle(header).top) || 0),
+      );
+      observer = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[entries.length - 1];
+          if (!entry) return;
+          header.dataset.pinned = entry.isIntersecting ? "false" : "true";
+        },
+        { root: scrollRoot, rootMargin: `-${pinnedAt}px 0px 0px 0px` },
+      );
+      observer.observe(sentinel);
+    };
+    attach();
+    // The offset moves with the breakpoint and with the safe-area inset, and a
+    // rotation changes both at once.
+    window.addEventListener("resize", attach);
+    return () => {
+      window.removeEventListener("resize", attach);
+      observer?.disconnect();
+    };
+  }, [surface]);
   /**
    * The people picked for a bulk request, held whole rather than by id.
    *
@@ -642,6 +786,48 @@ export default function ConnectPageClient() {
     [loadConnectionsPage],
   );
 
+  // The same contact sync the One Location agent offers, on the screen whose
+  // whole job is finding people. It is one implementation, not a second one:
+  // everything about reading an address book, hashing numbers and matching
+  // them lives in the hook, and this surface supplies only what is its own --
+  // which list to refresh afterwards, and which route the analytics belong to.
+  //
+  // `onInviteShareStarted` is deliberately not passed. On Location it records
+  // the acquisition source for that journey, and first touch wins inside it,
+  // so calling it from here would not merely file a wrong row -- it would
+  // consume the slot and leave a later, genuine Location touch unrecorded.
+  const connectionAudienceRef = useRef(connectionAudience);
+  connectionAudienceRef.current = connectionAudience;
+
+  const contactSync = useContactSync({
+    routeId: "connect",
+    // `user ? getIdToken : null`, not `getIdToken`. The option is nullable so
+    // the hook can check sign-in SYNCHRONOUSLY, before it asks GIS for a token
+    // -- a token fetch in front of that call spends the tap's transient
+    // activation and Safari blocks the popup. `getIdToken` here is a
+    // useCallback, so it is always truthy and resolves to null when signed
+    // out; passing it raw made the guard dead code and let the Google consent
+    // popup open for a signed-out visitor. This restores the predicate the
+    // Location page used.
+    getIdToken: user ? getIdToken : null,
+    accountPhoneNumber: user?.phoneNumber,
+    userId: user?.uid,
+    // Awaited, and its boolean dropped: the hook only needs to know the
+    // refresh finished before it announces the outcome, so the toast never
+    // claims a connection the list behind it has not caught up to.
+    //
+    // The audience is read from a ref rather than captured. A sync is long
+    // enough to switch tabs under, and the hook snapshots its options once at
+    // the start; a captured value would refresh the People audience into the
+    // RIAs group and repaint it with the wrong people.
+    onConnectionGraphChanged: async () => {
+      await refreshConnectionsFirstPage({
+        audience: connectionAudienceRef.current,
+      });
+      setDirectoryRefreshNonce((nonce) => nonce + 1);
+    },
+  });
+
   useEffect(() => {
     // Audience is part of the server-side truth for this list. Clear the
     // previous audience before loading so a failed RIAs request cannot leave
@@ -683,11 +869,7 @@ export default function ConnectPageClient() {
         handleStateChanged,
       );
     };
-  }, [
-    connectionAudience,
-    loadOutgoingRequestIds,
-    refreshConnectionsFirstPage,
-  ]);
+  }, [connectionAudience, loadOutgoingRequestIds, refreshConnectionsFirstPage]);
 
   // The directory is every account on Hussh, so listing all of it unprompted
   // stops being useful as soon as sign-ups outgrow a screen or two: the person
@@ -715,6 +897,17 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
+  const connectionsHeading = isAdvisorTab
+    ? `My RIAs (${connectionsTotalCount})`
+    : `My connections (${connectionsTotalCount})`;
+  const handleRefreshConnections = useCallback(() => {
+    if (connectionsRefreshingFirstPage) return;
+    void refreshConnectionsFirstPage({ audience: connectionAudience });
+  }, [
+    connectionAudience,
+    connectionsRefreshingFirstPage,
+    refreshConnectionsFirstPage,
+  ]);
   // Searching a name and finding nobody has one likely explanation the
   // directory cannot act on: that person has not joined yet. Offered on People
   // only -- People searches the whole of One, so "not here" really does mean
@@ -766,6 +959,7 @@ export default function ConnectPageClient() {
   }, [inviteToOneShare]);
 
   const resultSetKey = `${directoryAudience}:${pageSize}:${trimmedQuery}`;
+  const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
   const [renderedResultSetKey, setRenderedResultSetKey] =
     useState(resultSetKey);
   if (renderedResultSetKey !== resultSetKey) {
@@ -818,7 +1012,19 @@ export default function ConnectPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, trimmedQuery, currentPage, pageSize, directoryAudience]);
+  }, [
+    user,
+    trimmedQuery,
+    currentPage,
+    pageSize,
+    directoryAudience,
+    // A contact sync can connect people who are sitting in this list right
+    // now. Their rows carry a `relationship` the server decided before the
+    // sync ran, so without this the directory keeps offering "Connect" to
+    // somebody it just connected you to, and the request that follows is
+    // refused. Bumping the nonce re-asks the server for the same page.
+    directoryRefreshNonce,
+  ]);
 
   const selectSurface = useCallback(
     (next: ConnectSurface) => {
@@ -943,6 +1149,39 @@ export default function ConnectPageClient() {
       }
     },
     [user],
+  );
+
+  /**
+   * A match from the results sheet goes through this page's own review, not
+   * straight to the server.
+   *
+   * `config/protected-behaviors.json` locks
+   * `connect-request-asks-before-it-shares`: on Connect a request opens the
+   * capability review pre-granting nothing, and the only permitted bypass is a
+   * catalog empty on both sides. The hook's own `requestConnection` calls
+   * `ConnectionsService.sendRequest` outright -- harmless while the sheet lived
+   * only on Location, a second unreviewed path the moment it renders here. So
+   * the sheet hands the person over and this page asks, exactly as a directory
+   * row does.
+   *
+   * The sheet closes first, deliberately: the review is a dialog, and leaving
+   * the sheet underneath it would stack two layers over one decision.
+   */
+  const requestConnectionFromContactMatch = useCallback(
+    async (matchUserId: string) => {
+      const match = contactSync.result?.matches.find(
+        (candidate) => candidate.userId === matchUserId,
+      );
+      contactSync.setResultsOpen(false);
+      await sendConnectRequest({
+        userId: matchUserId,
+        displayName: match?.displayName ?? null,
+        photoUrl: null,
+        email: null,
+        relationship: "none",
+      });
+    },
+    [contactSync, sendConnectRequest],
   );
 
   const handleConnect = useCallback(
@@ -1834,9 +2073,7 @@ export default function ConnectPageClient() {
       // answer its own question.
       const confirmed = slots.confirmed === true;
       const chosenConnectionId =
-        typeof slots.connectionId === "string"
-          ? slots.connectionId.trim()
-          : "";
+        typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
       if (!user) {
         return {
           status: "blocked",
@@ -1994,14 +2231,67 @@ export default function ConnectPageClient() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="space-y-4 sm:space-y-5">
-            {/* The outer axis. People, or the groups they are in. */}
-            <SegmentedTabs
-              value={surface}
-              onValueChange={(value) => selectSurface(value as ConnectSurface)}
-              options={CONNECT_SURFACES}
-              className={CONNECT_STRIP_COMPACT_PADDING}
+          <div
+            ref={connectStackRef}
+            className="relative space-y-4 sm:space-y-5"
+          >
+            {/* Where the header sits when it is NOT pinned, held open as a 1px
+                line so an observer can watch that spot leave the scrollport.
+                Absolutely positioned, so it is out of flow: `space-y-*` gives a
+                first child `margin-block-end` only, which an absolute box with
+                `top: 0` cannot act on, and the strips below keep their rhythm.
+                Reading the header itself would prove nothing -- once pinned it
+                never leaves, which is the whole point of it. */}
+            <div
+              ref={stickyPinSentinelRef}
+              data-testid="connect-sticky-pin-sentinel"
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 h-px"
             />
+            {/* Both axes travel together. Pinning the outer strip and letting
+                the inner one scroll would leave a header naming a surface above
+                a tab bar that has already left the screen. */}
+            <div
+              ref={stickyHeaderRef}
+              data-testid="connect-sticky-header"
+              // Written by the observer above. Declared here so the attribute
+              // exists from the first paint rather than arriving a frame later,
+              // which is a frame of the cover in the wrong state.
+              data-pinned="false"
+              className={CONNECT_STICKY_HEADER_CLASSNAME}
+            >
+              {/* The outer axis. People, or the groups they are in. */}
+              <SegmentedTabs
+                value={surface}
+                onValueChange={(value) =>
+                  selectSurface(value as ConnectSurface)
+                }
+                options={CONNECT_SURFACES}
+                className={CONNECT_STRIP_COMPACT_PADDING}
+              />
+
+              {surface === "circles" ? null : (
+                <SegmentedTabs
+                  value={tab}
+                  onValueChange={(value) => setTab(value as ConnectTab)}
+                  options={CONNECT_TABS}
+                  // A third tab takes a third of the strip, and the option's own
+                  // 16px side padding then costs more than the widest label has
+                  // left: measured on a 375px screen, "Around you" rendered as
+                  // "Around yo…". Tab titles are ours, not user content, so
+                  // an ellipsis in one is a defect rather than a graceful
+                  // degradation.
+                  //
+                  // Padding is the thing that gives, which is the cheapest rung
+                  // on the ladder -- the strip keeps its height, its grid, its
+                  // type and its active pill, and nothing changes from 640px up,
+                  // where there was never any pressure. Scoped to this strip
+                  // rather than pushed into SegmentedTabs so no other surface's
+                  // spacing moves.
+                  className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
+                />
+              )}
+            </div>
 
             {surface === "circles" ? (
               <ConnectCirclesTab
@@ -2015,357 +2305,431 @@ export default function ConnectPageClient() {
               />
             ) : (
               <>
-            <SegmentedTabs
-              value={tab}
-              onValueChange={(value) => setTab(value as ConnectTab)}
-              options={CONNECT_TABS}
-              // A third tab takes a third of the strip, and the option's own
-              // 16px side padding then costs more than the widest label has
-              // left: measured on a 375px screen, "Around you" rendered as
-              // "Around yo…". Tab titles are ours, not user content, so an
-              // ellipsis in one is a defect rather than a graceful degradation.
-              //
-              // Padding is the thing that gives, which is the cheapest rung on
-              // the ladder -- the strip keeps its height, its grid, its type
-              // and its active pill, and nothing changes from 640px up, where
-              // there was never any pressure. Scoped to this strip rather than
-              // pushed into SegmentedTabs so no other surface's spacing moves.
-              className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
-            />
-
-            {tab === "nearby" ? (
-              <NearbyDirectories getIdToken={getIdToken} />
-            ) : (
-              <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup
-              title={
-                isAdvisorTab
-                          ? `My RIAs (${connectionsTotalCount})`
-                          : `My connections (${connectionsTotalCount})`
-              }
-              separatorInset
-              contentClassName={
-                sortedConnections.length > 0
-                  ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
-                  : undefined
-              }
-              testId="connect-my-connections-group"
-            >
-              {sortedConnections.length === 0 ? (
-                <SettingsRow
-                  // No description. "Connections appear here." explained what
-                  // an empty list already showed, and the obvious replacement
-                  // -- pointing at the search box -- is the sentence the
-                  // directory section directly below already carries. Saying
-                  // it twice on one screen is what made it noise the first
-                  // time. The title is the whole message.
+                {tab === "nearby" ? (
+                  <NearbyDirectories getIdToken={getIdToken} />
+                ) : (
+                  <div className="space-y-4 sm:space-y-5">
+                    <SettingsGroup
+                      title={
+                        <span className="min-w-0 truncate">
+                          {connectionsHeading}
+                        </span>
+                      }
+                      // Refresh sits in `titleAction`, not inside `title`. It used
+                      // to be a child of the title node, which `SettingsGroup`
+                      // renders inside an element carrying `role="heading"` -- and
+                      // a control there is not a control. A screen reader folds its
+                      // label into the heading's accessible name, so the heading
+                      // announced as "Your connections Refresh contacts", and the
+                      // button itself was never offered as something to press.
+                      titleAction={
+                        <Button
+                          type="button"
+                          variant="none"
+                          effect="fade"
+                          size="sm"
+                          aria-label="Refresh contacts"
+                          aria-busy={connectionsRefreshingFirstPage}
+                          title="Refresh contacts"
+                          disabled={connectionsRefreshingFirstPage}
+                          onClick={handleRefreshConnections}
+                          className={CONNECT_REFRESH_BUTTON_CLASSNAME}
+                        >
+                          <RefreshCw
+                            aria-hidden="true"
+                            className={cn(
+                              "h-3.5 w-3.5",
+                              connectionsRefreshingFirstPage && "animate-spin",
+                            )}
+                          />
+                        </Button>
+                      }
+                      separatorInset
+                      contentClassName={
+                        sortedConnections.length > 0
+                          ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
+                          : undefined
+                      }
+                      testId="connect-my-connections-group"
+                    >
+                      {sortedConnections.length === 0 ? (
+                        <SettingsRow
+                          // No description. "Connections appear here." explained what
+                          // an empty list already showed, and the obvious replacement
+                          // -- pointing at the search box -- is the sentence the
+                          // directory section directly below already carries. Saying
+                          // it twice on one screen is what made it noise the first
+                          // time. The title is the whole message.
                           title={
                             isAdvisorTab ? "No RIAs yet" : "No connections yet"
                           }
-                  density="compact"
-                  disabled
-                />
-              ) : (
-                sortedConnections.map((connection) => (
-                  <SettingsRow
-                    key={connection.connectionId}
-                    // Same mark, same tone, same meaning as the results list
-                    // below: verified is a state, and this screen already
-                    // spends green on it. Both lists are on screen together,
-                    // so a person cannot carry one icon in one and another in
-                    // the other.
-                    icon={connection.isRia ? BadgeCheck : Users}
-                    iconTone={connection.isRia ? "green" : "blue"}
-                    // Deliberately NOT stackTrailingOnMobile. That prop drops
-                    // the trailing control onto its own line below the name on
-                    // every phone (`sm:` is 640px, so "mobile" here is every
-                    // iPhone), and it was doing so for a single 72px "Remove"
-                    // that had room to sit inline all along -- a connection
-                    // read as two rows, and the list lost its right-hand
-                    // column. The People list below has never stacked; these
-                    // two lists sit on the same screen and now agree.
-                    title={
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        <span className="min-w-0 truncate">
-                          {connection.displayName || connection.userId}
-                        </span>
-                        {connection.connectedFromContacts ? (
-                          <ContactSourceBadge />
-                        ) : null}
-                      </span>
-                    }
-                    // SettingsRow derives `data-voice-label` from a string
-                    // title, and this one is now an element so it can truncate.
-                    // Passing the name keeps the attribute the row already had.
-                    voiceLabel={
-                      connection.displayName || connection.userId
-                    }
-                    density="compact"
-                    trailing={
-                      <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
-                        {pendingRemoveId === connection.connectionId ? (
-                          <>
-                            <Button
+                          density="compact"
+                          disabled
+                        />
+                      ) : (
+                        sortedConnections.map((connection) => (
+                          <SettingsRow
+                            key={connection.connectionId}
+                            // Same mark, same tone, same meaning as the results list
+                            // below: verified is a state, and this screen already
+                            // spends green on it. Both lists are on screen together,
+                            // so a person cannot carry one icon in one and another in
+                            // the other.
+                            icon={connection.isRia ? BadgeCheck : Users}
+                            iconTone={connection.isRia ? "green" : "blue"}
+                            // Deliberately NOT stackTrailingOnMobile. That prop drops
+                            // the trailing control onto its own line below the name on
+                            // every phone (`sm:` is 640px, so "mobile" here is every
+                            // iPhone), and it was doing so for a single 72px "Remove"
+                            // that had room to sit inline all along -- a connection
+                            // read as two rows, and the list lost its right-hand
+                            // column. The People list below has never stacked; these
+                            // two lists sit on the same screen and now agree.
+                            title={
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <span className="min-w-0 truncate">
+                                  {connection.displayName || connection.userId}
+                                </span>
+                                {connection.connectedFromContacts ? (
+                                  <ContactSourceBadge />
+                                ) : null}
+                              </span>
+                            }
+                            // SettingsRow derives `data-voice-label` from a string
+                            // title, and this one is now an element so it can truncate.
+                            // Passing the name keeps the attribute the row already had.
+                            voiceLabel={
+                              connection.displayName || connection.userId
+                            }
+                            density="compact"
+                            trailing={
+                              <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
+                                {pendingRemoveId === connection.connectionId ? (
+                                  <>
+                                    <Button
+                                      type="button"
+                                      variant="destructive"
+                                      effect="fill"
+                                      size="sm"
+                                      className={
+                                        CONNECT_INLINE_BUTTON_CLASSNAME
+                                      }
+                                      disabled={
+                                        busyId === connection.connectionId
+                                      }
+                                      onClick={() =>
+                                        void handleRemove(connection)
+                                      }
+                                    >
+                                      {busyId === connection.connectionId
+                                        ? "Removing…"
+                                        : "Confirm"}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="none"
+                                      effect="fade"
+                                      size="sm"
+                                      className={
+                                        CONNECT_INLINE_BUTTON_CLASSNAME
+                                      }
+                                      disabled={
+                                        busyId === connection.connectionId
+                                      }
+                                      onClick={() => setPendingRemoveId(null)}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    variant="none"
+                                    effect="fade"
+                                    size="sm"
+                                    onClick={() =>
+                                      setPendingRemoveId(
+                                        connection.connectionId,
+                                      )
+                                    }
+                                    aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
+                                    className={cn(
+                                      CONNECT_INLINE_BUTTON_CLASSNAME,
+                                      "text-muted-foreground hover:text-destructive",
+                                    )}
+                                  >
+                                    Remove
+                                  </Button>
+                                )}
+                              </span>
+                            }
+                          />
+                        ))
+                      )}
+                    </SettingsGroup>
+
+                    {connectionsHasMore ? (
+                      <div className="flex justify-center">
+                        <Button
+                          type="button"
+                          variant="none"
+                          effect="fill"
+                          size="sm"
+                          className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                          disabled={
+                            connectionsLoadingMore ||
+                            connectionsRefreshingFirstPage
+                          }
+                          onClick={() => void handleLoadMoreConnections()}
+                        >
+                          {connectionsLoadingMore
+                            ? "Loading…"
+                            : "Load more connections"}
+                        </Button>
+                      </div>
+                    ) : null}
+
+                    <div className="space-y-4">
+                      {/* No `w-full` here any more, and it is load-bearing: this row
+                  bleeds to the page gutters with a negative inline margin, and
+                  `width: 100%` resolves against the text column, so the margin
+                  only slid the row 16px left instead of widening it. A block
+                  flex container fills its containing block on its own, and with
+                  `auto` the margins can do their job. `cn` is tailwind-merge, so
+                  a later `w-full` would have beaten anything the constant said.
+                  Held by e2e/connect-sticky-header.layout.spec.ts. */}
+                      <div
+                        data-testid="connect-search-row"
+                        className={cn(
+                          CONNECT_STICKY_SEARCH_CLASSNAME,
+                          "flex items-center gap-2",
+                        )}
+                      >
+                        <div className="relative flex-1">
+                          <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                            <SearchIcon className="h-4.5 w-4.5" />
+                          </span>
+                          <Input
+                            ref={searchInputRef}
+                            type="text"
+                            value={query}
+                            onChange={(event) => setQuery(event.target.value)}
+                            placeholder={CONNECT_SEARCH_PLACEHOLDER}
+                            aria-label="Search people"
+                            data-voice-control-id="one-connect-search"
+                            className={cn(
+                              CONNECT_SEARCH_INPUT_CLASSNAME,
+                              query
+                                ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
+                                : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+                            )}
+                            enterKeyHint="search"
+                            onKeyDown={(event) => {
+                              // iOS soft-keyboard "return" must dismiss the keyboard;
+                              // blurring the field is what actually closes it in the
+                              // Capacitor webview (there is no form submit here).
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                event.currentTarget.blur();
+                              }
+                            }}
+                            onFocus={(event) => {
+                              // Keyboard-dismiss "on drag": the first scroll/drag while
+                              // the field is focused blurs it, so an open keyboard never
+                              // locks the results out of view. Scoped to this field's
+                              // focus lifecycle and cleaned up on blur.
+                              const field = event.currentTarget;
+                              // Scroll the field into view above the on-screen keyboard.
+                              // Tapping it otherwise leaves it hidden behind the keyboard
+                              // until the user manually scrolls up. The delay lets the
+                              // keyboard animate in so the shrunken viewport is measured.
+                              window.setTimeout(() => {
+                                field.scrollIntoView({
+                                  block: "center",
+                                  behavior: "smooth",
+                                });
+                              }, 300);
+                              const dismiss = () => field.blur();
+                              window.addEventListener("touchmove", dismiss, {
+                                passive: true,
+                                once: true,
+                              });
+                              field.addEventListener(
+                                "blur",
+                                () =>
+                                  window.removeEventListener(
+                                    "touchmove",
+                                    dismiss,
+                                  ),
+                                { once: true },
+                              );
+                            }}
+                          />
+                          {query ? (
+                            <button
                               type="button"
-                              variant="destructive"
-                              effect="fill"
-                              size="sm"
-                              className={CONNECT_INLINE_BUTTON_CLASSNAME}
-                              disabled={busyId === connection.connectionId}
-                              onClick={() => void handleRemove(connection)}
+                              aria-label="Clear search"
+                              onClick={() => {
+                                setQuery("");
+                                searchInputRef.current?.focus();
+                              }}
+                              className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
                             >
-                              {busyId === connection.connectionId
-                                ? "Removing…"
-                                : "Confirm"}
-                            </Button>
+                              <X className="h-5 w-5" strokeWidth={2.4} />
+                            </button>
+                          ) : null}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="none"
+                          effect="fill"
+                          size="sm"
+                          className={CONNECT_SELECT_TOGGLE_CLASSNAME}
+                          disabled={loading || people.length === 0}
+                          aria-label={
+                            isSelectionMode
+                              ? "Cancel selecting people"
+                              : "Select many people"
+                          }
+                          onClick={() => {
+                            setIsSelectionMode((current) => !current);
+                            setSelectedPeople(new Map());
+                            setShowLimitBanner(false);
+                          }}
+                        >
+                          {/* "Select many", not "Select": this enters multi-select,
+                      and a lone "Select" reads as picking the one thing you are
+                      looking at. The visible label and the accessible name now
+                      say the same thing. */}
+                          {isSelectionMode ? "Cancel" : "Select many"}
+                        </Button>
+                      </div>
+                      <SettingsGroup
+                        title={CONNECT_TAB_LABEL[tab]}
+                        // People only. This one JSX node also renders the RIAs
+                        // tab, where an address book has nothing to offer --
+                        // an advisor is found by their verified profile, not
+                        // by being in your phone. "Around you" never reaches
+                        // here at all; that tab short-circuits to its own
+                        // directories component.
+                        //
+                        // `available` is false on a desktop browser with no
+                        // Google client configured, which is the one case
+                        // where there is genuinely nothing to read. Hiding it
+                        // there is kinder than a button that exists only to
+                        // explain that it cannot work.
+                        titleAction={
+                          !isAdvisorTab && contactSync.available ? (
                             <Button
                               type="button"
                               variant="none"
                               effect="fade"
                               size="sm"
+                              aria-label="Sync contacts"
+                              aria-busy={contactSync.syncing}
+                              title="Sync contacts"
+                              disabled={contactSync.syncing}
+                              onClick={() => void contactSync.sync()}
                               className={CONNECT_INLINE_BUTTON_CLASSNAME}
-                              disabled={busyId === connection.connectionId}
-                              onClick={() => setPendingRemoveId(null)}
                             >
-                              Cancel
+                              <BookUser
+                                aria-hidden="true"
+                                className="mr-1.5 h-3.5 w-3.5"
+                              />
+                              {contactSync.syncing
+                                ? "Syncing\u2026"
+                                : "Sync contacts"}
                             </Button>
-                          </>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fade"
-                            size="sm"
-                            onClick={() =>
-                              setPendingRemoveId(connection.connectionId)
-                            }
-                            aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                            className={cn(
-                              CONNECT_INLINE_BUTTON_CLASSNAME,
-                              "text-muted-foreground hover:text-destructive",
-                            )}
-                          >
-                            Remove
-                          </Button>
-                        )}
-                      </span>
-                    }
-                  />
-                ))
-              )}
-            </SettingsGroup>
-
-            {connectionsHasMore ? (
-              <div className="flex justify-center">
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fill"
-                  size="sm"
-                  className={CONNECT_PAGER_BUTTON_CLASSNAME}
-                  disabled={
-                    connectionsLoadingMore || connectionsRefreshingFirstPage
-                  }
-                  onClick={() => void handleLoadMoreConnections()}
-                >
-                  {connectionsLoadingMore
-                    ? "Loading…"
-                    : "Load more connections"}
-                </Button>
-              </div>
-            ) : null}
-
-            <div className="space-y-4">
-              <div className="flex w-full items-center gap-2">
-                <div className="relative flex-1">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
-                    <SearchIcon className="h-4.5 w-4.5" />
-                  </span>
-                  <Input
-                    ref={searchInputRef}
-                    type="text"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder={CONNECT_SEARCH_PLACEHOLDER}
-                    aria-label="Search people"
-                    data-voice-control-id="one-connect-search"
-                    className={cn(
-                      CONNECT_SEARCH_INPUT_CLASSNAME,
-                      query
-                        ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
-                        : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
-                    )}
-                    enterKeyHint="search"
-                    onKeyDown={(event) => {
-                      // iOS soft-keyboard "return" must dismiss the keyboard;
-                      // blurring the field is what actually closes it in the
-                      // Capacitor webview (there is no form submit here).
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        event.currentTarget.blur();
-                      }
-                    }}
-                    onFocus={(event) => {
-                      // Keyboard-dismiss "on drag": the first scroll/drag while
-                      // the field is focused blurs it, so an open keyboard never
-                      // locks the results out of view. Scoped to this field's
-                      // focus lifecycle and cleaned up on blur.
-                      const field = event.currentTarget;
-                      // Scroll the field into view above the on-screen keyboard.
-                      // Tapping it otherwise leaves it hidden behind the keyboard
-                      // until the user manually scrolls up. The delay lets the
-                      // keyboard animate in so the shrunken viewport is measured.
-                      window.setTimeout(() => {
-                        field.scrollIntoView({
-                          block: "center",
-                          behavior: "smooth",
-                        });
-                      }, 300);
-                      const dismiss = () => field.blur();
-                      window.addEventListener("touchmove", dismiss, {
-                        passive: true,
-                        once: true,
-                      });
-                      field.addEventListener(
-                        "blur",
-                        () =>
-                                  window.removeEventListener(
-                                    "touchmove",
-                                    dismiss,
-                                  ),
-                        { once: true },
-                      );
-                    }}
-                  />
-                  {query ? (
-                    <button
-                      type="button"
-                      aria-label="Clear search"
-                      onClick={() => {
-                        setQuery("");
-                        searchInputRef.current?.focus();
-                      }}
-                      className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
-                    >
-                      <X className="h-5 w-5" strokeWidth={2.4} />
-                    </button>
-                  ) : null}
-                </div>
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fill"
-                  size="sm"
-                  className={CONNECT_SELECT_TOGGLE_CLASSNAME}
-                  disabled={loading || people.length === 0}
-                  aria-label={
-                    isSelectionMode
-                      ? "Cancel selecting people"
-                      : "Select many people"
-                  }
-                  onClick={() => {
-                    setIsSelectionMode((current) => !current);
-                    setSelectedPeople(new Map());
-                    setShowLimitBanner(false);
-                  }}
-                >
-                  {/* "Select many", not "Select": this enters multi-select,
-                      and a lone "Select" reads as picking the one thing you are
-                      looking at. The visible label and the accessible name now
-                      say the same thing. */}
-                  {isSelectionMode ? "Cancel" : "Select many"}
-                </Button>
-              </div>
-              <SettingsGroup
-                title={CONNECT_TAB_LABEL[tab]}
-                description={
+                          ) : null
+                        }
+                        description={
                           isSelectionMode ? (
-                        <span id="connect-selection-limit">
+                            <span id="connect-selection-limit">
                               Pick up to {MAX_BULK_CONNECTION_REQUESTS}, across
                               pages.
-                        </span>
+                            </span>
                           ) : isAdvisorTab ? (
                             "Advisors with a verified profile."
                           ) : hasQuery ? (
                             "Send a request."
                           ) : (
                             "Search by name."
-                      )
-                }
-                separatorInset
-              >
-                {loading ? (
-                  <SettingsRow
-                    title="Finding people…"
-                    density="compact"
-                    disabled
-                  />
-                ) : error ? (
-                  <SettingsRow
-                    title={
-                      isAdvisorTab
-                        ? "Advisors are unavailable"
-                        : "People are unavailable"
-                    }
-                    description={error}
-                    density="compact"
-                    tone="destructive"
-                  />
-                ) : people.length === 0 ? (
-                  // Tested against the list that is actually rendered below,
-                  // never against the raw server page. Those were two
-                  // different lists once: the server returned 8 rows, a
-                  // client-side filter hid all 8, and this branch checked the
-                  // 8 -- so the "no one matches" row never appeared and the
-                  // section rendered as blank space under its own heading.
-                  // An empty result has to say so.
-                  hasQuery ? (
-                    <>
-                      <SettingsRow
-                        title={`No one matches "${trimmedQuery}"`}
-                        description={
-                          isAdvisorTab
-                            ? "Try People, or their full name."
-                            : "Try their full name."
+                          )
                         }
-                        density="compact"
-                        disabled
-                      />
-                      {/* The row above states a fact, so it stays inert; an
+                        separatorInset
+                      >
+                        {loading ? (
+                          <SettingsRow
+                            title="Finding people…"
+                            density="compact"
+                            disabled
+                          />
+                        ) : error ? (
+                          <SettingsRow
+                            title={
+                              isAdvisorTab
+                                ? "Advisors are unavailable"
+                                : "People are unavailable"
+                            }
+                            description={error}
+                            density="compact"
+                            tone="destructive"
+                          />
+                        ) : people.length === 0 ? (
+                          // Tested against the list that is actually rendered below,
+                          // never against the raw server page. Those were two
+                          // different lists once: the server returned 8 rows, a
+                          // client-side filter hid all 8, and this branch checked the
+                          // 8 -- so the "no one matches" row never appeared and the
+                          // section rendered as blank space under its own heading.
+                          // An empty result has to say so.
+                          hasQuery ? (
+                            <>
+                              <SettingsRow
+                                title={`No one matches "${trimmedQuery}"`}
+                                description={
+                                  isAdvisorTab
+                                    ? "Try People, or their full name."
+                                    : "Try their full name."
+                                }
+                                density="compact"
+                                disabled
+                              />
+                              {/* The row above states a fact, so it stays inert; an
                           invite is a separate offer and gets its own row
                           rather than making "No one matches Bob" tappable.
                           Read together they are the two things left to try:
                           spell it out, or bring them here. */}
-                      {canInviteToOne ? (
-                        <SettingsRow
-                          icon={Share2}
-                          iconTone="blue"
-                          title="Invite them to One"
-                          description="Send them the app. You can connect once they join."
-                          density="compact"
-                          onClick={() => {
-                            void handleInviteToOne();
-                          }}
-                          testId="connect-invite-to-one"
-                        />
-                      ) : null}
-                    </>
-                  ) : (
-                    <SettingsRow
+                              {canInviteToOne ? (
+                                <SettingsRow
+                                  icon={Share2}
+                                  iconTone="blue"
+                                  title="Invite them to One"
+                                  description="Send them the app. You can connect once they join."
+                                  density="compact"
+                                  onClick={() => {
+                                    void handleInviteToOne();
+                                  }}
+                                  testId="connect-invite-to-one"
+                                />
+                              ) : null}
+                            </>
+                          ) : (
+                            <SettingsRow
                               title={
                                 isAdvisorTab
                                   ? "No advisors yet"
                                   : "No people yet"
                               }
-                      description="Search by name."
-                      density="compact"
-                      disabled
-                    />
-                  )
-                ) : (
-                  people.map((person) => {
-                    const cta = relationshipCta(person.relationship);
-                    const title =
+                              description="Search by name."
+                              density="compact"
+                              disabled
+                            />
+                          )
+                        ) : (
+                          people.map((person) => {
+                            const cta = relationshipCta(person.relationship);
+                            const title =
                               person.displayName ||
                               person.email ||
                               person.userId;
@@ -2374,255 +2738,255 @@ export default function ConnectPageClient() {
                             const isSelected = selectedPeople.has(
                               person.userId,
                             );
-                    return (
-                      <SettingsRow
-                        key={person.userId}
-                        // Verified is a state, and green is what this design
-                        // system already spends on a verified one. It is on the
-                        // row rather than on the tab so the mark still means
-                        // something in a search that spans both.
-                        icon={person.isRia ? BadgeCheck : UserRound}
-                        iconTone={person.isRia ? "green" : "blue"}
+                            return (
+                              <SettingsRow
+                                key={person.userId}
+                                // Verified is a state, and green is what this design
+                                // system already spends on a verified one. It is on the
+                                // row rather than on the tab so the mark still means
+                                // something in a search that spans both.
+                                icon={person.isRia ? BadgeCheck : UserRound}
+                                iconTone={person.isRia ? "green" : "blue"}
                                 title={
                                   <span className="block min-w-0 truncate">
                                     {title}
                                   </span>
                                 }
-                        description={
-                          description ? (
-                            <span className="block min-w-0 truncate">
-                              {description}
-                            </span>
-                          ) : undefined
-                        }
-                        density="compact"
-                        trailing={
-                          isSelectionMode ? (
-                            // A disabled checkbox alone said nothing about WHY.
-                            // Someone already connected, already asked, or
-                            // already asking you looked identical to someone
-                            // selection had simply run out of room for -- both
-                            // rendered as the same greyed box with a
-                            // not-allowed cursor and no visible text. A row
-                            // ineligible because of its relationship isn't a
-                            // choice at all, so it gets no checkbox -- just the
-                            // reason, standing in its place. The limit case
-                            // stays a real (disabled) checkbox, since it flips
-                            // back to selectable the moment the reader frees a
-                            // slot, and it already has a persistent explanation
-                            // in the section description above the list.
-                            person.relationship !== "none" ? (
-                              <span
-                                className="text-xs font-medium text-emerald-700 dark:text-emerald-300"
-                                aria-label={`${title}: ${cta.label}, not selectable`}
-                              >
-                                {cta.label}
-                              </span>
-                            ) : (
-                              <Checkbox
-                                checked={isSelected}
+                                description={
+                                  description ? (
+                                    <span className="block min-w-0 truncate">
+                                      {description}
+                                    </span>
+                                  ) : undefined
+                                }
+                                density="compact"
+                                trailing={
+                                  isSelectionMode ? (
+                                    // A disabled checkbox alone said nothing about WHY.
+                                    // Someone already connected, already asked, or
+                                    // already asking you looked identical to someone
+                                    // selection had simply run out of room for -- both
+                                    // rendered as the same greyed box with a
+                                    // not-allowed cursor and no visible text. A row
+                                    // ineligible because of its relationship isn't a
+                                    // choice at all, so it gets no checkbox -- just the
+                                    // reason, standing in its place. The limit case
+                                    // stays a real (disabled) checkbox, since it flips
+                                    // back to selectable the moment the reader frees a
+                                    // slot, and it already has a persistent explanation
+                                    // in the section description above the list.
+                                    person.relationship !== "none" ? (
+                                      <span
+                                        className="text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                                        aria-label={`${title}: ${cta.label}, not selectable`}
+                                      >
+                                        {cta.label}
+                                      </span>
+                                    ) : (
+                                      <Checkbox
+                                        checked={isSelected}
                                         disabled={
                                           !isSelected &&
                                           selectedPeople.size >=
                                             MAX_BULK_CONNECTION_REQUESTS
                                         }
-                                // The default unchecked border (border-input)
-                                // reads as near-invisible on this row's light
-                                // background -- readers couldn't tell an
-                                // eligible, clickable checkbox from empty
-                                // space. A darker, thicker border only changes
-                                // that idle state; data-[state=checked] still
-                                // wins once picked.
-                                className="border-2 border-foreground/50"
-                                aria-describedby="connect-selection-limit"
-                                onCheckedChange={(checked) => {
+                                        // The default unchecked border (border-input)
+                                        // reads as near-invisible on this row's light
+                                        // background -- readers couldn't tell an
+                                        // eligible, clickable checkbox from empty
+                                        // space. A darker, thicker border only changes
+                                        // that idle state; data-[state=checked] still
+                                        // wins once picked.
+                                        className="border-2 border-foreground/50"
+                                        aria-describedby="connect-selection-limit"
+                                        onCheckedChange={(checked) => {
                                           if (
                                             checked &&
                                             selectedPeople.size >=
                                               MAX_BULK_CONNECTION_REQUESTS
                                           ) {
-                                    toast.error(
-                                      `You can only select up to ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`,
-                                    );
-                                    setShowLimitBanner(true);
-                                    return;
-                                  }
-                                  setSelectedPeople((current) => {
-                                    const next = new Map(current);
-                                    if (checked) {
-                                      // The whole row, not the id: this person
-                                      // has to survive the reader turning the
-                                      // page away from them.
-                                      next.set(person.userId, person);
-                                    } else {
-                                      next.delete(person.userId);
+                                            toast.error(
+                                              `You can only select up to ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`,
+                                            );
+                                            setShowLimitBanner(true);
+                                            return;
+                                          }
+                                          setSelectedPeople((current) => {
+                                            const next = new Map(current);
+                                            if (checked) {
+                                              // The whole row, not the id: this person
+                                              // has to survive the reader turning the
+                                              // page away from them.
+                                              next.set(person.userId, person);
+                                            } else {
+                                              next.delete(person.userId);
                                               if (
                                                 next.size <
                                                 MAX_BULK_CONNECTION_REQUESTS
                                               ) {
-                                        setShowLimitBanner(false);
-                                      }
-                                    }
-                                    return next;
-                                  });
-                                }}
-                                aria-label={`Select ${title}`}
-                              />
-                            )
+                                                setShowLimitBanner(false);
+                                              }
+                                            }
+                                            return next;
+                                          });
+                                        }}
+                                        aria-label={`Select ${title}`}
+                                      />
+                                    )
                                   ) : person.relationship ===
                                     "pending_outgoing" ? (
-                            <Button
-                              type="button"
-                              variant="none"
-                              effect="fill"
-                              size="sm"
-                              // One word at the width of every other action in
-                              // this column. "Cancel request" plus a 100px
-                              // floor sized for "Cancelling…" made the widest
-                              // control on the screen the one belonging to the
-                              // least common row state -- 116px of a 375px row,
-                              // against 72px for Connect directly above it. The
-                              // in-flight state is a spinner in the same box
-                              // rather than a longer word, so the row never
-                              // reflows mid-tap. `loading` also sets aria-busy.
-                              className={cn(
-                                CONNECT_ROW_ACTION_CLASSNAME,
+                                    <Button
+                                      type="button"
+                                      variant="none"
+                                      effect="fill"
+                                      size="sm"
+                                      // One word at the width of every other action in
+                                      // this column. "Cancel request" plus a 100px
+                                      // floor sized for "Cancelling…" made the widest
+                                      // control on the screen the one belonging to the
+                                      // least common row state -- 116px of a 375px row,
+                                      // against 72px for Connect directly above it. The
+                                      // in-flight state is a spinner in the same box
+                                      // rather than a longer word, so the row never
+                                      // reflows mid-tap. `loading` also sets aria-busy.
+                                      className={cn(
+                                        CONNECT_ROW_ACTION_CLASSNAME,
                                         "w-[72px] px-0",
-                              )}
-                              loading={busyId === person.userId}
-                              aria-label={`Cancel your request to ${title}`}
+                                      )}
+                                      loading={busyId === person.userId}
+                                      aria-label={`Cancel your request to ${title}`}
                                       onClick={() =>
                                         void cancelConnectionRequest(person)
                                       }
-                            >
-                              {busyId === person.userId ? (
-                                <Loader2
-                                  className="h-4 w-4 animate-spin"
-                                  aria-hidden="true"
-                                />
-                              ) : (
-                                "Cancel"
-                              )}
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="none"
-                              effect="fill"
-                              size="sm"
-                              className={cn(
-                                CONNECT_ROW_ACTION_CLASSNAME,
+                                    >
+                                      {busyId === person.userId ? (
+                                        <Loader2
+                                          className="h-4 w-4 animate-spin"
+                                          aria-hidden="true"
+                                        />
+                                      ) : (
+                                        "Cancel"
+                                      )}
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      variant="none"
+                                      effect="fill"
+                                      size="sm"
+                                      className={cn(
+                                        CONNECT_ROW_ACTION_CLASSNAME,
                                         "min-w-[72px]",
-                              )}
+                                      )}
                                       disabled={
                                         cta.disabled || busyId === person.userId
                                       }
-                              onClick={() => void handleConnect(person)}
-                            >
+                                      onClick={() => void handleConnect(person)}
+                                    >
                                       {busyId === person.userId
                                         ? "Sending..."
                                         : cta.label}
-                            </Button>
-                          )
-                        }
-                      />
-                    );
-                  })
-                )}
-                {people.length > 0 || currentPage > 1 ? (
-                  <div className="flex flex-col gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-h-9 flex-wrap items-center gap-2.5">
-                      <span className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">
-                        Page {currentPage}
-                      </span>
-                      <span className="h-1 w-1 rounded-full bg-[color:var(--app-tertiary-label)]" />
-                      <span className="ui-text-helper-text text-[color:var(--app-secondary-label)]">
-                        Per page
-                      </span>
-                      <Select
-                        value={String(pageSize)}
+                                    </Button>
+                                  )
+                                }
+                              />
+                            );
+                          })
+                        )}
+                        {people.length > 0 || currentPage > 1 ? (
+                          <div className="flex flex-col gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex min-h-9 flex-wrap items-center gap-2.5">
+                              <span className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">
+                                Page {currentPage}
+                              </span>
+                              <span className="h-1 w-1 rounded-full bg-[color:var(--app-tertiary-label)]" />
+                              <span className="ui-text-helper-text text-[color:var(--app-secondary-label)]">
+                                Per page
+                              </span>
+                              <Select
+                                value={String(pageSize)}
                                 onValueChange={(value) =>
                                   setPageSize(Number(value))
                                 }
-                      >
-                        <SelectTrigger
-                          size="sm"
-                          aria-label="People per page"
-                          className="h-8 min-h-8 w-[74px] rounded-2xl text-[15px] font-medium leading-5"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PAGE_SIZE_OPTIONS.map((size) => (
-                            <SelectItem key={size} value={String(size)}>
-                              {size}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div
-                      className="flex min-h-9 items-center justify-end gap-2"
-                      aria-live="polite"
-                    >
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fill"
-                        size="sm"
-                        className={cn(
-                          CONNECT_PAGER_BUTTON_CLASSNAME,
+                              >
+                                <SelectTrigger
+                                  size="sm"
+                                  aria-label="People per page"
+                                  className="h-8 min-h-8 w-[74px] rounded-2xl text-[15px] font-medium leading-5"
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {PAGE_SIZE_OPTIONS.map((size) => (
+                                    <SelectItem key={size} value={String(size)}>
+                                      {size}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div
+                              className="flex min-h-9 items-center justify-end gap-2"
+                              aria-live="polite"
+                            >
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fill"
+                                size="sm"
+                                className={cn(
+                                  CONNECT_PAGER_BUTTON_CLASSNAME,
                                   "min-w-[44px] px-3",
-                        )}
-                        disabled={loading || currentPage <= 1}
-                        onClick={() => goToPage(currentPage - 1)}
-                      >
-                        Prev
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fill"
-                        size="sm"
-                        className={cn(
-                          CONNECT_PAGER_BUTTON_CLASSNAME,
+                                )}
+                                disabled={loading || currentPage <= 1}
+                                onClick={() => goToPage(currentPage - 1)}
+                              >
+                                Prev
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fill"
+                                size="sm"
+                                className={cn(
+                                  CONNECT_PAGER_BUTTON_CLASSNAME,
                                   "min-w-[44px] px-3",
-                        )}
-                        disabled={loading || !hasMore}
-                        onClick={() => goToPage(currentPage + 1)}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
+                                )}
+                                disabled={loading || !hasMore}
+                                onClick={() => goToPage(currentPage + 1)}
+                              >
+                                Next
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
                         {isSelectionMode &&
                           selectedPeople.size > 0 &&
                           batchConnectDraft === null && (
-                  <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
-                    <Button
-                      type="button"
-                      variant="blue"
-                      effect="fill"
-                      disabled={isConnectingMultiple}
-                      onClick={() => {
-                        // Everyone picked, not everyone picked who is still on
-                        // screen. Reading the selection back off the rendered
-                        // page is what dropped page one's picks on reaching
-                        // page two.
+                            <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
+                              <Button
+                                type="button"
+                                variant="blue"
+                                effect="fill"
+                                disabled={isConnectingMultiple}
+                                onClick={() => {
+                                  // Everyone picked, not everyone picked who is still on
+                                  // screen. Reading the selection back off the rendered
+                                  // page is what dropped page one's picks on reaching
+                                  // page two.
                                   void openBatchConnectDraft([
                                     ...selectedPeople.values(),
                                   ]);
-                      }}
-                    >
-                      {`Review ${selectedPeople.size} of ${MAX_BULK_CONNECTION_REQUESTS}`}
-                    </Button>
+                                }}
+                              >
+                                {`Review ${selectedPeople.size} of ${MAX_BULK_CONNECTION_REQUESTS}`}
+                              </Button>
+                            </div>
+                          )}
+                      </SettingsGroup>
+                    </div>
                   </div>
                 )}
-              </SettingsGroup>
-                </div>
-              </div>
-            )}
               </>
             )}
           </div>
@@ -2988,6 +3352,11 @@ export default function ConnectPageClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ContactSyncResultsSheet
+        {...contactSync.resultsSheetProps}
+        onRequestConnection={requestConnectionFromContactMatch}
+      />
 
       {showLimitBanner && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
