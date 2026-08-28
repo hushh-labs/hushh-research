@@ -140,6 +140,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { cn } from "@/lib/utils";
+import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
 import {
   useConsentActions,
   type PendingConsent,
@@ -1268,6 +1269,10 @@ export function AgentChatWorkspace({
     string | null
   >(null);
   const [editingQueuedPromptText, setEditingQueuedPromptText] = useState("");
+  // Which agent this surface is talking to. "hermes" is the agent running on
+  // this machine: a different model, a different memory, and work done on the
+  // user's own hardware, so it gets its own thread instead of sharing One's.
+  const [chatTarget, setChatTarget] = useState<"cloud" | "hermes">("cloud");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
@@ -4481,7 +4486,42 @@ export function AgentChatWorkspace({
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              {statusText ? (
+              {/* Cloud One and the agent on this machine are different agents,
+                  so this switches the whole surface rather than mixing turns
+                  into one transcript. */}
+              <div
+                className="hidden items-center rounded-full bg-muted/70 p-0.5 sm:inline-flex"
+                role="group"
+                aria-label="Choose which agent to talk to"
+              >
+                <button
+                  type="button"
+                  onClick={() => setChatTarget("cloud")}
+                  aria-pressed={chatTarget === "cloud"}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                    chatTarget === "cloud"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  One
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatTarget("hermes")}
+                  aria-pressed={chatTarget === "hermes"}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                    chatTarget === "hermes"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  This Mac
+                </button>
+              </div>
+              {statusText && chatTarget === "cloud" ? (
                 <span
                   className="hidden text-xs font-medium text-muted-foreground sm:inline-flex"
                   role="status"
@@ -4518,10 +4558,13 @@ export function AgentChatWorkspace({
             </div>
           </div>
 
+          {chatTarget === "hermes" ? <HermesChatPanel /> : null}
+
           <div
             className={cn(
               "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
               isPopover ? "pb-4" : "pb-6 lg:px-8",
+              chatTarget === "hermes" && "hidden",
             )}
           >
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
@@ -5276,6 +5319,9 @@ export function AgentChatWorkspace({
               isPopover
                 ? "pb-[var(--agent-chat-composer-bottom)] sm:pb-3"
                 : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
+              // The Hermes panel carries its own composer; showing both would
+              // leave two inputs on screen pointing at different agents.
+              chatTarget === "hermes" && "hidden",
             )}
           >
             <div className="mx-auto w-full max-w-4xl">
