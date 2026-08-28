@@ -208,7 +208,16 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
     };
   }
 
-  if (executionTarget.path === "local_handler") {
+  // "control" (a UI control the person taps directly -- a menu item, a
+  // segmented toggle -- rather than a named route or local_handler
+  // function) dispatches through the exact same resolveLocalOnboardingHandler
+  // registry as local_handler at the point of execution
+  // (agent-action-runtime.ts's executeAgentGatewayAction falls through to it
+  // for any path that isn't explicitly "route"), so it's represented the
+  // same way here. Left unbranched before #6122, "control" actions fell into
+  // the route fallback below and were reported unresolvable -- target here
+  // is a control id ("ria_clients_view_switch"), never a route href.
+  if (executionTarget.path === "local_handler" || executionTarget.path === "control") {
     return {
       status: "wired",
       handler: "executeAgentGatewayAction.localHandler",
