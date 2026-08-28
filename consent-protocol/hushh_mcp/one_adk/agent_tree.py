@@ -1620,7 +1620,15 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
     surfaces run the specialist-generation model with the identical
     instruction and roster - ONE decision-maker, two transport heads.
     """
-    text_model = model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    # Route modules construct the ADK app during import so FastAPI can register
+    # the canonical endpoint. CI intentionally has no cloud credentials; keep
+    # collection import-safe there while production still resolves the explicit
+    # managed Vertex binding. A bare model name is therefore test-only and never
+    # a hosted-runtime credential fallback.
+    is_test_runtime = os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}
+    text_model = model or (
+        _SPECIALIST_MODEL if is_test_runtime else build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    )
     return LlmAgent(
         name="one",
         model=text_model,

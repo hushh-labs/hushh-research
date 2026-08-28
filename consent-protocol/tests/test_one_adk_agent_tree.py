@@ -214,6 +214,20 @@ class TestAgentTreeShape:
         assert finance_tool.agent.model is turn_model
         assert investor_tool.agent.model is turn_model
 
+    def test_text_runtime_import_is_credential_independent_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("TESTING", "true")
+        monkeypatch.setattr(
+            _tree,
+            "build_managed_gemini_adk_model",
+            lambda *_args, **_kwargs: pytest.fail("CI collection must not resolve Vertex ADC"),
+        )
+
+        agent = build_one_text_agent()
+
+        assert agent.model == _tree._SPECIALIST_MODEL
+
     def test_byok_live_registry_rejects_models_outside_the_matrix(
         self, monkeypatch: pytest.MonkeyPatch
     ):
