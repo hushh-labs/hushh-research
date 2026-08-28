@@ -152,6 +152,14 @@
       "file": "app/api/hermes/chat/route.ts"
     },
     {
+      "template": "/api/hermes/chat/stream",
+      "file": "app/api/hermes/chat/stream/route.ts"
+    },
+    {
+      "template": "/api/hermes/models",
+      "file": "app/api/hermes/models/route.ts"
+    },
+    {
       "template": "/api/hermes/status",
       "file": "app/api/hermes/status/route.ts"
     },
@@ -6883,7 +6891,10 @@
           "out_of_scope_behavior": "Answer naturally without inventing a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/puppy",
+        "classification": "excluded-web-only"
+      },
       "shell": {
         "app_page_shell": true,
         "page_header": true,
@@ -9232,5 +9243,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "5806b6a04751b2be2d565d0a1a7da8e4e5a3cfc4ac5f9d77d1dee36626169af7"
+  "content_sha256": "57ec53c712bdd6a404aa02070dac6ab300979424f14b255a90a2d959cb76e8e3"
 }

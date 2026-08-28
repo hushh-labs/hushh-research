@@ -5,6 +5,10 @@ import { HttpAgent } from "@ag-ui/client";
 import { Laptop, Loader2, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  PuppyModelPicker,
+  type ModelSelection,
+} from "@/components/agent/puppy-model-picker";
 import { cn } from "@/lib/utils";
 
 /**
@@ -63,6 +67,31 @@ export function HermesChatPanel({ className }: { className?: string }) {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns, sending]);
+
+  const applyModel = useCallback(
+    (selection: ModelSelection) => {
+      // Hermes applies a model assignment to new sessions only. Keeping the
+      // current session would leave the header naming one model while another
+      // answered, so the session is dropped and the switch is stated in the
+      // transcript rather than happening invisibly.
+      sessionRef.current = "";
+      setOnDevice(selection.onDevice);
+      setStatus((prior) =>
+        prior ? { ...prior, model: selection.model } : prior,
+      );
+      setTurns((prior) => [
+        ...prior,
+        {
+          id: `sys-${Date.now()}`,
+          role: "assistant",
+          text: selection.onDevice
+            ? `Switched to ${selection.model} on this machine. Starting a new session.`
+            : `Switched to ${selection.model}. This model runs off this machine. Starting a new session.`,
+        },
+      ]);
+    },
+    [],
+  );
 
   const appendDelta = useCallback((assistantId: string, delta: string) => {
     setTurns((prior) =>
@@ -154,12 +183,15 @@ export function HermesChatPanel({ className }: { className?: string }) {
           {connected ? (status?.model ?? "connected") : "not connected"}
         </span>
         {connected ? (
+          <PuppyModelPicker onApplied={applyModel} className="ml-auto" />
+        ) : null}
+        {connected ? (
           <button
             type="button"
             onClick={() => setOnDevice((value) => !value)}
             aria-pressed={onDevice}
             className={cn(
-              "ml-auto rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
+              "rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
               onDevice
                 ? "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]"
                 : "text-muted-foreground hover:text-foreground",
