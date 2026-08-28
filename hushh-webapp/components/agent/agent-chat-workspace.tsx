@@ -170,6 +170,7 @@ import {
   type DelegateResult,
 } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { readAgentOrigin } from "@/lib/navigation/agent-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { cn } from "@/lib/utils";
@@ -4674,6 +4675,16 @@ export function AgentChatWorkspace({
       return;
     }
     if (typeof window !== "undefined") {
+      // The page that handed off records itself as ?from=. This is checked
+      // before any history heuristic because it is the only signal that
+      // survives a reload or a shared link — and because `document.referrer`,
+      // which this used to rely on, is never set by App Router client
+      // navigation, so every minimize fell through to One home.
+      const origin = readAgentOrigin(window.location.search);
+      if (origin) {
+        router.push(origin);
+        return;
+      }
       const referrer = document.referrer ? new URL(document.referrer) : null;
       const isSameOriginReferrer =
         referrer?.origin === window.location.origin &&
@@ -4683,9 +4694,9 @@ export function AgentChatWorkspace({
         return;
       }
     }
-    // No same-origin referrer to retrace to (e.g. a direct link into this
-    // legacy full-page route): land on One home, not Profile, so minimizing
-    // always returns to the section this screen lives under.
+    // Nothing to retrace to (e.g. a direct link into this legacy full-page
+    // route with no recorded origin): land on One home, not Profile, so
+    // minimizing always returns to the section this screen lives under.
     router.push(ROUTES.ONE_HOME);
   }, [onMinimize, router]);
   const handleHistoryDrawerKeyDown = useCallback(
