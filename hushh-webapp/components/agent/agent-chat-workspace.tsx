@@ -11,7 +11,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -3840,15 +3839,20 @@ export function AgentChatWorkspace({
                 </ShellActionSurface>
               ) : null}
               <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md border border-border bg-muted max-sm:h-11 max-sm:w-11 max-sm:rounded-[13px] max-sm:border-[color:var(--app-accent-border)]">
-                <Image
-                  src="/one-quiet-emoji.png"
-                  alt="One"
-                  width={762}
-                  height={766}
-                  unoptimized
-                  draggable={false}
-                  className="h-6 w-6 object-contain max-sm:h-8 max-sm:w-8"
-                />
+                {/* The mark, as text, exactly like the top bar / sidebar /
+                    intro gate. This slot used to render /one-quiet-emoji.png,
+                    which is Noto (Android) artwork baked into a raster — so it
+                    stayed Android on a Mac no matter what the font stack said,
+                    and it was the one brand mark in the app that could not
+                    follow the platform. .hushh-brand-mark pins the emoji font
+                    the same way every other mark does. */}
+                <span
+                  aria-label="One"
+                  role="img"
+                  className="hushh-brand-mark select-none text-[22px] leading-none max-sm:text-[30px]"
+                >
+                  🤫
+                </span>
               </div>
               <div className="min-w-0">
                 <div className="truncate text-base font-medium leading-5 text-foreground">
