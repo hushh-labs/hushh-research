@@ -2005,17 +2005,23 @@ export class ApiService {
     >;
     if (!response.ok) {
       const detail = payload.detail;
+      const detailRecord =
+        typeof detail === "object" && detail !== null
+          ? (detail as Record<string, unknown>)
+          : null;
       const message =
-        typeof detail === "object" &&
-        detail !== null &&
-        typeof (detail as Record<string, unknown>).message === "string"
-          ? String((detail as Record<string, unknown>).message)
+        typeof detailRecord?.message === "string"
+          ? detailRecord.message
           : typeof detail === "string"
             ? detail
             : typeof payload.error === "string"
               ? payload.error
               : `Phone claim failed with HTTP ${response.status}`;
-      throw new Error(message);
+      const error = new Error(message) as Error & { code?: string };
+      if (typeof detailRecord?.code === "string") {
+        error.code = detailRecord.code;
+      }
+      throw error;
     }
 
     return payload as unknown as AccountPhoneClaimResponse;

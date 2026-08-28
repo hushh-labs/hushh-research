@@ -38,6 +38,7 @@ from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.services.account_service import AccountService
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
+    ActorIdentityPhoneClaimError,
     ActorIdentityService,
 )
 from hushh_mcp.services.trusted_device_service import (
@@ -748,6 +749,13 @@ def _raise_alias_error(exc: ActorIdentityAliasError) -> None:
     ) from exc
 
 
+def _raise_phone_claim_error(exc: ActorIdentityPhoneClaimError) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    ) from exc
+
+
 async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]:
     normalized_token = str(raw_token or "").strip()
     if not normalized_token:
@@ -974,10 +982,13 @@ async def claim_account_phone(
 ):
     """Persist a Firebase phone-auth session as the app-level verified phone claim."""
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
-    identity = await ActorIdentityService().claim_verified_phone(
-        user_id=firebase_uid,
-        phone_number=phone_number,
-    )
+    try:
+        identity = await ActorIdentityService().claim_verified_phone(
+            user_id=firebase_uid,
+            phone_number=phone_number,
+        )
+    except ActorIdentityPhoneClaimError as exc:
+        _raise_phone_claim_error(exc)
     if not identity:
         raise HTTPException(
             status_code=503,
@@ -1067,11 +1078,14 @@ async def confirm_uat_test_phone_verification(
             },
         )
 
-    identity = await ActorIdentityService().claim_verified_phone(
-        user_id=firebase_uid,
-        phone_number=phone_number,
-        source="uat_test_phone_claim",
-    )
+    try:
+        identity = await ActorIdentityService().claim_verified_phone(
+            user_id=firebase_uid,
+            phone_number=phone_number,
+            source="uat_test_phone_claim",
+        )
+    except ActorIdentityPhoneClaimError as exc:
+        _raise_phone_claim_error(exc)
     if not identity:
         raise HTTPException(
             status_code=503,

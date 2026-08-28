@@ -9,6 +9,7 @@ import pytest
 import hushh_mcp.services.actor_identity_service as actor_identity_service
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
+    ActorIdentityPhoneClaimError,
     ActorIdentityService,
 )
 
@@ -129,8 +130,16 @@ class _AliasFakeConnection:
         return None
 
 
+class _FakeTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
 class _PhoneClaimFakeConnection:
-    def __init__(self) -> None:
+    def __init__(self, *, simulate_unique_violation: bool = False) -> None:
         now = datetime.now(timezone.utc)
         self.rows: dict[str, dict[str, object]] = {
             "other-firebase-user-1234567890": {
@@ -160,25 +169,44 @@ class _PhoneClaimFakeConnection:
                 "updated_at": now,
             },
         }
+        # Simulates a second, concurrent request winning the race: the
+        # ownership SELECT below sees no owner yet, but the database-level
+        # unique index rejects the INSERT/UPDATE anyway.
+        self._simulate_unique_violation = simulate_unique_violation
+
+    def transaction(self):
+        return _FakeTransaction()
 
     async def execute(self, query: str, *args):
-        normalized = " ".join(query.lower().split())
-        if "update actor_identity_cache" not in normalized:
-            return "UPDATE 0"
-        user_id, phone_number = args
-        cleared = 0
-        for row in self.rows.values():
-            if row["user_id"] != user_id and row["phone_number"] == phone_number:
-                row["phone_number"] = None
-                row["phone_verified"] = False
-                row["updated_at"] = datetime.now(timezone.utc)
-                cleared += 1
-        return f"UPDATE {cleared}"
+        return "UPDATE 0"
 
     async def fetchrow(self, query: str, *args):
         normalized = " ".join(query.lower().split())
+        if (
+            "select 1" in normalized
+            and "from actor_identity_cache" in normalized
+            and "phone_verified = true" in normalized
+            and "user_id <> $2" in normalized
+        ):
+            phone_number, user_id = args
+            owner = next(
+                (
+                    row
+                    for row in self.rows.values()
+                    if row["phone_number"] == phone_number
+                    and row["phone_verified"] is True
+                    and row["user_id"] != user_id
+                ),
+                None,
+            )
+            return {"?column?": 1} if owner is not None else None
         if "insert into actor_identity_cache" not in normalized:
             return None
+        if self._simulate_unique_violation:
+            raise actor_identity_service.asyncpg.UniqueViolationError(
+                "duplicate key value violates unique constraint "
+                '"uq_actor_identity_cache_verified_phone"'
+            )
         user_id, phone_number, source = args
         now = datetime.now(timezone.utc)
         row = self.rows.setdefault(
@@ -285,11 +313,51 @@ async def test_sync_from_firebase_preserves_backend_phone_claim_when_firebase_ha
 
 
 @pytest.mark.asyncio
-async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
+async def test_claim_verified_phone_rejects_number_owned_by_another_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One verified phone number belongs to exactly one account.
+
+    A second account claiming an already-verified number must be rejected,
+    and the original owner's phone must never be silently cleared or moved.
+    """
+    service = ActorIdentityService()
+    conn = _PhoneClaimFakeConnection()
+
+    async def fake_get_pool() -> _AliasFakePool:
+        return _AliasFakePool(conn)
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    with pytest.raises(ActorIdentityPhoneClaimError) as exc:
+        await service.claim_verified_phone(
+            user_id="firebase-user-123456789012",
+            phone_number="+16505550101",
+        )
+
+    assert exc.value.code == "PHONE_ALREADY_CLAIMED"
+    assert exc.value.status_code == 409
+    # No PII (uid/email) about the existing owner in the error message.
+    assert "other-firebase-user-1234567890" not in str(exc.value)
+    assert "other@example.com" not in str(exc.value)
+
+    previous_owner = conn.rows["other-firebase-user-1234567890"]
+    assert previous_owner["phone_number"] == "+16505550101"
+    assert previous_owner["phone_verified"] is True
+    claimant = conn.rows["firebase-user-123456789012"]
+    assert claimant["phone_number"] is None
+    assert claimant["phone_verified"] is False
+
+
+@pytest.mark.asyncio
+async def test_claim_verified_phone_succeeds_for_first_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = ActorIdentityService()
     conn = _PhoneClaimFakeConnection()
+    # No other account owns this number.
+    conn.rows["other-firebase-user-1234567890"]["phone_number"] = None
+    conn.rows["other-firebase-user-1234567890"]["phone_verified"] = False
 
     async def fake_get_pool() -> _AliasFakePool:
         return _AliasFakePool(conn)
@@ -305,9 +373,62 @@ async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
     assert identity["phone_number"] == "+16505550101"
     assert identity["phone_verified"] is True
     assert identity["source"] == "firebase_phone_claim"
-    previous_owner = conn.rows["other-firebase-user-1234567890"]
-    assert previous_owner["phone_number"] is None
-    assert previous_owner["phone_verified"] is False
+
+
+@pytest.mark.asyncio
+async def test_claim_verified_phone_allows_same_account_to_reclaim_its_own_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    conn = _PhoneClaimFakeConnection()
+    # The claimant already owns this exact number (e.g. a retried request).
+    conn.rows["firebase-user-123456789012"]["phone_number"] = "+16505550101"
+    conn.rows["firebase-user-123456789012"]["phone_verified"] = True
+    conn.rows["other-firebase-user-1234567890"]["phone_number"] = None
+    conn.rows["other-firebase-user-1234567890"]["phone_verified"] = False
+
+    async def fake_get_pool() -> _AliasFakePool:
+        return _AliasFakePool(conn)
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    identity = await service.claim_verified_phone(
+        user_id="firebase-user-123456789012",
+        phone_number="+16505550101",
+    )
+
+    assert identity is not None
+    assert identity["phone_number"] == "+16505550101"
+    assert identity["phone_verified"] is True
+
+
+@pytest.mark.asyncio
+async def test_claim_verified_phone_converts_concurrent_race_to_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two simultaneous claims for the same number: the ownership SELECT can't
+    see the other in-flight transaction, so the database-level unique index is
+    the real guard. A UniqueViolationError from that index must surface as the
+    same stable phone-conflict error, never a raw 500.
+    """
+    service = ActorIdentityService()
+    conn = _PhoneClaimFakeConnection(simulate_unique_violation=True)
+    conn.rows["other-firebase-user-1234567890"]["phone_number"] = None
+    conn.rows["other-firebase-user-1234567890"]["phone_verified"] = False
+
+    async def fake_get_pool() -> _AliasFakePool:
+        return _AliasFakePool(conn)
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    with pytest.raises(ActorIdentityPhoneClaimError) as exc:
+        await service.claim_verified_phone(
+            user_id="firebase-user-123456789012",
+            phone_number="+16505550101",
+        )
+
+    assert exc.value.code == "PHONE_ALREADY_CLAIMED"
+    assert exc.value.status_code == 409
 
 
 @pytest.mark.asyncio

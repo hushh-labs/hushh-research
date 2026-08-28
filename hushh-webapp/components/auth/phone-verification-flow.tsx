@@ -66,6 +66,9 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 const PHONE_TAKEN_ERROR_CODES = new Set([
   "credential-already-in-use",
   "phone-number-already-exists",
+  // Backend app-level ownership conflict from POST /api/account/phone/claim
+  // (a verified phone number can belong to only one account).
+  "PHONE_ALREADY_CLAIMED",
 ]);
 
 function isPhoneTakenByAnotherAccount(error: unknown): boolean {
