@@ -40,11 +40,27 @@ vendor. Three things hold it up:
 
 ### What is NOT on-device yet
 
-consent-protocol's five-agent structuring chain (`financial_guard → intent →
-merge → structure`, plus `segmentation`) still calls Gemini directly, with
-Gemini-only `ThinkingConfig` and `response_schema`. `model_override` swaps the
-model id, never the provider. Moving it needs a provider abstraction behind
+**The agent hierarchy.** `consent-protocol/hushh_mcp/agents/` holds **21 agent
+packages** — calendar, connected_systems, connections, email, financial_guard,
+gmail, kai, kyc, location, memory_intent, memory_merge, memory_segmentation,
+nav, onboarding, one, orchestrator, personal_information, pkm_structure,
+portfolio_import, realtime_bench, summary_reducer — all extending
+`HushhAgent(LlmAgent)` in `base_agent.py`, with a dedicated `orchestrator/`.
+
+Do not describe this as a "five-agent chain". Five of those twenty-one
+(`financial_guard → memory_intent → memory_merge → pkm_structure`, plus
+`memory_segmentation`) are the sub-chain that
+`pkm_agent_lab_service.py:_run_agent_contract` invokes for PKM structuring
+specifically. Calling the sub-chain the system makes a large port look small.
+
+They call Gemini directly with Gemini-only `ThinkingConfig` and
+`response_schema`. `model_override` swaps the model id, never the provider, so
+moving the hierarchy on-device needs a provider abstraction behind
 `_run_agent_contract` and an OpenAI-compatible structured-output path.
+
+The goal is that this hierarchy runs **natively inside Hermes**, reusing the
+same image structure as the pods that run on the user's own cloud, so the same
+agents behave the same way in every environment.
 
 Say this plainly in any status. The stack is not end-to-end on-device.
 
