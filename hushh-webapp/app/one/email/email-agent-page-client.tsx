@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { Button } from "@/lib/morphy-ux/button";
+import { agentRouteWithOrigin } from "@/lib/navigation/agent-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 
 /**
@@ -64,8 +65,9 @@ export function EmailAgentPageClient() {
       return;
     }
     // The handoff remains in the shared in-memory session for the legacy
-    // dedicated chat route too.
-    router.push(ROUTES.AGENT);
+    // dedicated chat route too. Record this page as the origin so minimizing
+    // the full-page agent comes back here rather than One home.
+    router.push(agentRouteWithOrigin(ROUTES.EMAIL_AGENT));
   }, [agentPopover, createHandoff, emailAgentIntroRecipient, router]);
 
   return (

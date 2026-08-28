@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Lock, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,6 +37,7 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
+import { agentRouteWithOrigin } from "@/lib/navigation/agent-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   describeGmailReceiptScanProgress,
@@ -377,6 +378,9 @@ export default function GmailReceiptsPage({
   voicePublisherRole = "route",
 }: GmailReceiptsPageProps) {
   const router = useRouter();
+  // This component is hosted on both /one/gmail and /one/setup/gmail, so the
+  // origin handed to the agent has to be the live path, not a route constant.
+  const pathname = usePathname();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
@@ -804,8 +808,8 @@ export default function GmailReceiptsPage({
       agentPopover.openAgent();
       return;
     }
-    router.push(ROUTES.AGENT);
-  }, [agentPopover, createHandoff, emailAgentIntroRecipient, router]);
+    router.push(agentRouteWithOrigin(pathname));
+  }, [agentPopover, createHandoff, emailAgentIntroRecipient, pathname, router]);
 
   useLocalOnboardingActionHandler("setup.connect_gmail", () => {
     if (journeyVariant !== "onboarding") {
