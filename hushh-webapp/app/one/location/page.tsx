@@ -433,6 +433,23 @@ const SHARE_VOICE_DURATION_VALUES = new Set<string>([
   "24",
 ]);
 
+// What One will accept when someone says "ask <name> for their location".
+//
+// The same numeric ladder as a share, minus "until I stop": a request is
+// sent as `requestedDurationMode: "timed"`, so there is no open-ended
+// request for that token to mean. Kept as its own set rather than reusing
+// SHARE_VOICE_DURATION_VALUES so that difference stays visible -- accepting
+// "until you stop it" here would resolve to NaN hours on a timed request.
+const ASK_VOICE_DURATION_VALUES = new Set<string>([
+  "0.25",
+  "0.5",
+  "1",
+  "2",
+  "4",
+  "8",
+  "24",
+]);
+
 const PRIVATE_SHARE_DURATION_LABELS: Record<string, string> = {
   "0.25": "15 min",
   "1": "1 hour",
@@ -7114,7 +7131,12 @@ export function OneLocationAgentPageContent({
   // send can never leave a success message on screen (it used to latch
   // optimistically the moment the button was tapped).
   const handleRequestAccess = useCallback(
-    async (reason?: string | null) => {
+    // `durationHoursOverride` is how the voice path supplies a duration the
+    // person actually said. Passed as an argument rather than written to
+    // state first, exactly as handleShare takes one: a setState would not
+    // be visible to this call, so the request would still go out carrying
+    // the previous value.
+    async (reason?: string | null, durationHoursOverride?: string) => {
       if (!vaultOwnerToken || !selectedRequestOwners.length) return false;
       if (!auth.user || !auth.userId) {
         toast.error("Refresh your session before sending a location request.");
@@ -7152,15 +7174,19 @@ export function OneLocationAgentPageContent({
           }
         })();
         for (const owner of selectedRequestOwners) {
-          // Send the duration the person actually picked. The Ask screen has
-          // shown a "Duration requested" control all along; it was collected
-          // and then dropped here, so the owner was asked an unquantified
-          // question and approved whatever their own control happened to say.
+          // The duration the person actually asked for, when they said one.
+          //
+          // `durationHours` is NOT an Ask-screen control: it is shared state
+          // written only by the share composer, the circle-invite control and
+          // the public-link control, so falling back to it asks the owner for
+          // whatever an unrelated flow last set, or the initial "1". The voice
+          // path now always supplies an override; the tap path still has no
+          // control of its own to read (tracked separately).
           await OneLocationService.requestAccess({
             vaultOwnerToken: activeVaultOwnerToken,
             ownerUserId: owner.userId,
             message: buildOneLocationRequestMessage(reason, requestMessage),
-            requestedDurationHours: Number(durationHours),
+            requestedDurationHours: Number(durationHoursOverride ?? durationHours),
             requestedDurationMode: "timed",
           });
           successCount += 1;
@@ -10774,11 +10800,30 @@ export function OneLocationAgentPageContent({
     },
   );
 
-  useLocalOnboardingActionHandler("location.send_request", async () => {
+  useLocalOnboardingActionHandler("location.send_request", async (slots) => {
     if (!vaultOwnerToken) {
       return {
         status: "blocked" as const,
         summary: "Unlock One before sending a request.",
+      };
+    }
+    // Ask for the length, never assume it -- the same rule
+    // location.share_selected already follows, for the same reason. The
+    // number here is what the other person is shown and approves, so a
+    // guess is a question asked on their behalf. There is no Ask-screen
+    // control to fall back to either: `durationHours` belongs to the
+    // share composer and the link controls, so falling through would
+    // request whatever an unrelated flow last set.
+    //
+    // "until you stop it" is deliberately absent: requestAccess is sent
+    // as `requestedDurationMode: "timed"`, so an open-ended request has
+    // nothing to map onto.
+    const requestedDuration = String(slots?.duration_hours ?? "").trim();
+    if (!ASK_VOICE_DURATION_VALUES.has(requestedDuration)) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "For how long do you want their location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
       };
     }
     if (!selectedRequestOwners.length) {
@@ -10791,7 +10836,7 @@ export function OneLocationAgentPageContent({
       .map((owner) => recipientLabel(owner).trim())
       .filter(Boolean);
     const names = ownerNames.join(", ");
-    const sent = await handleRequestAccess();
+    const sent = await handleRequestAccess(null, requestedDuration);
     if (!sent) {
       return {
         status: "blocked" as const,

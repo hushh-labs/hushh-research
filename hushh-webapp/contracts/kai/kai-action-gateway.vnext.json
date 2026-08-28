@@ -5536,10 +5536,19 @@
           },
           {
             "name": "duration_hours",
-            "prompt": "For how long?",
-            "required": false,
+            "prompt": "For how long do you want their location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
+            "required": true,
             "slot": "duration_hours",
-            "resolver": "location_share_duration"
+            "resolver": "location_share_duration",
+            "options": [
+              "0.25",
+              "0.5",
+              "1",
+              "2",
+              "4",
+              "8",
+              "24"
+            ]
           }
         ],
         "input_resolvers": [],
