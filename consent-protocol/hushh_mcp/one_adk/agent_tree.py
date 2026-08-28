@@ -1393,6 +1393,15 @@ def _build_ria_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
+def _resolve_text_model(model: Any | None) -> Any:
+    """Resolve text-model authority without requiring cloud ADC in test collection."""
+    if model is not None:
+        return model
+    if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
+        return _SPECIALIST_MODEL
+    return build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+
+
 def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     """Build One's semantic but lower-privilege pre-vault text head.
 
@@ -1402,7 +1411,7 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     """
     return LlmAgent(
         name="one_intro",
-        model=model or build_managed_gemini_adk_model(_SPECIALIST_MODEL),
+        model=_resolve_text_model(model),
         description="One's informational, pre-vault private-agent surface.",
         instruction=(
             "You are One, the private agent inside Hussh. This is an informational "
@@ -1620,15 +1629,10 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
     surfaces run the specialist-generation model with the identical
     instruction and roster - ONE decision-maker, two transport heads.
     """
-    # Route modules construct the ADK app during import so FastAPI can register
-    # the canonical endpoint. CI intentionally has no cloud credentials; keep
-    # collection import-safe there while production still resolves the explicit
-    # managed Vertex binding. A bare model name is therefore test-only and never
-    # a hosted-runtime credential fallback.
-    is_test_runtime = os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}
-    text_model = model or (
-        _SPECIALIST_MODEL if is_test_runtime else build_managed_gemini_adk_model(_SPECIALIST_MODEL)
-    )
+    # Route modules construct both ADK apps during import so FastAPI can
+    # register the canonical endpoint. The shared resolver keeps that import
+    # credential-independent in tests while hosted runtimes stay explicit.
+    text_model = _resolve_text_model(model)
     return LlmAgent(
         name="one",
         model=text_model,

@@ -225,8 +225,10 @@ class TestAgentTreeShape:
         )
 
         agent = build_one_text_agent()
+        intro_agent = _tree.build_one_intro_text_agent()
 
         assert agent.model == _tree._SPECIALIST_MODEL
+        assert intro_agent.model == _tree._SPECIALIST_MODEL
 
     def test_byok_live_registry_rejects_models_outside_the_matrix(
         self, monkeypatch: pytest.MonkeyPatch
