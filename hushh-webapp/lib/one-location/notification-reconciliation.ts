@@ -163,7 +163,7 @@ export function buildOneLocationNotificationPayloads(
           recipientLabel(recipients, request.requesterUserId, "Someone"),
       );
       // The ask itself. Without these the owner's popup says only that somebody
-      // wants their location, whether they asked for fifteen minutes or a day.
+      // wants location, whether they asked for fifteen minutes or a day.
       addAskValues(payload, request);
       payloads.push(payload);
       continue;

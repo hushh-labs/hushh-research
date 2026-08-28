@@ -274,7 +274,7 @@ export type LocationHubViewModel = {
    * The device has refused location and only its settings can undo that.
    * Distinct from `locationEnabled`, which is the preview control's own state:
    * a user whose location works perfectly still starts with the preview off,
-   * and must not be told their location is blocked.
+   * and must not be told location is blocked.
    */
   locationBlocked: boolean;
   /**
@@ -445,7 +445,7 @@ export type LocationHubViewModel = {
   /*
    * The same edit, for the share you are giving rather than the one you are
    * receiving. It is separate state because it is a different consent: the
-   * block above asks someone else for more of their location, this one revises
+   * block above asks someone else for more of location, this one revises
    * your own, so it applies straight away and never turns into a request.
    */
   /** True while the live share card's inline time editor is open. */
@@ -2291,7 +2291,7 @@ function LocationDetailFlow({
     },
     "shared-with-me": {
       title: "Shared with me",
-      description: "People sharing their location with you.",
+      description: "People sharing location with you.",
     },
     "needs-review": {
       title: "Needs review",
@@ -2524,7 +2524,7 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="No one is sharing with you"
-            description="Ask someone to share their location."
+            description="Ask someone to share location."
             action={
               onRequestLocation ? (
                 <Button
@@ -3414,7 +3414,7 @@ export function PeopleHub({
                             </div>
                           ) : null
                         }
-                        // Someone sharing their location with you right now
+                        // Someone sharing location with you right now
                         // used to read "Ready for private location sharing" —
                         // the recommendation line, which describes what COULD
                         // happen and so says the opposite of what is. The row

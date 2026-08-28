@@ -750,7 +750,7 @@ describe("LocationImmersiveMap demo experience", () => {
     // The tray states the count once. The subtitle that used to restate it,
     // the section heading, and the standalone count badge are all gone.
     expect(
-      screen.queryByText("People sharing their location with you"),
+      screen.queryByText("People sharing location with you"),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText("Live locations shared with you"),
@@ -1978,7 +1978,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     };
   }
 
-  /** An incoming pin: someone who shares their location back with this account. */
+  /** An incoming pin: someone who shares location back with this account. */
   function incomingMarker(ownerDisplayName: string, lat: number, lng: number) {
     return {
       grant: { id: `${ownerDisplayName}-incoming`, ownerDisplayName },

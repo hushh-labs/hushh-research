@@ -220,7 +220,7 @@ describe("'send it' is not owned by two acting actions at once (#6082)", () => {
   const SHARE_IT = "location.share_selected";
 
   it("removed the shared alias from both composers' finalizers", () => {
-    // Regression: both the ask-for-their-location composer and the
+    // Regression: both the ask-for-location composer and the
     // share-my-location composer carried the identical alias "send it",
     // which action_tools.py's exact-match scoring cannot break a tie on.
     // Neither composer needs it -- both still have unambiguous finalizers

@@ -167,7 +167,7 @@ function consentSummary(entry: ConsentCenterEntry): string {
 
 /**
  * A pending location access request is actionable in the viewer's "Needs you"
- * feed only when the viewer OWNS the request (their location is being asked for)
+ * feed only when the viewer OWNS the request (location is being asked for)
  * and did NOT send it themselves. `state.requests` carries BOTH directions, so
  * without this guard a user's own OUTGOING request leaks back onto their feed as
  * an incoming "wants to see your location" card labelled with their own name.

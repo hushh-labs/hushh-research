@@ -9,7 +9,7 @@ import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
  *
  * That mattered more here than on most screens. connect.accept_request and
  * connect.reject_request name `one_feed` as their reachable screen, so the one
- * place where "accept their request" is the obvious thing to say was the one
+ * place where "accept request" is the obvious thing to say was the one
  * place voice never offered it. Both execute backend-direct, so they always
  * ran if the model went looking -- they were simply never suggested.
  *

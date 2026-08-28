@@ -30,7 +30,7 @@ export const VOICE_AGENT_EXAMPLE_GROUPS: readonly VoiceAgentExampleGroup[] = [
         result: "Sends him a location request.",
       },
       {
-        phrase: "Who's sharing their location with me",
+        phrase: "Who's sharing location with me",
         result: "Opens what's currently shared with you.",
       },
       {

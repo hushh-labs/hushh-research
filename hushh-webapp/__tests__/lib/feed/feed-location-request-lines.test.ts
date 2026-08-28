@@ -123,7 +123,7 @@ describe("the requester's side of the same exchange", () => {
       }),
     );
     expect(presented.description).toBe(
-      "Shared their location with you for 4 hours",
+      "Shared location with you for 4 hours",
     );
   });
 
@@ -185,7 +185,7 @@ describe("shortening", () => {
           metadata: { counterpart_label: "Ankit", reason: "owner_shorten" },
         }),
       ).description,
-    ).toBe("You shortened their location access");
+    ).toBe("You shortened location access");
     expect(
       presentFeedItem(
         item({
@@ -193,6 +193,6 @@ describe("shortening", () => {
           metadata: { counterpart_label: "Ankit", reason: "recipient_shorten" },
         }),
       ).description,
-    ).toBe("Gave back their remaining time early");
+    ).toBe("Gave back remaining time early");
   });
 });

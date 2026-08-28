@@ -23,7 +23,7 @@ export default function OneLocationMapPage() {
           screenId: "one_location_map",
           title: "Your Map",
           purpose:
-            "Shows where people who share their location with you are right now, and lets you check in nearby.",
+            "Shows where people who share location with you are right now, and lets you check in nearby.",
           spokenSubject: "Location, Your Map",
           actions: LOCATION_MAP_VOICE_ACTIONS,
           availableActions: LOCATION_MAP_VOICE_ACTIONS.map((action) => action.label),
