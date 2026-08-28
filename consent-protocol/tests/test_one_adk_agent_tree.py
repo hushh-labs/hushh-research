@@ -4720,14 +4720,21 @@ def test_no_wired_action_is_a_dead_end_from_a_foreign_screen():
     end -- One has nothing to offer and says so, which reads as the app
     refusing to do something it can plainly do.
 
-    The allowlist is the OTP flow, and it is correct: a verification code
-    belongs to the screen showing it, and "start the code journey from
-    somewhere else" is not a thing anyone can mean.
+    The allowlist contains controls whose subject exists only in the mounted
+    screen context: OTP fields and actions phrased around "this person" on an
+    already-open profile. Cross-screen person requests use the named-person
+    Connect and information-discovery journeys instead; guessing a profile
+    reference here would be an authority bug.
     """
     from hushh_mcp.one_adk.action_tools import _reachability
     from hushh_mcp.services.action_gateway import list_action_gateway_actions
 
     SCREEN_BOUND_BY_DESIGN = {
+        "people.profile.cancel_connection_request",
+        "people.profile.connect",
+        "people.profile.manage_consent",
+        "people.profile.remove_connection",
+        "people.profile.review_information_request",
         "phone_mandate.close_country_picker",
         "phone_mandate.select_country",
         "phone_mandate.submit_code",
