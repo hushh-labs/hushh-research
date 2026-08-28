@@ -4487,7 +4487,17 @@ export function OneLocationAgentPageContent({
       // encrypted to one recipient's key and exists only because the sharer
       // created a grant for that person, for a duration they chose. Appearing
       // as a pin on that person's map is the thing they agreed to. It does not
-      // make anyone visible to anyone else, and Ghost Mode still overrides it.
+      // make anyone visible to anyone else.
+      //
+      // This paragraph used to end "and Ghost Mode still overrides it", which
+      // was true and was the bug. `presence_mode` defaults to 'ghost', so the
+      // override was not an opt-out somebody had chosen -- it was the state
+      // every sharer started in, and it discarded the consent the sentence
+      // above had just finished describing. The recipient's Location screen
+      // said "sharing with you" and their map had no pin. Reported as "Ankit
+      // is sharing his location privately with me but I can not see him on my
+      // map"; fixed in `list_map_state` and in the map screen's own publish
+      // path. Ghost Mode governs general visibility and stops here.
       envelope.publicationContext = "foreground_map_visible";
       // Returned so Save My Soul can tell the sender which contacts the alert
       // actually reached. null for every other share kind, which does not

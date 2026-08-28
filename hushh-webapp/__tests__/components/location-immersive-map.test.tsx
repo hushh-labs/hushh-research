@@ -665,7 +665,18 @@ describe("LocationImmersiveMap demo experience", () => {
     const jordanButton = screen.getByRole("button", {
       name: "Show Jordan Lee on the map",
     });
-    expect(screen.getAllByRole("button", { name: /everyone/i })).toHaveLength(1);
+    // The Everyone pill is now the incoming row: same control, same test
+    // id, a name that says what it frames instead of naming a mode that
+    // sat beside Ghost and read as its alternative. Demo puts three people
+    // on the map, and narrowing the search must not change that count --
+    // the row counts who shares with you, not who survived the filter.
+    const framingRows = screen.getAllByTestId(
+      "one-location-map-show-everyone",
+    );
+    expect(framingRows).toHaveLength(1);
+    expect(framingRows[0]).toHaveAccessibleName(
+      "3 people sharing with you. Fit them all on the map.",
+    );
     fireEvent.click(jordanButton);
     expect(jordanButton).toHaveClass(
       "bg-[var(--app-accent)]",
@@ -783,7 +794,12 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
 
-    expect(screen.getByText("No one sharing yet")).toBeInTheDocument();
+    // Named audience. The header used to read "No one sharing yet" over a
+    // subtitle reading "Sharing with 1", which is two true statements about
+    // two different audiences stacked as though they were one.
+    expect(
+      screen.getByText("No one sharing with you yet"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("0 people sharing with you"),
     ).not.toBeInTheDocument();
@@ -2052,6 +2068,190 @@ describe("LocationImmersiveMap reported map defects", () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "source=map";
+  });
+
+  it("sends a private share to the person it was written for while Ghost Mode is on", async () => {
+    /**
+     * The reported defect, from the sharer's end.
+     *
+     * "Ankit is sharing his location privately with me but i can not see him
+     * on my map." Ankit's grant was live, his recipient key was on file, and
+     * this screen refused to publish an envelope because his `presenceMode`
+     * was "ghost" -- which is the DEFAULT, not something he had chosen. So
+     * private sharing quietly did nothing for anyone who had never opened a
+     * toggle they had no reason to know existed.
+     *
+     * A private grant is written for one named person, encrypted to their key,
+     * for a duration its owner picked. That IS the decision to be seen by
+     * them. Ghost Mode governs the general audience and stops there.
+     */
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [
+        {
+          userId: "share-ankit-recipient",
+          keyId: "share-ankit-key",
+          publicKeyJwk: { kty: "EC" },
+        },
+      ],
+      ownerGrants: [activeGrant(ANKIT, "share-ankit")],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    serviceHarness.storeEnvelope.mockClear();
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+
+    await waitFor(() => {
+      expect(serviceHarness.storeEnvelope).toHaveBeenCalledTimes(1);
+    });
+    const [call] = serviceHarness.storeEnvelope.mock.calls;
+    expect(call[0].grantId).toBe("share-ankit");
+    // And it is published as map-visible: the recipient's map is the surface
+    // this whole path exists to reach.
+    expect(call[0].envelope.publicationContext).toBe("foreground_map_visible");
+    // Not the old "Ghost Mode is on. Only you can see this." dead end.
+    expect(toast.success).toHaveBeenCalledWith(
+      "Sent to the people you share with.",
+    );
+  });
+
+  it("says so instead of claiming a send when Ghost is on and there is nobody to send to", async () => {
+    // The other half of removing the early return: with no grants there is
+    // genuinely nothing to publish, and "Sent to the people you share with"
+    // would be a lie. This is also the one state where Ghost Mode is the
+    // relevant fact, because the general audience is all that is left.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    serviceHarness.storeEnvelope.mockClear();
+    vi.mocked(toast.message).mockClear();
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+
+    await waitFor(() => {
+      expect(toast.message).toHaveBeenCalledWith(
+        "Ghost Mode is on, and you aren't sharing with anyone yet.",
+      );
+    });
+    expect(serviceHarness.storeEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("shows the two audiences and the Ghost switch as three separate controls", async () => {
+    /**
+     * "This interface gives an illusion of a check-in page and creates a
+     * little bit of confusion."
+     *
+     * It did. The only filled full-width control said "Check in", and above it
+     * sat "Ghost | Everyone" as two equal pills -- the shape UI uses for
+     * "these are alternatives" -- when one writes a stored visibility
+     * preference and the other moves the camera. Three facts about three
+     * audiences now get three labelled rows, and check-in is a secondary
+     * action because it is a separate one-time share.
+     */
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [
+        activeGrant(ANKIT, "share-ankit"),
+        activeGrant(ABDUL, "share-abdul"),
+      ],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 25.4358, 81.8463),
+        incomingMarker(ABDUL, 25.4501, 81.8201),
+        incomingMarker("Priya Nair", 25.46, 81.83),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    // Incoming, outgoing, Ghost -- named, and each saying which audience it is
+    // about rather than leaving the reader to infer it from pin count.
+    expect(
+      await screen.findByText("3 people sharing with you"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Private sharing with 2 people"),
+    ).toBeInTheDocument();
+
+    const ghost = screen.getByTestId("one-location-map-ghost-toggle");
+    expect(ghost).toHaveAttribute("role", "switch");
+    expect(ghost).toHaveAttribute("data-state", "checked");
+    // The rule, stated under the switch that used to break it.
+    expect(
+      screen.getByText(
+        "Hidden from general visibility. The 2 people you share with privately still see you.",
+      ),
+    ).toBeInTheDocument();
+
+    // Check-in is still here and still one tap away -- it is just no longer
+    // the loudest thing on a sheet that is not about it.
+    const checkIn = screen.getByTestId("one-location-map-nearby-check-in");
+    expect(checkIn).toBeInTheDocument();
+    expect(checkIn.className).toContain("h-11");
+    expect(checkIn.className).not.toContain("w-full");
+  });
+
+  it("never lets the viewer's own Ghost Mode empty their map", async () => {
+    // The incoming row counts grants where this account is the RECIPIENT. Its
+    // own presence preference has nothing to do with them, and the empty-state
+    // line says so, because "I turned on Ghost and my map went blank" is the
+    // confusion the old Ghost/Everyone pair invited.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    expect(
+      await screen.findByText("1 person sharing with you"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+      "data-map-marker-count",
+      "1",
+    );
+  });
+
+  it("expands the private shares in the sheet rather than over the map", async () => {
+    // The header chip's popover opens over the map, which is the wrong place
+    // to answer a question asked from a row at the bottom of the sheet.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [activeGrant(ANKIT, "share-ankit")],
+    });
+
+    await renderReadyMap();
+
+    const row = await screen.findByTestId("one-location-map-private-shares");
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByTestId("one-location-map-private-share-person"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(row);
+
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    const person = screen.getByTestId("one-location-map-private-share-person");
+    expect(person).toHaveAccessibleName(
+      `Manage your location share with ${ANKIT}`,
+    );
   });
 
   it("takes you to a person on the map when you tap their name in Sharing with", async () => {

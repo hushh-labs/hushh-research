@@ -285,10 +285,23 @@ export type LocationHubViewModel = {
   autoApproveRequestsEnabled: boolean;
   autoApproveScope: AutoApproveScope | null;
   /**
-   * Whether this person appears as a pin on the maps of people they already
-   * share with. Opt-in, and separate from sharing itself: sharing sends a
-   * position to one person, this decides whether it becomes a pin they can
-   * watch move. Null while the preference is still loading.
+   * General map visibility -- Ghost Mode, inverted. `false` is Ghost.
+   *
+   * This used to be documented as "whether this person appears as a pin on the
+   * maps of people they already share with", and the server enforced exactly
+   * that, which was the bug. It made an opt-in preference that defaults to
+   * Ghost the last word over a share its owner had explicitly created for one
+   * named person -- so private sharing did nothing at all until the sharer
+   * found a switch nothing had told them about, and the recipient saw
+   * "sharing with you" beside an empty map.
+   *
+   * It now governs the GENERAL audience only: people who have not been handed
+   * a share of their own. A private grant is delivered to the person it names
+   * in either state, because creating it was already the decision to be seen
+   * by them. See `list_map_state` in the backend service and the Ghost row on
+   * the immersive map sheet, which states the rule where it is switched.
+   *
+   * Null while the preference is still loading.
    */
   mapPresenceEnabled: boolean | null;
   onMapPresenceChange: (next: boolean) => void;
