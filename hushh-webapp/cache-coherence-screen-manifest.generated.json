@@ -10,15 +10,15 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 134,
-    "physical_page_count": 134,
-    "route_contract_count": 134,
-    "surface_map_count": 134,
+    "total_screens": 135,
+    "physical_page_count": 135,
+    "route_contract_count": 135,
+    "surface_map_count": 135,
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
       "redirect/alias": 45,
-      "vault-backed": 49,
+      "vault-backed": 50,
       "hidden flow": 16,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
@@ -4172,7 +4172,9 @@
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
-      "cache_keys": [],
+      "cache_keys": [
+        "TRUSTED_DEVICES"
+      ],
       "resource_classes": [
         "unknown"
       ],
@@ -4196,7 +4198,7 @@
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
-        "use_stale_resource": false,
+        "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
@@ -4207,9 +4209,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/profile/security/devices/authorize",
@@ -5025,6 +5025,51 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fwallet-card",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/people/[personRef]",
+      "page_file": "app/people/[personRef]/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/people/00000000-0000-4000-8000-000000000001",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5992,5 +6037,5 @@
       ]
     }
   ],
-  "content_sha256": "bda439724c88e09708658be48bd986bc13affb98b1321394749de15d92bfeaaf"
+  "content_sha256": "bfa23f829d2777d6dc12b50bf120d6cf8b20b2ac2b894a19d787b9330ae40d7a"
 }

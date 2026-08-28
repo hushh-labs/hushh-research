@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Laptop, Loader2, Trash2 } from "lucide-react";
 
 import {
@@ -22,8 +22,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
+import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
 
 interface TrustedDevice {
@@ -42,33 +44,34 @@ interface TrustedDevice {
 
 export default function TrustedDevicesPage() {
   const { user } = useAuth();
-  const [devices, setDevices] = useState<TrustedDevice[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pendingRevocation, setPendingRevocation] =
     useState<TrustedDevice | null>(null);
   const [revoking, setRevoking] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
+  // Cache-first: a warm cache paints the list immediately and the refresh runs
+  // in the background, so revisiting this screen never shows a blocking spinner
+  // over data we already hold. Revoking force-refreshes through the same
+  // resource so the cache can never serve a device the server just revoked.
+  const devicesResource = useStaleResource<TrustedDevice[]>({
+    cacheKey: CACHE_KEYS.TRUSTED_DEVICES(user?.uid || "anonymous"),
+    enabled: Boolean(user),
+    resourceLabel: "trusted-devices",
+    load: async () => {
       const response = await ApiService.listTrustedDevices();
       const payload = await response.json();
-      if (!response.ok)
+      if (!response.ok) {
         throw new Error(payload?.detail?.message || "Devices unavailable.");
-      setDevices(Array.isArray(payload.devices) ? payload.devices : []);
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Devices unavailable.");
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
+      }
+      return Array.isArray(payload.devices) ? payload.devices : [];
+    },
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const devices = devicesResource.data ?? [];
+  // Only a cold load with nothing cached may block; a background refresh must
+  // never hide list content that is already on screen.
+  const loading = devicesResource.loading && devicesResource.data === null;
+  const visibleError = error || devicesResource.error || "";
 
   async function revoke(deviceId: string) {
     if (!user) return;
@@ -83,7 +86,8 @@ export default function TrustedDevicesPage() {
         return;
       }
       setPendingRevocation(null);
-      await load();
+      setError("");
+      await devicesResource.refresh({ force: true });
     } finally {
       setRevoking(false);
     }
@@ -115,7 +119,9 @@ export default function TrustedDevicesPage() {
             <Loader2 className="size-4 animate-spin" /> Loading devices…
           </div>
         ) : null}
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {visibleError ? (
+          <p className="text-sm text-destructive">{visibleError}</p>
+        ) : null}
         {devices.length > 0 ? (
           <SettingsGroup separatorInset>
             {devices.map((device) => {
