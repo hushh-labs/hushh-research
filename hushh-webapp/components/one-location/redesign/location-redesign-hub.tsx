@@ -919,6 +919,17 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const nearbyPrivateCheckIn =
     searchParams.get(FLOW_ACTION_PARAM) === PRIVATE_CHECK_IN_ACTION &&
     searchParams.get(FLOW_SOURCE_PARAM) === NEARBY_CHECK_IN_SOURCE;
+  // Editing emergency contacts from SOS is a detour, not a destination.
+  //
+  // "Edit contacts" opens ?action=sms-contacts&source=sos, which then
+  // redirects to the SMS Circle -- and openCircleDetail pins the hub tab
+  // to "people", because that is where circles live. Closing therefore
+  // returned to the People tab and dropped the person out of the SOS flow
+  // they were part-way through. The source param already rode along; only
+  // the way back never read it. Mirrors nearbyPrivateCheckIn above.
+  const editingSosContacts =
+    searchParams.get(FLOW_ACTION_PARAM) === FLOW_TO_ACTION["circle-detail"] &&
+    searchParams.get(FLOW_SOURCE_PARAM) === SOS_FLOW_SOURCE;
   const nearbyReturnToken = searchParams.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM);
   const nearbyCheckInReturnHref =
     nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
@@ -1406,7 +1417,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             circleId={String(searchParams.get("circleId") || "")}
             currentUserId={vm.userId}
             busy={vm.busy === "namedCircle"}
-            onBack={() => closeFlow("people")}
+            onBack={() =>
+              editingSosContacts ? openFlow("sos") : closeFlow("people")
+            }
             onLoad={vm.onLoadNamedCircle}
             onLoadOverview={vm.onLoadNamedCircleOverview}
             onLoadMembersPage={vm.onLoadNamedCircleMembersPage}
