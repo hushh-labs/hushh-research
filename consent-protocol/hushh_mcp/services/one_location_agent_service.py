@@ -9417,7 +9417,7 @@ class OneLocationAgentService:
             user_id=owner_user_id,
             notification_type="location_access_request_withdrawn",
             title="Location request taken back",
-            body=f"{requester_label} took back their location request.",
+            body=f"{requester_label} took back location request.",
             notification_tag=f"one-location-request:{request_id}",
             request_url=_one_location_url(requestId=request_id, section="approvals"),
             data={
