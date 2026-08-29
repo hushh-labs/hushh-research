@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Search as SearchIcon,
   Share2,
-  Users,
   X,
 } from "lucide-react";
 
@@ -107,28 +106,12 @@ type ConnectTab = "people" | "advisors" | "nearby";
  * the people who hold these profiles use for themselves.
  */
 /**
- * The outer axis: people, or the groups they are in.
- *
- * Deliberately a SECOND strip rather than a fourth segment in the one below.
- * People / RIAs / Around you answers "which directory"; Connections / Circles
- * answers "people, or groupings of them". Two axes in one strip reads as four
- * peers, and the inner three are contract-pinned besides -- a fourth option
- * there would need the 320px width measurement redone.
+ * The route-level axis: the directory hub, or the groups people belong to.
  *
  * Carried in `?tab=` because a circle detail is a place you can be sent, and a
  * hub tab that only exists in `useState` cannot be linked to or returned to.
  */
 type ConnectSurface = "all" | "circles";
-
-const CONNECT_SURFACE_LABEL: Record<ConnectSurface, string> = {
-  all: "Connections",
-  circles: "Circles",
-};
-
-const CONNECT_SURFACES = (["all", "circles"] as const).map((value) => ({
-  value,
-  label: CONNECT_SURFACE_LABEL[value],
-}));
 
 const CONNECT_SURFACE_PARAM = "tab";
 
@@ -169,14 +152,15 @@ export function writeStoredConnectSearchQuery(query: string): void {
 }
 
 /**
- * The padding override the inner strip needs, reused here so both strips on
- * this surface share one rule rather than drifting apart.
+ * A four-segment hub has tighter phone-width pressure than Location's three
+ * segments. Padding is the only thing that gives: labels, height, and selected
+ * affordance stay shared with the app segmented control.
  */
 const CONNECT_STRIP_COMPACT_PADDING =
   "[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5";
 
 /**
- * The pinned header: both tab strips, and nothing else.
+ * The pinned header: the Connect hub strip, and nothing else.
  *
  * `--top-shell-live-height` rather than `top-0` -- the scroll root clears the
  * top bar with a spacer rather than padding, so `top-0` sticks a strip to the
@@ -221,8 +205,7 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
  * not filter. Pinned in place instead, it arrives exactly when its own results
  * do and stays for as long as they are on screen.
  *
- * The offset is the live top shell plus whatever the header above measured, so
- * a two-strip header and a one-strip header both land it in the right place.
+ * The offset is the live top shell plus whatever the header above measured.
  *
  * Opaque for the same reason the header above it is: at 85% the directory rows
  * this field filters read straight through it as they scroll past.
@@ -236,9 +219,16 @@ const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   nearby: "Around you",
 };
 
-const CONNECT_TABS = (["people", "advisors", "nearby"] as const).map(
-  (value) => ({ value, label: CONNECT_TAB_LABEL[value] }),
-);
+type ConnectHubTab = ConnectTab | "circles";
+
+const CONNECT_HUB_TAB_LABEL: Record<ConnectHubTab, string> = {
+  ...CONNECT_TAB_LABEL,
+  circles: "Circles",
+};
+
+const CONNECT_HUB_TABS = (
+  ["people", "advisors", "nearby", "circles"] as const
+).map((value) => ({ value, label: CONNECT_HUB_TAB_LABEL[value] }));
 
 /**
  * Which half of the directory each tab pages through.
@@ -532,7 +522,10 @@ function ConnectPersonAvatar({
   verified: boolean;
 }) {
   return (
-    <Avatar className="relative h-[34px] w-[34px] shrink-0">
+    <Avatar
+      className="relative h-[34px] w-[34px] shrink-0"
+      data-photo-url={photoUrl ?? undefined}
+    >
       {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
       <AvatarFallback className="text-xs">
         {connectAvatarInitials(label)}
@@ -558,7 +551,7 @@ export default function ConnectPageClient() {
 
   const searchParams = useSearchParams();
   /**
-   * The outer tab, from `?tab=`.
+   * The route-backed Connect surface, from `?tab=`.
    *
    * Anything unrecognised reads as "all" rather than throwing a 404 at
    * somebody who mistyped a link, and the default is not written to the URL on
@@ -583,6 +576,7 @@ export default function ConnectPageClient() {
   });
 
   const [tab, setTab] = useState<ConnectTab>("people");
+  const hubTab: ConnectHubTab = surface === "circles" ? "circles" : tab;
   /**
    * What the Circles tab is doing, reported up.
    *
@@ -640,9 +634,9 @@ export default function ConnectPageClient() {
   /**
    * Publish the pinned header's height so the search row can sit under it.
    *
-   * Measured rather than assumed: the header is one strip on Circles and two
-   * everywhere else, and a strip's own height moves with the type scale and the
-   * breakpoint. A hard-coded offset is right at exactly one width.
+   * Measured rather than assumed: the strip's own height moves with the type
+   * scale and the breakpoint. A hard-coded offset is right at exactly one
+   * width.
    *
    * Written to the page's own stack, not `documentElement`, so it inherits down
    * to the search row and to nothing else, and leaves with the page.
@@ -1093,10 +1087,10 @@ export default function ConnectPageClient() {
       // navigation whose only change is that the whole query string
       // disappears -- measured on UAT and recorded in
       // `lib/navigation/top-shell-breadcrumbs.ts` -- so `?tab=all` is what
-      // makes "back to Connections" a control that actually moves.
+      // makes "back to People" a control that actually moves.
       params.set(CONNECT_SURFACE_PARAM, next);
       // A Circle you had open is not where "Circles" should take you next.
-      // These params outlived the surface switch, so leaving for Connections
+      // These params outlived the surface switch, so leaving for People
       // and tapping Circles again dropped you back inside the same roster
       // rather than at the list with New circle and Join with code on it.
       params.delete("action");
@@ -1114,6 +1108,20 @@ export default function ConnectPageClient() {
       router.push(`${ROUTES.CONNECT}?${params.toString()}`, { scroll: false });
     },
     [router, searchParams, surface],
+  );
+
+  const selectHubTab = useCallback(
+    (next: ConnectHubTab) => {
+      if (next === "circles") {
+        selectSurface("circles");
+        return;
+      }
+      setTab(next);
+      if (surface !== "all") {
+        selectSurface("all");
+      }
+    },
+    [selectSurface, surface],
   );
 
   const goToPage = useCallback(
@@ -1829,9 +1837,9 @@ export default function ConnectPageClient() {
   );
   usePublishVoiceSurfaceMetadata(connectVoiceSurfaceMetadata);
 
-  // Each of these brings the Connections surface forward before touching the
-  // inner strip. `setTab` alone moves a control that is not on screen while
-  // Circles is showing, so "open people" reported success and did nothing --
+  // Each of these brings the directory surface forward before touching the hub
+  // tab. `setTab` alone moves a control that is not active while Circles is
+  // showing, so "open people" reported success and did nothing --
   // and a voice action that lies about what happened is worse than one that
   // refuses, because the person stops watching for the result.
   useLocalOnboardingActionHandler("connect.open_people", () => {
@@ -2251,7 +2259,7 @@ export default function ConnectPageClient() {
     <AppPageShell
       as="main"
       fitContent
-      width="reading"
+      width="standard"
       className="relative isolate"
       nativeTest={{
         routeId: "/one/connect",
@@ -2284,11 +2292,11 @@ export default function ConnectPageClient() {
         errorMessage: surface === "circles" ? circlesState.error : error,
       }}
     >
-      <AppPageHeaderRegion>
-        <PageHeader title="Connect" accent="neutral" />
+      <AppPageHeaderRegion className="mx-auto w-full max-w-[720px]">
+        <PageHeader title="Connect" icon={BookUser} accent="neutral" />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion>
+      <AppPageContentRegion className="mx-auto w-full max-w-[720px]">
         <SurfaceStack compact>
           <div
             ref={connectStackRef}
@@ -2307,9 +2315,6 @@ export default function ConnectPageClient() {
               aria-hidden
               className="pointer-events-none absolute inset-x-0 top-0 h-px"
             />
-            {/* Both axes travel together. Pinning the outer strip and letting
-                the inner one scroll would leave a header naming a surface above
-                a tab bar that has already left the screen. */}
             <div
               ref={stickyHeaderRef}
               data-testid="connect-sticky-header"
@@ -2319,37 +2324,12 @@ export default function ConnectPageClient() {
               data-pinned="false"
               className={CONNECT_STICKY_HEADER_CLASSNAME}
             >
-              {/* The outer axis. People, or the groups they are in. */}
               <SegmentedTabs
-                value={surface}
-                onValueChange={(value) =>
-                  selectSurface(value as ConnectSurface)
-                }
-                options={CONNECT_SURFACES}
+                value={hubTab}
+                onValueChange={(value) => selectHubTab(value as ConnectHubTab)}
+                options={CONNECT_HUB_TABS}
                 className={CONNECT_STRIP_COMPACT_PADDING}
               />
-
-              {surface === "circles" ? null : (
-                <SegmentedTabs
-                  value={tab}
-                  onValueChange={(value) => setTab(value as ConnectTab)}
-                  options={CONNECT_TABS}
-                  // A third tab takes a third of the strip, and the option's own
-                  // 16px side padding then costs more than the widest label has
-                  // left: measured on a 375px screen, "Around you" rendered as
-                  // "Around yo…". Tab titles are ours, not user content, so
-                  // an ellipsis in one is a defect rather than a graceful
-                  // degradation.
-                  //
-                  // Padding is the thing that gives, which is the cheapest rung
-                  // on the ladder -- the strip keeps its height, its grid, its
-                  // type and its active pill, and nothing changes from 640px up,
-                  // where there was never any pressure. Scoped to this strip
-                  // rather than pushed into SegmentedTabs so no other surface's
-                  // spacing moves.
-                  className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
-                />
-              )}
             </div>
 
             {surface === "circles" ? (
@@ -2429,13 +2409,15 @@ export default function ConnectPageClient() {
                         sortedConnections.map((connection) => (
                           <SettingsRow
                             key={connection.connectionId}
-                            // Same mark, same tone, same meaning as the results list
-                            // below: verified is a state, and this screen already
-                            // spends green on it. Both lists are on screen together,
-                            // so a person cannot carry one icon in one and another in
-                            // the other.
-                            icon={connection.isRia ? BadgeCheck : Users}
-                            iconTone={connection.isRia ? "green" : "blue"}
+                            leading={
+                              <ConnectPersonAvatar
+                                photoUrl={connection.photoUrl ?? null}
+                                label={
+                                  connection.displayName || connection.userId
+                                }
+                                verified={Boolean(connection.isRia)}
+                              />
+                            }
                             // Deliberately NOT stackTrailingOnMobile. That prop drops
                             // the trailing control onto its own line below the name on
                             // every phone (`sm:` is 640px, so "mobile" here is every

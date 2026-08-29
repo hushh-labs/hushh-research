@@ -73,10 +73,9 @@ vi.mock("next/navigation", () => ({
     back: vi.fn(),
   }),
   usePathname: () => "/one/connect",
-  // The outer Connections/Circles tab lives in `?tab=`, because a circle is a
-  // place you can be sent and a tab that only exists in `useState` cannot be
-  // linked to. `mocks.searchParams` is a real URLSearchParams so a test can
-  // set the tab the way a URL would.
+  // The Circles surface lives in `?tab=`, because a circle is a place you can
+  // be sent and a surface that only exists in `useState` cannot be linked to.
+  // Directory tabs stay local state.
   useSearchParams: () => mocks.searchParams,
 }));
 
@@ -171,7 +170,7 @@ type TestConnectionPage = {
     connectionId: string;
     userId: string;
     displayName: string;
-    photoUrl: null;
+    photoUrl: string | null;
   }>;
   page: number;
   hasMore: boolean;
@@ -1544,6 +1543,31 @@ describe("Connect — People", () => {
     expect(screen.queryByText("Ordinary Person")).toBeNull();
   });
 
+  it("renders profile photos in My connections when the connection has one", async () => {
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-photo",
+        userId: "u-photo",
+        displayName: "Photo Friend",
+        photoUrl: "https://cdn.example.test/photo-friend.jpg",
+        createdAt: null,
+        isRia: false,
+      },
+    ]);
+
+    const { container } = render(<ConnectPageClient />);
+
+    expect(await screen.findByText("Photo Friend")).toBeTruthy();
+    const myConnections = container.querySelector(
+      '[data-testid="connect-my-connections-group"]',
+    );
+    expect(
+      myConnections?.querySelector(
+        '[data-photo-url="https://cdn.example.test/photo-friend.jpg"]',
+      ),
+    ).toBeTruthy();
+  });
+
   it("does not relabel stale People rows when the RIAs page fails to load", async () => {
     mocks.listConnectionsPage.mockImplementation(async (options) => {
       if (options.audience === "ria") {
@@ -2049,7 +2073,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
 });
 
 describe("Connect — Circles", () => {
-  it("opens on Connections when the URL says nothing", async () => {
+  it("opens on People when the URL says nothing", async () => {
     render(<ConnectPageClient />);
 
     // The default is not written to the URL on mount: doing that would eat one
@@ -2068,10 +2092,10 @@ describe("Connect — Circles", () => {
     // The whole directory half is gone, not merely scrolled past: the search
     // box drives a paged server query that has nothing to do with this tab.
     expect(screen.queryByLabelText("Search people")).toBeNull();
-    expect(screen.queryByRole("button", { name: "RIAs" })).toBeNull();
+    expect(screen.getByRole("button", { name: "RIAs" })).toBeTruthy();
   });
 
-  it("names the default tab explicitly, so back to Connections navigates", async () => {
+  it("names the default surface explicitly, so back to People navigates", async () => {
     // The App Router refuses a navigation whose only change is that the whole
     // query string disappears -- measured on UAT, recorded in
     // lib/navigation/top-shell-breadcrumbs.ts. `?tab=all` is what makes this a
@@ -2079,7 +2103,7 @@ describe("Connect — Circles", () => {
     mocks.searchParams = new URLSearchParams("tab=circles");
     render(<ConnectPageClient />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Connections" }));
+    fireEvent.click(await screen.findByRole("button", { name: "People" }));
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
@@ -2110,11 +2134,10 @@ describe("Connect — Circles", () => {
     ).toBeTruthy();
   });
 
-  it("keeps the inner directory tabs to themselves", async () => {
-    // People / RIAs / Around you answers "which directory"; the outer strip
-    // answers "people, or groupings of them". Two axes, two strips -- and the
-    // inner one stays local state, which is what keeps its pinned contract
-    // untouched.
+  it("keeps directory tab switches local while Circles stays linkable", async () => {
+    // People / RIAs / Around you answer "which directory" inside the hub. Only
+    // Circles writes the route-backed surface, so ordinary directory switches
+    // do not add browser history noise.
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
 
