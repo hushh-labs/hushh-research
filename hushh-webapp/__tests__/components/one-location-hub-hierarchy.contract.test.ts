@@ -47,4 +47,22 @@ describe("Location hub hierarchy", () => {
     expect(swipeWindow).toContain("tabSetId={LOCATION_TAB_DEFINITION.id}");
     expect(swipeWindow).toContain("options={LOCATION_SWIPE_OPTIONS}");
   });
+
+  it("keeps Now, People, and Links on shared Location primitives", () => {
+    const peopleBody = functionBody("PeopleHub");
+    const linksBody = functionBody("LinksHub");
+
+    expect(source).toContain("const LOCATION_GROUP_SURFACE");
+    expect(source).not.toContain("PEOPLE_GROUP_SURFACE");
+    expect(peopleBody).toContain("className={LOCATION_GROUP_SURFACE}");
+
+    expect(linksBody).toContain("<SettingsGroup");
+    expect(linksBody).toContain(
+      "shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}",
+    );
+    expect(linksBody).toContain("<SettingsRow");
+    expect(linksBody).toContain("<DurationSelector");
+    expect(linksBody).not.toContain("<TemporaryLinkCard");
+    expect(linksBody).not.toContain("SUBCARD_SURFACE");
+  });
 });
