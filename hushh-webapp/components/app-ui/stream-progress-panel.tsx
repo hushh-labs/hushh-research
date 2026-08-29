@@ -170,6 +170,7 @@ export type AppStreamPanelProps = {
   thinkingTitle?: string;
   evidenceItems?: AppStreamProgressItem[];
   evidenceTitle?: string;
+  structuredContent?: ReactNode;
   response?: ReactNode;
   responseText?: string;
   /** App-owned state shown while the model has not emitted response text yet. */
@@ -191,6 +192,7 @@ export function AppStreamPanel({
   thinkingTitle = "Reasoning",
   evidenceItems = [],
   evidenceTitle = "Consulted specialists",
+  structuredContent,
   response,
   responseText = "",
   responsePendingLabel,
@@ -267,6 +269,8 @@ export function AppStreamPanel({
             bodyClassName="px-3 py-2.5"
           />
         ) : null}
+
+        {structuredContent ? <div>{structuredContent}</div> : null}
 
         {showResponsePending ? (
           <div

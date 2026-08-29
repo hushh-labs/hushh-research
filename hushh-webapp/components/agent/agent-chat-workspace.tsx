@@ -69,6 +69,7 @@ import {
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
 import {
   getWelcomePromptSetIndex,
   getWelcomePrompts,
@@ -194,6 +195,7 @@ type AgentMessage = {
   streamEvents?: AgentVisibleStreamEvent[];
   thought?: string;
   sources?: AgentSource[];
+  structuredExperience?: AgentStructuredExperience | null;
 };
 
 type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
@@ -226,6 +228,15 @@ function upsertVisibleStreamEvent(
     );
   }
   return [...current, event].slice(-10);
+}
+
+function settleVisibleStreamEvents(
+  events: AgentVisibleStreamEvent[] | undefined,
+  status: Extract<AgentVisibleStreamStatus, "done" | "blocked" | "error">,
+): AgentVisibleStreamEvent[] {
+  return (events ?? []).map((event) =>
+    event.status === "running" ? { ...event, status } : event,
+  );
 }
 
 type AgentPkmReview = {
@@ -934,7 +945,8 @@ function AgentBubble({
   const hasStreamContent =
     isStreaming ||
     streamEvents.length > 0 ||
-    Boolean(message.sources?.length);
+    Boolean(message.sources?.length) ||
+    Boolean(message.structuredExperience);
   const shouldRenderStreamPanel =
     !isUser && !isError && hasStreamContent && !message.renderAsPlainAssistantMessage;
   const animated = useAnimatedAssistantText(
@@ -1023,6 +1035,7 @@ function AgentBubble({
               streamEvents={streamEvents}
               thinkingText={message.thought}
               sources={message.sources}
+              structuredExperience={message.structuredExperience}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -2731,7 +2744,10 @@ export function AgentChatWorkspace({
         ...message,
         text: message.text || "Agent turn canceled.",
         status: "done",
-        streamEvents: [],
+        streamEvents: settleVisibleStreamEvents(
+          message.streamEvents,
+          "blocked",
+        ),
       }));
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -3368,6 +3384,13 @@ export function AgentChatWorkspace({
               sources,
             }));
           },
+          onStructuredExperience: (structuredExperience) => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              structuredExperience,
+            }));
+          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
@@ -3377,6 +3400,10 @@ export function AgentChatWorkspace({
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               status: "done",
+              streamEvents: settleVisibleStreamEvents(
+                message.streamEvents,
+                "done",
+              ),
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -3388,7 +3415,10 @@ export function AgentChatWorkspace({
               ...current,
               text: current.text || message,
               status: "error",
-              streamEvents: [],
+              streamEvents: settleVisibleStreamEvents(
+                current.streamEvents,
+                "error",
+              ),
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -3439,7 +3469,10 @@ export function AgentChatWorkspace({
         ...current,
         text: current.text || message,
         status: "error",
-        streamEvents: [],
+        streamEvents: settleVisibleStreamEvents(
+          current.streamEvents,
+          "error",
+        ),
       }));
       void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
