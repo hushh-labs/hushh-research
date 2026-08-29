@@ -13,9 +13,9 @@
  *   NOT call services, encrypt, or mutate consent state. It only renders and
  *   delegates to the existing handlers, so the feature's functionality, consent
  *   gating, analytics, and crypto are unchanged.
- * - The global shell owns the visible tab strip. This route consumes the same
- *   central registry only to render the active swipe panel; focused task flows
- *   hide the shell tabs through their `?action=` route state.
+ * - The Location hub owns the visible tab strip directly under its module
+ *   header. It still consumes the central registry so labels, destinations,
+ *   selection, swipes, and deep links cannot drift from the shared top shell.
  */
 
 import {
@@ -64,6 +64,7 @@ import {
 } from "@/lib/one-location/grant-lanes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1525,6 +1526,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         busy={vm.locationAcquiring}
         onRetry={vm.onShowMyLocation}
         onOpenSettings={vm.onOpenLocationSettings}
+      />
+
+      <TopShellTabs
+        tabSet={{
+          ...LOCATION_TAB_DEFINITION,
+          activeValue: tab,
+        }}
       />
 
       <div className="-mx-[var(--page-inline-gutter-standard)]">
