@@ -178,8 +178,8 @@ type TestConnectionPage = {
   audience: "all";
 };
 
-/** Ten people, so a limit of 8 is visibly a cap rather than the whole set. */
-const EVERYONE = Array.from({ length: 10 }, (_, index) =>
+/** One hundred people, so the pager range and final-page copy are visible. */
+const EVERYONE = Array.from({ length: 100 }, (_, index) =>
   person(`u${index}`, `Person ${index}`),
 );
 
@@ -213,10 +213,24 @@ beforeEach(() => {
     items: [],
     offerableItems: [],
   });
-  mocks.searchDirectory.mockResolvedValue({
-    items: EVERYONE.slice(0, 8),
-    hasMore: true,
-    page: 1,
+  mocks.searchDirectory.mockImplementation(async (options) => {
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.max(1, Number(options.limit) || 20);
+    const query = String(options.query || "")
+      .trim()
+      .toLowerCase();
+    const matches = query
+      ? EVERYONE.filter((entry) =>
+          entry.displayName?.toLowerCase().includes(query),
+        )
+      : EVERYONE;
+    const start = (page - 1) * limit;
+    return {
+      items: matches.slice(start, start + limit),
+      hasMore: start + limit < matches.length,
+      page,
+      totalCount: matches.length,
+    };
   });
 });
 
@@ -596,7 +610,7 @@ describe("Connect — People", () => {
     // unsearched surface must ask for a capped set, and no query.
     expect(mocks.searchDirectory.mock.calls[0][0]).toMatchObject({
       page: 1,
-      limit: 8,
+      limit: 20,
     });
     expect(mocks.searchDirectory.mock.calls[0][0].query).toBe("");
 
@@ -604,7 +618,7 @@ describe("Connect — People", () => {
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
-  it("offers paging and a page size, rather than a sample with no way past it", async () => {
+  it("offers range-based paging rather than a sample with no way past it", async () => {
     // A bounded first screenful was the right instinct, but refusing to page
     // left the rest of the directory unreachable. Both now hold: a screenful
     // by default, and a way through it.
@@ -616,11 +630,13 @@ describe("Connect — People", () => {
     // parallel CI load while passing 4-for-4 on an idle laptop. This file is
     // now a required check on every Connect PR, so an assertion that depends
     // on scheduler luck would train people to re-run CI instead of reading it.
-    expect(await screen.findByText("Page 1")).toBeTruthy();
+    expect(await screen.findByText("1–20 of 100")).toBeTruthy();
     expect(screen.getByLabelText("People per page")).toBeTruthy();
     // hasMore is true in the fixture, so forward is offered and back is not.
-    expect(screen.getByText("Next").closest("button")?.disabled).toBe(false);
-    expect(screen.getByText("Prev").closest("button")?.disabled).toBe(true);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Next page")).not.toBeDisabled(),
+    );
+    expect(screen.getByLabelText("Previous page")).toBeDisabled();
   });
 
   it("reads heading, then instruction, then the field they describe", async () => {
@@ -652,28 +668,20 @@ describe("Connect — People", () => {
     ).toBeTruthy();
   });
 
-  it("keeps the pager on one line, with the page number under the size", async () => {
-    // QA, on a phone: "sarein cheezein scattered dekh rahi -- per page, prev
-    // next ek line mein la sakte". The row was `flex-col ... sm:flex-row`, so
-    // on every shipped phone width it broke into "Page 1 - Per page [8]" and a
-    // separate right-aligned "Prev Next" underneath.
+  it("keeps the pager inside the grouped list as a compact range row", async () => {
     render(<ConnectPageClient />);
 
     const row = await screen.findByTestId("connect-pager-row");
-    // One line: the size control and the two buttons that use it are siblings
-    // in the same row, not two stacked blocks.
     expect(row.className).not.toContain("flex-col");
-    expect(within(row).getByText("Per page")).toBeTruthy();
-    expect(within(row).getByRole("button", { name: "Prev" })).toBeTruthy();
-    expect(within(row).getByRole("button", { name: "Next" })).toBeTruthy();
-
-    // "Page 1" is a reading of the list, not a way to change it, so it sits
-    // directly under the control rather than leading the row.
-    const status = within(row).getByText("Page 1");
-    const sizeLine = screen.getByLabelText("People per page").parentElement;
-    expect(sizeLine).not.toBeNull();
-    expect(status.previousElementSibling).toBe(sizeLine);
-    expect(status.className).toContain("text-[11px]");
+    expect(row.className).toContain("min-h-14");
+    expect(within(row).getByText("1–20 of 100")).toBeTruthy();
+    expect(
+      within(row).getByRole("button", { name: "Previous page" }),
+    ).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Next page" })).toBeTruthy();
+    expect(screen.getByLabelText("People per page").textContent).toContain(
+      "20 per page",
+    );
   });
 
   it("asks the server for the page the reader moved to", async () => {
@@ -683,18 +691,20 @@ describe("Connect — People", () => {
     // is on is the page the server is asked for.
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
-    expect(screen.getByLabelText("People per page").textContent).toContain("8");
+    expect(screen.getByLabelText("People per page").textContent).toContain(
+      "20 per page",
+    );
 
-    fireEvent.click(screen.getByText("Next"));
+    fireEvent.click(screen.getByLabelText("Next page"));
 
     await waitFor(() => {
       const latest =
         mocks.searchDirectory.mock.calls[
           mocks.searchDirectory.mock.calls.length - 1
         ][0];
-      expect(latest).toMatchObject({ page: 2, limit: 8 });
+      expect(latest).toMatchObject({ page: 2, limit: 20 });
     });
-    expect(await screen.findByText("Page 2")).toBeTruthy();
+    expect(await screen.findByText("21–40 of 100")).toBeTruthy();
   });
 
   it("opens the full directory once a name is typed", async () => {
@@ -711,7 +721,7 @@ describe("Connect — People", () => {
     expect(searched.query).toBe("Person 9");
     // A search is paged like everything else now. Returning the whole matching
     // set unpaged is the same unbounded list, just filtered.
-    expect(searched.limit).toBe(8);
+    expect(searched.limit).toBe(20);
     expect(searched.page).toBe(1);
 
     // The empty-query description disappearing is the unambiguous signal that
@@ -719,7 +729,7 @@ describe("Connect — People", () => {
     await waitFor(() =>
       expect(screen.queryByText("Search by name.")).toBeNull(),
     );
-    expect(await screen.findByText("Page 1")).toBeTruthy();
+    expect(await screen.findByText(/1–\d+ of \d+/)).toBeTruthy();
   });
 
   it("restores a typed search query after the page remounts", async () => {
@@ -822,7 +832,7 @@ describe("Connect — People", () => {
     expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
       query: "N",
       page: 1,
-      limit: 8,
+      limit: 20,
     });
     for (const name of ["Nilesh", "Nirmal", "Nolan"]) {
       expect(await screen.findByText(name)).toBeTruthy();
@@ -951,7 +961,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
     expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({ page: 2 });
 
