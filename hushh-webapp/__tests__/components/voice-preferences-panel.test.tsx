@@ -313,4 +313,24 @@ describe("VoicePreferencesPanel", () => {
       }),
     );
   });
+
+  it("does not claim these actions already ask to confirm", () => {
+    // The copy this replaces said "For actions that already ask to
+    // confirm." Nothing already asks -- voice does not confirm by default,
+    // so that named a set which is empty in practice, and the switch read as
+    // broken to anyone who tried it. Pinned because the failure was silent:
+    // the control worked the whole time, only the words were wrong.
+    render(
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
+    );
+
+    expect(screen.queryByText(/already ask to confirm/i)).toBeNull();
+    expect(
+      screen.getByText("For actions that share or change something."),
+    ).toBeInTheDocument();
+    // The switch itself must survive the rewording.
+    expect(
+      screen.getByRole("switch", { name: "Require a tap to confirm" }),
+    ).toBeInTheDocument();
+  });
 });
