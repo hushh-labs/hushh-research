@@ -152,9 +152,7 @@ describe("the requester's side of the same exchange", () => {
       }),
     );
     // Read as a bare "declined", it looks like everything just stopped.
-    expect(presented.description).toBe(
-      "Declined the extra time — your current access is unchanged",
-    );
+    expect(presented.description).toBe("Extra time declined");
   });
 });
 
@@ -168,7 +166,7 @@ describe("rows written before any of this existed", () => {
     expect(
       presentFeedItem(item({ event_type: "location_access_approved" }))
         .description,
-    ).toBe("You approved. Now sharing.");
+    ).toBe("You approved sharing");
   });
 });
 

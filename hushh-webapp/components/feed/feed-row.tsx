@@ -1,26 +1,22 @@
 "use client";
 
-import { SettingsRow } from "@/components/app-ui/settings-ui";
+import { ChevronRight } from "lucide-react";
+
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { formatFeedTimestamp } from "@/lib/feed/feed-timestamp";
-import type { FeedIconTone } from "@/lib/feed/use-feed-actionables";
-import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
-
-const DOMAIN_TONE: Record<FeedSourceDomain, FeedIconTone> = {
-  consent: "accent",
-  location: "blue",
-  kai: "accent",
-  kyc: "purple",
-  connected_systems: "gray",
-  connections: "green",
-};
+import type { FeedItem } from "@/lib/services/feed-service";
 
 /**
- * A single historical activity row, built on the canonical SettingsRow so the
- * feed shares the app's list vocabulary (icon well, title/description,
- * inset-hairline separators). Unread items carry an accent tint + dot and a
- * full-strength title; read items dim, mirroring Instagram's activity list.
+ * A single historical activity row. Feed history uses person identity first:
+ * photos when the bounded feed payload carries one, then initials, then a
+ * quiet domain glyph. It deliberately avoids the settings-row ripple/icon tile
+ * treatment, which made every Location event look like the same blue control.
  */
 export function FeedRow({
   item,
@@ -38,52 +34,122 @@ export function FeedRow({
 }) {
   const presentation = presentFeedItem(item);
   const read = unread === undefined ? item.read : !unread;
-  const tone = DOMAIN_TONE[item.source_domain] ?? "gray";
-  const unreadMarker = (
-    <span
-      aria-hidden="true"
-      data-slot="feed-unread-marker"
-      data-state={read ? "read" : "unread"}
-      className={cn(
-        "inline-flex h-3 w-3 shrink-0 items-center justify-center",
-        "before:block before:h-1.5 before:w-1.5 before:rounded-full",
-        read ? "before:bg-transparent" : "before:bg-accent",
-      )}
-    />
+  const timestamp = formatFeedTimestamp(item.created_at);
+  const isInteractive = Boolean(presentation.href);
+  const rowClassName = cn(
+    "grid min-h-[68px] w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-3 text-left outline-hidden",
+    "transition-colors [-webkit-tap-highlight-color:transparent]",
+    isInteractive &&
+      "cursor-pointer hover:bg-foreground/[0.035] active:bg-foreground/[0.055] focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2",
+    !read && "bg-[color:var(--app-accent-tint)]/45",
   );
-
-  return (
-    <SettingsRow
-      icon={presentation.icon}
-      iconTone={tone}
-      density="compact"
-      className={cn(!read && "!bg-accent-surface/40 sm:!bg-accent-surface/25")}
-      title={
+  const body = (
+    <>
+      <FeedRowIdentity presentation={presentation} />
+      <span className="min-w-0 space-y-0.5">
         <span
           className={cn(
-            "text-[15px] tracking-[-0.01em]",
-            read
-              ? "font-normal text-foreground/70"
-              : "font-semibold text-foreground",
+            "block text-[17px] leading-[22px] text-[color:var(--app-label)] [overflow-wrap:anywhere]",
+            read ? "font-normal" : "font-semibold",
           )}
         >
           {!read ? <span className="sr-only">Unread: </span> : null}
           {presentation.label}
         </span>
-      }
-      description={
-        <span className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 line-clamp-1">
+        {presentation.description ? (
+          <span className="block text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
             {presentation.description}
+            {timestamp ? (
+              <time
+                dateTime={item.created_at}
+                className="max-[360px]:inline min-[361px]:hidden"
+              >
+                {" "}
+                {timestamp}
+              </time>
+            ) : null}
           </span>
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-            {formatFeedTimestamp(item.created_at)}
-          </span>
-        </span>
-      }
-      trailing={unreadMarker}
-      chevron={Boolean(presentation.href)}
-      onClick={presentation.href ? () => onOpen(item) : undefined}
-    />
+        ) : null}
+      </span>
+      <span className="flex shrink-0 items-center justify-end gap-2 text-[13px] leading-[18px] text-[color:var(--app-tertiary-label)]">
+        <span
+          aria-hidden="true"
+          data-slot="feed-unread-marker"
+          data-state={read ? "read" : "unread"}
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            read ? "bg-transparent" : "bg-[color:var(--app-accent)]",
+          )}
+        />
+        {timestamp ? (
+          <time
+            dateTime={item.created_at}
+            className="tabular-nums max-[360px]:hidden"
+          >
+            {timestamp}
+          </time>
+        ) : null}
+        {isInteractive ? (
+          <ChevronRight
+            aria-hidden
+            className="h-4 w-4 text-[color:var(--app-tertiary-label)]"
+          />
+        ) : null}
+      </span>
+    </>
+  );
+
+  return isInteractive ? (
+    <button
+      type="button"
+      className={rowClassName}
+      onClick={() => onOpen(item)}
+      data-testid="feed-row"
+    >
+      {body}
+    </button>
+  ) : (
+    <div className={rowClassName} data-testid="feed-row">
+      {body}
+    </div>
+  );
+}
+
+function initials(value: string): string {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? ""))
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function FeedRowIdentity({
+  presentation,
+}: {
+  presentation: ReturnType<typeof presentFeedItem>;
+}) {
+  const person = presentation.person ?? null;
+  const Icon = presentation.icon;
+
+  if (person) {
+    return (
+      <Avatar
+        className="h-10 w-10 bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
+        aria-hidden
+      >
+        {person.photoUrl ? <AvatarImage src={person.photoUrl} alt="" /> : null}
+        <AvatarFallback className="bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
+          {initials(person.displayName)}
+        </AvatarFallback>
+      </Avatar>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]"
+      aria-hidden
+    >
+      <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+    </span>
   );
 }
