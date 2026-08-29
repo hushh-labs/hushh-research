@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import {
   BadgeCheck,
   BookUser,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Lock,
   RefreshCw,
@@ -54,6 +56,7 @@ import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
@@ -227,7 +230,7 @@ const CONNECT_HUB_TAB_LABEL: Record<ConnectHubTab, string> = {
 };
 
 const CONNECT_HUB_TABS = (
-  ["people", "advisors", "nearby", "circles"] as const
+  ["people", "advisors", "circles", "nearby"] as const
 ).map((value) => ({ value, label: CONNECT_HUB_TAB_LABEL[value] }));
 
 /**
@@ -290,7 +293,7 @@ async function mapWithConcurrency<T, R>(
  * and knows nobody's exact name is not staring at an empty surface — not so
  * they can browse the register, which is the thing that stops scaling.
  */
-const SUGGESTED_PEOPLE_LIMIT = 8;
+const SUGGESTED_PEOPLE_LIMIT = 20;
 
 /**
  * How many people a page shows, and the sizes the reader can pick.
@@ -300,7 +303,7 @@ const SUGGESTED_PEOPLE_LIMIT = 8;
  * through the rest, so this replaces it with real paging: the default is still
  * a screenful, and someone who wants to scan more can say so.
  */
-const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
+const PAGE_SIZE_OPTIONS = [20, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 const CONNECT_ROW_ACTION_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
@@ -486,7 +489,6 @@ async function resolveConnectionForVoice({
   return { matches: [], complete: false };
 }
 
-
 /**
  * Two-letter fallback for someone with no Google photo. Mirrors the
  * contact-sync sheet, which already draws people this way.
@@ -621,6 +623,11 @@ export default function ConnectPageClient() {
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const [directoryPage, setDirectoryPage] = useState(1);
+  const [directoryTotalCount, setDirectoryTotalCount] = useState(0);
+  const directoryListTopRef = useRef<HTMLDivElement | null>(null);
+  const previousDirectoryPageRef = useRef(1);
+  const isMobile = useIsMobile();
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
@@ -975,6 +982,39 @@ export default function ConnectPageClient() {
   const inviteToOneShare = useMemo(() => buildInviteToOneShare(), []);
   const canInviteToOne = tab === "people" && inviteToOneShare !== null;
 
+  useEffect(() => {
+    if (!isMobile || pageSize === DEFAULT_PAGE_SIZE) return;
+    setPageSize(DEFAULT_PAGE_SIZE);
+  }, [isMobile, pageSize]);
+
+  const handlePageSizeChange = useCallback((value: string) => {
+    const nextPageSize = Number(value);
+    if (
+      !PAGE_SIZE_OPTIONS.includes(
+        nextPageSize as (typeof PAGE_SIZE_OPTIONS)[number],
+      )
+    ) {
+      return;
+    }
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  }, []);
+
+  const directoryRangeLabel = useMemo(() => {
+    if (directoryTotalCount <= 0) return "0 of 0";
+    const rangeStart = Math.min(
+      (directoryPage - 1) * pageSize + 1,
+      directoryTotalCount,
+    );
+    const visibleCount = Math.max(people.length, 1);
+    const rangeEnd = Math.min(
+      rangeStart + visibleCount - 1,
+      directoryTotalCount,
+    );
+    return `${rangeStart}\u2013${rangeEnd} of ${directoryTotalCount}`;
+  }, [directoryPage, directoryTotalCount, pageSize, people.length]);
+  const isDirectoryRefreshing = loading && people.length > 0;
+
   // A share sheet is modal but not instant: on iOS it animates in, and the
   // promise does not settle until it is dismissed. Two taps in that window
   // asked the platform to present a second sheet over the first, which iOS
@@ -1041,6 +1081,14 @@ export default function ConnectPageClient() {
           // an endless scroll with no sense of position in it.
           setPeople(page.items);
           setHasMore(page.hasMore);
+          setDirectoryPage(page.page);
+          setDirectoryTotalCount(
+            Math.max(
+              0,
+              Number(page.totalCount) || 0,
+              (page.page - 1) * pageSize + page.items.length,
+            ),
+          );
           // Selections deliberately survive this. They used to be pruned to
           // whoever the new page happened to show, on the reasoning that a
           // count the reader cannot see is a promise the surface can't account
@@ -1078,6 +1126,15 @@ export default function ConnectPageClient() {
     // refused. Bumping the nonce re-asks the server for the same page.
     directoryRefreshNonce,
   ]);
+
+  useEffect(() => {
+    if (previousDirectoryPageRef.current === directoryPage) return;
+    previousDirectoryPageRef.current = directoryPage;
+    directoryListTopRef.current?.scrollIntoView({
+      block: "start",
+      behavior: "smooth",
+    });
+  }, [directoryPage]);
 
   const selectSurface = useCallback(
     (next: ConnectSurface) => {
@@ -2293,7 +2350,7 @@ export default function ConnectPageClient() {
       }}
     >
       <AppPageHeaderRegion className="mx-auto w-full max-w-[720px]">
-        <PageHeader title="Connect" icon={BookUser} accent="neutral" />
+        <PageHeader title="Connect" />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="mx-auto w-full max-w-[720px]">
@@ -2540,7 +2597,7 @@ export default function ConnectPageClient() {
                       </div>
                     ) : null}
 
-                    <div className="space-y-4">
+                    <div ref={directoryListTopRef} className="space-y-4">
                       <SettingsGroup
                         title={CONNECT_TAB_LABEL[tab]}
                         // People only. This one JSX node also renders the RIAs
@@ -2602,7 +2659,7 @@ export default function ConnectPageClient() {
                         // screen had said what it searched. It still pins under the
                         // tab strips on scroll; it just no longer arrives first.
                         toolbar={
-                        /* No `w-full` here any more, and it is load-bearing: this row
+                          /* No `w-full` here any more, and it is load-bearing: this row
                     bleeds to the page gutters with a negative inline margin, and
                     `width: 100%` resolves against the text column, so the margin
                     only slid the row 16px left instead of widening it. A block
@@ -2610,115 +2667,115 @@ export default function ConnectPageClient() {
                     `auto` the margins can do their job. `cn` is tailwind-merge, so
                     a later `w-full` would have beaten anything the constant said.
                     Held by e2e/connect-sticky-header.layout.spec.ts. */
-                        <div
-                          data-testid="connect-search-row"
-                          className={cn(
-                            CONNECT_STICKY_SEARCH_CLASSNAME,
-                            "flex items-center gap-2",
-                          )}
-                        >
-                          <div className="relative flex-1">
-                            <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
-                              <SearchIcon className="h-4.5 w-4.5" />
-                            </span>
-                            <Input
-                              ref={searchInputRef}
-                              type="text"
-                              value={query}
-                              onChange={(event) => setQuery(event.target.value)}
-                              placeholder={CONNECT_SEARCH_PLACEHOLDER}
-                              aria-label="Search people"
-                              data-voice-control-id="one-connect-search"
-                              className={cn(
-                                CONNECT_SEARCH_INPUT_CLASSNAME,
-                                query
-                                  ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
-                                  : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
-                              )}
-                              enterKeyHint="search"
-                              onKeyDown={(event) => {
-                                // iOS soft-keyboard "return" must dismiss the keyboard;
-                                // blurring the field is what actually closes it in the
-                                // Capacitor webview (there is no form submit here).
-                                if (event.key === "Enter") {
-                                  event.preventDefault();
-                                  event.currentTarget.blur();
-                                }
-                              }}
-                              onFocus={(event) => {
-                                // Keyboard-dismiss "on drag": the first scroll/drag while
-                                // the field is focused blurs it, so an open keyboard never
-                                // locks the results out of view. Scoped to this field's
-                                // focus lifecycle and cleaned up on blur.
-                                const field = event.currentTarget;
-                                // Scroll the field into view above the on-screen keyboard.
-                                // Tapping it otherwise leaves it hidden behind the keyboard
-                                // until the user manually scrolls up. The delay lets the
-                                // keyboard animate in so the shrunken viewport is measured.
-                                window.setTimeout(() => {
-                                  field.scrollIntoView({
-                                    block: "center",
-                                    behavior: "smooth",
-                                  });
-                                }, 300);
-                                const dismiss = () => field.blur();
-                                window.addEventListener("touchmove", dismiss, {
-                                  passive: true,
-                                  once: true,
-                                });
-                                field.addEventListener(
-                                  "blur",
-                                  () =>
-                                    window.removeEventListener(
-                                      "touchmove",
-                                      dismiss,
-                                    ),
-                                  { once: true },
-                                );
-                              }}
-                            />
-                            {query ? (
-                              <button
-                                type="button"
-                                aria-label="Clear search"
-                                onClick={() => {
-                                  setQuery("");
-                                  searchInputRef.current?.focus();
-                                }}
-                                className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
-                              >
-                                <X className="h-5 w-5" strokeWidth={2.4} />
-                              </button>
-                            ) : null}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fill"
-                            size="sm"
-                            className={CONNECT_SELECT_TOGGLE_CLASSNAME}
-                            disabled={loading || people.length === 0}
-                            aria-label={
-                              isSelectionMode
-                                ? "Cancel selecting people"
-                                : "Select many people"
-                            }
-                            onClick={() => {
-                              setIsSelectionMode((current) => !current);
-                              setSelectedPeople(new Map());
-                              setShowLimitBanner(false);
-                            }}
+                          <div
+                            data-testid="connect-search-row"
+                            className={cn(
+                              CONNECT_STICKY_SEARCH_CLASSNAME,
+                              "flex items-center gap-2",
+                            )}
                           >
-                            {/* "Select many", not "Select": this enters multi-select,
+                            <div className="relative flex-1">
+                              <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                                <SearchIcon className="h-4.5 w-4.5" />
+                              </span>
+                              <Input
+                                ref={searchInputRef}
+                                type="text"
+                                value={query}
+                              onChange={(event) => setQuery(event.target.value)}
+                                placeholder={CONNECT_SEARCH_PLACEHOLDER}
+                                aria-label="Search people"
+                                data-voice-control-id="one-connect-search"
+                                className={cn(
+                                  CONNECT_SEARCH_INPUT_CLASSNAME,
+                                  query
+                                    ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
+                                    : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+                                )}
+                                enterKeyHint="search"
+                                onKeyDown={(event) => {
+                                  // iOS soft-keyboard "return" must dismiss the keyboard;
+                                  // blurring the field is what actually closes it in the
+                                  // Capacitor webview (there is no form submit here).
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    event.currentTarget.blur();
+                                  }
+                                }}
+                                onFocus={(event) => {
+                                  // Keyboard-dismiss "on drag": the first scroll/drag while
+                                  // the field is focused blurs it, so an open keyboard never
+                                  // locks the results out of view. Scoped to this field's
+                                  // focus lifecycle and cleaned up on blur.
+                                  const field = event.currentTarget;
+                                  // Scroll the field into view above the on-screen keyboard.
+                                  // Tapping it otherwise leaves it hidden behind the keyboard
+                                  // until the user manually scrolls up. The delay lets the
+                                  // keyboard animate in so the shrunken viewport is measured.
+                                  window.setTimeout(() => {
+                                    field.scrollIntoView({
+                                      block: "center",
+                                      behavior: "smooth",
+                                    });
+                                  }, 300);
+                                  const dismiss = () => field.blur();
+                                window.addEventListener("touchmove", dismiss, {
+                                      passive: true,
+                                      once: true,
+                                });
+                                  field.addEventListener(
+                                    "blur",
+                                    () =>
+                                      window.removeEventListener(
+                                        "touchmove",
+                                        dismiss,
+                                      ),
+                                    { once: true },
+                                  );
+                                }}
+                              />
+                              {query ? (
+                                <button
+                                  type="button"
+                                  aria-label="Clear search"
+                                  onClick={() => {
+                                    setQuery("");
+                                    searchInputRef.current?.focus();
+                                  }}
+                                  className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
+                                >
+                                  <X className="h-5 w-5" strokeWidth={2.4} />
+                                </button>
+                              ) : null}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fill"
+                              size="sm"
+                              className={CONNECT_SELECT_TOGGLE_CLASSNAME}
+                              disabled={loading || people.length === 0}
+                              aria-label={
+                                isSelectionMode
+                                  ? "Cancel selecting people"
+                                  : "Select many people"
+                              }
+                              onClick={() => {
+                                setIsSelectionMode((current) => !current);
+                                setSelectedPeople(new Map());
+                                setShowLimitBanner(false);
+                              }}
+                            >
+                              {/* "Select many", not "Select": this enters multi-select,
                         and a lone "Select" reads as picking the one thing you are
                         looking at. The visible label and the accessible name now
                         say the same thing. */}
-                            {isSelectionMode ? "Cancel" : "Select many"}
-                          </Button>
-                        </div>
+                              {isSelectionMode ? "Cancel" : "Select many"}
+                            </Button>
+                          </div>
                         }
                       >
-                        {loading ? (
+                        {loading && people.length === 0 ? (
                           <SettingsRow
                             title="Finding people…"
                             density="compact"
@@ -2968,67 +3025,63 @@ export default function ConnectPageClient() {
                           })
                         )}
                         {people.length > 0 || currentPage > 1 ? (
-                          /* One row, not two stacked fragments. "Page 1", a
-                             dot, "Per page", a select, and then Prev/Next
-                             dropped onto a second line read as four unrelated
-                             things scattered at the bottom of the card. The
-                             control and the buttons that use it now share a
-                             line -- how much you are reading at on the left,
-                             the way through the list on the right -- and the
-                             page number drops under the control as the quiet
-                             status it is, rather than leading a row it does
-                             not act on. */
                           <div
                             className={CONNECT_PAGER_ROW_CLASSNAME}
                             data-testid="connect-pager-row"
                           >
-                            <div className="flex min-w-0 flex-col items-start gap-0.5">
-                              <div className="flex items-center gap-2">
-                                <span className="ui-text-helper-text whitespace-nowrap text-[color:var(--app-secondary-label)]">
-                                  Per page
-                                </span>
-                                <Select
-                                  value={String(pageSize)}
-                                  onValueChange={(value) =>
-                                    setPageSize(Number(value))
-                                  }
-                                >
-                                  <SelectTrigger
-                                    size="sm"
-                                    aria-label="People per page"
-                                    className={CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME}
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {PAGE_SIZE_OPTIONS.map((size) => (
-                                      <SelectItem
-                                        key={size}
-                                        value={String(size)}
-                                      >
-                                        {size}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              {/* Status, not a control: it sits under the thing
-                                  it describes, one step down in size and
-                                  colour, so the row above stays the only line
-                                  with anything to press. */}
-                              <span className={CONNECT_PAGE_STATUS_CLASSNAME}>
-                                Page {currentPage}
-                              </span>
-                            </div>
-                            <div
-                              className="flex shrink-0 items-center justify-end gap-2"
+                            <span
+                              className={cn(
+                                CONNECT_PAGE_STATUS_CLASSNAME,
+                                "inline-flex items-center gap-2",
+                              )}
                               aria-live="polite"
                             >
+                              {directoryRangeLabel}
+                              {isDirectoryRefreshing ? (
+                                <Loader2
+                                  className="h-3.5 w-3.5 animate-spin"
+                                  aria-label="Loading people"
+                                />
+                              ) : null}
+                            </span>
+                            <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
+                              {directoryTotalCount > DEFAULT_PAGE_SIZE ||
+                              pageSize !== DEFAULT_PAGE_SIZE ? (
+                                <div className="hidden items-center sm:flex">
+                                  <Select
+                                    value={String(pageSize)}
+                                    onValueChange={handlePageSizeChange}
+                                  >
+                                    <SelectTrigger
+                                      size="sm"
+                                      aria-label="People per page"
+                                      className={
+                                        CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME
+                                      }
+                                    >
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {PAGE_SIZE_OPTIONS.map((size) => (
+                                        <SelectItem
+                                          key={size}
+                                          value={String(size)}
+                                        >
+                                          {size} per page
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              ) : null}
                               <Button
                                 type="button"
                                 variant="none"
-                                effect="fill"
+                                effect="fade"
                                 size="sm"
+                                showRipple={false}
+                                aria-label="Previous page"
+                                title="Previous page"
                                 className={cn(
                                   CONNECT_PAGER_BUTTON_CLASSNAME,
                                   CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
@@ -3036,13 +3089,19 @@ export default function ConnectPageClient() {
                                 disabled={loading || currentPage <= 1}
                                 onClick={() => goToPage(currentPage - 1)}
                               >
-                                Prev
+                                <ChevronLeft
+                                  className="h-5 w-5"
+                                  aria-hidden="true"
+                                />
                               </Button>
                               <Button
                                 type="button"
                                 variant="none"
-                                effect="fill"
+                                effect="fade"
                                 size="sm"
+                                showRipple={false}
+                                aria-label="Next page"
+                                title="Next page"
                                 className={cn(
                                   CONNECT_PAGER_BUTTON_CLASSNAME,
                                   CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
@@ -3050,7 +3109,10 @@ export default function ConnectPageClient() {
                                 disabled={loading || !hasMore}
                                 onClick={() => goToPage(currentPage + 1)}
                               >
-                                Next
+                                <ChevronRight
+                                  className="h-5 w-5"
+                                  aria-hidden="true"
+                                />
                               </Button>
                             </div>
                           </div>
