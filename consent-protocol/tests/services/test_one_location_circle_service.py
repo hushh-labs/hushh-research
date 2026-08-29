@@ -3502,7 +3502,7 @@ def test_one_person_who_left_recently_does_not_block_the_rest_of_the_batch():
     # roster first becomes observable.
     connection_params = [
         params
-        for sql, params in zip(conn.sql, conn.params)
+        for sql, params in zip(conn.sql, conn.params, strict=True)
         if "FROM one_location_connections" in sql or "connection.id AS connection_id" in sql
     ]
     assert connection_params, "expected the connection lookup to run"
