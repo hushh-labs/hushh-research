@@ -48,6 +48,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
 import {
   EmptyState,
@@ -486,7 +487,7 @@ export function CirclesSection({
                     className={cn(
                       "flex h-9 w-9 shrink-0 items-center justify-center",
                       isSmsCircle
-                        ? "rounded-full bg-[#FF3B30] text-[11px] font-bold leading-none tracking-[-0.2px] text-white"
+                        ? "rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
                         : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
                     )}
                     data-testid={
@@ -496,7 +497,7 @@ export function CirclesSection({
                     }
                   >
                     {isSmsCircle ? (
-                      "SMS"
+                      <SmsTextIcon className="text-[11px] font-bold tracking-[-0.2px]" />
                     ) : showInitials ? (
                       initials
                     ) : (
