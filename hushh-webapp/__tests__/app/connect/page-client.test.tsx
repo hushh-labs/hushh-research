@@ -707,6 +707,53 @@ describe("Connect — People", () => {
     expect(await screen.findByText("21–40 of 100")).toBeTruthy();
   });
 
+  it("keeps the visible directory stable while the next page loads", async () => {
+    const pageTwo = deferred<{
+      items: ReturnType<typeof person>[];
+      hasMore: boolean;
+      page: number;
+      totalCount: number;
+    }>();
+    mocks.searchDirectory.mockImplementation(async (options) => {
+      const page = Math.max(1, Number(options.page) || 1);
+      const limit = Math.max(1, Number(options.limit) || 20);
+      if (page === 2) return pageTwo.promise;
+      const start = (page - 1) * limit;
+      return {
+        items: EVERYONE.slice(start, start + limit),
+        hasMore: start + limit < EVERYONE.length,
+        page,
+        totalCount: EVERYONE.length,
+      };
+    });
+
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("Person 0")).toBeTruthy();
+    expect(await screen.findByText("1–20 of 100")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Next page"));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Loading people")).toBeTruthy(),
+    );
+    expect(screen.getByText("Person 0")).toBeTruthy();
+    expect(screen.queryByText("Finding people…")).toBeNull();
+    expect(screen.getByLabelText("Next page")).toBeDisabled();
+
+    await act(async () => {
+      pageTwo.resolve({
+        items: EVERYONE.slice(20, 40),
+        hasMore: true,
+        page: 2,
+        totalCount: EVERYONE.length,
+      });
+    });
+
+    expect(await screen.findByText("Person 20")).toBeTruthy();
+    expect(screen.queryByText("Person 0")).toBeNull();
+    expect(screen.queryByLabelText("Loading people")).toBeNull();
+  });
+
   it("opens the full directory once a name is typed", async () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));

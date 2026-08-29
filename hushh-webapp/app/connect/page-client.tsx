@@ -1013,6 +1013,7 @@ export default function ConnectPageClient() {
     );
     return `${rangeStart}\u2013${rangeEnd} of ${directoryTotalCount}`;
   }, [directoryPage, directoryTotalCount, pageSize, people.length]);
+  const isDirectoryRefreshing = loading && people.length > 0;
 
   // A share sheet is modal but not instant: on iOS it animates in, and the
   // promise does not settle until it is dismissed. Two taps in that window
@@ -3029,10 +3030,19 @@ export default function ConnectPageClient() {
                             data-testid="connect-pager-row"
                           >
                             <span
-                              className={CONNECT_PAGE_STATUS_CLASSNAME}
+                              className={cn(
+                                CONNECT_PAGE_STATUS_CLASSNAME,
+                                "inline-flex items-center gap-2",
+                              )}
                               aria-live="polite"
                             >
                               {directoryRangeLabel}
+                              {isDirectoryRefreshing ? (
+                                <Loader2
+                                  className="h-3.5 w-3.5 animate-spin"
+                                  aria-label="Loading people"
+                                />
+                              ) : null}
                             </span>
                             <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
                               {directoryTotalCount > DEFAULT_PAGE_SIZE ||
