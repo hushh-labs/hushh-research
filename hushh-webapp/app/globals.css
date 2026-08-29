@@ -1040,7 +1040,8 @@ textarea {
   );
   --app-segmented-active-surface: #ffffff;
   --app-segmented-active-foreground: #000000;
-  --app-segmented-active-border: #000000;
+  --app-segmented-active-border: rgba(60, 60, 67, 0.08);
+  --app-segmented-active-shadow: 0 1px 2px rgba(60, 60, 67, 0.08);
   --app-shell-surface-bg: var(--app-glass-surface);
   --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.9);
   --app-shell-surface-border: var(--app-glass-border);
@@ -3711,7 +3712,8 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
   --app-card-shadow-feature: none;
   --app-segmented-active-surface: var(--app-neutral-fill-strong);
   --app-segmented-active-foreground: #ffffff;
-  --app-segmented-active-border: #ffffff;
+  --app-segmented-active-border: rgba(235, 235, 245, 0.1);
+  --app-segmented-active-shadow: none;
   --app-shell-surface-bg: var(--app-glass-surface);
   --app-shell-surface-bg-hover: rgba(48, 48, 52, 0.96);
   --app-shell-surface-border: rgba(255, 255, 255, 0.08);

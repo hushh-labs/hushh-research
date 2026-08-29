@@ -40,6 +40,7 @@ import {
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import { resolveEffectiveDisabledDomains } from "@/lib/agent/voice-engine-domains";
 import {
   readVoicePreferences,
   subscribeVoicePreferences,
@@ -424,7 +425,11 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         voiceSettings: {
           voiceEnabled: voicePreferences.voiceEnabled,
           requireTapConfirmation: voicePreferences.requireTapConfirmation,
-          disabledDomains: voicePreferences.disabledDomains,
+          // Unenforced domains have no switch, so a key left over from when
+          // they did must not keep restricting voice with no way to undo it.
+          disabledDomains: resolveEffectiveDisabledDomains(
+            voicePreferences.disabledDomains,
+          ),
         },
         onboarding: {
           phase: (path === ROUTES.GETTING_STARTED || path === ROUTES.LOGIN || path === ROUTES.PHONE_MANDATE || path.startsWith(ROUTES.ONE_SETUP))

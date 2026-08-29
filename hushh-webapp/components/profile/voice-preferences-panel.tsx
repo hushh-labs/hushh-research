@@ -380,10 +380,31 @@ export function VoicePreferencesPanel({
           stackTrailingOnMobile
         />
       </SettingsGroup>
-      <SettingsGroup title="Safety" description="For actions that already ask to confirm.">
+      {/*
+        The old copy here read "For actions that already ask to confirm" /
+        "Stops a spoken yes or no from confirming." Both were wrong, and
+        together they made a working control look broken.
+
+        Nothing "already asks". Voice deliberately does not confirm by
+        default -- `_directive_flags` in action_tools.py raises a card only
+        for `trusted_activation_required` (4 actions of 198) unless this
+        setting is on. So the group described a set that is empty in
+        practice, and the row promised to stop a spoken yes that was never
+        being asked for in the first place.
+
+        Turn this on and 35 `confirm_required` actions start asking, and
+        only a tap settles them. Both halves matter: the asking is new, not
+        just the tap. Somebody who reads the old copy tries it on an
+        ordinary action, sees no card, and concludes the switch does
+        nothing.
+      */}
+      <SettingsGroup
+        title="Safety"
+        description="For actions that share or change something."
+      >
         <SettingsRow
           title="Require a tap to confirm"
-          description="Stops a spoken yes or no from confirming."
+          description="They ask first, and a spoken yes won't do."
           disabled={!state.voiceEnabled}
           trailing={
             <Switch
