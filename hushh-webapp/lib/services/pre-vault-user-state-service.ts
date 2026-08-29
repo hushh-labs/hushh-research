@@ -27,7 +27,21 @@ export type OneRuntimeSetupChoice =
 
 export type PreVaultUserState = {
   userId: string;
-  hasVault: boolean;
+  /**
+   * Whether this account owns a lock. `null` means the record carried no
+   * answer — not that the answer is no.
+   *
+   * It has to be nullable because this record is not always read from the
+   * backend. `primeSetupResolved` builds one locally when the cache is cold,
+   * and that payload says nothing about locks. While this was a plain
+   * `boolean`, `normalizeResponse` turned "said nothing" into a confident
+   * `false`, `readBootstrapVaultCheck` served that as the answer, and
+   * `VaultService.checkVault` pinned it into a 30-minute session hint —
+   * so finishing setup could persist "this person has no lock" moments after
+   * they made one. Every downstream reader already handles `null` by asking
+   * again; the type was the only thing stopping it.
+   */
+  hasVault: boolean | null;
   vaultStatus: VaultStatus;
   firstLoginAt: number | null;
   lastLoginAt: number | null;
@@ -130,6 +144,32 @@ function toNullableBool(value: unknown): boolean | null {
   return null;
 }
 
+/**
+ * Whether the payload actually reported lock ownership, and what it said.
+ *
+ * Three cases, and only the third is new:
+ *
+ *  - the payload states `hasVault` — believe it. The backend consulted the
+ *    wrapper rows to answer (`check_vault_exists`), so it is better informed
+ *    than the status string, and an explicit `false` beside an "active" status
+ *    means a header row with no usable unlock method. ORing the two, as this
+ *    used to, threw that answer away.
+ *  - the payload states only a status — derive from it, as before.
+ *  - the payload states neither — the record is a locally built one that knows
+ *    nothing about locks. Return `null` so the readers ask, instead of
+ *    inventing a "no".
+ */
+function resolveReportedHasVault(
+  payload: BootstrapStateResponse,
+): boolean | null {
+  const reported = toNullableBool(payload.hasVault);
+  if (reported !== null) return reported;
+  const status =
+    typeof payload.vaultStatus === "string" ? payload.vaultStatus.trim() : "";
+  if (!status) return null;
+  return status === "active";
+}
+
 function normalizeResponse(
   userId: string,
   payload: BootstrapStateResponse,
@@ -137,7 +177,7 @@ function normalizeResponse(
   const status = (payload.vaultStatus || "placeholder") as VaultStatus;
   return {
     userId: String(payload.userId || userId),
-    hasVault: Boolean(payload.hasVault) || status === "active",
+    hasVault: resolveReportedHasVault(payload),
     vaultStatus: status,
     firstLoginAt: toMillis(payload.firstLoginAt),
     lastLoginAt: toMillis(payload.lastLoginAt),
