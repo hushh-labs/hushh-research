@@ -95,6 +95,14 @@ function result(overrides: Record<string, unknown> = {}) {
 
 const getIdToken = async () => "id-token";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.locationState = {
@@ -289,6 +297,37 @@ describe("InsuranceAgentsNearby", () => {
     fireEvent.click(screen.getByText("25 mi"));
     await waitFor(() => expect(mocks.searchNearby).toHaveBeenCalledTimes(2));
     expect(mocks.searchNearby.mock.calls[1][0]).toMatchObject({ radiusMi: 25 });
+  });
+
+  it("keeps the current rows visible while a radius change refreshes", async () => {
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 47.6769, longitude: -122.206 },
+      error: null,
+    };
+    const nextSearch = deferred<ReturnType<typeof result>>();
+    mocks.searchNearby
+      .mockResolvedValueOnce(result())
+      .mockReturnValueOnce(nextSearch.promise);
+
+    render(<InsuranceAgentsNearby getIdToken={getIdToken} />);
+    await screen.findByText("B G I Agency Network Inc.");
+
+    fireEvent.click(screen.getByText("25 mi"));
+
+    expect(screen.getByText("B G I Agency Network Inc.")).toBeTruthy();
+    expect(screen.queryByTestId("insurance-agents-loading")).toBeNull();
+    expect(
+      await screen.findByTestId("insurance-agents-refreshing"),
+    ).toBeTruthy();
+
+    nextSearch.resolve(
+      result({
+        items: [{ ...AGENCY, id: "new-agency", name: "Evergreen Coverage" }],
+      }),
+    );
+    expect(await screen.findByText("Evergreen Coverage")).toBeTruthy();
   });
 
   it("filters fetched agencies locally and can clear a no-match search", async () => {
@@ -499,7 +538,7 @@ describe("InsuranceAgentsNearby", () => {
     expect(screen.getByText("B G I Agency Network Inc.")).toBeTruthy();
   });
 
-  it("drops a stale paging cursor when a fresh search fails", async () => {
+  it("keeps rows but drops a stale paging cursor when a fresh search fails", async () => {
     mocks.searchNearby.mockResolvedValueOnce(
       result({
         meta: {
@@ -528,9 +567,11 @@ describe("InsuranceAgentsNearby", () => {
     fireEvent.click(screen.getByText("25 mi"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("insurance-agents-error")).toBeTruthy(),
+      expect(screen.queryByTestId("insurance-agents-refreshing")).toBeNull(),
     );
-    // The old cursor points into a list that no longer exists.
+    expect(screen.getByText("B G I Agency Network Inc.")).toBeTruthy();
+    expect(screen.queryByTestId("insurance-agents-error")).toBeNull();
+    // The old cursor points into the previous radius result set.
     expect(screen.queryByText("Show more")).toBeNull();
   });
 

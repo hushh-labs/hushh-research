@@ -87,6 +87,14 @@ function result(overrides: Record<string, unknown> = {}) {
 
 const getIdToken = async () => "id-token";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.locationState = {
@@ -208,6 +216,35 @@ describe("AdvisorsNearby", () => {
 
     await waitFor(() => expect(mocks.searchNearby).toHaveBeenCalledTimes(2));
     expect(mocks.searchNearby.mock.calls[1][0]).toMatchObject({ radiusMi: 25 });
+  });
+
+  it("keeps the current rows visible while a radius change refreshes", async () => {
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 1, longitude: 2 },
+      error: null,
+    };
+    const nextSearch = deferred<ReturnType<typeof result>>();
+    mocks.searchNearby
+      .mockResolvedValueOnce(result())
+      .mockReturnValueOnce(nextSearch.promise);
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+    await screen.findByText("Christine Cote");
+
+    fireEvent.click(screen.getByText("25 mi"));
+
+    expect(screen.getByText("Christine Cote")).toBeTruthy();
+    expect(screen.queryByTestId("advisors-loading")).toBeNull();
+    expect(await screen.findByTestId("advisors-refreshing")).toBeTruthy();
+
+    nextSearch.resolve(
+      result({
+        items: [{ ...ADVISOR, id: "new-advisor", name: "Taylor Morgan" }],
+      }),
+    );
+    expect(await screen.findByText("Taylor Morgan")).toBeTruthy();
   });
 
   it("pages from the offset the server returned", async () => {
@@ -518,9 +555,9 @@ describe("AdvisorsNearby", () => {
     expect(screen.queryByTestId("advisors-error")).toBeNull();
   });
 
-  it("drops a stale paging cursor when a fresh search fails", async () => {
-    // Otherwise "Show more" survives the failure and pages into a list that no
-    // longer exists.
+  it("keeps rows but drops a stale paging cursor when a fresh search fails", async () => {
+    // A radius refresh should not blank the list, but "Show more" must not
+    // survive from the previous radius and page into the wrong result set.
     mocks.locationState = {
       status: "ready",
       permission: "granted",
@@ -537,7 +574,11 @@ describe("AdvisorsNearby", () => {
     mocks.searchNearby.mockRejectedValueOnce(new Error("Not available yet."));
     fireEvent.click(screen.getByText("25 mi"));
 
-    expect(await screen.findByTestId("advisors-error")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByTestId("advisors-refreshing")).toBeNull(),
+    );
+    expect(screen.getByText("Christine Cote")).toBeTruthy();
+    expect(screen.queryByTestId("advisors-error")).toBeNull();
     expect(screen.queryByText("Show more")).toBeNull();
   });
 

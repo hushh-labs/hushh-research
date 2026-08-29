@@ -55,8 +55,8 @@ export function FilterChip({
         "type-footnote transition-[background-color,border-color,color] duration-200",
         "disabled:cursor-not-allowed disabled:opacity-60",
         active
-          ? "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-fg)]"
-          : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground",
+          ? "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
+          : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-[color:var(--app-primary-label)] hover:bg-foreground/[0.035]",
         className,
       )}
     >
