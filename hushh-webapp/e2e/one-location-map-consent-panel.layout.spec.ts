@@ -7,6 +7,9 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
+  MAP_CONSENT_HEADING_ICON_CLASSNAME,
+  MAP_CONSENT_HEADING_ROW_CLASSNAME,
+  MAP_CONSENT_HEADING_TITLE_CLASSNAME,
   MAP_CONSENT_PANEL_BOTTOM_PADDING,
   MAP_CONSENT_PANEL_CLASSNAME,
   MAP_CONSENT_PANEL_DIALOG_MIN_WIDTH_PX,
@@ -84,10 +87,11 @@ async function buildFixture(): Promise<string> {
     MAP_SURFACE_CLASSNAME,
     MAP_RENDERER_CLASSNAME,
     MAP_CONSENT_PANEL_CLASSNAME,
+    MAP_CONSENT_HEADING_ROW_CLASSNAME,
+    MAP_CONSENT_HEADING_ICON_CLASSNAME,
+    MAP_CONSENT_HEADING_TITLE_CLASSNAME,
     buttonClasses,
-    "mt-3 text-xl font-semibold",
     "mt-2 text-sm leading-6",
-    "h-6 w-6",
   ].join(" ");
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
 
@@ -113,9 +117,9 @@ async function buildFixture(): Promise<string> {
   <section class="${MAP_CONSENT_PANEL_CLASSNAME}"
            style="padding-bottom:${MAP_CONSENT_PANEL_BOTTOM_PADDING}"
            data-testid="one-location-map-disclosure">
-    <div class="flex items-center gap-2" data-testid="map-consent-heading-row">
-      <svg class="h-6 w-6" viewBox="0 0 24 24"></svg>
-      <h1 class="text-xl font-semibold">${MAP_CONSENT_TITLE}</h1>
+    <div class="${MAP_CONSENT_HEADING_ROW_CLASSNAME}" data-testid="map-consent-heading-row">
+      <svg class="${MAP_CONSENT_HEADING_ICON_CLASSNAME}" viewBox="0 0 24 24"></svg>
+      <h1 class="${MAP_CONSENT_HEADING_TITLE_CLASSNAME}">${MAP_CONSENT_TITLE}</h1>
     </div>
     <p class="mt-2 text-sm leading-6" data-testid="map-consent-support">${MAP_CONSENT_SUPPORTING_LINE}</p>
     <button class="${buttonClasses}" data-testid="one-location-map-consent-continue">Continue</button>
