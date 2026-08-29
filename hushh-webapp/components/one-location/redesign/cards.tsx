@@ -57,6 +57,7 @@ function initialsFrom(name: string): string {
 
 export function TrustedPersonCard({
   name,
+  photoUrl,
   subtitle,
   tone = "ready",
   statusLabel,
@@ -74,6 +75,7 @@ export function TrustedPersonCard({
   expandedContent,
 }: {
   name: string;
+  photoUrl?: string | null;
   subtitle?: string;
   tone?: "ready" | "pending" | "neutral";
   statusLabel?: string;
@@ -114,7 +116,7 @@ export function TrustedPersonCard({
       )}
     >
       <div className="flex items-center gap-3">
-        <Avatar initials={initialsFrom(name)} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} />
         <div className="min-w-0 flex-1">
           <MediumRowLabel
             as="p"
@@ -192,6 +194,7 @@ export function TrustedPersonCard({
 
 export function ActiveShareCard({
   name,
+  photoUrl,
   expiryLabel,
   metaLabel,
   onStop,
@@ -200,6 +203,7 @@ export function ActiveShareCard({
   extendBusy,
 }: {
   name: string;
+  photoUrl?: string | null;
   expiryLabel: string;
   metaLabel?: string;
   onStop: () => void;
@@ -210,7 +214,7 @@ export function ActiveShareCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
       <div className="flex items-center gap-3">
-        <Avatar initials={initialsFrom(name)} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} />
         <div className="min-w-0 flex-1">
           <MediumRowLabel as="p" className="truncate">
             Sharing with {name}
@@ -260,6 +264,7 @@ export function ActiveShareCard({
 
 export function RequestCard({
   name,
+  photoUrl,
   promptLine,
   reason,
   approveLabel = "Approve",
@@ -267,6 +272,7 @@ export function RequestCard({
   onDecline,
 }: {
   name: string;
+  photoUrl?: string | null;
   promptLine: string;
   reason?: string;
   approveLabel?: string;
@@ -289,7 +295,7 @@ export function RequestCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} size={40} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
         <div className="min-w-0 flex-1">
           <MediumRowLabel as="p">
             {name}
@@ -379,6 +385,7 @@ export type GrantViewStatus = {
 
 export function SharedWithMeCard({
   name,
+  photoUrl,
   statusLine,
   onView,
   onDismiss,
@@ -399,6 +406,7 @@ export function SharedWithMeCard({
   shareLanes,
 }: {
   name: string;
+  photoUrl?: string | null;
   statusLine: ReactNode;
   onView: () => void;
   onDismiss?: () => void;
@@ -458,7 +466,7 @@ export function SharedWithMeCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 rounded-[18px] p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} size={40} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
         <div className="min-w-0 flex-1">
           <RowLabel as="p">
             {name}

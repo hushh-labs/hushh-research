@@ -64,6 +64,7 @@ export type OneLocationRecommendationReason = {
 export type OneLocationRecipient = {
   userId: string;
   displayName: string;
+  photoUrl?: string | null;
   maskedPhone?: string | null;
   phoneVerified: boolean;
   keyId?: string | null;
@@ -179,8 +180,10 @@ export type OneLocationGrant = {
   ownerUserId: string;
   recipientUserId: string;
   ownerDisplayName?: string | null;
+  ownerPhotoUrl?: string | null;
   ownerMaskedPhone?: string | null;
   recipientDisplayName?: string | null;
+  recipientPhotoUrl?: string | null;
   recipientMaskedPhone?: string | null;
   recipientKeyId: string;
   status: "active" | "expired" | "revoked" | string;
@@ -213,7 +216,11 @@ export type OneLocationAccessRequest = {
   ownerUserId: string;
   requesterUserId: string;
   requesterDisplayName?: string | null;
+  requesterPhotoUrl?: string | null;
   requesterMaskedPhone?: string | null;
+  ownerDisplayName?: string | null;
+  ownerPhotoUrl?: string | null;
+  ownerMaskedPhone?: string | null;
   referredByUserId?: string | null;
   status: "pending" | "approved" | "denied" | "cancelled" | string;
   message?: string | null;
