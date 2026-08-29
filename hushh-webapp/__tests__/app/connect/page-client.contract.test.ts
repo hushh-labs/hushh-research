@@ -21,12 +21,21 @@ describe("Connect canonical surface contract", () => {
     expect(source).toContain("<SettingsRow");
     expect(source).not.toContain("Private configuration");
     expect(source).not.toContain("icon={Sparkles}");
-    // A person is still UserRound; a verified adviser earns the verified mark
-    // and the tone this design system already spends on a verified state. The
-    // mark rides on the row rather than on the tab, so it still means something
-    // in a search that spans both halves of the directory.
-    expect(source).toContain("person.isRia ? BadgeCheck : UserRound");
-    expect(source).toContain('person.isRia ? "green" : "blue"');
+    // A person is their own face where we have one -- the directory payload
+    // has always carried `photoUrl`, and drawing everyone with the same glyph
+    // made the one screen that exists to tell people apart useless at it.
+    //
+    // The verified mark did NOT go away with the glyph. It still rides on the
+    // row rather than the tab, so it means something in a search spanning both
+    // halves of the directory -- it is now a badge ON the avatar, so the photo
+    // says who and the badge says what, instead of one replacing the other.
+    // Asserted as behaviour rather than an exact ternary so a later refactor
+    // of the avatar is not blocked by the shape of this line.
+    expect(source).toContain("<ConnectPersonAvatar");
+    expect(source).toContain("photoUrl={person.photoUrl}");
+    expect(source).toContain("verified={Boolean(person.isRia)}");
+    expect(source).toContain("BadgeCheck");
+    expect(source).toContain('aria-label="Verified advisor"');
     expect(source).toContain("separatorInset");
   });
 

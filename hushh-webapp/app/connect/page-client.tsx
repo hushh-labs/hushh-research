@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Search as SearchIcon,
   Share2,
-  UserRound,
   Users,
   X,
 } from "lucide-react";
@@ -93,6 +92,7 @@ import {
 } from "./connect-search-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type ConnectTab = "people" | "advisors" | "nearby";
 
@@ -494,6 +494,62 @@ async function resolveConnectionForVoice({
   // A name may have another duplicate beyond the bounded window. Choosing one
   // would make pagination an authority decision, so voice refuses safely.
   return { matches: [], complete: false };
+}
+
+
+/**
+ * Two-letter fallback for someone with no Google photo. Mirrors the
+ * contact-sync sheet, which already draws people this way.
+ */
+function connectAvatarInitials(label: string): string {
+  const parts = label.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  const first = parts[0] ?? "";
+  if (parts.length === 1) return (first.slice(0, 2) || "?").toUpperCase();
+  const last = parts[parts.length - 1] ?? "";
+  return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase() || "?";
+}
+
+/**
+ * A person's real Google picture where we have one, initials otherwise.
+ *
+ * Connect used to draw everyone with the same static UserRound glyph even
+ * though the directory payload has carried `photoUrl` all along -- so the
+ * one screen that exists to tell people apart made them all look alike.
+ * The RIA check stays a badge on verified advisors rather than a photo,
+ * since that mark means something the picture cannot.
+ */
+function ConnectPersonAvatar({
+  photoUrl,
+  label,
+  verified,
+}: {
+  photoUrl: string | null;
+  label: string;
+  /** A capability-bearing RIA. Kept as a mark ON the avatar, never instead
+   *  of it: the photo says who, the badge says what, and swapping one for
+   *  the other loses whichever it replaced. */
+  verified: boolean;
+}) {
+  return (
+    <Avatar className="relative h-[34px] w-[34px] shrink-0">
+      {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
+      <AvatarFallback className="text-xs">
+        {connectAvatarInitials(label)}
+      </AvatarFallback>
+      {verified ? (
+        <span
+          className="absolute -right-0.5 -bottom-0.5 z-10 inline-flex size-[15px] items-center justify-center rounded-full bg-background"
+          aria-label="Verified advisor"
+        >
+          <BadgeCheck
+            className="size-[13px] text-[color:var(--app-success,#16a34a)]"
+            aria-hidden="true"
+          />
+        </span>
+      ) : null}
+    </Avatar>
+  );
 }
 
 export default function ConnectPageClient() {
@@ -2767,8 +2823,13 @@ export default function ConnectPageClient() {
                                 // system already spends on a verified one. It is on the
                                 // row rather than on the tab so the mark still means
                                 // something in a search that spans both.
-                                icon={person.isRia ? BadgeCheck : UserRound}
-                                iconTone={person.isRia ? "green" : "blue"}
+                                leading={
+                                  <ConnectPersonAvatar
+                                    photoUrl={person.photoUrl}
+                                    label={title}
+                                    verified={Boolean(person.isRia)}
+                                  />
+                                }
                                 title={
                                   <span className="block min-w-0 truncate">
                                     {title}
@@ -3208,8 +3269,13 @@ export default function ConnectPageClient() {
                   return (
                     <SettingsRow
                       key={`batch-${person.userId}`}
-                      icon={person.isRia ? BadgeCheck : UserRound}
-                      iconTone={person.isRia ? "green" : "blue"}
+                      leading={
+                        <ConnectPersonAvatar
+                          photoUrl={person.photoUrl}
+                          label={title}
+                          verified={Boolean(person.isRia)}
+                        />
+                      }
                       title={
                         <span className="block min-w-0 truncate">{title}</span>
                       }
