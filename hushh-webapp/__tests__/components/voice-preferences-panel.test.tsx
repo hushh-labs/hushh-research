@@ -300,7 +300,7 @@ describe("VoicePreferencesPanel", () => {
     );
 
     const toggle = await screen.findByRole("switch", {
-      name: "Reuse scopes from last request",
+      name: "Reuse access from last time",
     });
     expect(toggle).not.toBeChecked();
 
@@ -332,5 +332,32 @@ describe("VoicePreferencesPanel", () => {
     expect(
       screen.getByRole("switch", { name: "Require a tap to confirm" }),
     ).toBeInTheDocument();
+  });
+
+  it("says the reuse setting asks as well as offers", async () => {
+    // The copy this replaces said only "offer the same access as last time".
+    // connect.send_request reuses offeredScopeHandles AND
+    // requestedScopeHandles, so the setting also asks for the same access
+    // again. On a consent control that half matters most -- "offer" reads as
+    // "only affects what I give away".
+    mockGetVoicePreferences.mockResolvedValue({
+      shareScopesFromLastRequest: false,
+    });
+    render(
+      <VoicePreferencesPanel
+        userId={userId}
+        getIdToken={async () => "id-token"}
+        onOpenChangelog={() => {}}
+        onOpenExamples={() => {}}
+      />,
+    );
+
+    const description = await screen.findByText(/repeat voice request/i);
+    expect(description.textContent).toMatch(/asks for and offers/i);
+    // Scoped to the one person, never extrapolated from somebody else.
+    expect(description.textContent).toMatch(/with that person/i);
+    // The recipient approving is the load-bearing reassurance; it must not be
+    // dropped in a future trim.
+    expect(description.textContent).toMatch(/still approve/i);
   });
 });
