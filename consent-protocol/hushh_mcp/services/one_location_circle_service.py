@@ -3351,9 +3351,7 @@ class OneLocationCircleService:
                     # Nobody addable. Report the reason that applies to
                     # everyone named, so a single-person add still gets
                     # the precise error it always did.
-                    if all(
-                        reason == "already_member" for reason in blocked_reasons.values()
-                    ):
+                    if all(reason == "already_member" for reason in blocked_reasons.values()):
                         raise OneLocationCircleError(
                             "LOCATION_CIRCLE_ALREADY_MEMBER",
                             "One or more selected connections are already in the Circle.",

@@ -2554,9 +2554,7 @@ class OneLocationAgentService:
             "ownerMaskedPhone": _mask_phone(row.get("owner_phone_number")),
             "recipientDisplayName": str(row.get("recipient_display_name") or "") or None,
             "recipientPhotoUrl": str(
-                row.get("recipient_custom_photo_url")
-                or row.get("recipient_photo_url")
-                or ""
+                row.get("recipient_custom_photo_url") or row.get("recipient_photo_url") or ""
             )
             or None,
             "recipientMaskedPhone": _mask_phone(row.get("recipient_phone_number")),
@@ -2655,9 +2653,7 @@ class OneLocationAgentService:
             "requesterUserId": str(row.get("requester_user_id") or ""),
             "requesterDisplayName": str(row.get("requester_display_name") or "") or None,
             "requesterPhotoUrl": str(
-                row.get("requester_custom_photo_url")
-                or row.get("requester_photo_url")
-                or ""
+                row.get("requester_custom_photo_url") or row.get("requester_photo_url") or ""
             )
             or None,
             "requesterMaskedPhone": _mask_phone(row.get("requester_phone_number")),
@@ -9417,7 +9413,7 @@ class OneLocationAgentService:
             user_id=owner_user_id,
             notification_type="location_access_request_withdrawn",
             title="Location request taken back",
-            body=f"{requester_label} took back their location request.",
+            body=f"{requester_label} took back location request.",
             notification_tag=f"one-location-request:{request_id}",
             request_url=_one_location_url(requestId=request_id, section="approvals"),
             data={

@@ -3508,6 +3508,7 @@ def test_one_person_who_left_recently_does_not_block_the_rest_of_the_batch():
     assert connection_params, "expected the connection lookup to run"
     assert connection_params[0]["invitee_user_ids"] == ["friend-two"]
 
+
 def test_an_add_naming_only_blocked_people_still_fails_loudly():
     """Filtering must not turn a doomed request into a silent success.
 
