@@ -2912,8 +2912,10 @@ export function LocationImmersiveMap({
           data-testid="one-location-map-disclosure"
           style={{ paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING }}
         >
-          <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-          <h1 className="mt-3 text-xl font-semibold">{MAP_CONSENT_TITLE}</h1>
+          <div className="flex items-center gap-2">
+            <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+            <h1 className="text-xl font-semibold">{MAP_CONSENT_TITLE}</h1>
+          </div>
           {/*
             This is the renderer-consent gate: accepting it writes
             GOOGLE_MAPS_RENDERER_CONSENT_VERSION. That record is unchanged —
