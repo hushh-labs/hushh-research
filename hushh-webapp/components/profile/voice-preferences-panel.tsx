@@ -266,9 +266,25 @@ function ConnectAgentDefaultsGroup({
       title="Connect"
       description="Defaults One uses for voice-initiated connection requests."
     >
+      {/*
+        The old copy said the setting lets a repeat request "offer the same
+        access as last time". It does more than offer: connect.send_request
+        reuses BOTH offeredScopeHandles and requestedScopeHandles, so it also
+        ASKS for the same access again. On a consent control that asymmetry is
+        the whole point -- somebody reading "offer" reasonably concludes this
+        only affects what they give away, not what they request.
+
+        "last time" was also vaguer than the behaviour. Scopes come from this
+        requester's most recent request to THIS exact person; there is
+        deliberately no wider "usual scopes" fallback, so a repeat can never
+        extrapolate from someone else and a first request is always empty.
+        That narrowness is reassuring, and the copy was hiding it.
+
+        "Scopes" is our word, not a person's. The row says access instead.
+      */}
       <SettingsRow
-        title="Reuse scopes from last request"
-        description="Let a repeat voice request offer the same access as last time. The other person still approves every request."
+        title="Reuse access from last time"
+        description="A repeat voice request asks for and offers the same access you did with that person before. They still approve every request."
         trailing={
           <Switch
             checked={shareScopes}
@@ -283,7 +299,7 @@ function ConnectAgentDefaultsGroup({
                 )
                 .catch(() => setShareScopes(!checked));
             }}
-            aria-label="Reuse scopes from last request"
+            aria-label="Reuse access from last time"
           />
         }
       />
