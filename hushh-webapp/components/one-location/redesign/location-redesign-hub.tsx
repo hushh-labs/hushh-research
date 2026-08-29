@@ -607,6 +607,8 @@ export type LocationHubViewModel = {
     showNavigation?: boolean,
     viewportResetKey?: string | number,
     staleAction?: ReactNode,
+    /** True when the caller already draws the card around the preview. */
+    nested?: boolean,
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
@@ -2551,6 +2553,9 @@ function LocationDetailFlow({
                             )}
                             Ask to refresh
                           </Button>,
+                          // SharedWithMeCard already draws and clips the card
+                          // around this preview.
+                          true,
                         )
                       : null}
                   </SharedWithMeCard>
