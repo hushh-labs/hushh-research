@@ -107,7 +107,10 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
         id === "tailwindcss"
           ? path.join(webappRoot, "node_modules/tailwindcss/index.css")
           : id === "tw-animate-css"
-            ? path.join(webappRoot, "node_modules/tw-animate-css/dist/tw-animate.css")
+            ? path.join(
+                webappRoot,
+                "node_modules/tw-animate-css/dist/tw-animate.css",
+              )
             : path.resolve(base, id);
       return {
         path: file,
@@ -271,7 +274,10 @@ test.describe("Circle name row", () => {
         ).toBeLessThanOrEqual(0.5);
 
         // Same box, same line, flush on both edges.
-        expect(Math.abs(action.top - input.top), `${state}: top`).toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs(action.top - input.top),
+          `${state}: top`,
+        ).toBeLessThanOrEqual(0.5);
         expect(
           Math.abs(action.bottom - input.bottom),
           `${state}: bottom`,
@@ -300,7 +306,9 @@ test.describe("Circle name row", () => {
     });
   }
 
-  test("the version QA photographed really was 6px too tall", async ({ page }) => {
+  test("the version QA photographed really was 6px too tall", async ({
+    page,
+  }) => {
     // Mutation check. Without this, the assertions above could be passing on a
     // rule that was never capable of failing.
     //
@@ -320,10 +328,13 @@ test.describe("Circle name row", () => {
     const input = await boxOf(page, '[data-testid="circle-name-input"]');
     const action = await boxOf(page, '[data-testid="circle-name-action"]');
 
-    expect(Math.abs(input.height - CIRCLE_NAME_ROW_HEIGHT_PX)).toBeLessThanOrEqual(0.5);
-    expect(action.height, "the shipped Save button measured 50px").toBeGreaterThan(
-      input.height + 4,
-    );
+    expect(
+      Math.abs(input.height - CIRCLE_NAME_ROW_HEIGHT_PX),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      action.height,
+      "the shipped Save button measured 50px",
+    ).toBeGreaterThan(input.height + 4);
   });
 });
 
@@ -380,7 +391,9 @@ const BEFORE = {
 const BUTTON_BASE = "inline-flex items-center justify-center whitespace-nowrap";
 
 /** The row exactly as Connect builds it: field, `gap-2`, fixed-width toggle. */
-const searchRowBody = (empty: boolean) => `<div class="flex w-full items-center gap-2">
+const searchRowBody = (
+  empty: boolean,
+) => `<div class="flex w-full items-center gap-2">
   <div class="relative flex-1">
     <input data-testid="connect-search" placeholder="${CONNECT_SEARCH_PLACEHOLDER}"
       class="${INPUT_CLASSNAME} ${CONNECT_SEARCH_INPUT_CLASSNAME} ${
@@ -437,15 +450,24 @@ test.describe("Connect search row", () => {
     test(`placeholder is fully readable at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(
-        await buildFixture("connect-search", searchRowBody(true), SEARCH_CANDIDATES),
+        await buildFixture(
+          "connect-search",
+          searchRowBody(true),
+          SEARCH_CANDIDATES,
+        ),
       );
       await fontsReady(page);
 
       // The fixture must be measuring the real 17px field type. If globals.css
       // ever stops reaching this page, every assertion below would pass against
       // a smaller fallback font and prove nothing.
-      const current = await page.evaluate(probePlaceholder, CONNECT_SEARCH_PLACEHOLDER);
-      expect(current.fontSize, "field is at the app's real input type").toBe("17px");
+      const current = await page.evaluate(
+        probePlaceholder,
+        CONNECT_SEARCH_PLACEHOLDER,
+      );
+      expect(current.fontSize, "field is at the app's real input type").toBe(
+        "17px",
+      );
 
       // Sub-pixel tolerance, matching the 0.5px this file already allows on every
       // other measured box. Text advance widths differ by a fraction between the
@@ -484,14 +506,28 @@ test.describe("Connect search row", () => {
     await page.setViewportSize({ width: 375, height: 844 });
 
     await page.goto(
-      await buildFixture("connect-search-empty", searchRowBody(true), SEARCH_CANDIDATES),
+      await buildFixture(
+        "connect-search-empty",
+        searchRowBody(true),
+        SEARCH_CANDIDATES,
+      ),
     );
-    const empty = await page.evaluate(probePlaceholder, CONNECT_SEARCH_PLACEHOLDER);
+    const empty = await page.evaluate(
+      probePlaceholder,
+      CONNECT_SEARCH_PLACEHOLDER,
+    );
 
     await page.goto(
-      await buildFixture("connect-search-typed", searchRowBody(false), SEARCH_CANDIDATES),
+      await buildFixture(
+        "connect-search-typed",
+        searchRowBody(false),
+        SEARCH_CANDIDATES,
+      ),
     );
-    const typed = await page.evaluate(probePlaceholder, CONNECT_SEARCH_PLACEHOLDER);
+    const typed = await page.evaluate(
+      probePlaceholder,
+      CONNECT_SEARCH_PLACEHOLDER,
+    );
 
     // An empty field has no clear button in it, so it should not be holding
     // 44px back from the only thing it is showing.
@@ -508,7 +544,11 @@ test.describe("Connect search row", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(
-        await buildFixture("connect-toggle", searchRowBody(true), SEARCH_CANDIDATES),
+        await buildFixture(
+          "connect-toggle",
+          searchRowBody(true),
+          SEARCH_CANDIDATES,
+        ),
       );
 
       const toggle = await boxOf(page, '[data-testid="connect-select-toggle"]');
@@ -642,13 +682,16 @@ test.describe("Connect list rows", () => {
       page,
     }) => {
       await page.setViewportSize({ width, height: 844 });
-      await page.goto(await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES));
+      await page.goto(
+        await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES),
+      );
       await awaitProductFont(page);
       await fontsReady(page);
 
-      expect(width, "this width is below sm: and therefore a phone").toBeLessThan(
-        SM_BREAKPOINT_PX,
-      );
+      expect(
+        width,
+        "this width is below sm: and therefore a phone",
+      ).toBeLessThan(SM_BREAKPOINT_PX);
 
       const stackedTitle = await boxOf(page, '[data-testid="stacked-title"]');
       const stackedAction = await boxOf(page, '[data-testid="stacked-action"]');
@@ -668,7 +711,9 @@ test.describe("Connect list rows", () => {
         "the shipped row keeps the action beside the name",
       ).toBeLessThan(inlineTitle.bottom);
       expect(inlineAction.right).toBeGreaterThan(inlineTitle.right);
-      expect(inlineAction.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX + 1);
+      expect(inlineAction.right).toBeLessThanOrEqual(
+        width - PAGE_PADDING_PX + 1,
+      );
     });
   }
 
@@ -676,7 +721,9 @@ test.describe("Connect list rows", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 375, height: 844 });
-    await page.goto(await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES));
+    await page.goto(
+      await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES),
+    );
     await awaitProductFont(page);
     await fontsReady(page);
 
@@ -696,18 +743,9 @@ test.describe("Connect list rows", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * QA, on a phone: "sarein cheezein scattered dekh rahi -- page 1 . per page,
- * prev next in next line. per page, prev next ek line mein la sakte."
- *
- * The row was `flex flex-col ... sm:flex-row`, and `sm:` is 640px, so on every
- * width the App Store actually ships to it stacked: "Page 1 - Per page [8]"
- * across the top, and a right-aligned "Prev  Next" on a second line under it.
- * Four fragments, three alignments, one card.
- *
- * Putting them back on one line is only safe if they FIT on one line at 320px,
- * which is a browser question. The JSDOM sibling proves the row still renders
- * without `flex-col`; it measures every box as 0x0 and would pass just as
- * happily on a row that overflowed the card by 40px.
+ * The Connect footer is a range reader plus previous/next controls on phones,
+ * and gains a compact page-size menu from the tablet breakpoint up. It stays
+ * inside the grouped list with one separator; it is not a second control card.
  */
 const PAGER_BEFORE_ROW_CLASSNAME =
   "flex flex-col gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between";
@@ -734,10 +772,19 @@ const PAGER_CANDIDATES = [
   "items-center",
   "justify-end",
   "gap-0.5",
+  "gap-1.5",
   "gap-2",
   "gap-2.5",
   "shrink-0",
+  "hidden",
+  "sm:flex",
   "min-h-9",
+  "min-h-14",
+  "!h-11",
+  "!min-h-11",
+  "!w-11",
+  "!min-w-11",
+  "!p-0",
   "h-1",
   "w-1",
   "rounded-full",
@@ -754,22 +801,21 @@ const PAGER_CANDIDATES = [
  * height this row has to budget for are both fixed on the trigger itself, so
  * whatever Radix renders inside it cannot change the number measured here.
  */
-const pagerBody = () => `<div data-testid="pager-row" class="${CONNECT_PAGER_ROW_CLASSNAME}">
-  <div data-testid="pager-size" class="flex min-w-0 flex-col items-start gap-0.5">
-    <div data-testid="pager-size-line" class="flex items-center gap-2">
-      <span class="ui-text-helper-text whitespace-nowrap text-[color:var(--app-secondary-label)]">Per page</span>
-      <div data-testid="pager-select" class="${CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME}">8</div>
+const pagerBody =
+  () => `<div data-testid="pager-row" class="${CONNECT_PAGER_ROW_CLASSNAME}">
+  <span data-testid="pager-status" class="${CONNECT_PAGE_STATUS_CLASSNAME}">1-20 of 100</span>
+  <div data-testid="pager-actions" class="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
+    <div data-testid="pager-size" class="hidden items-center sm:flex">
+      <div data-testid="pager-select" class="${CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME}">20 per page</div>
     </div>
-    <span data-testid="pager-status" class="${CONNECT_PAGE_STATUS_CLASSNAME}">Page 1</span>
-  </div>
-  <div data-testid="pager-actions" class="flex shrink-0 items-center justify-end gap-2">
-    <button data-testid="pager-prev" class="${pagerButtonClass()}">Prev</button>
-    <button data-testid="pager-next" class="${pagerButtonClass()}">Next</button>
+    <button data-testid="pager-prev" class="${pagerButtonClass()}">‹</button>
+    <button data-testid="pager-next" class="${pagerButtonClass()}">›</button>
   </div>
 </div>`;
 
 /** The same pager exactly as it shipped, for the mutation check. */
-const pagerBodyBefore = () => `<div data-testid="pager-row" class="${PAGER_BEFORE_ROW_CLASSNAME}">
+const pagerBodyBefore =
+  () => `<div data-testid="pager-row" class="${PAGER_BEFORE_ROW_CLASSNAME}">
   <div data-testid="pager-size" class="flex min-h-9 flex-wrap items-center gap-2.5">
     <span data-testid="pager-status" class="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">Page 1</span>
     <span class="h-1 w-1 rounded-full bg-[color:var(--app-tertiary-label)]"></span>
@@ -793,7 +839,7 @@ const fontSizeOf = (page: Page, selector: string) =>
 
 test.describe("Connect pager", () => {
   for (const width of PHONE_WIDTHS) {
-    test(`size control and Prev/Next share one line at ${width}px`, async ({
+    test(`phone footer shows range plus icon arrows at ${width}px`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 844 });
@@ -804,22 +850,21 @@ test.describe("Connect pager", () => {
       await fontsReady(page);
 
       const row = await boxOf(page, '[data-testid="pager-row"]');
-      const sizeLine = await boxOf(page, '[data-testid="pager-size-line"]');
       const actions = await boxOf(page, '[data-testid="pager-actions"]');
       const status = await boxOf(page, '[data-testid="pager-status"]');
+      const sizeDisplay = await page
+        .locator('[data-testid="pager-size"]')
+        .evaluate((node) => getComputedStyle(node).display);
 
-      // Side by side, not stacked: the buttons start after the size control
-      // ends, and the two boxes overlap vertically.
-      expect(actions.left, "buttons start after the size control").toBeGreaterThan(
-        sizeLine.right,
+      expect(sizeDisplay, "phone hides the page-size menu").toBe("none");
+      expect(actions.left, "buttons start after the range").toBeGreaterThan(
+        status.right,
       );
       expect(actions.top, "same line, not the next one").toBeLessThan(
-        sizeLine.bottom,
+        status.bottom,
       );
-      expect(sizeLine.top).toBeLessThan(actions.bottom);
+      expect(status.top).toBeLessThan(actions.bottom);
 
-      // And it fits. This is the whole reason the select and the buttons gave
-      // up padding; at 320px the old geometry would not have.
       expect(
         actions.right,
         `pager overflows at ${width}px`,
@@ -827,20 +872,46 @@ test.describe("Connect pager", () => {
       expect(row.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX + 1);
       expect(row.left).toBeGreaterThanOrEqual(PAGE_PADDING_PX - 1);
 
-      // "Page 1" reads as the status under the control, not as a fifth item
-      // competing on the line.
-      expect(status.top, "page number sits under the size control").toBeGreaterThanOrEqual(
-        sizeLine.bottom - 0.5,
-      );
-      expect(status.left).toBeLessThanOrEqual(sizeLine.left + 0.5);
-
-      const statusSize = await fontSizeOf(page, '[data-testid="pager-status"]');
-      const labelSize = await fontSizeOf(page, '[data-testid="pager-size-line"] span');
-      expect(statusSize, "status is quieter than the label above it").toBeLessThan(
-        labelSize,
-      );
+      for (const id of ["pager-prev", "pager-next"]) {
+        const button = await boxOf(page, `[data-testid="${id}"]`);
+        expect(button.width, `${id} width`).toBeGreaterThanOrEqual(43.5);
+        expect(button.height, `${id} height`).toBeGreaterThanOrEqual(43.5);
+      }
     });
   }
+
+  test("tablet footer keeps the compact page-size menu", async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 844 });
+    await page.goto(
+      await buildFixture("connect-pager-tablet", pagerBody(), PAGER_CANDIDATES),
+    );
+    await awaitProductFont(page);
+    await fontsReady(page);
+
+    const select = await boxOf(page, '[data-testid="pager-select"]');
+    const status = await boxOf(page, '[data-testid="pager-status"]');
+    expect(
+      select.left,
+      "select sits after the range on tablet",
+    ).toBeGreaterThan(status.right);
+    expect(select.width, "compact select").toBeLessThanOrEqual(132);
+  });
+
+  test("the range status stays quieter than row controls", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(
+      await buildFixture("connect-pager-status", pagerBody(), PAGER_CANDIDATES),
+    );
+    await awaitProductFont(page);
+    await fontsReady(page);
+
+    const statusSize = await fontSizeOf(page, '[data-testid="pager-status"]');
+    const buttonSize = await fontSizeOf(page, '[data-testid="pager-next"]');
+    expect(
+      statusSize,
+      "range is quieter than button chrome",
+    ).toBeLessThanOrEqual(buttonSize);
+  });
 
   test("the version QA photographed really did stack", async ({ page }) => {
     // Mutation check. `sm:` is 640px, so at 375 the shipped row was in its

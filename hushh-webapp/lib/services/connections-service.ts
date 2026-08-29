@@ -34,6 +34,7 @@ export interface DirectoryPage {
   items: DirectoryPerson[];
   page: number;
   hasMore: boolean;
+  totalCount: number;
   audience?: DirectoryAudience;
 }
 
@@ -352,7 +353,25 @@ export class ConnectionsService {
         headers: authHeaders(opts.idToken),
       },
     );
-    return jsonOrThrow<DirectoryPage>(response);
+    const payload = await jsonOrThrow<Partial<DirectoryPage>>(response);
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const page = Math.max(1, Number(payload.page) || opts.page || 1);
+    const limit = Math.max(1, Number(opts.limit) || items.length || 1);
+    const visibleUpperBound = (page - 1) * limit + items.length;
+    return {
+      items,
+      page,
+      hasMore: Boolean(payload.hasMore),
+      totalCount: Math.max(
+        0,
+        visibleUpperBound,
+        Number(payload.totalCount) || 0,
+      ),
+      audience:
+        payload.audience === "people" || payload.audience === "ria"
+          ? payload.audience
+          : opts.audience,
+    };
   }
 
   static async listConnections(opts: {
