@@ -56,10 +56,10 @@ export function SegmentedTabs({
               if (!disabled && !isActive) onValueChange(option.value);
             }}
             className={cn(
-              "press-scale relative isolate flex min-h-9 min-w-0 items-center justify-center overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-10 sm:px-4.5",
+              "relative isolate flex min-h-9 min-w-0 items-center justify-center overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-10 sm:px-4.5",
               isActive
                 ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[var(--app-segmented-active-shadow)]"
-                : "border-transparent bg-transparent text-muted-foreground hover:bg-foreground/[0.035] hover:text-[color:var(--app-primary-label)]",
+                : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-secondary-fill)] hover:text-[color:var(--app-primary-label)]",
               disabled && "cursor-not-allowed opacity-60"
             )}
           >
