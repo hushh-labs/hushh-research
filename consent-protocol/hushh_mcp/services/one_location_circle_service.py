@@ -3316,11 +3316,53 @@ class OneLocationCircleService:
                         },
                     )
                 )
-                if any(str(row.get("status") or "") == "active" for row in target_membership_rows):
+                # One ineligible person must not take the rest of the batch
+                # down with them.
+                #
+                # These two rules used to reject the whole request: pick
+                # five people, and if a single one had left the Circle
+                # recently, nobody was added and the only explanation was
+                # that "someone" you selected had left. The rules
+                # themselves are right -- an existing member should not be
+                # re-added, and leaving costs a cooldown that binds the
+                # owner too -- but they are about one person each, so they
+                # now remove that person and let the rest through.
+                #
+                # Nothing is relaxed: a blocked person is still blocked,
+                # the same transaction still covers everyone who does get
+                # added, and an add naming only blocked people still fails
+                # loudly rather than silently succeeding with nobody.
+                blocked_reasons: dict[str, str] = {}
+                for row in target_membership_rows:
+                    blocked_user_id = str(row.get("user_id") or "")
+                    if not blocked_user_id:
+                        continue
+                    if str(row.get("status") or "") == "active":
+                        blocked_reasons[blocked_user_id] = "already_member"
+                    elif bool(row.get("left_recently")):
+                        blocked_reasons[blocked_user_id] = "left_recently"
+                if blocked_reasons:
+                    cleaned_invitee_user_ids = [
+                        user_id
+                        for user_id in cleaned_invitee_user_ids
+                        if user_id not in blocked_reasons
+                    ]
+                if not cleaned_invitee_user_ids:
+                    # Nobody addable. Report the reason that applies to
+                    # everyone named, so a single-person add still gets
+                    # the precise error it always did.
+                    if all(
+                        reason == "already_member" for reason in blocked_reasons.values()
+                    ):
+                        raise OneLocationCircleError(
+                            "LOCATION_CIRCLE_ALREADY_MEMBER",
+                            "One or more selected connections are already in the Circle.",
+                            status_code=409,
+                        )
                     raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_ALREADY_MEMBER",
-                        "One or more selected connections are already in the Circle.",
-                        status_code=409,
+                        "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY",
+                        "Someone you selected recently left this Circle. Try again later.",
+                        status_code=429,
                     )
                 # Leaving is that person saying no to this Circle specifically,
                 # and it now costs a cooldown the way declining an invitation
@@ -3333,12 +3375,7 @@ class OneLocationCircleService:
                 # It binds the OWNER too. Every other rule here protects the
                 # Circle from its members; this one protects a person from the
                 # Circle, and the owner is who they are leaving.
-                if any(bool(row.get("left_recently")) for row in target_membership_rows):
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY",
-                        "Someone you selected recently left this Circle. Try again later.",
-                        status_code=429,
-                    )
+
                 connection_rows = _all(
                     conn.execute(
                         text(
@@ -3688,6 +3725,13 @@ class OneLocationCircleService:
                 "invites": [],
                 "createdInviteIds": [],
                 "addedUserIds": added_user_ids,
+                # Who was named but not added, and why. Additive: a caller
+                # that ignores this reads exactly what it read before. It
+                # exists so a partial add can SAY it was partial -- without
+                # it, dropping the blocked people would be indistinguishable
+                # from never having selected them.
+                "skippedUserIds": sorted(blocked_reasons),
+                "skippedReasons": dict(blocked_reasons),
             }
         except OneLocationCircleError:
             raise

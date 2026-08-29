@@ -93,6 +93,14 @@ const LOCATED = {
   error: null,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.locationState = {
@@ -289,6 +297,32 @@ describe("PlacesNearby", () => {
 
     await waitFor(() => expect(mocks.streamNearby).toHaveBeenCalledTimes(2));
     expect(mocks.streamNearby.mock.calls[1][0].radiusMi).toBe(15);
+  });
+
+  it("keeps current rows visible while a radius change refreshes", async () => {
+    mocks.locationState = LOCATED;
+    const secondSweep = deferred<void>();
+    mocks.streamNearby
+      .mockImplementationOnce(
+        streamOf([{ category: "hotels_stays", items: [place()] }]),
+      )
+      .mockImplementationOnce(async () => {
+        await secondSweep.promise;
+      });
+
+    render(<PlacesNearby getIdToken={getIdToken} />);
+    await screen.findByText("Hotel Vivanta");
+
+    fireEvent.click(screen.getByText("15 mi"));
+
+    expect(screen.getByText("Hotel Vivanta")).toBeTruthy();
+    expect(screen.queryByTestId("places-loading")).toBeNull();
+    expect(screen.getByTestId("places-streaming")).toBeTruthy();
+
+    secondSweep.resolve();
+    await waitFor(() =>
+      expect(screen.queryByTestId("places-streaming")).toBeNull(),
+    );
   });
 
   it("filters fetched places locally and can clear a no-match search", async () => {
