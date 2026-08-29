@@ -30,19 +30,34 @@ export function VaultStatusInline({
    */
   mode?: "informational" | "blocking";
 }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [checkFailed, setCheckFailed] = useState(false);
 
   useEffect(() => {
+    // No user is not "no lock". Firebase restores a session from disk on every
+    // load, so `user` is null for the whole of that window — and answering
+    // `false` there rendered "Lock required" at somebody who is signed in and
+    // holds a lock. Unknown stays unknown until an identity exists.
     if (!user) {
-      setHasVault(false);
+      setHasVault(null);
+      setCheckFailed(false);
       return;
     }
     let isMounted = true;
-    VaultService.checkVault(user.uid).then((exists) => {
-      if (isMounted) setHasVault(exists);
-    });
+    setCheckFailed(false);
+    VaultService.checkVault(user.uid)
+      .then((exists) => {
+        if (isMounted) setHasVault(exists);
+      })
+      .catch((error) => {
+        // A read that threw is not an answer of "no". Without this the promise
+        // rejected unhandled and `hasVault` stayed null for good, so the
+        // component sat on its unknown branch with nothing to say why.
+        console.warn("[VaultStatusInline] Could not check lock state:", error);
+        if (isMounted) setCheckFailed(true);
+      });
     return () => {
       isMounted = false;
     };
@@ -53,6 +68,8 @@ export function VaultStatusInline({
     isVaultUnlocked,
     vaultKey,
     vaultOwnerToken,
+    authLoading: authLoading || !user,
+    presenceFailed: checkFailed,
   });
 
   if (availability.canMutateSecureData) {
@@ -64,7 +81,7 @@ export function VaultStatusInline({
         )}
       >
         <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        Vault ready
+        Unlocked
       </p>
     );
   }
@@ -79,7 +96,7 @@ export function VaultStatusInline({
         )}
       >
         <Lock className="h-3.5 w-3.5 shrink-0" />
-        Vault locked, unlock to continue
+        Locked, unlock to continue
       </p>
     );
   }
@@ -94,7 +111,25 @@ export function VaultStatusInline({
         )}
       >
         <Database className="h-3.5 w-3.5 shrink-0" />
-        Vault setup required
+        Lock required
+      </p>
+    );
+  }
+
+  // A read that failed used to fall through to the spinner below and stay
+  // there. Name the fault instead: an endless "Checking…" is indistinguishable
+  // from a slow network, and the person has no way to know to try again.
+  if (availability.vaultCheckFailed) {
+    return (
+      <p
+        className={cn(
+          "type-footnote flex items-center gap-1.5 text-muted-foreground",
+          mode === "blocking" && "text-amber-700 dark:text-amber-400",
+          className,
+        )}
+      >
+        <Lock className="h-3.5 w-3.5 shrink-0" />
+        Couldn&apos;t check your lock
       </p>
     );
   }
@@ -107,7 +142,7 @@ export function VaultStatusInline({
       )}
     >
       <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-      Checking vault status…
+      Checking…
     </p>
   );
 }

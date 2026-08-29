@@ -15,7 +15,8 @@ describe("Connect canonical surface contract", () => {
     expect(source).toContain("<AppPageShell");
     expect(source).toContain('width="standard"');
     expect(source).toContain("<PageHeader");
-    expect(source).toContain("icon={BookUser}");
+    expect(source).toContain('<PageHeader title="Connect" />');
+    expect(source).not.toContain("icon={BookUser}");
     expect(source).not.toContain('eyebrow="One"');
     expect(source).not.toContain("icon={Users}\n          accent");
     expect(source).toContain("<SettingsGroup");
@@ -97,7 +98,7 @@ describe("Connect canonical surface contract", () => {
       '"[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"',
     );
     expect(source).toContain(
-      '["people", "advisors", "nearby", "circles"] as const',
+      '["people", "advisors", "circles", "nearby"] as const',
     );
   });
 

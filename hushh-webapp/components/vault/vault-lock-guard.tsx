@@ -314,8 +314,8 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       dismissible={false}
       surfaceVariant="hard_gate"
       enableGeneratedDefault={!skipGeneratedDefaultUnlock}
-      title="Unlock Vault"
-      description="Unlock your Vault to continue."
+      title="Unlock One"
+      description="Unlock to continue."
       onSuccess={() => undefined}
       // Escape hatch for the HARD gate only: a user who forgot their vault
       // password has no other way out (the focused credential surface
