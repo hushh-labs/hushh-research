@@ -1445,6 +1445,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             collapsedGrantIds={collapsedGrantIds}
             onRequestLocation={() => openFlow("ask")}
+            onStartShare={() => {
+              vm.clearNamedCircleShareContext();
+              openShareFlow();
+            }}
             onCollapseGrant={(grantId) =>
               setCollapsedGrantIds((current) => new Set(current).add(grantId))
             }
@@ -2128,6 +2132,7 @@ function LocationDetailFlow({
   focusGrantId,
   collapsedGrantIds,
   onRequestLocation,
+  onStartShare,
   onCollapseGrant,
   onExpandGrant,
 }: {
@@ -2138,6 +2143,9 @@ function LocationDetailFlow({
   focusGrantId?: string | null;
   collapsedGrantIds: Set<string>;
   onRequestLocation?: () => void;
+  /** Opens the share composer AND its flow. Seeding the composer alone
+   *  leaves the person on the same screen with nothing visibly changed. */
+  onStartShare?: () => void;
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
@@ -2368,7 +2376,11 @@ function LocationDetailFlow({
                 type="button"
                 size="sm"
                 className="rounded-full"
-                onClick={() => vm.startShareComposer()}
+                // startShareComposer alone only seeds the draft -- it never
+                // opened the flow, so this button did nothing at all.
+                onClick={() =>
+                  onStartShare ? onStartShare() : vm.startShareComposer()
+                }
               >
                 Share location
               </Button>
