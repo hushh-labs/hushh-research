@@ -32,6 +32,9 @@ import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import {
+  MAP_CONSENT_HEADING_ICON_CLASSNAME,
+  MAP_CONSENT_HEADING_ROW_CLASSNAME,
+  MAP_CONSENT_HEADING_TITLE_CLASSNAME,
   MAP_CONSENT_PANEL_BOTTOM_PADDING,
   MAP_CONSENT_PANEL_CLASSNAME,
   MAP_CONSENT_SUPPORTING_LINE,
@@ -2912,8 +2915,12 @@ export function LocationImmersiveMap({
           data-testid="one-location-map-disclosure"
           style={{ paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING }}
         >
-          <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-          <h1 className="mt-3 text-xl font-semibold">{MAP_CONSENT_TITLE}</h1>
+          <div className={MAP_CONSENT_HEADING_ROW_CLASSNAME}>
+            <MapPin className={MAP_CONSENT_HEADING_ICON_CLASSNAME} />
+            <h1 className={MAP_CONSENT_HEADING_TITLE_CLASSNAME}>
+              {MAP_CONSENT_TITLE}
+            </h1>
+          </div>
           {/*
             This is the renderer-consent gate: accepting it writes
             GOOGLE_MAPS_RENDERER_CONSENT_VERSION. That record is unchanged —
