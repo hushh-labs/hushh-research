@@ -51,19 +51,41 @@ a number with a caveat gets quoted without the caveat.
 
 | Cause | Meaning |
 | --- | --- |
-| A planted control passed | The grader is not reading. Nothing it said is worth having. |
+| A negative control passed | The grader is not reading. Nothing it said is worth having. |
+| A positive control was flagged | The grader over-flags. Its failures are noise nobody can act on. |
 | A row hash changed | The evidence was edited between issue and ingest. |
 | Rows ungraded | A partial pass would let the grader skip what it found hard. |
 
 ## The controls
 
-Four planted outputs, each breaking a rule the agent's instruction states in
-plain words. They are deliberately **structurally valid** — a control the cheap
-benchmark would catch proves nothing about the judge.
+**Negative controls** — four planted outputs, each breaking a rule the agent's
+instruction states in plain words. Deliberately **structurally valid**: a control
+the cheap benchmark would catch proves nothing about the judge. Passing one
+voids the run.
 
-They are shuffled by a seeded permutation, differ in position per run, carry no
-marking, and their answers live only in `run-manifest.json`, which the grader
-must not open.
+**Positive controls** — two known-good outputs the judge must *not* flag.
+Without them the design has no false-positive rate at all: negative controls
+catch a rubber-stamper and nothing else, so a judge told to hunt for planted
+failures could flag every correct row, sail through, and have its noise read as
+diligence. Flagging one voids the run.
+
+They are deliberately plain. A positive control a careful judge could reasonably
+fault would punish good judgement, which is the opposite of the point.
+
+All controls are shuffled by a seeded permutation, differ in position per run,
+carry no marking, and their answers live only in `run-manifest.json`, which the
+grader must not open.
+
+## Citing an omission
+
+A citation is checked against the output **or the utterance**. Output-only would
+be a bug that silently penalises correct judgement: an omission failure — the
+model dropped a fact the owner stated — has nothing to quote in the output by
+definition, since the complaint is that it is absent.
+
+Forcing those to `unsure`, which counts against accuracy, would train a judge
+away from reporting the one failure class that loses the owner's data. So an
+omission cites the utterance span that went unrecorded.
 
 ## What cannot be enforced
 
