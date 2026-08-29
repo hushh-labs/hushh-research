@@ -227,7 +227,7 @@ const CONNECT_HUB_TAB_LABEL: Record<ConnectHubTab, string> = {
 };
 
 const CONNECT_HUB_TABS = (
-  ["people", "advisors", "nearby", "circles"] as const
+  ["people", "advisors", "circles", "nearby"] as const
 ).map((value) => ({ value, label: CONNECT_HUB_TAB_LABEL[value] }));
 
 /**
@@ -2293,7 +2293,7 @@ export default function ConnectPageClient() {
       }}
     >
       <AppPageHeaderRegion className="mx-auto w-full max-w-[720px]">
-        <PageHeader title="Connect" icon={BookUser} accent="neutral" />
+        <PageHeader title="Connect" />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="mx-auto w-full max-w-[720px]">
