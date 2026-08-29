@@ -118,6 +118,7 @@ async def _host_is_gone(row: dict) -> bool:
             hushh_id=str((row or {}).get("hushh_id") or ""),
             phone_e164_hash="",
             pod_pubkey="",
+            space_id=(row or {}).get("space_id"),
             deployment_target=(row or {}).get("deployment_target"),
             user_cloud_project=(row or {}).get("user_cloud_project"),
             user_cloud_region=(row or {}).get("user_cloud_region"),

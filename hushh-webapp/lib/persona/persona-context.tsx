@@ -12,6 +12,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -29,7 +30,7 @@ import {
   type PersonaState,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import { isOneSetupSurfaceRoute, ROUTES } from "@/lib/navigation/routes";
 
 export type RiaCapability = "disabled" | "setup" | "switch";
 
@@ -227,7 +228,21 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     [authLoading, isAuthenticated, user],
   );
 
+  const chromeSuppressed = useSessionChromeSuppressed();
+
   useEffect(() => {
+    // NOTHING ON A SETUP SURFACE READS A PERSONA. `/api/iam/persona` fired on a
+    // brand-new person's first paint anyway, spending one of four pool
+    // connections while the setup gate waited on the ones it actually needs.
+    // `shouldLoadRiaOnboardingStatus` already declines on these routes; this is
+    // the same judgement applied to the call that precedes it.
+    //
+    // The suppression clause is the load-bearing half: across the post-login
+    // redirect the app renders the setup hub while `pathname` still says
+    // `/login`, so a route check is blind for exactly the window that matters.
+    if (isOneSetupSurfaceRoute(pathname) || chromeSuppressed) {
+      return undefined;
+    }
     if (isGmailRoute(pathname)) {
       return scheduleWhenIdle(() => {
         void refresh();
@@ -235,7 +250,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     }
     void refresh();
     return undefined;
-  }, [pathname, refresh]);
+  }, [pathname, refresh, chromeSuppressed]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;

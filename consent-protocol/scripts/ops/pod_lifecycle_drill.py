@@ -429,11 +429,18 @@ class GcpFleet:
         # derived identifiers the same way provisioning does. Kept behind the live
         # path so the dry-run never imports the backend.
         from hushh_mcp.services.compute_backend import PodSpec  # noqa: PLC0415
+        from hushh_mcp.services.personal_agent_identity_service import (  # noqa: PLC0415
+            mint_space_id,
+        )
 
         return PodSpec(
             hushh_id=hushh_id,
             phone_e164_hash=f"drill-{hushh_id}",
             pod_pubkey="",
+            # A drill pod bills like any other pod. Leaving this unset would make
+            # the drill's own spend the one slice of the fleet nobody can account
+            # for, which is exactly what a cost-attribution guard exists to stop.
+            space_id=mint_space_id(hushh_id),
         )
 
     async def provision(self, hushh_id: str) -> str:

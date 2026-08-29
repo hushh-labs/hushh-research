@@ -16,8 +16,11 @@ import { FeedService } from "@/lib/services/feed-service";
  * unknown, never as zero: zero is a meaningful statement that Feed has no
  * unread items.
  */
-export function useFeedUnreadCount(): number | null {
+export function useFeedUnreadCount(options?: { enabled?: boolean }): number | null {
   const { user } = useAuth();
+  // Same reason as the consent badge: a hidden badge that still fetches spends a
+  // connection from a pool of four while a first-run person waits on the gate.
+  const enabled = options?.enabled ?? true;
   const [count, setCount] = useState<number | null>(null);
   const cancelledRef = useRef(false);
 
@@ -42,7 +45,7 @@ export function useFeedUnreadCount(): number | null {
 
   useEffect(() => {
     cancelledRef.current = false;
-    if (!user?.uid) {
+    if (!user?.uid || !enabled) {
       setCount(null);
       return;
     }
@@ -50,14 +53,14 @@ export function useFeedUnreadCount(): number | null {
     return () => {
       cancelledRef.current = true;
     };
-  }, [user, load]);
+  }, [user, load, enabled]);
 
   // Shares the Feed's live signal rather than keeping a private timer, so the
   // badge and the Feed list re-check on the same tick and cannot drift into
   // saying different things about the same unread rows.
   useFeedLiveRefresh(
     useCallback(() => void load(true), [load]),
-    Boolean(user?.uid),
+    Boolean(user?.uid) && enabled,
   );
 
   // The badge additionally recounts on a read-only change — that shared signal

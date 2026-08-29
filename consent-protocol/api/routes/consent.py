@@ -1974,6 +1974,45 @@ async def fail_export_refresh(
     return {"success": True}
 
 
+@router.get("/receipts/verify")
+async def verify_consent_receipt_chain(
+    firebase_uid: str = Depends(require_firebase_auth),
+    ledger: str = Query("consent", pattern="^(consent|internal)$"),
+    expected_head_seq: int | None = Query(None, ge=0),
+    expected_head_hash: str | None = Query(None, max_length=64),
+) -> Dict[str, Any]:
+    """Verify the owner's tamper-evident audit chain, and say which key vouched.
+
+    WHY THIS ROUTE EXISTS. The chain shipped with `verify_chain` reachable from
+    nothing: no route, no worker, no script. A tamper-evident ledger nobody can
+    verify proves exactly as much as no ledger at all, and it looks healthier
+    while doing it. The Fabric sibling has had `GET /fabric/receipts/verify`
+    since it shipped; this is the same shape for the consent chain.
+
+    THE OWNER IS THE VERIFIER. The chain covers what was done to THIS person's
+    permissions, so the subject is taken from the authenticated identity and is
+    not a parameter. Nobody can ask about anybody else's ledger here.
+
+    HEAD ANCHORING. A prev_hash walk proves every surviving link and nothing about
+    links that no longer exist, so a wiped chain verifies perfectly. The client
+    pins the last head it saw and passes it back; a head that regressed or diverged
+    fails closed.
+
+    `ledger=internal` is the agent's own operations, kept as a separate sequence
+    so the head an owner pins does not advance on every turn.
+    """
+    from hushh_mcp.services.consent_audit_chain_service import (
+        get_consent_audit_chain_service,
+    )
+
+    return await get_consent_audit_chain_service().verify_chain(
+        firebase_uid,
+        expected_head_seq=expected_head_seq,
+        expected_head_hash=expected_head_hash,
+        ledger=ledger,
+    )
+
+
 # Expose _consent_exports for other modules that need it
 def get_consent_exports() -> Dict[str, Dict]:
     """Get the consent exports dictionary (for cross-module access)."""

@@ -27,14 +27,21 @@ assertions:
     statement: "A brand-new person can reach the screen that asks where their agent should live."
     falsifiable: true
     owner_action: >-
-      Reduce the setup-gate fan-out (14 DB routes on first paint against
-      DB_POOL_MAX_SIZE=4 produced 10 pool-acquire timeouts and a 125s call), and bound
-      the OnboardingJourneyGuard admission check so a hang becomes an honest error.
+      Find why the setup hub renders no "Where your agent lives" tile. Measured on
+      localhost 2026-08-28: the hub paints all eight capability tiles and
+      `one_setup_tile_cloud` is in NEITHER the Remaining nor the Complete group, so
+      there is no in-app route from the hub to /one/setup/cloud. That is now the
+      blocker, and it is a different defect from the pool contention below.
     check:
-      kind: manual
-      note: >-
-        Needs the local stack plus a fresh uid. Driver: scratchpad/diagnose-firstrun.mjs.
-        Measured FAILING on 2026-08-28: the screen sits on "Checking setup..." forever.
+      kind: receipt
+      reproduce: hushh-webapp/scripts/testing/first-run-reachability.mjs
+      expires_after_days: 14
+      pending: >-
+        Measured FAILING on 2026-08-28 against the local stack. The driver reaches
+        /one/setup and the hub renders, then times out waiting for the cloud tile
+        that never appears. The earlier "sits on Checking setup forever" reading no
+        longer reproduces: the admission guard resolved from cache and never even
+        raised its loader.
 
   - id: firstrun-guard-is-time-bounded
     requirement: First run
@@ -52,12 +59,24 @@ assertions:
     statement: "The first-paint fan-out fits inside the connection pool it runs against."
     falsifiable: true
     owner_action: >-
-      Either cut the dashboard-only calls (gmail status, calendar status,
-      connected-systems, ria onboarding, feed counts) from behind the setup gate, or
-      raise _DB_POOL_MAX_SIZE for the lane. Cutting is the better fix.
+      The three chrome reads (consent badge, feed badge, avatar, persona) are now
+      gated on route AND on chrome suppression, and that gate MEASURED NO CHANGE:
+      re-run shows peak 7 with the same witnesses. Reason, measured: the peak lands
+      while `location.pathname` is still /login and suppression is never active for
+      a warm-cache identity, so neither clause fires. The remaining honest options
+      are to gate on "the shell has not settled" rather than on route or
+      suppression, or to raise the pool for the lane.
     check:
-      kind: manual
-      note: "Needs a live first-run trace to count concurrent DB routes. Measured 14 vs a pool of 4."
+      kind: receipt
+      reproduce: hushh-webapp/scripts/testing/first-run-reachability.mjs
+      expires_after_days: 14
+      pending: >-
+        Measured 2026-08-28: peak 7 concurrent /api requests against a pool of 4, on
+        /login. Witnesses: vault/check, feed/unread-count, account/identity/refresh,
+        vault/bootstrap-state, consent/center/summary, iam/persona, connected-systems.
+        The earlier "14 routes" figure is superseded by this instrumented reading.
+        `/api/connected-systems` appears here and has no frontend caller anyone has
+        found, which is worth chasing on its own.
 
   # ---------------------------------------------------------------- the seven
   - id: identity-durable-across-restart
@@ -73,11 +92,18 @@ assertions:
     statement: "The durable-identity claim has been demonstrated on a real pod, with a negative control."
     falsifiable: true
     check:
-      kind: manual
-      note: >-
-        PROVEN 2026-08-28 on hushh-pda-dev: same podKeyId across revisions 00001 and 00002,
-        podKeyDurable true on both, stored key read not rewritten, and a feature-off pod
-        reported not durable. Re-run scratchpad/prove_identity.py to reconfirm.
+      # A receipt, not a note. The note this replaced said "PROVEN 2026-08-28" and
+      # would have kept saying it in 2027, which is the declared status this ledger
+      # exists to abolish wearing a different field name. A receipt expires.
+      kind: receipt
+      verified_on: "2026-08-28"
+      expires_after_days: 30
+      reproduce: consent-protocol/scripts/ops/prove_identity.py
+      evidence: >-
+        hushh-pda-dev: same podKeyId across revisions 00001-xnm and 00002-857,
+        podKeyDurable true on both, the stored key object READ not rewritten
+        (generation 1787951680186460 unchanged), and a negative control with the
+        feature off reported not durable. Everything created was torn down.
 
   - id: persistence-recall-across-death
     requirement: Persistence
@@ -110,10 +136,12 @@ assertions:
     falsifiable: true
     owner_action: "Emit a `specialists` key from run_pod_turn; observe_pod already reads it."
     check:
-      kind: grep
-      path: consent-protocol/api/routes/one/pod_turn.py
-      pattern: '"specialists"'
-      expect_present: true
+      # A pytest, not a grep. The grep this replaced would have passed on the word
+      # appearing in a comment, and it could not see the half of the seam that
+      # actually broke: the route's spelling of the id field agreeing with the
+      # oracle's reader. The test pins both ends and the route source.
+      kind: pytest
+      target: tests/test_pod_turn_reports_specialists.py
 
   - id: specialists-run-in-pod
     requirement: Capability
@@ -124,8 +152,14 @@ assertions:
       both sides today, which is honest but is not re-homing.
     owner_action: "Land the nav/consent door first: deterministic, no model, no authority gate."
     check:
-      kind: manual
-      note: "Certified by a live parity probe run once run_pod_turn reports specialists."
+      kind: receipt
+      reproduce: consent-protocol/scripts/ops/pod_parity_probe.py
+      expires_after_days: 30
+      pending: >-
+        The ruler can see specialists as of 2026-08-28, so a live probe can now
+        certify this. What it will certify today is identical refusal on both sides,
+        which is honest agreement and not re-homing; earn the receipt after the
+        nav/consent door lands.
 
   - id: consent-chain-detects-a-wipe
     requirement: Authority
@@ -141,10 +175,14 @@ assertions:
     falsifiable: true
     owner_action: "Move the chain signature off APP_SIGNING_KEY (Ed25519 or a KMS-side sign)."
     check:
-      kind: grep
-      path: consent-protocol/hushh_mcp/services/consent_audit_chain_service.py
-      pattern: "APP_SIGNING_KEY"
-      expect_present: false
+      # A grep for the string would now FAIL on the module docstring that explains
+      # why the key is not APP_SIGNING_KEY, and would have passed on a file that
+      # merely renamed the import. The test parses the module and asserts no CODE
+      # names it, then asserts the two properties a grep cannot see at all:
+      # verification uses the public key, and an untagged HMAC signature is refused
+      # so nobody can downgrade their way back in.
+      kind: pytest
+      target: tests/test_consent_audit_key_separation.py
 
   - id: internal-actions-are-chained
     requirement: Authority
@@ -156,17 +194,14 @@ assertions:
       device-scoped vault.owner) to insert_internal_event, which never chains them, so
       the largest class of actions has no receipt.
     check:
-      # Scoped to the FUNCTION, not the file. A file-wide grep passed because the
+      # Scoped to the FUNCTION, not the file: a file-wide grep passed because the
       # chain call exists elsewhere for the primary ledger, which is exactly the
-      # false green this ledger is supposed to make impossible.
-      kind: command
-      command: >-
-        python3 -c "
-        import ast,sys,pathlib;
-        src=pathlib.Path('consent-protocol/hushh_mcp/services/consent_db.py').read_text();
-        t=ast.parse(src);
-        fns=[n for n in ast.walk(t) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name=='insert_internal_event'];
-        sys.exit(0 if fns and 'append_consent_receipt_safe' in ast.get_source_segment(src,fns[0]) else 1)"
+      # false green this ledger is supposed to make impossible. The test also pins
+      # the part that matters most -- internal events land on their OWN sequence,
+      # so the head an owner pins for truncation detection does not advance on
+      # every turn and become useless for the one thing it is for.
+      kind: pytest
+      target: tests/test_consent_audit_key_separation.py
 
   - id: capability-wiring-is-closed-loop
     requirement: Isolation
@@ -181,11 +216,16 @@ assertions:
     statement: "The per-person cost is a measured number from real billed time."
     falsifiable: true
     check:
-      kind: manual
-      note: >-
-        MEASURED 2026-08-28 via Cloud Monitoring billable_instance_time: 0.5 vCPU / 1 GiB
+      kind: receipt
+      verified_on: "2026-08-28"
+      expires_after_days: 30
+      reproduce: consent-protocol/scripts/ops/measure_pod_cost.py
+      evidence: >-
+        Cloud Monitoring billable_instance_time on hushh-pda-dev: 0.5 vCPU / 1 GiB
         = $0.0000145 per billable second; the identity-proof pod used 19.5s = $0.00028;
-        100 wakes/month = $0.0145. Model inference excluded and stated as such.
+        100 wakes/month = $0.0145; always-warm = $37.58. Model inference is excluded
+        and the report says so on its face, because a user_adc pod bills Vertex to its
+        owner's account and is not in this project's metrics at all.
 
   - id: economics-cost-attributable-per-pod
     requirement: Economics
@@ -195,10 +235,12 @@ assertions:
       Assign space_id on PodSpec at the provision sites. It must be an OPAQUE derived
       value: _label_value's docstring forbids a raw user id in a billing label.
     check:
-      kind: grep
-      path: consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py
-      pattern: "space_id="
-      expect_present: true
+      # A grep for `space_id=` would have passed the day the field was DEFINED.
+      # The test asserts the two things that actually make spend attributable:
+      # the label carries an opaque value, and the registry row carries the same
+      # one so it can be joined back to an account.
+      kind: pytest
+      target: tests/test_pod_cost_is_attributable.py
 
   # ---------------------------------------------------------------- operations
   - id: pod-image-has-a-supported-upgrade-path
@@ -207,16 +249,37 @@ assertions:
     falsifiable: true
     owner_action: >-
       _ensure_pod_image deliberately pins the recorded digest so a heal cannot roll
-      forward, so an upgrade is currently an operator action outside the product.
+      forward (user_gcp_backend.py:487), so an upgrade is an operator action outside
+      the product today. Ship the path, then write the named test to prove an upgraded
+      pod still recalls what it was taught and keeps its identity key.
     check:
-      kind: manual
-      note: "No shipped path today. Verified by reading user_gcp_backend._execute_live."
+      # Names a test that does NOT exist yet, on purpose. `manual` here would report
+      # UNKNOWN forever; a missing pytest target FAILS, which is the accurate word
+      # for "nobody has built this", and it turns green the day somebody does.
+      kind: pytest
+      target: tests/test_pod_image_upgrade_path.py
 
-  - id: teardown-leaves-nothing-billing
+  - id: teardown-deletes-what-it-claims-to
     requirement: Economics
-    statement: "Anything a drill or proof creates is gone afterwards."
+    statement: "Teardown actually removes the pod, and says so when it cannot."
     falsifiable: true
+    # This is the half that the fleet sweep below cannot see. An empty fleet is
+    # equally consistent with "teardown works" and "nothing was ever created", so
+    # the sweep alone was a check that passed for the wrong reason.
     check:
+      kind: pytest
+      target: tests/test_byoc_substrate_teardown_is_loud.py
+
+  - id: no-pod-is-billing-right-now
+    requirement: Economics
+    statement: "No pod left over from a drill or proof is still costing money on dev."
+    falsifiable: true
+    owner_action: "Tear down what the session created, then re-run the fleet sweep."
+    check:
+      # Deliberately narrow: this proves the shared dev environment is clean today.
+      # It does NOT prove teardown works -- teardown-deletes-what-it-claims-to does.
+      # Splitting them is the fix for a check that was green because the fleet was
+      # empty for reasons unrelated to the thing it claimed to certify.
       kind: command
       command: >-
         cd consent-protocol && uv run python scripts/ops/pod_fleet.py

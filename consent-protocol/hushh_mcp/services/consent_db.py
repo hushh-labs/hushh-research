@@ -1542,6 +1542,12 @@ class ConsentDBService:
         }
         data = {k: v for k, v in data.items() if v is not None}
 
+        # WHICH physical table this landed in, tracked, because it decides which
+        # chain must cover the row. The fallback below writes an INTERNAL event
+        # into `consent_audit` itself, and a row sitting in the primary ledger
+        # that the primary chain does not cover would make the chain's own
+        # coverage claim false while looking perfectly healthy.
+        landed_in_primary_ledger = False
         try:
             response = db.table("internal_access_events").insert(data).execute()
         except DatabaseExecutionError as exc:
@@ -1551,17 +1557,52 @@ class ConsentDBService:
                 "internal_access_events_missing fallback=consent_audit action=insert_internal_event"
             )
             response = db.table("consent_audit").insert(data).execute()
-        if response.data and len(response.data) > 0:
-            event_id = response.data[0].get("id")
-            logger.info("Inserted internal %s event: %s", action, event_id)
-            return event_id
+            landed_in_primary_ledger = True
 
-        logger.warning(
-            "Inserted internal %s event but no ID returned, using issued_at: %s",
-            action,
-            issued_at,
+        event_id = issued_at
+        if response.data and len(response.data) > 0:
+            event_id = response.data[0].get("id") or issued_at
+            logger.info("Inserted internal %s event: %s", action, event_id)
+        else:
+            logger.warning(
+                "Inserted internal %s event but no ID returned, using issued_at: %s",
+                action,
+                issued_at,
+            )
+
+        # THE AGENT'S OWN ACTIONS GET A RECEIPT TOO.
+        #
+        # Until now they did not. `insert_event` diverts every internal event here
+        # -- self, agent_kai, kai, OPERATION_PERFORMED, notification sends, and
+        # device-scoped vault.owner reads -- and this path never reached the chain,
+        # so the LARGEST class of actions the system takes had no tamper-evidence
+        # at all. The divert itself is correct and predates the chain by five
+        # months: it exists so Nav can narrate a grant and an owner can revoke it,
+        # a read-side concern that says nothing about integrity.
+        #
+        # Written to a SEPARATE per-subject sequence (`ledger="internal"`) rather
+        # than merged into the consent chain. Merging would advance the head an
+        # owner pins on every Kai turn, and a pin that moves constantly cannot
+        # detect the truncation it exists to detect.
+        from hushh_mcp.services.consent_audit_chain_service import (  # noqa: PLC0415
+            LEDGER_CONSENT,
+            LEDGER_INTERNAL,
+            append_consent_receipt_safe,
         )
-        return issued_at
+
+        await append_consent_receipt_safe(
+            subject_id=user_id,
+            event_type=action,
+            issued_at_ms=issued_at,
+            agent_id=agent_id,
+            scope=scope,
+            request_id=request_id,
+            token_id=token_id,
+            audit_event_id=event_id if isinstance(event_id, int) else None,
+            metadata=metadata,
+            ledger=LEDGER_CONSENT if landed_in_primary_ledger else LEDGER_INTERNAL,
+        )
+        return event_id
 
     async def get_timed_out_requests(self) -> List[Dict]:
         """

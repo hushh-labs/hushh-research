@@ -35,9 +35,15 @@ from hushh_mcp.runtime_settings import get_core_security_settings
 
 _HUSHH_ID_CONTEXT = b"hushh.personal-agent.hushh-id.v1"
 _PHONE_HASH_CONTEXT = b"hushh.personal-agent.phone-hash.v1"
+_SPACE_ID_CONTEXT = b"hushh.personal-agent.space-id.v1"
 _HUSHH_ID_PREFIX = "ha1_"
+_SPACE_ID_PREFIX = "sp_"
 # 20 digest bytes -> 32 base32 chars: ample collision resistance, compact URL.
 _HUSHH_ID_DIGEST_BYTES = 20
+# 10 digest bytes -> 16 base32 chars, 19 with the prefix. Comfortably inside the
+# 63-character ceiling a GCP label value allows, with room for it to be read in
+# a billing console without wrapping.
+_SPACE_ID_DIGEST_BYTES = 10
 
 # ASCII digits only: ``\d`` would also match Unicode digits (Arabic-Indic,
 # fullwidth, ...), which hash to a different digest than the ASCII form of the
@@ -89,3 +95,31 @@ def hash_phone_e164(phone_e164: str) -> str:
     """
     normalized = normalize_e164(phone_e164)
     return _hmac_digest(_PHONE_HASH_CONTEXT, normalized).hex()
+
+
+def mint_space_id(hushh_id: str) -> str:
+    """Derive the opaque billing-space id for one person's agent.
+
+    THE POINT IS THAT IT IS OPAQUE. This value becomes the ``hussh-space-id``
+    label on a Cloud Run service, and a label is readable by anyone holding
+    project billing access. ``gcp_backend._label_value``'s own docstring forbids
+    an email, a phone number, or a raw user id from ever reaching that surface,
+    so the identifier that makes spend attributable has to be one that discloses
+    nothing on its own.
+
+    Derived from the HusshID rather than the phone, and under a DISTINCT HMAC
+    context from :func:`mint_hushh_id` and :func:`hash_phone_e164`, so no one of
+    the three can be cross-derived from another.
+
+    PERSIST IT, DO NOT RE-DERIVE IT. The key is ``APP_SIGNING_KEY``; a rotation
+    would silently change the derivation for every pod minted afterwards, and a
+    billing join built on re-derivation would quietly stop matching the rows it
+    is supposed to explain. ``personal_agent_registry.space_id`` is the join key
+    of record; this function runs once, at provision.
+    """
+    subject = str(hushh_id or "").strip()
+    if not subject:
+        raise ValueError("hushh_id is required to mint a space id")
+    digest = _hmac_digest(_SPACE_ID_CONTEXT, subject)
+    token = base64.b32encode(digest[:_SPACE_ID_DIGEST_BYTES]).decode("ascii").rstrip("=").lower()
+    return f"{_SPACE_ID_PREFIX}{token}"

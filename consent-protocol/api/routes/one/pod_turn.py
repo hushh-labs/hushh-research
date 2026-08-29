@@ -239,6 +239,7 @@ async def run_pod_turn(
 
     chunks: list[str] = []
     directives: list[Any] = []
+    specialists: list[Any] = []
     try:
         async for event in runner(
             user_id=user_id,
@@ -289,6 +290,8 @@ async def run_pod_turn(
                 chunks.append(str(getattr(event, "text", "") or ""))
             elif kind == "directive" and getattr(event, "directive", None) is not None:
                 directives.append(event.directive)
+            elif kind == "specialist" and getattr(event, "specialist", None) is not None:
+                specialists.append(event.specialist)
     except Exception as exc:  # noqa: BLE001 - a failed turn is a 502, never a 500 traceback
         logger.warning("pod_turn.failed %s: %s", type(exc).__name__, str(exc)[:200])
         raise HTTPException(
@@ -308,10 +311,12 @@ async def run_pod_turn(
     # Carries shape, never content: no message, no answer, no projection -- only
     # whether grounding arrived, how long it took, and whose model served it.
     logger.info(
-        "pod_turn.completed grounded=%s chars=%s directives=%s runtime_mode=%s provider=%s",
+        "pod_turn.completed grounded=%s chars=%s directives=%s specialists=%s "
+        "runtime_mode=%s provider=%s",
         bool(grounding),
         len(text),
         len(directives),
+        len(specialists),
         runtime_mode,
         provider,
     )
@@ -342,6 +347,27 @@ async def run_pod_turn(
                 "delegateAgentId": getattr(d, "delegate_agent_id", None),
             }
             for d in directives
+        ],
+        # WHICH SPECIALISTS SERVED, AND WHAT THEY DECIDED.
+        #
+        # This key is what makes the pod measurable. `observe_pod` has always read
+        # `turn["specialists"]`, and `run_pod_turn` has never emitted it, so the
+        # parity oracle observed an empty specialist tuple on every real pod turn.
+        # The consequence was not a wrong score, it was a ruler with no markings on
+        # it: no live probe could certify that a specialist had been re-homed into
+        # the pod, because the measurement could not register a specialist at all.
+        # A check that cannot fail is not evidence, and a ruler that cannot see the
+        # dimension it measures is the same defect wearing an instrument's clothes.
+        #
+        # Shape, never content: an agent id and a state word per outcome. No text,
+        # no arguments, no holdings. `agentId` is camelCase to match the rest of
+        # this envelope; the oracle reads both spellings.
+        "specialists": [
+            {
+                "agentId": getattr(s, "agent_id", ""),
+                "status": getattr(s, "status", ""),
+            }
+            for s in specialists
         ],
         # Whose model answered. Stated, because "your AI" is a product promise and a
         # cost boundary, not an implementation detail.

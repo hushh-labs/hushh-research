@@ -335,6 +335,12 @@ consent_signing_alg=""
 consent_ed25519_kid=""
 dev_consent_ed25519_private_secret=""
 dev_consent_ed25519_public_keys_secret=""
+# The audit chain's own key, same `set -u` pre-initialisation rule. Empty
+# everywhere but dev, and empty on dev too until both secrets exist.
+consent_audit_signing_alg=""
+consent_audit_ed25519_kid=""
+dev_consent_audit_private_secret=""
+dev_consent_audit_public_keys_secret=""
 # The hosted-pod-tier opt-in, and the two flags that were built, tested, and then
 # enabled in no lane at all. Same `set -u` pre-initialisation rule as everything
 # above: assigned only inside the dev block.
@@ -544,6 +550,24 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
     # execute this block and parse stdout as KEY=value pairs).
     echo "Ed25519 consent signing: secrets absent; issuance stays HMAC." >&2
   fi
+  # The AUDIT chain's own Ed25519 key. Deliberately a SECOND, unrelated key: the
+  # chain used to be signed with APP_SIGNING_KEY -- the key that mints consent
+  # tokens -- which made the ledger self-attesting rather than non-repudiable, and
+  # reusing CONSENT_ED25519_PRIVATE_KEY here would reproduce that with a better
+  # algorithm. Same existence gate, same one-step rollback.
+  #
+  # Without these the chain writes NOTHING and logs `consent_audit_chain_unsigned`
+  # per event. That is deliberate: it refuses to borrow a key it can find, because
+  # a silent borrow is what created the defect.
+  if gcloud secrets describe CONSENT_AUDIT_ED25519_PRIVATE_KEY --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud secrets describe CONSENT_AUDIT_ED25519_PUBLIC_KEYS --project="$PROJECT_ID" >/dev/null 2>&1; then
+    consent_audit_signing_alg="ed25519"
+    consent_audit_ed25519_kid="hushh-audit-dev-1"
+    dev_consent_audit_private_secret="CONSENT_AUDIT_ED25519_PRIVATE_KEY"
+    dev_consent_audit_public_keys_secret="CONSENT_AUDIT_ED25519_PUBLIC_KEYS"
+  else
+    echo "Consent audit chain: signing secrets absent; receipts will NOT be written." >&2
+  fi
 fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
@@ -581,6 +605,13 @@ append_optional_env "CONSENT_TOKEN_SIGNING_ALG" "${consent_signing_alg}"
 append_optional_env "CONSENT_ED25519_KID" "${consent_ed25519_kid}"
 append_optional_secret "${dev_consent_ed25519_private_secret}" "CONSENT_ED25519_PRIVATE_KEY"
 append_optional_secret "${dev_consent_ed25519_public_keys_secret}" "CONSENT_ED25519_PUBLIC_KEYS"
+# The audit chain's SEPARATE signing key. Same shape, different key, on purpose:
+# whoever can mint a permission must not thereby be able to rewrite the record of
+# having minted it.
+append_optional_env "CONSENT_AUDIT_SIGNING_ALG" "${consent_audit_signing_alg}"
+append_optional_env "CONSENT_AUDIT_ED25519_KID" "${consent_audit_ed25519_kid}"
+append_optional_secret "${dev_consent_audit_private_secret}" "CONSENT_AUDIT_ED25519_PRIVATE_KEY"
+append_optional_secret "${dev_consent_audit_public_keys_secret}" "CONSENT_AUDIT_ED25519_PUBLIC_KEYS"
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a
 # deploy log or a service description. append_optional_secret probes Secret Manager

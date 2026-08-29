@@ -39,6 +39,7 @@ import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   normalizeBottomNavPathname,
@@ -216,15 +217,32 @@ export const Navbar = ({
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
-  const pendingConsents = useConsentPendingSummaryCount();
-  const feedUnreadCount = useFeedUnreadCount();
+  // Hoisted above the two badge hooks so it can gate them. It depends only on
+  // `pathname`, so this is a pure reorder.
+  const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
+  const useOnboardingChrome = chromeState.useOnboardingChrome;
+  // THE NAV IS HIDDEN ON EVERY SETUP SURFACE, SO ITS BADGES MUST NOT FETCH.
+  //
+  // `useSessionChromeSuppression` hides the chrome by setting a DOM attribute;
+  // every component under it stays mounted and every request still goes out. On a
+  // brand-new person's first paint that put `/api/consent/center/summary` and
+  // `/api/one/feed/unread-count` into a pool of four connections alongside the
+  // calls the setup gate actually needs -- and the summary was measured at
+  // 125,614 ms. Two badges nobody could see were a material share of why the
+  // front door did not open.
+  // Two conditions, and the second is the one that actually fires during the
+  // post-login window: the route says "setup surface", and the shell says "I am
+  // still deciding". The URL lags the rendered surface across the redirect, so
+  // the route check alone measured NO effect on the fan-out it was written for.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const badgesAreVisible = !useOnboardingChrome && !chromeSuppressed;
+  const pendingConsents = useConsentPendingSummaryCount({ enabled: badgesAreVisible });
+  const feedUnreadCount = useFeedUnreadCount({ enabled: badgesAreVisible });
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
     routeGroupWidth: "",
   });
-  const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
-  const useOnboardingChrome = chromeState.useOnboardingChrome;
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
   const setAgentNavigationContext = useKaiSession(

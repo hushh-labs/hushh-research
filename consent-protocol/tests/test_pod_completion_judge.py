@@ -9,6 +9,7 @@ check as evidence, and calling the whole thing finished while work remains.
 
 from __future__ import annotations
 
+import datetime as _dt
 import importlib.util
 import sys
 from pathlib import Path
@@ -154,3 +155,133 @@ def test_ledger_ids_are_unique():
 @pytest.mark.parametrize("kind", sorted(judge_mod.CHECKS))
 def test_every_check_kind_has_a_runner(kind):
     assert callable(judge_mod.CHECKS[kind])
+
+
+# --------------------------------------------------------------------------- #
+# Controls and void runs, borrowed from the house judging contract
+# (.codex/skills/puppy-one-harness/references/judging-contract.md): a void run
+# publishes NO result, "not a number with a caveat, because a number with a
+# caveat gets quoted without the caveat".
+# --------------------------------------------------------------------------- #
+
+
+def test_the_controls_run_before_any_real_grading():
+    """They are worthless as a separate step someone can skip, so they run on
+    every invocation."""
+    calls = []
+    real = judge_mod.run_controls
+    judge_mod.run_controls = lambda *a, **k: calls.append("ran")
+    try:
+        judge_mod.judge([_item("x")])
+    finally:
+        judge_mod.run_controls = real
+    assert calls == ["ran"]
+
+
+def test_a_grader_that_is_not_reading_voids_the_run(monkeypatch):
+    """Negative control passes => the judge is not reading, so nothing it says is
+    worth having. It must refuse to publish rather than emit a caveated number."""
+    # Patch the CHECKS entry, not the module attribute: the dict captured the
+    # original function at import, so rebinding the name would leave the judge
+    # calling the real runner and the test would pass for the wrong reason.
+    monkeypatch.setitem(
+        judge_mod.CHECKS, "command", lambda *_a, **_k: (judge_mod.PASS, "always pass")
+    )
+    with pytest.raises(judge_mod.VoidRun, match="not reading"):
+        judge_mod.run_controls()
+
+
+def test_a_grader_that_over_flags_voids_the_run(monkeypatch):
+    """Positive control fails => its complaints are noise nobody can act on."""
+    monkeypatch.setitem(
+        judge_mod.CHECKS, "command", lambda *_a, **_k: (judge_mod.FAIL, "always fail")
+    )
+    with pytest.raises(judge_mod.VoidRun, match="over-flags"):
+        judge_mod.run_controls()
+
+
+def test_controls_pass_against_the_real_runners():
+    """The controls themselves must hold on the shipped implementation, or every
+    run is void and the judge is useless."""
+    judge_mod.run_controls()
+
+
+# --------------------------------------------------------------------------- #
+# Receipts. The half of the design that lets the judge ever say YES, and the
+# half most likely to rot back into a hand-typed verdict if nothing pins it.
+# --------------------------------------------------------------------------- #
+
+
+def _receipt(**over):
+    check = {
+        "kind": "receipt",
+        "verified_on": _dt.date.today().isoformat(),
+        "expires_after_days": 30,
+        "reproduce": "config/pod-completion-ledger.yaml",  # any tracked path
+    }
+    check.update(over)
+    return _item("r", check=check)
+
+
+def test_a_fresh_receipt_passes():
+    report = judge_mod.judge([_receipt()])
+    assert report.finished
+    assert "fresh until" in report.passing[0].detail
+
+
+def test_a_stale_receipt_fails_rather_than_going_unknown():
+    """A proof with an expiry is the whole point. If it decayed to UNKNOWN the
+    judge would report 'we could not look' for something anyone can re-run, and
+    'run it again' is actionable in a way that a blind spot is not."""
+    old = (_dt.date.today() - _dt.timedelta(days=31)).isoformat()
+    report = judge_mod.judge([_receipt(verified_on=old, expires_after_days=30)])
+    assert [v.status for v in report.verdicts] == [judge_mod.FAIL]
+    assert "re-run" in report.verdicts[0].detail
+
+
+def test_a_receipt_whose_reproduction_path_is_not_in_the_tree_fails():
+    """The failure this check was written for: two receipts once pointed at
+    scratchpad scripts that no clone contained, so the 'proof' was a sentence
+    nobody else could re-run. That is a claim, not evidence."""
+    report = judge_mod.judge([_receipt(reproduce="scratchpad/prove_identity.py")])
+    assert report.verdicts[0].status == judge_mod.FAIL
+    assert "is not in the tree" in report.verdicts[0].detail
+
+
+def test_a_receipt_that_was_never_earned_fails_and_says_what_is_pending():
+    report = judge_mod.judge([_receipt(verified_on=None, pending="nobody has run the driver yet")])
+    assert report.verdicts[0].status == judge_mod.FAIL
+    assert "nobody has run the driver yet" in report.verdicts[0].detail
+
+
+def test_a_malformed_receipt_date_fails_instead_of_passing():
+    report = judge_mod.judge([_receipt(verified_on="last tuesday")])
+    assert report.verdicts[0].status == judge_mod.FAIL
+
+
+def test_every_shipped_receipt_points_at_a_path_that_exists():
+    """Guards the shipped ledger, not just the runner. A receipt is only worth
+    the reproduction somebody else can run."""
+    items = yaml.safe_load(_LEDGER.read_text())["assertions"]
+    repo = _LEDGER.resolve().parents[1]
+    missing = [
+        (i["id"], i["check"].get("reproduce"))
+        for i in items
+        if i.get("check", {}).get("kind") == "receipt"
+        and not (repo / str(i["check"].get("reproduce") or "")).exists()
+    ]
+    assert not missing, f"receipts pointing at paths no clone has: {missing}"
+
+
+def test_the_shipped_ledger_can_still_reach_yes():
+    """The fatal flaw this replaced: every remaining unknown must be something a
+    person can act on, not a check kind that is UNKNOWN by construction. An item
+    that is permanently `manual` makes the nag red forever, which is how a nag
+    becomes furniture nobody reads."""
+    items = yaml.safe_load(_LEDGER.read_text())["assertions"]
+    permanent = [
+        i["id"]
+        for i in items
+        if i.get("check", {}).get("kind") == "manual" and not i.get("blocked_by")
+    ]
+    assert not permanent, f"these items can never pass, so the judge can never say YES: {permanent}"

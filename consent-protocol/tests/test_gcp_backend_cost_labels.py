@@ -191,7 +191,15 @@ def test_a_space_id_with_illegal_characters_is_sanitised_not_passed_through():
     assert _GCP_LABEL_VALUE.match(labels["hussh-space-id"])
 
 
-def test_a_missing_space_id_renders_as_an_empty_label():
-    # Unchanged from before B5: an empty value is legal, and a logical-tier stamp
-    # may genuinely have no spaceID yet.
+def test_an_unset_space_id_still_renders_a_legal_empty_label():
+    # An empty value is LEGAL, and this test says only that. It used to be named
+    # for the outcome rather than the input, and reading it as "an empty cost
+    # label is correct" is how `space_id` stayed unassigned by every production
+    # caller for as long as the field existed: fully plumbed, rendered on every
+    # pod hushh ever created, and always blank.
+    #
+    # A spec that is about to become a real pod must NOT reach here with None.
+    # `tests/test_pod_cost_is_attributable.py` is where that is asserted, because
+    # this file builds its own specs and so can never observe what the
+    # provisioning path actually passes.
     assert _labels(_spec(space_id=None))["hussh-space-id"] == ""

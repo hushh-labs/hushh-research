@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 import {
@@ -121,6 +121,13 @@ function incompleteSetupState() {
 }
 
 describe("OnboardingJourneyGuard", () => {
+  // A failing test used to leak its fake timers into the next one, so a single
+  // defect reported as three and the real one was the hardest to find. Cleanup
+  // that depends on the test reaching its last line is not cleanup.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     push.mockReset();
     replace.mockReset();
@@ -377,10 +384,16 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
+    // `advanceTimersByTimeAsync`, not the sync form. The guard now wraps its
+    // bootstrap read in `withAdmissionTimeout` so a hang becomes a visible error
+    // rather than a forever spinner, which puts an extra microtask hop between
+    // the rejection and the retry timer being scheduled. The sync form advanced
+    // the clock BEFORE that timer existed, so the retry never fired and the test
+    // reported the guard as broken. The async form flushes microtasks between
+    // timer steps, so it does not have to be re-tuned every time the number of
+    // async layers changes.
     await act(async () => {
-      await Promise.resolve();
-      vi.advanceTimersByTime(300);
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(screen.getByText("one home")).toBeTruthy();
@@ -405,10 +418,16 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
+    // `advanceTimersByTimeAsync`, not the sync form. The guard now wraps its
+    // bootstrap read in `withAdmissionTimeout` so a hang becomes a visible error
+    // rather than a forever spinner, which puts an extra microtask hop between
+    // the rejection and the retry timer being scheduled. The sync form advanced
+    // the clock BEFORE that timer existed, so the retry never fired and the test
+    // reported the guard as broken. The async form flushes microtasks between
+    // timer steps, so it does not have to be re-tuned every time the number of
+    // async layers changes.
     await act(async () => {
-      await Promise.resolve();
-      vi.advanceTimersByTime(300);
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(

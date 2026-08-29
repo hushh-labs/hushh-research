@@ -51,7 +51,7 @@ from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 logger = logging.getLogger(__name__)
 
-OneTextEventKind = Literal["token", "thought", "source", "directive", "boundary"]
+OneTextEventKind = Literal["token", "thought", "source", "directive", "specialist", "boundary"]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
 _TOTAL_TURN_TIMEOUT_SECONDS = 90.0
@@ -74,11 +74,33 @@ class OneTextSource:
 
 
 @dataclass(frozen=True)
+class OneTextSpecialistOutcome:
+    """WHICH specialist ran, and WHAT it decided. A source says "consulted"; this
+    says "and here is what came back", which is the difference between knowing a
+    door was knocked on and knowing whether it opened.
+
+    It exists because the parity ruler could not see specialists at all. The hub
+    emits a ``specialist_status`` SSE frame and the oracle reads it; the pod
+    returned nothing of the kind, so ``observe_pod`` saw an empty specialist
+    tuple on every real turn and no live run could ever certify a re-homing --
+    the measurement was structurally incapable of registering the thing it was
+    built to measure.
+
+    Shape, never content: an agent id and a state word. No text, no arguments,
+    no payload.
+    """
+
+    agent_id: str
+    status: str
+
+
+@dataclass(frozen=True)
 class OneTextStreamEvent:
     kind: OneTextEventKind
     text: str = ""
     directive: OneTextDirective | None = None
     source: OneTextSource | None = None
+    specialist: OneTextSpecialistOutcome | None = None
 
 
 class OneTextEmptyResponseError(RuntimeError):
@@ -262,6 +284,48 @@ def _event_sources(event: Any) -> list[OneTextSource]:
             reason = str(args.get("request") or args.get("query") or "").strip()[:160]
         sources.append(OneTextSource(agent_id=agent_id, label=label, reason=reason))
     return sources
+
+
+def _event_specialists(event: Any) -> list[OneTextSpecialistOutcome]:
+    """Read specialist OUTCOMES off the tool responses One received this turn.
+
+    `_specialist_turn` already returns `{"status": ..., "availability": {...}}`
+    from every one of its branches -- ready, refused, blocked, or served through
+    the data door -- so the outcome is present in the event stream and was simply
+    never read. The agent id comes from `availability.specialist_id`, which the
+    availability resolver stamps, and falls back to the tool-name map so a
+    response that predates the availability payload is still observed rather than
+    silently dropped.
+
+    An unmapped tool with a `status` is deliberately NOT reported: app-action
+    tools return statuses too, and counting those as specialists would inflate
+    the ruler's reading, which is a worse failure than under-reporting because it
+    would look like progress.
+    """
+    if str(getattr(event, "author", "") or "") != "one":
+        return []
+    get_responses = getattr(event, "get_function_responses", None)
+    if not callable(get_responses):
+        return []
+    outcomes: list[OneTextSpecialistOutcome] = []
+    for reply in get_responses() or []:
+        response = getattr(reply, "response", None)
+        if not isinstance(response, dict):
+            continue
+        status = str(response.get("status") or "").strip()
+        if not status:
+            continue
+        availability = response.get("availability")
+        agent_id = ""
+        if isinstance(availability, dict):
+            agent_id = str(availability.get("specialist_id") or "").strip()
+        if not agent_id:
+            mapped = _SPECIALIST_TOOL_SOURCES.get(str(getattr(reply, "name", "") or ""))
+            agent_id = mapped[0] if mapped else ""
+        if not agent_id:
+            continue
+        outcomes.append(OneTextSpecialistOutcome(agent_id=agent_id, status=status))
+    return outcomes
 
 
 def _directive_from_value(value: Any) -> OneTextDirective | None:
@@ -472,6 +536,9 @@ async def _stream_one_text_turn_once(
 
         for text_source in _event_sources(event):
             yield OneTextStreamEvent(kind="source", source=text_source)
+
+        for outcome in _event_specialists(event):
+            yield OneTextStreamEvent(kind="specialist", specialist=outcome)
 
         text = _event_text(event)
         if not text:
@@ -696,6 +763,9 @@ async def stream_one_intro_text_turn(
 
         for text_source in _event_sources(event):
             yield OneTextStreamEvent(kind="source", source=text_source)
+
+        for outcome in _event_specialists(event):
+            yield OneTextStreamEvent(kind="specialist", specialist=outcome)
 
         text = _event_text(event)
         if not text:

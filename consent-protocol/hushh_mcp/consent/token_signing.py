@@ -29,11 +29,24 @@ in a pod stays fail-closed until the revocation relay exists. Signature first,
 currency second — this module only moves the first half out of the forgeable
 regime.
 
-SCOPE, deliberately narrow: this signs CONSENT TOKENS. The other seven
-``APP_SIGNING_KEY`` subsystems (trust links, fabric grants, receipts, the audit
-chain, OAuth state, developer pepper) stay HMAC at the hub — a pod has no
-business verifying them, and dragging them along is what would turn a two-week
-change into a rewrite of the trust model.
+SCOPE. This module owns the SIGNATURE FORMAT, not one key. Each subsystem that
+uses it declares a :class:`SigningNamespace` naming its own env vars, and the
+namespaces are deliberately disjoint: holding the consent-token signing key must
+not let anyone sign anything else.
+
+Two namespaces exist today. ``CONSENT_TOKENS`` is the original. ``CONSENT_AUDIT``
+signs the tamper-evident audit chain, and it exists because that chain was signed
+with ``APP_SIGNING_KEY`` -- the key that MINTS consent tokens. Under AU-10 that is
+not non-repudiation, it is self-attestation: anyone who could verify the ledger
+could also rewrite it, and the one party with the most reason to rewrite it held
+the key. Separating the namespace is the whole point; reusing
+``CONSENT_ED25519_PRIVATE_KEY`` for the audit chain would reproduce the defect
+with a better algorithm.
+
+The remaining ``APP_SIGNING_KEY`` subsystems (trust links, fabric grants, OAuth
+state, developer pepper) stay HMAC at the hub -- a pod has no business verifying
+them, and dragging them along is what would turn a two-week change into a rewrite
+of the trust model.
 """
 
 from __future__ import annotations
@@ -44,6 +57,7 @@ import hmac
 import json
 import logging
 import os
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 
@@ -56,6 +70,42 @@ PUBLIC_KEYS_ENV = "CONSENT_ED25519_PUBLIC_KEYS"
 
 ALG_HMAC = "hmac"
 ALG_ED25519 = "ed25519"
+
+
+@dataclass(frozen=True)
+class SigningNamespace:
+    """One subsystem's key material, named by its env vars.
+
+    Frozen and hashable so the key caches can be keyed on it. Two namespaces
+    sharing an env var would silently share a key, which is the exact failure
+    this type exists to make impossible to write by accident.
+    """
+
+    alg_env: str
+    private_key_env: str
+    kid_env: str
+    public_keys_env: str
+    default_kid: str
+
+
+CONSENT_TOKENS = SigningNamespace(
+    alg_env=SIGNING_ALG_ENV,
+    private_key_env=PRIVATE_KEY_ENV,
+    kid_env=KID_ENV,
+    public_keys_env=PUBLIC_KEYS_ENV,
+    default_kid="hushh-consent-1",
+)
+
+#: The tamper-evident consent-audit chain. A DISTINCT key on purpose: signing the
+#: ledger with the token-minting key means the party who can grant a permission
+#: can also rewrite the record of having granted it.
+CONSENT_AUDIT = SigningNamespace(
+    alg_env="CONSENT_AUDIT_SIGNING_ALG",
+    private_key_env="CONSENT_AUDIT_ED25519_PRIVATE_KEY",
+    kid_env="CONSENT_AUDIT_ED25519_KID",
+    public_keys_env="CONSENT_AUDIT_ED25519_PUBLIC_KEYS",
+    default_kid="hushh-audit-1",
+)
 
 _TAG = "ed25519."
 
@@ -79,53 +129,54 @@ def _decode_raw32(material: str) -> Optional[bytes]:
     return None
 
 
-def signing_alg() -> str:
-    """The ISSUANCE algorithm. Default HMAC — flipping is an explicit act."""
-    value = (os.getenv(SIGNING_ALG_ENV) or "").strip().lower()
+def signing_alg(namespace: SigningNamespace = CONSENT_TOKENS) -> str:
+    """The ISSUANCE algorithm. Default HMAC -- flipping is an explicit act."""
+    value = (os.getenv(namespace.alg_env) or "").strip().lower()
     return value if value in (ALG_HMAC, ALG_ED25519) else ALG_HMAC
 
 
-@lru_cache(maxsize=1)
-def _private_key():
-    material = (os.getenv(PRIVATE_KEY_ENV) or "").strip()
+@lru_cache(maxsize=8)
+def _private_key(namespace: SigningNamespace = CONSENT_TOKENS):
+    material = (os.getenv(namespace.private_key_env) or "").strip()
     if not material:
         return None
     raw = _decode_raw32(material)
     if raw is None:
-        raise RuntimeError(f"{PRIVATE_KEY_ENV} must be a base64 raw 32-byte Ed25519 seed")
+        raise RuntimeError(f"{namespace.private_key_env} must be a base64 raw 32-byte Ed25519 seed")
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     return Ed25519PrivateKey.from_private_bytes(raw)
 
 
-@lru_cache(maxsize=1)
-def _public_keys() -> dict[str, bytes]:
+@lru_cache(maxsize=8)
+def _public_keys(namespace: SigningNamespace = CONSENT_TOKENS) -> dict[str, bytes]:
     """kid -> raw public key. From the env map, plus the private key's own pair.
 
     Deriving the issuer's verifying key from its signing key means the hub can
     verify what it issues without configuring itself twice.
     """
     keys: dict[str, bytes] = {}
-    material = (os.getenv(PUBLIC_KEYS_ENV) or "").strip()
+    env_name = namespace.public_keys_env
+    material = (os.getenv(env_name) or "").strip()
     if material:
         try:
             parsed = json.loads(material)
         except ValueError as exc:
-            raise RuntimeError(f"{PUBLIC_KEYS_ENV} must be a JSON {{kid: base64}} map") from exc
+            raise RuntimeError(f"{env_name} must be a JSON {{kid: base64}} map") from exc
         if not isinstance(parsed, dict):
-            raise RuntimeError(f"{PUBLIC_KEYS_ENV} must be a JSON {{kid: base64}} map")
+            raise RuntimeError(f"{env_name} must be a JSON {{kid: base64}} map")
         for kid, value in parsed.items():
             raw = _decode_raw32(str(value))
             if raw is None:
-                raise RuntimeError(f"{PUBLIC_KEYS_ENV} entry {kid!r} is not a raw 32-byte key")
+                raise RuntimeError(f"{env_name} entry {kid!r} is not a raw 32-byte key")
             keys[str(kid)] = raw
 
-    private = _private_key()
+    private = _private_key(namespace)
     if private is not None:
         from cryptography.hazmat.primitives import serialization
 
         keys.setdefault(
-            current_kid(),
+            current_kid(namespace),
             private.public_key().public_bytes(
                 encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
             ),
@@ -133,12 +184,12 @@ def _public_keys() -> dict[str, bytes]:
     return keys
 
 
-def current_kid() -> str:
-    return (os.getenv(KID_ENV) or "").strip() or "hushh-consent-1"
+def current_kid(namespace: SigningNamespace = CONSENT_TOKENS) -> str:
+    return (os.getenv(namespace.kid_env) or "").strip() or namespace.default_kid
 
 
 def reset_caches() -> None:
-    """Test hook: environment changed, drop the cached keys."""
+    """Test hook: environment changed, drop the cached keys for every namespace."""
     _private_key.cache_clear()
     _public_keys.cache_clear()
 
@@ -147,36 +198,51 @@ def hmac_signature(payload: str, key: str) -> str:
     return hmac.new(key.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
-def sign_payload(payload: str, *, hmac_key: str) -> str:
-    """Sign per the configured issuance algorithm."""
-    if signing_alg() == ALG_ED25519:
-        private = _private_key()
+def sign_payload(
+    payload: str, *, hmac_key: str, namespace: SigningNamespace = CONSENT_TOKENS
+) -> str:
+    """Sign per the configured issuance algorithm for this namespace."""
+    if signing_alg(namespace) == ALG_ED25519:
+        private = _private_key(namespace)
         if private is None:
             # Issuance was explicitly configured asymmetric and the key is
             # absent: refuse rather than silently minting forgeable tokens.
             raise RuntimeError(
-                f"{SIGNING_ALG_ENV}=ed25519 but {PRIVATE_KEY_ENV} is not set -- "
+                f"{namespace.alg_env}=ed25519 but {namespace.private_key_env} is not set -- "
                 f"a verifier-only process (a pod) can never issue"
             )
         signature = private.sign(payload.encode("utf-8"))
-        return f"{_TAG}{current_kid()}.{_b64url(signature)}"
+        return f"{_TAG}{current_kid(namespace)}.{_b64url(signature)}"
     return hmac_signature(payload, hmac_key)
 
 
-def verify_payload(payload: str, signature: str, *, hmac_key: str) -> bool:
+def verify_payload(
+    payload: str,
+    signature: str,
+    *,
+    hmac_key: str,
+    namespace: SigningNamespace = CONSENT_TOKENS,
+    require_asymmetric: bool = False,
+) -> bool:
     """Verify either algorithm, fail-closed on everything unknown.
 
-    A tagged signature with no matching public key is INVALID — never a
+    A tagged signature with no matching public key is INVALID -- never a
     fall-through to HMAC, which would let a malformed tag downgrade the check.
+
+    ``require_asymmetric`` closes the other half of that door. Accepting BOTH
+    algorithms means a holder of the HMAC key can still forge a NEW row with an
+    untagged signature and have it verify, which re-opens the very separation the
+    asymmetric key was introduced to create. Any namespace that has finished its
+    rollout should verify strictly.
     """
     if signature.startswith(_TAG):
         remainder = signature[len(_TAG) :]
         kid, _, encoded = remainder.partition(".")
         if not kid or not encoded:
             return False
-        public_raw = _public_keys().get(kid)
+        public_raw = _public_keys(namespace).get(kid)
         if public_raw is None:
-            logger.warning("consent_token.unknown_signing_kid kid=%s", kid)
+            logger.warning("consent_signing.unknown_kid ns=%s kid=%s", namespace.kid_env, kid)
             return False
         from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -188,4 +254,8 @@ def verify_payload(payload: str, signature: str, *, hmac_key: str) -> bool:
             return True
         except (InvalidSignature, ValueError):
             return False
+    if require_asymmetric:
+        # An untagged signature under a strict namespace is a DOWNGRADE, not a
+        # legacy row to be waved through.
+        return False
     return hmac.compare_digest(signature, hmac_signature(payload, hmac_key))

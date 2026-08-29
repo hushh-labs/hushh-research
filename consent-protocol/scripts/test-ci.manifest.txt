@@ -57,6 +57,7 @@ tests/test_compute_backend.py
 tests/test_compute_backend_contract.py
 tests/test_compute_backend_parity.py
 tests/test_consent_audit_chain.py
+tests/test_consent_audit_key_separation.py
 tests/test_consent_token_asymmetric.py
 tests/test_consent_signing_dev_rollout_contract.py
 tests/test_console_triage_regressions.py
@@ -71,6 +72,7 @@ tests/test_firebase_auth_contract.py
 tests/test_generated_contract_packaging.py
 tests/test_gcp_backend.py
 tests/test_gcp_backend_cost_labels.py
+tests/test_pod_cost_is_attributable.py
 tests/test_gcp_backend_cpu_allocation.py
 tests/test_gcp_backend_pod_project.py
 tests/test_gcp_run_client.py
@@ -174,6 +176,7 @@ tests/test_pod_storage.py
 tests/test_pod_turn_grounding.py
 tests/test_pod_turn_relay.py
 tests/test_pod_turn_route.py
+tests/test_pod_turn_reports_specialists.py
 tests/test_pod_wake_reachability.py
 tests/test_vault_keys_metadata.py
 tests/services/test_connections_service.py

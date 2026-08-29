@@ -2,10 +2,21 @@
 
 No DB, no network: the crypto + chain-verification logic is exercised directly,
 and the flag-gated, fail-safe mirror hook is tested with an injected fake.
+
+The chain signs under its OWN Ed25519 key (`token_signing.CONSENT_AUDIT`), never
+`APP_SIGNING_KEY`, so these tests configure that namespace rather than inheriting
+the hub's general-purpose key. Key separation is asserted in
+`test_consent_audit_chain_key_separation.py`.
 """
 
 from __future__ import annotations
 
+import base64
+import os
+
+import pytest
+
+from hushh_mcp.consent import token_signing
 from hushh_mcp.services import consent_audit_chain_service as cac
 from hushh_mcp.services.consent_audit_chain_service import (
     ConsentAuditChainService,
@@ -13,6 +24,31 @@ from hushh_mcp.services.consent_audit_chain_service import (
 )
 
 _SUBJECT = "owner_uid_abc"
+
+# A fixed test seed: Ed25519 is deterministic (RFC 8032), so a fixed seed keeps
+# the "hash and sign are deterministic" assertion meaningful.
+_TEST_AUDIT_SEED = base64.b64encode(bytes(range(32))).decode("ascii")
+
+
+@pytest.fixture(autouse=True)
+def _audit_signing_key(monkeypatch):
+    monkeypatch.setenv(cac.CONSENT_AUDIT.alg_env, "ed25519")
+    monkeypatch.setenv(cac.CONSENT_AUDIT.private_key_env, _TEST_AUDIT_SEED)
+    monkeypatch.setenv(cac.CONSENT_AUDIT.kid_env, "hushh-audit-test")
+    token_signing.reset_caches()
+    yield
+    token_signing.reset_caches()
+
+
+def test_the_chain_refuses_to_sign_without_its_own_key():
+    """The failure this replaced was silent. A chain that quietly falls back to a
+    key the hub already holds looks identical to one that is properly separated,
+    which is how it was signed with the token-minting key for months."""
+    os.environ.pop(cac.CONSENT_AUDIT.private_key_env, None)
+    os.environ[cac.CONSENT_AUDIT.alg_env] = "hmac"
+    token_signing.reset_caches()
+    with pytest.raises(cac.AuditSigningKeyMissing):
+        cac._sign("0" * 64)
 
 
 def _receipt(seq, prev_hash, **overrides):
@@ -28,10 +64,12 @@ def _receipt(seq, prev_hash, **overrides):
         "metadata": {},
     }
     fields.update(overrides)
-    payload = cac._canonical_payload(subject_id=_SUBJECT, seq=seq, **fields)
+    ledger = fields.pop("ledger", cac.LEDGER_CONSENT)
+    payload = cac._canonical_payload(subject_id=_SUBJECT, ledger=ledger, seq=seq, **fields)
     h = cac._chain_hash(prev_hash, payload)
     return {
         "subject_id": _SUBJECT,
+        "ledger": ledger,
         "seq": seq,
         **fields,
         "prev_hash": prev_hash,
@@ -53,6 +91,7 @@ def _valid_chain(n=3):
 def test_hash_and_sign_are_deterministic():
     payload = cac._canonical_payload(
         subject_id=_SUBJECT,
+        ledger=cac.LEDGER_CONSENT,
         seq=1,
         event_type="GRANTED",
         agent_id="a",
@@ -189,7 +228,7 @@ class _StubChain(ConsentAuditChainService):
     def __init__(self, receipts):
         self._receipts = receipts
 
-    async def list_receipts(self, subject_id, limit=5000):  # noqa: ARG002
+    async def list_receipts(self, subject_id, limit=5000, ledger=cac.LEDGER_CONSENT):  # noqa: ARG002
         return self._receipts
 
 

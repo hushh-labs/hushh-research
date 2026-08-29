@@ -180,8 +180,60 @@ def check_grep(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
 def check_manual(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
     """Something only a human or a live environment can settle. It is never PASS
     from here -- recording it as UNKNOWN is the honest answer and keeps it visible
-    instead of letting it drift into the passing column."""
+    instead of letting it drift into the passing column.
+
+    Use this sparingly. An item that is permanently `manual` is permanently
+    UNKNOWN, and a judge that can never reach YES is red on every run forever,
+    which is how a nag becomes furniture. Prefer `receipt` for anything a live run
+    can settle, so the item can pass while it is fresh and go red when it is not.
+    """
     return UNKNOWN, str(item.get("note") or "needs a human or a live environment")
+
+
+def check_receipt(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
+    """A dated proof from a live run, which EXPIRES.
+
+    This is the answer to the worst failure mode available to this file: a
+    human-typed verdict that is true on the day it is written and re-printed
+    forever afterwards. That is the `currently` field this ledger exists to
+    abolish, wearing a different name.
+
+    A receipt passes only while it is fresh AND its reproduction path still
+    exists in the tree. It does not decay into UNKNOWN, it FAILS, because a stale
+    proof is actionable ("run it again") in a way that "we could not look" is not.
+    An untracked reproduction path fails too: a proof nobody else can re-run is a
+    claim, not evidence.
+    """
+    from datetime import date, timedelta  # noqa: PLC0415
+
+    raw = str(item.get("verified_on") or "").strip()
+    if not raw:
+        # No passing run has ever been recorded. That is a FAIL, not an UNKNOWN:
+        # the run is available to anyone who wants it, so the honest reading is
+        # "nobody has made this true yet", which is work, not a blind spot.
+        pending = str(item.get("pending") or "").strip()
+        return FAIL, f"no passing receipt yet{': ' + pending if pending else ''}"
+    try:
+        verified = date.fromisoformat(raw)
+    except ValueError:
+        return FAIL, f"verified_on {raw!r} is not an ISO date"
+
+    reproduce = str(item.get("reproduce") or "").strip()
+    if not reproduce:
+        return FAIL, "receipt names no reproduction path"
+    if not (REPO_ROOT / reproduce).exists():
+        return (
+            FAIL,
+            f"reproduction path {reproduce} is not in the tree, so nobody else can re-run it",
+        )
+
+    window = int(item.get("expires_after_days") or 30)
+    expires = verified + timedelta(days=window)
+    today = date.today()
+    if today > expires:
+        age = (today - verified).days
+        return FAIL, f"receipt is {age}d old (window {window}d); re-run {reproduce}"
+    return PASS, f"verified {raw}, fresh until {expires.isoformat()}"
 
 
 CHECKS = {
@@ -189,6 +241,7 @@ CHECKS = {
     "command": check_command,
     "grep": check_grep,
     "manual": check_manual,
+    "receipt": check_receipt,
 }
 
 
@@ -207,7 +260,61 @@ def load_ledger(path: Path) -> list[dict[str, Any]]:
     return items
 
 
-def judge(items: list[dict[str, Any]], *, only: str = "", timeout: int = 300) -> JudgeReport:
+class VoidRun(RuntimeError):
+    """The judge's own controls failed, so it publishes no verdict at all.
+
+    Borrowed verbatim in spirit from the house judging contract
+    (`.codex/skills/puppy-one-harness/references/judging-contract.md`): a void run
+    publishes NO result, "not a number with a caveat, because a number with a
+    caveat gets quoted without the caveat". The same two controls apply here:
+    a negative control that passes means the judge is not reading, and a positive
+    control that fails means it over-flags, and its complaints are noise nobody
+    can act on.
+    """
+
+
+def run_controls(timeout: int = 30) -> None:
+    """Two synthetic items the judge must get right before it may grade anything.
+
+    Cheap enough to run on every invocation, which is the point: the controls are
+    worthless if they are a separate step someone can skip.
+    """
+    positive = {
+        "id": "__control_pass__",
+        "statement": "a check that must pass",
+        "falsifiable": True,
+        "check": {"kind": "command", "command": "true"},
+    }
+    negative = {
+        "id": "__control_fail__",
+        "statement": "a check that must fail",
+        "falsifiable": True,
+        "check": {"kind": "command", "command": "false"},
+    }
+    probe = judge([positive, negative], timeout=timeout, _controlled=False)
+    got = {v.id: v.status for v in probe.verdicts}
+    if got.get("__control_pass__") != PASS:
+        raise VoidRun(
+            "positive control did not pass: the judge over-flags, so its failures are noise"
+        )
+    if got.get("__control_fail__") != FAIL:
+        raise VoidRun(
+            "negative control did not fail: the judge is not reading, so nothing it says is worth having"
+        )
+
+
+def judge(
+    items: list[dict[str, Any]],
+    *,
+    only: str = "",
+    timeout: int = 300,
+    _controlled: bool = True,
+) -> JudgeReport:
+    # The controls run before any real grading, and raise VoidRun rather than
+    # returning a degraded verdict. `_controlled=False` is used only by the
+    # controls themselves, so they cannot recurse.
+    if _controlled:
+        run_controls()
     report = JudgeReport()
     for item in items:
         ident = str(item.get("id") or "?")
@@ -302,7 +409,14 @@ def main() -> int:
         print(f"ledger not found: {ledger_path}")
         return 2
 
-    report = judge(load_ledger(ledger_path), only=args.only, timeout=args.timeout)
+    try:
+        report = judge(load_ledger(ledger_path), only=args.only, timeout=args.timeout)
+    except VoidRun as void:
+        # No verdict at all, deliberately. A caveated number gets quoted without
+        # the caveat, so the honest output here is the reason and nothing else.
+        print("VOID RUN: the judge published no verdict.")
+        print(f"  {void}")
+        return 2
     print(render(report))
     if args.report_path:
         Path(args.report_path).write_text(json.dumps(report.to_dict(), indent=2))
