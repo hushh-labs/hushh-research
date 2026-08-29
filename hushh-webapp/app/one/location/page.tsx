@@ -1643,12 +1643,25 @@ function LocalMapPreview({
   showNavigation = true,
   viewportResetKey,
   staleAction,
+  nested = false,
 }: {
   point: PlainLocationPoint;
   // Self-location previews do not need Directions/Start - you are already there.
   showNavigation?: boolean;
   viewportResetKey?: string | number;
   staleAction?: ReactNode;
+  /**
+   * True when a container already draws the card around this preview.
+   *
+   * Standalone (Check-In), this component IS the card and needs its own
+   * border and 24px radius. Inside SharedWithMeCard it sits in a subcard that
+   * already clips to 14px, and drawing a second 24px card inside a 14px clip
+   * is what sliced the outline off at the corners: the child bulged past the
+   * parent on all four, so the border read as the wrong shape rather than as
+   * a border at all. Nested, it inherits the container's rounding and draws
+   * no border of its own.
+   */
+  nested?: boolean;
 }) {
   const captured = formatDateTime(point.capturedAt);
   const accuracy = locationAccuracyLabel(point);
@@ -1668,7 +1681,14 @@ function LocalMapPreview({
         : `Paused · last seen ${freshness.agoLabel}`;
 
   return (
-    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
+    <div
+      className={cn(
+        "w-full min-w-0 max-w-full overflow-hidden bg-[color:var(--app-card-surface-default-solid)]",
+        nested
+          ? "rounded-[inherit]"
+          : "rounded-[var(--app-card-radius-standard)] border border-border/70",
+      )}
+    >
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
         <LiveMap point={point} viewportResetKey={viewportResetKey} />
         <div className="pointer-events-none absolute left-3 top-3">
@@ -13366,12 +13386,14 @@ export function OneLocationAgentPageContent({
       showNavigation,
       viewportResetKey,
       staleAction,
+      nested,
     ) => (
       <LocalMapPreview
         point={point}
         showNavigation={showNavigation}
         viewportResetKey={`${mapViewportResetKey}:${viewportResetKey ?? "default"}`}
         staleAction={staleAction}
+        nested={nested}
       />
     ),
     mapLocationHref: googleMapsLocationUrl,
