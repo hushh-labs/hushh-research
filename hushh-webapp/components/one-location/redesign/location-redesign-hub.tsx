@@ -420,7 +420,7 @@ export type LocationHubViewModel = {
   onWithdrawRequest: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
   onStopGrant: (grantId: string) => void;
-  /** Grant currently showing the inline duration editor, or null. */
+  /** Grant currently showing the duration editor, or null. */
   editingGrantId: string | null;
   /**
    * Grant whose duration is being saved, or null. Deliberately not
@@ -1705,15 +1705,34 @@ function NowHub({
           onEnded={vm.onLiveShareEnded}
         />
       ) : null}
-      {vm.liveShare && vm.liveShareDurationEditing ? (
-        <LiveShareDurationEditor
-          value={vm.liveShareDurationHours}
-          onChange={vm.setLiveShareDurationHours}
-          onCancel={vm.onEditLiveShareDurationCancel}
-          onSave={vm.onSaveLiveShareDuration}
-          saving={vm.liveShareDurationSaving}
-        />
-      ) : null}
+      <Dialog
+        open={Boolean(vm.liveShare && vm.liveShareDurationEditing)}
+        onOpenChange={(open) => {
+          if (!open) vm.onEditLiveShareDurationCancel();
+        }}
+      >
+        <DialogContent
+          className="max-w-[min(420px,calc(100%-2rem))] gap-4 rounded-[24px] p-4 sm:max-w-[420px]"
+          showCloseButton={!vm.liveShareDurationSaving}
+        >
+          <DialogHeader className="gap-1 text-left">
+            <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
+              Change time
+            </DialogTitle>
+            <DialogDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+              Set a new end time for this share.
+            </DialogDescription>
+          </DialogHeader>
+          <LiveShareDurationEditor
+            value={vm.liveShareDurationHours}
+            onChange={vm.setLiveShareDurationHours}
+            onCancel={vm.onEditLiveShareDurationCancel}
+            onSave={vm.onSaveLiveShareDuration}
+            saving={vm.liveShareDurationSaving}
+            surface={false}
+          />
+        </DialogContent>
+      </Dialog>
       {/* Every row and cell below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -4564,11 +4583,7 @@ function ShareFlow({
 }
 
 /**
- * The new-end-time editor that opens under the live share card.
- *
- * Inline rather than a sheet: the card it edits stays on screen above it, so
- * "27:03 left" and the time being picked are readable together, and there is
- * no overlay to trap focus in or size against a fresh set of widths.
+ * The new-end-time editor opened from the live share card.
  *
  * The wheel, not the four-option select the received-shares editor uses. This
  * one opens on what the share actually has left, and 32 minutes snapped to
@@ -4580,12 +4595,14 @@ function LiveShareDurationEditor({
   onCancel,
   onSave,
   saving,
+  surface = true,
 }: {
   value: string;
   onChange: (next: string) => void;
   onCancel: () => void;
   onSave: () => void;
   saving: boolean;
+  surface?: boolean;
 }) {
   // Same 30-second tick as the share confirm step: an editor left open must
   // not keep quoting an end time that has already gone past.
@@ -4597,7 +4614,11 @@ function LiveShareDurationEditor({
 
   return (
     <div
-      className={cn(SUBCARD_SURFACE, "space-y-4 p-4")}
+      className={cn(
+        surface ? SUBCARD_SURFACE : null,
+        "space-y-4",
+        surface ? "p-4" : null,
+      )}
       data-testid="one-location-live-share-duration-editor"
       data-ui-contract="control-group"
       data-ui-id="location-live-share-duration-editor"
