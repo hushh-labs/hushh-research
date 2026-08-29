@@ -10,9 +10,18 @@
  * not this file's. See the (forthcoming) `voice_domain_policy.py`.
  *
  * `enforced: false` domains render with a "Coming soon" badge instead of a
- * switch -- Finance and Calendar voice actions don't route through either of
- * the two server-side choke points the other domains share, so a toggle for
- * them would silently do nothing today.
+ * switch, for two different reasons that happen to want the same treatment:
+ *
+ * - Finance and Calendar voice actions don't route through either of the two
+ *   server-side choke points the other domains share, so a toggle for them
+ *   would silently do nothing.
+ * - Email and Identity verification DO route through them, but are not tested
+ *   or maintained right now, so offering a switch would present them as
+ *   supported. Turning either back on is a one-line change here.
+ *
+ * Note what this treatment does NOT do: it removes the person's ability to
+ * turn voice off for that domain, it does not turn voice off there. Voice
+ * still acts in an unenforced domain.
  */
 export type VoiceEngineDomainKey =
   | "location"
@@ -42,7 +51,9 @@ export const VOICE_ENGINE_DOMAINS: readonly VoiceEngineDomain[] = [
     key: "email",
     label: "Email",
     description: "Gmail connection and actions.",
-    enforced: true,
+    // Not tested or maintained right now, so it is shown as Coming soon
+    // rather than offered as a control someone might rely on.
+    enforced: false,
   },
   {
     key: "connected_systems",
@@ -66,7 +77,9 @@ export const VOICE_ENGINE_DOMAINS: readonly VoiceEngineDomain[] = [
     key: "kyc",
     label: "Identity verification",
     description: "KYC workflow steps.",
-    enforced: true,
+    // Same as Email: unmaintained today, so not presented as a working
+    // switch.
+    enforced: false,
   },
   {
     key: "finance",

@@ -33,6 +33,7 @@ vi.mock("@/lib/services/connections-service", () => ({
   },
 }));
 
+import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import {
   forgetVoicePreferences,
@@ -71,14 +72,43 @@ describe("VoicePreferencesPanel", () => {
     ).toBeChecked();
   });
 
-  it("Finance and Calendar show as coming soon, not a switch", () => {
+  it("unenforced domains show as coming soon, not a switch", () => {
+    // Two different reasons land on the same treatment. Finance and
+    // Calendar do not route through the server-side choke points, so a
+    // switch would silently do nothing. Email and Identity verification
+    // do route through them but are not maintained right now, so offering
+    // a switch would present them as supported.
     render(
       <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
     );
 
-    expect(screen.queryByRole("switch", { name: "Finance" })).toBeNull();
-    expect(screen.queryByRole("switch", { name: "Calendar" })).toBeNull();
-    expect(screen.getAllByText("Coming soon")).toHaveLength(2);
+    for (const label of [
+      "Finance",
+      "Calendar",
+      "Email",
+      "Identity verification",
+    ]) {
+      expect(screen.queryByRole("switch", { name: label })).toBeNull();
+    }
+    // Derived from the source of truth rather than hardcoded, so flipping a
+    // domain back on updates this test by construction instead of leaving
+    // a stale number to chase.
+    const unenforced = VOICE_ENGINE_DOMAINS.filter((domain) => !domain.enforced);
+    expect(screen.getAllByText("Coming soon")).toHaveLength(unenforced.length);
+  });
+
+  it("still offers a working switch for the domains that are supported", () => {
+    // The counterpart guard: marking things Coming soon must not quietly
+    // empty the panel of every real control.
+    render(
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
+    );
+
+    for (const domain of VOICE_ENGINE_DOMAINS.filter((entry) => entry.enforced)) {
+      expect(
+        screen.getByRole("switch", { name: domain.label }),
+      ).toBeInTheDocument();
+    }
   });
 
   it("turning off a domain persists to voice preferences", () => {
