@@ -1653,9 +1653,11 @@ class OneLocationAgentService:
             allow_email_handle=allow_email_handle,
             fallback="",
         )
+        photo_url = str(row.get("custom_photo_url") or row.get("photo_url") or "").strip()
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
+            "photoUrl": photo_url or None,
             "maskedEmail": mask_email(email) if email else None,
             "maskedPhone": masked_phone,
             "phoneVerified": bool(row.get("phone_verified")),
@@ -2545,8 +2547,18 @@ class OneLocationAgentService:
             "ownerUserId": str(row.get("owner_user_id") or ""),
             "recipientUserId": str(row.get("recipient_user_id") or ""),
             "ownerDisplayName": str(row.get("owner_display_name") or "") or None,
+            "ownerPhotoUrl": str(
+                row.get("owner_custom_photo_url") or row.get("owner_photo_url") or ""
+            )
+            or None,
             "ownerMaskedPhone": _mask_phone(row.get("owner_phone_number")),
             "recipientDisplayName": str(row.get("recipient_display_name") or "") or None,
+            "recipientPhotoUrl": str(
+                row.get("recipient_custom_photo_url")
+                or row.get("recipient_photo_url")
+                or ""
+            )
+            or None,
             "recipientMaskedPhone": _mask_phone(row.get("recipient_phone_number")),
             "recipientKeyId": str(row.get("recipient_key_id") or ""),
             "status": str(row.get("status") or ""),
@@ -2642,12 +2654,22 @@ class OneLocationAgentService:
             "ownerUserId": str(row.get("owner_user_id") or ""),
             "requesterUserId": str(row.get("requester_user_id") or ""),
             "requesterDisplayName": str(row.get("requester_display_name") or "") or None,
+            "requesterPhotoUrl": str(
+                row.get("requester_custom_photo_url")
+                or row.get("requester_photo_url")
+                or ""
+            )
+            or None,
             "requesterMaskedPhone": _mask_phone(row.get("requester_phone_number")),
             # Populated only by callers that joined the owner's identity (the
             # requester's own outgoing-request view) -- absent, and so None,
             # for list_pending_owner_requests, which never needs to tell the
             # owner who the owner is.
             "ownerDisplayName": str(row.get("owner_display_name") or "") or None,
+            "ownerPhotoUrl": str(
+                row.get("owner_custom_photo_url") or row.get("owner_photo_url") or ""
+            )
+            or None,
             "ownerMaskedPhone": _mask_phone(row.get("owner_phone_number")),
             "referredByUserId": str(row.get("referred_by_user_id") or "") or None,
             "status": str(row.get("status") or "pending"),
@@ -3772,6 +3794,7 @@ class OneLocationAgentService:
             """
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
+              COALESCE(a.custom_photo_url, a.photo_url) AS photo_url,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at,
               EXISTS (
                 SELECT 1
@@ -3904,6 +3927,7 @@ class OneLocationAgentService:
               SELECT
                 identity.user_id, identity.display_name, identity.email,
                 identity.phone_number, identity.phone_verified,
+                COALESCE(identity.custom_photo_url, identity.photo_url) AS photo_url,
                 LOWER(CASE
                   WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
                    AND BTRIM(identity.display_name) <> identity.user_id
@@ -3976,6 +4000,7 @@ class OneLocationAgentService:
             )
             SELECT page_rows.user_id, page_rows.display_name, page_rows.email,
                    page_rows.phone_number, page_rows.phone_verified,
+                   page_rows.photo_url,
                    recipient_key.key_id, recipient_key.public_key_jwk,
                    recipient_key.algorithm,
                    recipient_key.created_at AS key_created_at,
@@ -4155,6 +4180,7 @@ class OneLocationAgentService:
             """
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
+              COALESCE(a.custom_photo_url, a.photo_url) AS photo_url,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM actor_identity_cache a
             LEFT JOIN LATERAL (
@@ -6630,6 +6656,8 @@ class OneLocationAgentService:
             """
             SELECT
               g.*, owner.display_name AS owner_display_name, owner.phone_number AS owner_phone_number,
+              owner.photo_url AS owner_photo_url,
+              owner.custom_photo_url AS owner_custom_photo_url,
               envelope.id AS map_envelope_id,
               envelope.grant_id AS map_envelope_grant_id,
               envelope.owner_user_id AS map_envelope_owner_user_id,
@@ -7798,6 +7826,8 @@ class OneLocationAgentService:
                     SELECT
                       g.*,
                       r.display_name AS recipient_display_name,
+                      r.photo_url AS recipient_photo_url,
+                      r.custom_photo_url AS recipient_custom_photo_url,
                       r.phone_number AS recipient_phone_number
                     FROM one_location_share_grants g
                     LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
@@ -7813,6 +7843,8 @@ class OneLocationAgentService:
                     SELECT
                       g.*,
                       o.display_name AS owner_display_name,
+                      o.photo_url AS owner_photo_url,
+                      o.custom_photo_url AS owner_custom_photo_url,
                       o.phone_number AS owner_phone_number
                     FROM one_location_share_grants g
                     LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
@@ -7828,10 +7860,17 @@ class OneLocationAgentService:
                     SELECT
                       req.*,
                       requester.display_name AS requester_display_name,
+                      requester.photo_url AS requester_photo_url,
+                      requester.custom_photo_url AS requester_custom_photo_url,
                       requester.phone_number AS requester_phone_number,
+                      owner.display_name AS owner_display_name,
+                      owner.photo_url AS owner_photo_url,
+                      owner.custom_photo_url AS owner_custom_photo_url,
+                      owner.phone_number AS owner_phone_number,
                       extended.expires_at AS extends_grant_expires_at
                     FROM one_location_access_requests req
                     LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
+                    LEFT JOIN actor_identity_cache owner ON owner.user_id = req.owner_user_id
                     -- The live share an extra-time ask is about. Joined here so both
                     -- sides can render "3 more hours on top of the 45 minutes left"
                     -- from the state they already load, with no per-row round trip.
@@ -8108,6 +8147,8 @@ class OneLocationAgentService:
             SELECT
               g.*,
               r.display_name AS recipient_display_name,
+              r.photo_url AS recipient_photo_url,
+              r.custom_photo_url AS recipient_custom_photo_url,
               r.phone_number AS recipient_phone_number
             FROM one_location_share_grants g
             LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
@@ -8132,6 +8173,8 @@ class OneLocationAgentService:
             SELECT
               g.*,
               o.display_name AS owner_display_name,
+              o.photo_url AS owner_photo_url,
+              o.custom_photo_url AS owner_custom_photo_url,
               o.phone_number AS owner_phone_number
             FROM one_location_share_grants g
             LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
@@ -8151,6 +8194,8 @@ class OneLocationAgentService:
             SELECT
               req.*,
               requester.display_name AS requester_display_name,
+              requester.photo_url AS requester_photo_url,
+              requester.custom_photo_url AS requester_custom_photo_url,
               requester.phone_number AS requester_phone_number,
               extended.expires_at AS extends_grant_expires_at
             FROM one_location_access_requests req
@@ -8175,6 +8220,8 @@ class OneLocationAgentService:
             SELECT
               req.*,
               owner.display_name AS owner_display_name,
+              owner.photo_url AS owner_photo_url,
+              owner.custom_photo_url AS owner_custom_photo_url,
               owner.phone_number AS owner_phone_number,
               extended.expires_at AS extends_grant_expires_at
             FROM one_location_access_requests req

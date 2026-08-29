@@ -83,6 +83,7 @@ export function resolveCircleRecipientSelection(params: {
       recipient: {
         userId,
         displayName: member.displayName,
+        photoUrl: member.photoUrl ?? null,
         phoneVerified: member.phoneVerified,
         keyId: member.keyId!,
         publicKeyJwk: member.publicKeyJwk!,
@@ -145,6 +146,7 @@ export function mergeRecipientsByUserId(
           recipient.recommendationReasons ?? existing?.recommendationReasons,
         recommendationSummary:
           recipient.recommendationSummary ?? existing?.recommendationSummary,
+        photoUrl: recipient.photoUrl ?? existing?.photoUrl ?? null,
       });
     }
   }

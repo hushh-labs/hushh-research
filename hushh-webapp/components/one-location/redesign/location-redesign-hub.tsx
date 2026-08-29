@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -2326,7 +2327,12 @@ function LocationDetailFlow({
               return (
                 <SettingsRow
                   key={group.counterpartUserId}
-                  leading={<ActiveShareAvatar name={name} />}
+                  leading={
+                    <ActiveShareAvatar
+                      name={name}
+                      photoUrl={group.primaryGrant.recipientPhotoUrl}
+                    />
+                  }
                   title={name}
                   description={
                     single ? (
@@ -2418,6 +2424,7 @@ function LocationDetailFlow({
                   <SharedWithMeCard
                     isSmsTriggered={Boolean(group.smsGrant)}
                     name={ownerName}
+                    photoUrl={grant.ownerPhotoUrl}
                     statusLine={
                       multiLane ? (
                         `${group.grants.length} live shares`
@@ -2556,6 +2563,7 @@ function LocationDetailFlow({
               <div key={request.id} data-request-id={request.id}>
                 <RequestCard
                   name={vm.requesterLabel(request)}
+                  photoUrl={request.requesterPhotoUrl}
                   // The amount, and whether it is extra time on a share already
                   // running. Every card used to read "Asks to see your location"
                   // whether the person wanted fifteen minutes or another day.
@@ -2956,10 +2964,16 @@ function personInitials(name: string): string {
   return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
 }
 
-function ActiveShareAvatar({ name }: { name: string }) {
+function ActiveShareAvatar({
+  name,
+  photoUrl,
+}: {
+  name: string;
+  photoUrl?: string | null;
+}) {
   return (
     <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center">
-      <Avatar initials={personInitials(name)} size={40} />
+      <Avatar initials={personInitials(name)} imageUrl={photoUrl} size={40} />
       <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[#34C759]" />
     </span>
   );
@@ -3022,6 +3036,7 @@ function StopGrantTextButton({
 /** One person in the People list: avatar (+ live dot) · name · status · action. */
 function PersonRow({
   name,
+  photoUrl,
   fromContacts,
   subtitle,
   active,
@@ -3030,6 +3045,7 @@ function PersonRow({
   expansion,
 }: {
   name: string;
+  photoUrl?: string | null;
   fromContacts?: boolean;
   subtitle: string;
   /** True when there's a live connection (you're sharing or they're sharing). */
@@ -3044,6 +3060,9 @@ function PersonRow({
    */
   expansion?: ReactNode;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = Boolean(photoUrl) && !imageFailed;
+
   return (
     // The separator and the hover wash belong to the whole row INCLUDING its
     // breakdown: a person's two shares are one row, and a hairline cutting
@@ -3057,8 +3076,24 @@ function PersonRow({
     >
       <div className="flex min-h-[60px] items-center gap-3 px-4 py-2.5 sm:min-h-16">
         <div className="relative shrink-0">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]">
-            {personInitials(name)}
+          <span
+            className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]"
+            aria-hidden
+          >
+            {showImage && photoUrl ? (
+              <Image
+                src={photoUrl}
+                alt=""
+                fill
+                sizes="36px"
+                unoptimized
+                referrerPolicy="no-referrer"
+                className="object-cover"
+                onError={() => setImageFailed(true)}
+              />
+            ) : (
+              personInitials(name)
+            )}
           </span>
           {active ? (
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
@@ -3403,6 +3438,7 @@ export function PeopleHub({
                       <PersonRow
                         key={r.userId}
                         name={name}
+                        photoUrl={r.photoUrl}
                         fromContacts={r.connectedFromContacts}
                         expansion={
                           shareGroup && !singleGrant ? (
@@ -4147,7 +4183,7 @@ function ShareFlow({
             ? `${selected ? "Deselect" : "Select"} ${label} for private sharing`
             : undefined
         }
-        leading={<Avatar initials={initialsFrom(label)} />}
+        leading={<Avatar initials={initialsFrom(label)} imageUrl={r.photoUrl} />}
         title={
           <span className="flex min-w-0 items-start gap-1.5">
             <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -4646,6 +4682,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 
 function RequestRecipientListRow({
   name,
+  photoUrl,
   fromContacts,
   subtitle,
   tone,
@@ -4662,6 +4699,7 @@ function RequestRecipientListRow({
   expandedContent,
 }: {
   name: string;
+  photoUrl?: string | null;
   fromContacts?: boolean;
   subtitle?: string;
   tone: "ready" | "pending" | "neutral";
@@ -4692,7 +4730,7 @@ function RequestRecipientListRow({
       )}
     >
       <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
-        <ContactAvatar label={name} />
+        <ContactAvatar label={name} photoUrl={photoUrl} />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-start gap-1.5">
             <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
@@ -5165,6 +5203,7 @@ function AskFlow({
                 <RequestRecipientListRow
                   key={r.userId}
                   name={recipientLabel}
+                  photoUrl={r.photoUrl}
                   fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
@@ -5313,12 +5352,12 @@ function SelectedRecipientsRail({
             {recipients.slice(0, 3).map((recipient) => {
               const label = recipientLabel(recipient);
               return (
-                <span
+                <ContactAvatar
                   key={recipient.userId}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
-                >
-                  {initialsFrom(label)}
-                </span>
+                  label={label}
+                  photoUrl={recipient.photoUrl}
+                  className="h-9 w-9 border-2 border-[color:var(--app-card-surface-default-solid)] text-[13px]"
+                />
               );
             })}
             <span className="flex h-9 min-w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] px-2 text-[13px] font-semibold text-[color:var(--app-secondary-label)]">
@@ -5349,7 +5388,11 @@ function SelectedRecipientsRail({
                 role="listitem"
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
-                <ContactAvatar label={label} className="h-8 w-8 text-[13px]" />
+                <ContactAvatar
+                  label={label}
+                  photoUrl={recipient.photoUrl}
+                  className="h-8 w-8 text-[13px]"
+                />
                 <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
                   <span className="min-w-0 flex-1 truncate">{label}</span>
                   {recipient.connectedFromContacts ? (
