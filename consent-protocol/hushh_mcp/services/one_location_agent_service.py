@@ -2554,9 +2554,7 @@ class OneLocationAgentService:
             "ownerMaskedPhone": _mask_phone(row.get("owner_phone_number")),
             "recipientDisplayName": str(row.get("recipient_display_name") or "") or None,
             "recipientPhotoUrl": str(
-                row.get("recipient_custom_photo_url")
-                or row.get("recipient_photo_url")
-                or ""
+                row.get("recipient_custom_photo_url") or row.get("recipient_photo_url") or ""
             )
             or None,
             "recipientMaskedPhone": _mask_phone(row.get("recipient_phone_number")),
@@ -2655,9 +2653,7 @@ class OneLocationAgentService:
             "requesterUserId": str(row.get("requester_user_id") or ""),
             "requesterDisplayName": str(row.get("requester_display_name") or "") or None,
             "requesterPhotoUrl": str(
-                row.get("requester_custom_photo_url")
-                or row.get("requester_photo_url")
-                or ""
+                row.get("requester_custom_photo_url") or row.get("requester_photo_url") or ""
             )
             or None,
             "requesterMaskedPhone": _mask_phone(row.get("requester_phone_number")),
