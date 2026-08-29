@@ -13,8 +13,9 @@ describe("Connect canonical surface contract", () => {
     );
 
     expect(source).toContain("<AppPageShell");
-    expect(source).toContain('width="reading"');
+    expect(source).toContain('width="standard"');
     expect(source).toContain("<PageHeader");
+    expect(source).toContain("icon={BookUser}");
     expect(source).not.toContain('eyebrow="One"');
     expect(source).not.toContain("icon={Users}\n          accent");
     expect(source).toContain("<SettingsGroup");
@@ -32,6 +33,7 @@ describe("Connect canonical surface contract", () => {
     // Asserted as behaviour rather than an exact ternary so a later refactor
     // of the avatar is not blocked by the shape of this line.
     expect(source).toContain("<ConnectPersonAvatar");
+    expect(source).toContain("photoUrl={connection.photoUrl ?? null}");
     expect(source).toContain("photoUrl={person.photoUrl}");
     expect(source).toContain("verified={Boolean(person.isRia)}");
     expect(source).toContain("BadgeCheck");
@@ -75,11 +77,11 @@ describe("Connect canonical surface contract", () => {
     expect(source).not.toContain("offeredHandles: catalog.offerableItems");
   });
 
-  it("keeps the three-tab strip narrow enough that no tab title truncates", () => {
-    // Measured, not assumed. With the strip's stock 16px option padding, three
-    // tabs on a 375px screen left "Around you" 77px of the 80px it needs, and
-    // it rendered as "Around yo…". Tab titles are ours, not user content, so an
-    // ellipsis in one is a defect rather than graceful degradation.
+  it("keeps the four-option hub strip narrow enough that no tab title truncates", () => {
+    // Measured, not assumed. With the strip's stock 16px option padding, the
+    // hub's widest label is the first thing to lose useful space at phone
+    // widths. Tab titles are ours, not user content, so an ellipsis in one is a
+    // defect rather than graceful degradation.
     //
     // Chromium against the built stylesheet, after this override: 320/360/375/
     // 390/430/768/1280px all clean, no horizontal overflow, strip height
@@ -94,9 +96,9 @@ describe("Connect canonical surface contract", () => {
     expect(source).toContain(
       '"[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"',
     );
-    // Three tabs is the reason the padding has to give; a fourth would need the
-    // measurement redone rather than this override stretched further.
-    expect(source).toContain('["people", "advisors", "nearby"] as const');
+    expect(source).toContain(
+      '["people", "advisors", "nearby", "circles"] as const',
+    );
   });
 
   it("renders a privacy-safe masked identity when duplicate names need disambiguation", () => {
@@ -130,11 +132,11 @@ describe("Connect canonical surface contract", () => {
 });
 
 describe("voice actions land on a surface that is actually showing", () => {
-  it("brings Connections forward before it touches the inner strip", () => {
-    // `setTab` moves a control that is not on screen while Circles is showing,
-    // so "open people" reported success and did nothing. A voice action that
-    // lies about what happened is worse than one that refuses: the person
-    // stops watching for a result that is never coming.
+  it("brings the directory surface forward before it touches the hub tab", () => {
+    // `setTab` moves a control that is not active while Circles is showing, so
+    // "open people" reported success and did nothing. A voice action that lies
+    // about what happened is worse than one that refuses: the person stops
+    // watching for a result that is never coming.
     const source = readFileSync(
       join(process.cwd(), "app/connect/page-client.tsx"),
       "utf8",
@@ -149,7 +151,7 @@ describe("voice actions land on a surface that is actually showing", () => {
       expect(start, action).toBeGreaterThan(-1);
       const body = source.slice(start, source.indexOf("useLocalOnboardingActionHandler", start + 10));
       expect(body, action).toContain('selectSurface("all")');
-      // And it does so before the inner strip, so the strip is mounted.
+      // And it does so before the hub tab changes, so the directory is active.
       expect(
         body.indexOf('selectSurface("all")'),
         action,
