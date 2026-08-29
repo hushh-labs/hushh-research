@@ -237,7 +237,9 @@ describe("ConnectCirclesTab", () => {
     expect(screen.getByText("SMS Circle")).toBeTruthy();
     expect(screen.getByText("Roommates")).toBeTruthy();
     expect(screen.getByTestId("connect-circle-trusted")).toBeTruthy();
-    expect(screen.getByTestId("connect-circle-sms")).toBeTruthy();
+    const smsCircle = screen.getByTestId("connect-circle-sms");
+    expect(smsCircle).toBeTruthy();
+    expect(smsCircle.querySelector("[data-one-sms-text-icon]")).toBeTruthy();
   });
 
   it("renders the server's name for a Circle you do not own", async () => {

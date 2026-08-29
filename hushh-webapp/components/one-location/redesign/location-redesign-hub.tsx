@@ -49,6 +49,7 @@ import {
   shortAgo,
   type RequestRecipientStatus,
 } from "@/lib/one-location/request-recipient-status";
+import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
   formatLocationDurationLabel,
@@ -1717,11 +1718,7 @@ function NowHub({
             title: "Save My Soul",
             subtitle: "Emergency alert",
             ariaLabel: "Save My Soul emergency alert",
-            icon: (
-              <span className="text-[10px] font-semibold leading-none">
-                SMS
-              </span>
-            ),
+            icon: <SmsTextIcon />,
             tone: "red",
             onClick: onSos,
             controlId: "one-location-action-sos",
