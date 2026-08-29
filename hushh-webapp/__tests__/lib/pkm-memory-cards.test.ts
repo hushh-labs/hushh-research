@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPkmMemorySnapshot,
   deletePkmDomainValue,
+  pkmMemoryRowLabels,
   selectRelevantPkmMemoryCards,
   updatePkmDomainValue,
 } from "@/lib/pkm/pkm-memory-cards";
@@ -169,5 +170,44 @@ describe("PKM memory cards", () => {
     expect(card.pathSegments).toContain("sf_residence_001");
     expect(card.detail).not.toMatch(/sf residence|sf_residence_001/i);
     expect(card.detail).toContain("Changes");
+  });
+
+  describe("pkmMemoryRowLabels", () => {
+    it("uses the leaf path segment as the row name and the value sentence as the subtitle", () => {
+      const snapshot = buildPkmMemorySnapshot({
+        metadata,
+        fullBlob: {
+          professional: { preferences: { morning_flights: "morning flights" } },
+        },
+      });
+      const card = snapshot.cards.find((entry) => entry.path.endsWith("morning_flights"));
+      expect(card).toBeDefined();
+
+      const labels = pkmMemoryRowLabels(card!);
+      expect(labels.primary).toBe("Morning Flights");
+      expect(labels.secondary).toBe("morning flights");
+    });
+
+    it("falls back to the raw value when the name would echo the sentence", () => {
+      const labels = pkmMemoryRowLabels({
+        id: "financial:x",
+        domain: "financial",
+        domainTitle: "Financial",
+        title: "Risk Profile",
+        detail: "Stored in Financial.",
+        value: "balanced",
+        valueFingerprint: "fp",
+        path: "profile.risk_profile",
+        pathSegments: ["profile", "risk_profile"],
+        sourceLabel: "Saved memory",
+        updatedAt: null,
+        confidence: 0.9,
+        kind: "financial",
+        editable: true,
+        searchText: "financial risk profile balanced",
+      });
+      expect(labels.primary).toBe("Risk Profile");
+      expect(labels.secondary).toBe("balanced");
+    });
   });
 });

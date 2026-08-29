@@ -334,6 +334,51 @@ export function selectRelevantPkmMemoryCards(
     .slice(0, limit);
 }
 
+const GENERIC_LEAF_LABELS = new Set([
+  "value",
+  "values",
+  "detail",
+  "details",
+  "profile",
+  "data",
+  "entry",
+  "item",
+  "note",
+  "notes",
+]);
+
+/**
+ * Human-readable labels for one memory row.
+ *
+ * `primary` is a short noun ("Morning flights", "Risk profile") derived from the
+ * last meaningful path segment; `secondary` is the readable value sentence
+ * ("You prefer morning flights"). When the derived name would just echo the
+ * sentence, the raw value is used as the subtitle instead so the row never
+ * repeats itself.
+ */
+export function pkmMemoryRowLabels(card: PkmMemoryCard): {
+  primary: string;
+  secondary: string;
+} {
+  const leaf = [...card.pathSegments]
+    .reverse()
+    .find((segment): segment is string => typeof segment === "string" && segment.trim().length > 0);
+  const derived = leaf ? titleize(leaf) : "";
+  const primary =
+    derived && !GENERIC_LEAF_LABELS.has(derived.toLowerCase())
+      ? derived
+      : card.domainTitle;
+  const value = compact(card.value);
+  let sentence = compact(card.title);
+  const prefix = `${primary}: `.toLowerCase();
+  if (sentence.toLowerCase().startsWith(prefix)) {
+    sentence = sentence.slice(prefix.length).trim();
+  }
+  const secondary =
+    sentence && sentence.toLowerCase() !== primary.toLowerCase() ? sentence : value;
+  return { primary, secondary };
+}
+
 function domainInsightSummary(params: {
   domain: DomainSummary | undefined;
   cards: readonly PkmMemoryCard[];
@@ -419,7 +464,7 @@ export function buildPkmMemorySnapshot(params: {
       ...(params.metadata?.domains.map((domain) => domain.key).filter(Boolean) || []),
       ...Object.keys(params.fullBlob || {}),
     ])
-  );
+  ).filter((domainKey) => !shouldSkipPkmMemoryKey(domainKey));
 
   const cardsByDomain = new Map<string, PkmMemoryCard[]>();
   for (const domainKey of domainKeys) {
