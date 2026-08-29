@@ -6373,6 +6373,69 @@ describe("OneLocationAgentPage", () => {
     }
   }, 15000);
 
+  it("offers the common lengths as one tap, with the wheel behind Custom", async () => {
+    // The report: Change time opened straight onto a two-column scroll wheel.
+    // Almost every change to a running share is one of five lengths, so those
+    // are now always visible and cost one tap each. The wheel is still
+    // reachable for anything in between -- removed from the default view, not
+    // removed.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      const card = await screen.findByTestId("one-location-live-share");
+      await act(async () => {
+        fireEvent.click(
+          within(card).getByTestId("one-location-live-share-change-time"),
+        );
+      });
+      const editor = await screen.findByTestId(
+        "one-location-live-share-duration-editor",
+      );
+
+      for (const label of [
+        "15 min",
+        "1 hour",
+        "2 hours",
+        "4 hours",
+        "8 hours",
+        "Until I stop",
+      ]) {
+        expect(
+          within(editor).getByRole("button", { name: label }),
+        ).toBeInTheDocument();
+      }
+
+      // One tap on a rung is the whole interaction -- no drag, no confirm
+      // step of its own before Save.
+      await act(async () => {
+        fireEvent.click(within(editor).getByRole("button", { name: "2 hours" }));
+      });
+      await act(async () => {
+        fireEvent.click(
+          within(editor).getByTestId("one-location-live-share-duration-save"),
+        );
+      });
+
+      await waitFor(() =>
+        expect(mockSetGrantDuration).toHaveBeenCalledWith(
+          expect.objectContaining({
+            grantId: "grant_1",
+            durationHours: 2,
+          }),
+        ),
+      );
+      // Same grant, still. Changing a length must not read as end-and-restart.
+      expect(mockRevokeGrant).not.toHaveBeenCalled();
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
+
   it("remembers the running share on the device, and only ids and times", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));

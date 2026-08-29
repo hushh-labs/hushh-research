@@ -151,7 +151,7 @@ import {
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
-import { REQUEST_DURATION_LADDER } from "./duration-presets";
+import { FULL_DURATION_LADDER } from "./duration-presets";
 import {
   LiveShareStatusCard,
   ShareCountdownText,
@@ -4597,16 +4597,31 @@ function LiveShareDurationEditor({
       data-ui-contract="control-group"
       data-ui-id="location-live-share-duration-editor"
     >
+      {/*
+        Presets, not the bare wheel this used to open on. Almost every change
+        to a running share is one of the same five lengths, and the wheel
+        charged ~200px plus two coordinated drags to reach any of them --
+        inside a card that already sits under the live-share status block. The
+        wheel is still here for anything in between, behind `Custom`, where it
+        costs nothing until somebody asks for it. Same control the Request
+        screen already uses, so the two duration screens stop disagreeing.
+
+        `until_stopped` stays available: this is a decision about your own
+        location, so open-ended is a real answer here (unlike the Request lane,
+        which turns the rung off).
+      */}
       <DurationSelector
         value={value}
         onChange={onChange}
-        presentation="wheel"
+        presentation="ladder"
+        rungs={FULL_DURATION_LADDER}
         untilStopValue="until_stopped"
         label="New time"
+        // Beside the label rather than on its own line under the control --
+        // "New time … Ends 6:50 PM" is one statement, and it is how every
+        // other ladder on these screens already reads.
+        hint={shareEndsAtLabel(value, nowMs)}
       />
-      <p className={MUTED_TEXT} aria-live="polite">
-        {shareEndsAtLabel(value, nowMs)}
-      </p>
       <div className="grid grid-cols-2 gap-2">
         <Button
           variant="ghost"
@@ -5068,7 +5083,7 @@ function AskFlow({
               label="How long"
               presentation="ladder"
               allowUntilStop={false}
-              rungs={REQUEST_DURATION_LADDER}
+              rungs={FULL_DURATION_LADDER}
             />
             <ReasonChips
               value={reason}

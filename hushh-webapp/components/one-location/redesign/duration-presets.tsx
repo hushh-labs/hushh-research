@@ -33,7 +33,13 @@ export const SHARE_DURATION_LADDER: DurationRung[] = [
   { value: "1", label: "1 hour" },
 ];
 
-export const REQUEST_DURATION_LADDER: DurationRung[] = [
+/**
+ * The fuller ladder, used by the Request screen and by the live-share "New
+ * time" editor. Named for its shape rather than one lane, because it now
+ * serves both: a person changing an active share reaches for the same five
+ * lengths as a person asking for one.
+ */
+export const FULL_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
   { value: "1", label: "1 hour" },
   { value: "2", label: "2 hours" },
