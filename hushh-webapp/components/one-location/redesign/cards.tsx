@@ -627,7 +627,7 @@ export function SharedWithMeCard({
               rel="noopener noreferrer"
               aria-label="Open shared location in Google Maps"
             >
-              Open in Maps
+              Open in Google Maps
               <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
             </a>
           </Button>
