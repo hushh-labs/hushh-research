@@ -1,0 +1,242 @@
+# The private-pod completion ledger.
+#
+# WHAT THIS IS
+# Every item is something that must be TRUE before "the private pod deployment is
+# complete" is an honest sentence. Each carries a CHECK, and its status is whatever
+# running that check says today. There is deliberately no status field: nobody can
+# mark an item done, they can only make its check pass. Status is derived, never
+# declared, because a declared status is the failure this programme keeps hitting.
+#
+# THE TWO RULES A NEW ITEM MUST FOLLOW
+# 1. `falsifiable: true` only if the check genuinely FAILS when the thing is broken.
+#    A check that cannot fail is not evidence, and the judge reports it as a defect
+#    in this file rather than counting it as passing.
+# 2. If it cannot be evaluated where the judge runs, it reports UNKNOWN, never PASS.
+#    Use `blocked_by` for things gated on something outside our control, so the judge
+#    stops nagging about the unfixable and starts nagging about the actionable.
+#
+# Run it:  uv run python scripts/ops/pod_completion_judge.py   (from consent-protocol/)
+
+version: 1
+subject: "Hussh private agent pod, all tiers: hushh-hosted, user-cloud BYOC, on-device"
+
+assertions:
+  # ---------------------------------------------------------------- the front door
+  - id: firstrun-person-reaches-cloud-choice
+    requirement: First run
+    statement: "A brand-new person can reach the screen that asks where their agent should live."
+    falsifiable: true
+    owner_action: >-
+      Reduce the setup-gate fan-out (14 DB routes on first paint against
+      DB_POOL_MAX_SIZE=4 produced 10 pool-acquire timeouts and a 125s call), and bound
+      the OnboardingJourneyGuard admission check so a hang becomes an honest error.
+    check:
+      kind: manual
+      note: >-
+        Needs the local stack plus a fresh uid. Driver: scratchpad/diagnose-firstrun.mjs.
+        Measured FAILING on 2026-08-28: the screen sits on "Checking setup..." forever.
+
+  - id: firstrun-guard-is-time-bounded
+    requirement: First run
+    statement: "The setup admission check cannot spin forever; a hang becomes a visible error."
+    falsifiable: true
+    owner_action: "Add an upper bound to the guard's admission await, alongside its existing catch."
+    check:
+      kind: grep
+      path: hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
+      pattern: "ADMISSION_TIMEOUT_MS"
+      expect_present: true
+
+  - id: firstrun-fanout-within-pool
+    requirement: First run
+    statement: "The first-paint fan-out fits inside the connection pool it runs against."
+    falsifiable: true
+    owner_action: >-
+      Either cut the dashboard-only calls (gmail status, calendar status,
+      connected-systems, ria onboarding, feed counts) from behind the setup gate, or
+      raise _DB_POOL_MAX_SIZE for the lane. Cutting is the better fix.
+    check:
+      kind: manual
+      note: "Needs a live first-run trace to count concurrent DB routes. Measured 14 vs a pool of 4."
+
+  # ---------------------------------------------------------------- the seven
+  - id: identity-durable-across-restart
+    requirement: Identity
+    statement: "A pod keeps the same identity key across a genuine restart, and says so durably."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_lifecycle_drill.py
+
+  - id: identity-proven-on-live-infrastructure
+    requirement: Identity
+    statement: "The durable-identity claim has been demonstrated on a real pod, with a negative control."
+    falsifiable: true
+    check:
+      kind: manual
+      note: >-
+        PROVEN 2026-08-28 on hushh-pda-dev: same podKeyId across revisions 00001 and 00002,
+        podKeyDurable true on both, stored key read not rewritten, and a feature-off pod
+        reported not durable. Re-run scratchpad/prove_identity.py to reconfirm.
+
+  - id: persistence-recall-across-death
+    requirement: Persistence
+    statement: "An agent recalls what it was taught after its compute is destroyed and rebuilt."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_lifecycle_drill.py
+
+  - id: lifecycle-drill-can-fail
+    requirement: Persistence
+    statement: "The lifecycle drill fails a lifecycle that loses memory or re-mints identity."
+    falsifiable: true
+    check:
+      kind: command
+      command: "cd consent-protocol && uv run python scripts/ops/pod_lifecycle_drill.py --dry-run >/dev/null"
+      requires: [uv]
+
+  - id: parity-ruler-hub-grounding-independent
+    requirement: Capability
+    statement: "The parity probe never reads the hub's grounding off the pod it is judging."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_parity_probe.py
+
+  - id: parity-ruler-sees-specialists
+    requirement: Capability
+    statement: "A live pod turn reports which specialists served, so the ruler can see them."
+    falsifiable: true
+    owner_action: "Emit a `specialists` key from run_pod_turn; observe_pod already reads it."
+    check:
+      kind: grep
+      path: consent-protocol/api/routes/one/pod_turn.py
+      pattern: '"specialists"'
+      expect_present: true
+
+  - id: specialists-run-in-pod
+    requirement: Capability
+    statement: "The DB-backed specialists execute inside the pod rather than reaching a central service."
+    falsifiable: true
+    blocked_by: >-
+      Hub-side exact-authority threading. Three specialists are refused identically on
+      both sides today, which is honest but is not re-homing.
+    owner_action: "Land the nav/consent door first: deterministic, no model, no authority gate."
+    check:
+      kind: manual
+      note: "Certified by a live parity probe run once run_pod_turn reports specialists."
+
+  - id: consent-chain-detects-a-wipe
+    requirement: Authority
+    statement: "An emptied or truncated consent ledger fails verification instead of passing."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_consent_audit_chain.py
+
+  - id: consent-chain-not-signed-by-the-minting-key
+    requirement: Authority
+    statement: "The audit ledger is not signed with the same key that mints consent tokens."
+    falsifiable: true
+    owner_action: "Move the chain signature off APP_SIGNING_KEY (Ed25519 or a KMS-side sign)."
+    check:
+      kind: grep
+      path: consent-protocol/hushh_mcp/services/consent_audit_chain_service.py
+      pattern: "APP_SIGNING_KEY"
+      expect_present: false
+
+  - id: internal-actions-are-chained
+    requirement: Authority
+    statement: "The agent's own internal actions are written into the audit chain."
+    falsifiable: true
+    owner_action: >-
+      Route insert_internal_event through append_consent_receipt_safe. Today
+      insert_event diverts internal events (self, agent_kai, kai, OPERATION_PERFORMED,
+      device-scoped vault.owner) to insert_internal_event, which never chains them, so
+      the largest class of actions has no receipt.
+    check:
+      # Scoped to the FUNCTION, not the file. A file-wide grep passed because the
+      # chain call exists elsewhere for the primary ledger, which is exactly the
+      # false green this ledger is supposed to make impossible.
+      kind: command
+      command: >-
+        python3 -c "
+        import ast,sys,pathlib;
+        src=pathlib.Path('consent-protocol/hushh_mcp/services/consent_db.py').read_text();
+        t=ast.parse(src);
+        fns=[n for n in ast.walk(t) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name=='insert_internal_event'];
+        sys.exit(0 if fns and 'append_consent_receipt_safe' in ast.get_source_segment(src,fns[0]) else 1)"
+
+  - id: capability-wiring-is-closed-loop
+    requirement: Isolation
+    statement: "Every pod capability that is rendered is also emitted, and parked ones are wired nowhere."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_capability_wiring_is_closed_loop.py
+
+  - id: economics-cost-is-measured-not-estimated
+    requirement: Economics
+    statement: "The per-person cost is a measured number from real billed time."
+    falsifiable: true
+    check:
+      kind: manual
+      note: >-
+        MEASURED 2026-08-28 via Cloud Monitoring billable_instance_time: 0.5 vCPU / 1 GiB
+        = $0.0000145 per billable second; the identity-proof pod used 19.5s = $0.00028;
+        100 wakes/month = $0.0145. Model inference excluded and stated as such.
+
+  - id: economics-cost-attributable-per-pod
+    requirement: Economics
+    statement: "Spend can be attributed to an individual agent."
+    falsifiable: true
+    owner_action: >-
+      Assign space_id on PodSpec at the provision sites. It must be an OPAQUE derived
+      value: _label_value's docstring forbids a raw user id in a billing label.
+    check:
+      kind: grep
+      path: consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py
+      pattern: "space_id="
+      expect_present: true
+
+  # ---------------------------------------------------------------- operations
+  - id: pod-image-has-a-supported-upgrade-path
+    requirement: Lifecycle
+    statement: "A running pod can be moved to a newer image without losing its memory."
+    falsifiable: true
+    owner_action: >-
+      _ensure_pod_image deliberately pins the recorded digest so a heal cannot roll
+      forward, so an upgrade is currently an operator action outside the product.
+    check:
+      kind: manual
+      note: "No shipped path today. Verified by reading user_gcp_backend._execute_live."
+
+  - id: teardown-leaves-nothing-billing
+    requirement: Economics
+    statement: "Anything a drill or proof creates is gone afterwards."
+    falsifiable: true
+    check:
+      kind: command
+      command: >-
+        cd consent-protocol && uv run python scripts/ops/pod_fleet.py
+        --project hushh-pda-dev --region us-central1 | grep -q "no pods labelled"
+      requires: [uv, gcloud]
+
+  - id: the-drill-runs-on-a-schedule
+    requirement: Learning loop
+    statement: "The lifecycle drill runs on a cadence, not only when someone remembers."
+    falsifiable: true
+    check:
+      kind: grep
+      path: .github/workflows/dev-pod-lifecycle-drill.yml
+      pattern: "schedule:"
+      expect_present: true
+
+  - id: the-judge-itself-can-fail
+    requirement: Learning loop
+    statement: "The judge reports NOT finished when an item is failing, and cannot report a false green."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_completion_judge.py
