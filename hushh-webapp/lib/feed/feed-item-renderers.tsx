@@ -42,6 +42,20 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   connections: "Connections",
 };
 
+/**
+ * True when this row is an emergency SOS rather than an ordinary share.
+ *
+ * The lane split is "sos" vs everything else, matching _is_sos_lane in
+ * one_location_agent_service.py -- not one lane per share kind. Until
+ * share_kind was added to the feed metadata allowlist this was unknowable
+ * client-side, so an SOS narrated as "Shared location with you", then
+ * "Stopped sharing location": an alert reading as routine activity on the
+ * one screen someone scans to find out what needs them.
+ */
+function isSosShare(metadata: Record<string, unknown>): boolean {
+  return metadataString(metadata, "share_kind").toLowerCase() === "sos";
+}
+
 function metadataString(metadata: Record<string, unknown>, key: string): string {
   const value = metadata[key];
   return typeof value === "string" && value.trim() ? value.trim() : "";
@@ -153,6 +167,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "location_share_created": {
       const hasWho = who !== "Someone";
       const shareAmount = metadataDurationLabel(item.metadata, "duration");
+      const isSos = isSosShare(item.metadata);
       return {
         icon,
         domainLabel,
@@ -160,11 +175,17 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         // For an approval-born share this is the requester's ONLY row (152
         // writes it; 153 deliberately does not add a second for the approval),
         // so it names the granted amount that the event metadata carries.
-        description: sharedWithMe
-          ? shareAmount
-            ? `Shared location with you for ${shareAmount}`
-            : "Shared location with you"
-          : "You started sharing location",
+        description: isSos
+          ? sharedWithMe
+            ? shareAmount
+              ? `Emergency SOS - sharing location with you for ${shareAmount}`
+              : "Emergency SOS - sharing location with you"
+            : "You sent an emergency SOS"
+          : sharedWithMe
+            ? shareAmount
+              ? `Shared location with you for ${shareAmount}`
+              : "Shared location with you"
+            : "You started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -179,11 +200,15 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         // "owner_revoke" is still true and "You stopped sharing location"
         // would be shown to the one person who did not stop anything.
         // Audience decides the sentence; reason only refines the owner's.
-        description: sharedWithMe
-          ? "Stopped sharing location"
-          : ownerRevoked
-            ? "You stopped sharing location"
-            : "Stopped sharing location",
+        description: isSosShare(item.metadata)
+          ? sharedWithMe
+            ? "Emergency SOS ended"
+            : "You ended your emergency SOS"
+          : sharedWithMe
+            ? "Stopped sharing location"
+            : ownerRevoked
+              ? "You stopped sharing location"
+              : "Stopped sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -195,7 +220,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Location",
         // No audience split: this line names no subject, and the row's title is
         // already the other person, so it reads correctly from both sides.
-        description: "Stopped sharing - time ran out",
+        description: isSosShare(item.metadata)
+          ? "Emergency SOS ended - time ran out"
+          : "Stopped sharing - time ran out",
         href: ROUTES.ONE_LOCATION,
       };
     }
