@@ -1524,7 +1524,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 openShareFlow();
               }}
               onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
-              onOpenSettings={vm.onOpenLocationSettings}
+              // The app's own Location settings, not the OS permission
+              // screen. This tile carries voiceActionId
+              // "location.open_settings", a route action to
+              // ?action=settings -- so asking for it by voice already
+              // opened the right screen while tapping it left the app
+              // entirely. onOpenLocationSettings stays where it belongs:
+              // the permission recovery cards, whose whole job is sending
+              // someone to the OS to grant access.
+              onOpenSettings={() => openFlow("settings")}
               onCheckIn={() =>
                 nearbyCheckInAvailable
                   ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
