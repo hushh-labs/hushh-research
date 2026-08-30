@@ -56,6 +56,8 @@ export function DurationSelector({
   presentation = "buttons",
   untilStopValue,
   allowUntilStop = true,
+  allowCustom = true,
+  centered = false,
   maxWidthClassName = "max-w-[420px]",
   rungs,
 }: {
@@ -79,6 +81,17 @@ export function DurationSelector({
    * `Number()`, because the sentinel is a non-numeric string.
    */
   allowUntilStop?: boolean;
+  /**
+   * `ladder` only. False drops the `Custom` cell and its scroll wheel, leaving
+   * the timed rungs plus the open-ended row as the whole choice (issue #6228).
+   */
+  allowCustom?: boolean;
+  /**
+   * `ladder` only. Centre the wrapping chip row from `sm` up and let the
+   * open-ended row span the full phone grid, so the control reads as centred
+   * and intentional inside a container much wider than it.
+   */
+  centered?: boolean;
   /**
    * Width cap for the whole group.
    *
@@ -131,6 +144,8 @@ export function DurationSelector({
           onChange={onChange}
           {...(rungs ? { rungs } : {})}
           allowUntilStop={allowUntilStop}
+          allowCustom={allowCustom}
+          centered={centered}
           labelledBy={label ? labelId : undefined}
           {...(untilStopValue ? { untilStopValue } : {})}
         />
