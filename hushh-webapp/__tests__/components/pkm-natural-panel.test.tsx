@@ -207,13 +207,44 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.queryByText(/sk-must-not-render/)).toBeNull();
   });
 
-  it("opens a category into a simple memory list", async () => {
+  it("opens a category into nested levels and Back walks up one level", async () => {
     await openMainScreen();
     fireEvent.click(screen.getByRole("button", { name: "Open category: Financial" }));
 
     expect(await screen.findByRole("heading", { name: "Financial" })).toBeTruthy();
-    expect(screen.getByTestId("memory-category-list-financial")).toBeTruthy();
+    // Immediate children only — groups with a chevron, not flattened leaves.
+    expect(await screen.findByTestId("memory-group-profile")).toHaveTextContent("Profile");
+    expect(screen.getByTestId("memory-group-accounts")).toHaveTextContent("Accounts");
+    expect(screen.queryByRole("button", { name: "Open memory: Primary Bank" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Accounts" }));
+    expect(await screen.findByRole("heading", { name: "Accounts" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open memory: Primary Bank" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Financial" }));
+    expect(await screen.findByRole("heading", { name: "Financial" })).toBeTruthy();
+    expect(screen.getByTestId("memory-group-accounts")).toBeTruthy();
+  });
+
+  it("shows a readable path on deep search hits and returns to the same results", async () => {
+    await openMainScreen();
+    const box = screen.getByRole("searchbox", { name: "Search Memory" });
+    fireEvent.change(box, { target: { value: "balanced" } });
+
+    const result = await screen.findByRole("button", { name: "Open memory: Risk Profile" });
+    expect(
+      within(screen.getByTestId("memory-search-results")).getByText("Financial › Profile"),
+    ).toBeTruthy();
+
+    fireEvent.click(result);
+    expect(await screen.findByRole("heading", { name: "Risk Profile" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+    // The query and its results are still there — search is a shortcut, not a drill.
+    expect(screen.getByRole("searchbox", { name: "Search Memory" })).toHaveValue("balanced");
+    expect(
+      await screen.findByRole("button", { name: "Open memory: Risk Profile" }),
+    ).toBeTruthy();
   });
 
   it("searches title/value and shows a clean empty state", async () => {
@@ -245,6 +276,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     await waitFor(() => expect(meta).toHaveTextContent("Shared"));
 
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open category: Financial" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Accounts" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open memory: Primary Bank" }));
     const meta2 = await screen.findByTestId("memory-detail-meta");
     // accounts scope is NOT shared even though another scope in the same domain is.
