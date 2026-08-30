@@ -25,8 +25,7 @@ describe("Location hub hierarchy", () => {
   it("keeps exactly one Location title before the local tab strip and content", () => {
     const body = functionBody("LocationRedesignHub");
     const headerIndex = body.indexOf("<PageHeader");
-    const titleMatches =
-      body.match(/<PageTitle\s+as="span">\s*Location\s*<\/PageTitle>/g) ?? [];
+    const titleMatches = body.match(/title="Location"/g) ?? [];
     const tabsIndex = body.indexOf("<TopShellTabs");
     const swipeIndex = body.indexOf("<SwipeViews");
     const linksIndex = body.indexOf("<LinksHub");
@@ -83,8 +82,10 @@ describe("Location hub hierarchy", () => {
       body.indexOf("</SwipeViews>"),
     );
 
-    expect(tabsWindow).toContain("LOCATION_TAB_DEFINITION");
-    expect(tabsWindow).toContain("activeValue: tab");
+    expect(body).toContain("const locationTabSet = useMemo");
+    expect(body).toContain("...LOCATION_TAB_DEFINITION");
+    expect(body).toContain("activeValue: tab");
+    expect(tabsWindow).toContain("tabSet={locationTabSet}");
     expect(swipeWindow).toContain("tabSetId={LOCATION_TAB_DEFINITION.id}");
     expect(swipeWindow).toContain("options={LOCATION_SWIPE_OPTIONS}");
   });
