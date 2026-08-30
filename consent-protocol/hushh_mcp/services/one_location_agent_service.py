@@ -4752,10 +4752,15 @@ class OneLocationAgentService:
             owner_user_id=owner_user_id,
             contact_user_id=contact_user_id,
         )
+        self._record_sms_contact_change(
+            owner_user_id=owner_user_id,
+            contact_user_id=contact_user_id,
+            added=True,
+        )
         return self.list_sms_contact_ids(owner_user_id=owner_user_id)
 
     def remove_sms_contact(self, *, owner_user_id: str, contact_user_id: str) -> list[str]:
-        self._execute_one(
+        removed = self._execute_one(
             """
             DELETE FROM one_location_sms_contacts
             WHERE owner_user_id = :owner_user_id
@@ -4767,7 +4772,75 @@ class OneLocationAgentService:
                 "contact_user_id": contact_user_id,
             },
         )
+        # Only when a row really went. Removing somebody who was never on the
+        # list is a no-op, and announcing it would tell a person they had lost
+        # a duty they never held.
+        if removed:
+            self._record_sms_contact_change(
+                owner_user_id=owner_user_id,
+                contact_user_id=contact_user_id,
+                added=False,
+            )
         return self.list_sms_contact_ids(owner_user_id=owner_user_id)
+
+    def _record_sms_contact_change(
+        self,
+        *,
+        owner_user_id: str,
+        contact_user_id: str,
+        added: bool,
+    ) -> None:
+        """Announce an SMS Circle membership change to both people.
+
+        Being on someone's SMS Circle is the list that receives their Save my
+        Soul alert, so membership decides whether an emergency reaches you at
+        all -- and it was the one relationship the product changed in total
+        silence. `add_sms_contact` was a lock plus an INSERT and
+        `remove_sms_contact` a bare DELETE: no event, no Feed row, no
+        notification, on either side. Somebody could carry that duty for months
+        without being told, or lose it without learning that the alert they
+        expected would never arrive.
+
+        The event is what the Feed projection (migration 187) fans to both
+        audiences; the push is what reaches the contact when they are not
+        looking at the app. Both are best effort: a membership change that
+        succeeded must not be reported as failed because an announcement did
+        not land.
+        """
+        owner_label = _identity_notification_label(self._identity_row(owner_user_id))
+        contact_label = _identity_notification_label(self._identity_row(contact_user_id))
+        event_type = "location_sms_contact_added" if added else "location_sms_contact_removed"
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=owner_user_id,
+            recipient_user_id=contact_user_id,
+            grant_id=None,
+            event_type=event_type,
+            metadata={
+                "counterpart_label": contact_label,
+                "owner_label": owner_label,
+            },
+            required=False,
+        )
+        try:
+            self._send_metadata_notification(
+                user_id=contact_user_id,
+                notification_type=event_type,
+                title=("Added to an SMS Circle" if added else "Removed from an SMS Circle"),
+                body=(
+                    f"{owner_label} will send you their SMS alert."
+                    if added
+                    else f"{owner_label} will no longer send you their SMS alert."
+                ),
+                notification_tag=f"one-location-sms-contact:{owner_user_id}",
+                request_url=_one_location_url(section="people"),
+                data={
+                    "owner_user_id": owner_user_id,
+                    "owner_display_label": owner_label,
+                },
+            )
+        except Exception:  # noqa: BLE001 - announcement must never fail the change
+            logger.exception("one_location.sms_contact_notification_failed")
 
     def _send_location_share_created_notification(
         self,

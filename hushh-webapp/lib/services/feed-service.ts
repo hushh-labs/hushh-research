@@ -26,6 +26,8 @@ export type FeedEventType =
   | "location_one_network_joined"
   | "location_circle_code_joined"
   | "location_circle_member_invite_accepted"
+  | "location_sms_contact_added"
+  | "location_sms_contact_removed"
   | "circle_member_invited"
   | "circle_member_added"
   | "funding_transfer_status"

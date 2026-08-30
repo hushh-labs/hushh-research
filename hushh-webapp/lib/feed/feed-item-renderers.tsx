@@ -248,6 +248,38 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         href: ROUTES.ONE_LOCATION,
       };
     }
+    // Being on someone's SMS Circle is the list that receives their Save my
+    // Soul alert, so it decides whether an emergency reaches you at all -- and
+    // it was the one relationship the product changed in silence. Both sides
+    // get a row: the owner sees what they changed, the contact learns what
+    // changed about them. The row's title is already the other person, so
+    // neither line needs to name a subject twice.
+    case "location_sms_contact_added": {
+      const hasWho = who !== "Someone";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
+        description: sharedWithMe
+          ? "Added you to their SMS"
+          : "Added to your SMS Circle",
+        href: ROUTES.ONE_LOCATION,
+      };
+    }
+    case "location_sms_contact_removed": {
+      const hasWho = who !== "Someone";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
+        description: sharedWithMe
+          ? "Removed you from their SMS"
+          : "Removed from your SMS",
+        href: ROUTES.ONE_LOCATION,
+      };
+    }
     case "location_share_expired": {
       const hasWho = who !== "Someone";
       return {

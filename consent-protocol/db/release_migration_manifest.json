@@ -158,7 +158,8 @@
     "183_one_information_request_bundles.sql",
     "184_encrypted_one_adk_sessions.sql",
     "185_internal_access_request_id_text.sql",
-    "186_feed_share_kind_projection.sql"
+    "186_feed_share_kind_projection.sql",
+    "187_one_location_sms_contact_events.sql"
   ],
   "environment_overlays": {
     "uat": [
