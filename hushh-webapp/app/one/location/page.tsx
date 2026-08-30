@@ -215,6 +215,7 @@ import {
 } from "@/lib/one-location/grant-duration-edit";
 import { snapToWheelDurationHours } from "@/components/one-location/redesign/duration-wheel-picker";
 import { OneLocationService } from "@/lib/one-location/service";
+import { useSettingsReturn } from "@/lib/permissions/use-settings-return";
 import {
   describeContactSyncOutcome,
   openContactPermissionSettings,
@@ -6610,6 +6611,78 @@ export function OneLocationAgentPageContent({
   // Contact Picker) without the callback having to reference itself.
   const handleSyncContactSignalRef = useRef<(() => Promise<void>) | null>(null);
 
+  /**
+   * True from the moment we hand somebody to the OS settings app for contact
+   * access until they come back with it on.
+   *
+   * Reported after an iOS build: "settings ios wali jab bhi open ho rahin,
+   * either for syncing contacts or this settings, ek back tap mein app par
+   * switch nahi karwa rha -- mereko application back mein dekh kar kholna
+   * pda." Whether iOS draws its "‹ Back to Hushh" pill is iOS's call. The half
+   * that was ours was worse: the toast that sent them was gone by the time
+   * they returned, nothing re-read the permission, and the trip ended exactly
+   * where it started.
+   *
+   * Connect's `useContactSync` grew the same pair for the same report. This
+   * screen has its own contacts path and cannot borrow that hook, so it
+   * borrows the watcher instead -- one answer to "they went to the OS, tell me
+   * when they are back", rather than a second copy that drifts.
+   */
+  const [awaitingContactSettings, setAwaitingContactSettings] = useState(false);
+  const awaitingContactSettingsRef = useRef(false);
+  const markAwaitingContactSettings = useCallback((next: boolean) => {
+    awaitingContactSettingsRef.current = next;
+    setAwaitingContactSettings(next);
+  }, []);
+
+  /**
+   * Hand them over, and remember that we did. `opened === false` means nothing
+   * launched -- a browser, or an OS that refused -- and watching for a return
+   * from a place nobody went to would leave the watcher armed for the session.
+   */
+  const openContactSettingsAndWatch = useCallback(async () => {
+    const opened = await openContactPermissionSettings();
+    if (!opened) return;
+    markAwaitingContactSettings(true);
+    // Said before they leave, because after they leave there is no surface of
+    // ours to say it on -- the part the report singled out as what other apps
+    // do: "settings mein desired operation enable/disable karne ke baad entry
+    // ka path bhi dete hain".
+    toast.info(
+      "Turn on Contacts for Hushh, then come back — we'll pick up where you left off.",
+    );
+  }, [markAwaitingContactSettings]);
+
+  /**
+   * `limited` counts. iOS limited access is a real grant over a hand-picked
+   * subset, and syncing that subset is what somebody who chose it asked for.
+   */
+  const readContactsGranted = useCallback(async () => {
+    try {
+      const permission = await HushhContacts.getPermissionState();
+      return permission?.state === "granted" || permission?.state === "limited";
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const onContactsRestored = useCallback(() => {
+    if (!awaitingContactSettingsRef.current) return;
+    markAwaitingContactSettings(false);
+    // Resume the work, not just the permission. The trip was never about the
+    // switch -- it was about syncing contacts.
+    toast.success("Contact access is on. Syncing…");
+    void handleSyncContactSignalRef.current?.();
+  }, [markAwaitingContactSettings]);
+
+  useSettingsReturn({
+    enabled: awaitingContactSettings,
+    readGranted: readContactsGranted,
+    onRestored: onContactsRestored,
+    // No `permissionName`: the Permissions API has no entry for contacts, so
+    // the lifecycle signals are the whole mechanism here.
+  });
+
   // Onboarding's own contacts step. It reuses the same matcher as the hub, but
   // returns a typed result instead of driving hub state: onboarding needs to
   // render the matches inline, and the contact-permission prompt is fired by a
@@ -6986,7 +7059,7 @@ export function OneLocationAgentPageContent({
             ? {
                 action: {
                   label: "Open Settings",
-                  onClick: () => void openContactPermissionSettings(),
+                  onClick: () => void openContactSettingsAndWatch(),
                 },
               }
             : outcome.remedy === "sync_again"
@@ -7049,7 +7122,7 @@ export function OneLocationAgentPageContent({
         toast.error(message, {
           action: {
             label: "Open Settings",
-            onClick: () => void openContactPermissionSettings(),
+            onClick: () => void openContactSettingsAndWatch(),
           },
         });
       } else if (failure === "unavailable") {
@@ -7067,6 +7140,7 @@ export function OneLocationAgentPageContent({
     contactSignal,
     googleContactsFallback,
     handleInviteContactCandidates,
+    openContactSettingsAndWatch,
     loadRecipientPage,
     recipientSearch,
     refresh,
@@ -13056,7 +13130,7 @@ export function OneLocationAgentPageContent({
           onAcceptCircleCode={handleAcceptCircleCode}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}
           onAddOnboardingContact={handleAddOnboardingContact}
-          onOpenContactSettings={() => void openContactPermissionSettings()}
+          onOpenContactSettings={() => void openContactSettingsAndWatch()}
           onPrepareOnboardingCircleInvite={handlePrepareOnboardingCircleInvite}
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
