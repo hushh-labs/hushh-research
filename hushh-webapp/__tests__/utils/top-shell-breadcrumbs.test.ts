@@ -46,7 +46,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       hideBack: false,
-      items: [{ label: "One", href: "/one" }, { label: "Connect" }],
+      items: [{ label: "One" }],
     });
   });
 
