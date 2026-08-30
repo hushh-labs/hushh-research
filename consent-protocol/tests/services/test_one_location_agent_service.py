@@ -7186,3 +7186,119 @@ def test_location_and_connect_read_one_circle_list() -> None:
     assert '"circles": named_circles,' in source
     # Never its own SQL against the Circle tables.
     assert "FROM one_location_circles" not in source
+
+
+class MapStateProbe(OneLocationAgentService):
+    """Capture the marker query `list_map_state` runs, and answer it with one row.
+
+    The row belongs to an owner whose `presence_mode` is the default 'ghost' --
+    which is to say, somebody who has shared privately and has never opened the
+    Ghost control at all. That is the reported case, and it is also the DEFAULT
+    case: the preferences row is created lazily and defaults to ghost, so every
+    first-time private share used to land here.
+    """
+
+    def __init__(self) -> None:
+        self.marker_sql = ""
+
+    def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+        self.marker_sql = sql
+        return [
+            {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "owner_user_id": "ankit",
+                "recipient_user_id": "viewer",
+                "recipient_key_id": "key_viewer",
+                "status": "active",
+                "capability_scopes": json.dumps(["cap.location.live.view"]),
+                "owner_display_name": "Ankit",
+                "map_envelope_id": "00000000-0000-0000-0000-000000000002",
+                "map_envelope_grant_id": "00000000-0000-0000-0000-000000000001",
+                "map_envelope_owner_user_id": "ankit",
+                "map_envelope_recipient_user_id": "viewer",
+                "map_envelope_recipient_key_id": "key_viewer",
+                "map_envelope_algorithm": "ECDH-P256-AES256-GCM",
+                "map_envelope_ciphertext": "ciphertext-only",
+                "map_envelope_iv": "iv",
+                "map_envelope_sender_key": {"kty": "EC"},
+                "map_envelope_captured_at": datetime.now(timezone.utc),
+                "map_envelope_source_platform": "web",
+                "map_envelope_publication_context": "foreground_map_visible",
+                "map_envelope_created_at": datetime.now(timezone.utc),
+                "map_envelope_metadata": {},
+            }
+        ]
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        if "FROM one_location_map_preferences" in sql:
+            return {
+                "presence_mode": "ghost",
+                "renderer_consent_version": "v1",
+                "updated_at": datetime.now(timezone.utc),
+            }
+        return None
+
+
+def test_ghost_mode_does_not_hide_a_private_share_from_the_person_it_was_written_for() -> None:
+    """Reported: "Ankit is sharing his location privately with me but I can not
+    see him on my map."
+
+    The marker query used to require the SHARER's `presence_mode` to be
+    'foreground_private'. That column defaults to 'ghost', so an owner who had
+    created a real grant, for one named person, for a duration they chose, and
+    whose envelope was written and readable, still produced no pin -- while the
+    recipient's Location screen said "sharing with you" a few pixels away.
+
+    The grant is the consent. Ghost Mode is a control over the GENERAL audience
+    -- people who were never handed a share -- and must not reach into an
+    explicit one.
+    """
+    service = MapStateProbe()
+
+    state = service.list_map_state(user_id="viewer")
+
+    # The pin arrives even though the owner is in Ghost Mode.
+    assert len(state["markers"]) == 1
+    assert state["markers"][0]["grant"]["ownerUserId"] == "ankit"
+    assert state["markers"][0]["envelope"]["ciphertext"] == "ciphertext-only"
+
+    # And it arrives because the gate is gone from the query, not because this
+    # probe happened to answer generously.
+    #
+    # Read from the EXECUTABLE statement, with `--` lines stripped: the clause
+    # that was removed is quoted verbatim in the comment that replaced it, so a
+    # naive substring check over the whole string would pass forever whether or
+    # not the JOIN came back.
+    executable = " ".join(
+        line for line in service.marker_sql.splitlines() if not line.strip().startswith("--")
+    )
+    assert "one_location_map_preferences" not in executable
+    assert "presence_mode" not in executable
+
+    # Everything that WAS protecting the recipient still is: the grant has to
+    # be theirs, live, unexpired, and carry a map-visible envelope.
+    assert "g.recipient_user_id = :user_id" in executable
+    assert "g.status = 'active'" in executable
+    assert "g.expires_at IS NULL OR g.expires_at > NOW()" in executable
+    assert "candidate.recipient_user_id = :user_id" in executable
+    assert "candidate.publication_context = 'foreground_map_visible'" in executable
+
+    # The preference is still reported to the client -- the Ghost control still
+    # exists and still means something. It just no longer decides this.
+    assert state["preferences"]["presenceMode"] == "ghost"
+
+
+def test_map_preferences_doc_states_ghost_is_general_visibility_only() -> None:
+    """The rule has one home, and it is next to the column it describes.
+
+    Both halves of this used to be enforced by the same SQL clause, so anybody
+    reading either one alone concluded that Ghost governs private sharing. It
+    does not, and the next person to touch `presence_mode` reads this docstring
+    before they read the marker query.
+    """
+    import inspect
+
+    doc = " ".join((inspect.getdoc(OneLocationAgentService.get_map_preferences) or "").split())
+    assert "GENERAL visibility only" in doc
+    assert "not a switch over private sharing" in doc
+    assert "list_map_state" in doc

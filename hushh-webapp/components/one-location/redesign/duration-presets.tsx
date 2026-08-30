@@ -34,16 +34,29 @@ export const SHARE_DURATION_LADDER: DurationRung[] = [
 ];
 
 /**
- * The fuller ladder, used by the Request screen. Named for its shape rather
- * than one lane. The live-share "New time" editor used to share it; it now
- * runs the shorter CHANGE_TIME_DURATION_LADDER below (issue #6228).
+ * Asking someone else for their location.
+ *
+ * Three rungs plus `Custom`, which the picker appends -- four cells, two rows
+ * of two on a phone. It was five rungs plus Custom, and six cells is where a
+ * ladder stops being a row of choices and starts being a keypad: the screen it
+ * sits on also carries four Reason chips, a recipient rail and two stacked
+ * actions, so the duration question alone was three rows of the card.
+ *
+ * The three that stay are the ones an ask is actually made in -- "where are
+ * you now" (15 min), the default hour, and an afternoon (2 hours). 4 and 8
+ * hours did not disappear: `Custom` reaches any value the backend accepts, and
+ * a cell that is one deliberate tap away is not a feature removed.
+ *
+ * This is `FULL_DURATION_LADDER` renamed, not a second constant beside it.
+ * That name was already only half true -- issue #6228 moved the live-share
+ * editor onto {@link CHANGE_TIME_DURATION_LADDER}, leaving "full" describing
+ * one lane -- and once trimmed it would have been the SHORTEST ladder in the
+ * file while still calling itself the fullest.
  */
-export const FULL_DURATION_LADDER: DurationRung[] = [
+export const REQUEST_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
   { value: "1", label: "1 hour" },
   { value: "2", label: "2 hours" },
-  { value: "4", label: "4 hours" },
-  { value: "8", label: "8 hours" },
 ];
 
 /**

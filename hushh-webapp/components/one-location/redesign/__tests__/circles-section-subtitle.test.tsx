@@ -100,6 +100,16 @@ describe("the circle row's second line", () => {
     expect(screen.getByText("SMS")).toBeTruthy();
     expect(screen.getByText("Save My Soul · 1 person")).toBeTruthy();
     expect(screen.queryByTestId("siren")).toBeNull();
+
+    // 36px here, because these rows are 60px tall with their own padding
+    // overrides; Connect's Circles tab draws the same red disc at 28px to sit
+    // in its compact icon well. Connect used to draw a `Siren` in the indigo
+    // well instead, so the same Circle looked like two different things.
+    const mark = screen.getByTestId("one-location-circle-sms-mark");
+    expect(mark.className).toContain("bg-[color:var(--app-destructive)]");
+    expect(mark.className).toContain("rounded-full");
+    expect(mark.className).toContain("h-9");
+    expect(mark.className).toContain("w-9");
   });
 
   it("uses a neutral identity for ordinary Circles", () => {

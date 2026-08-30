@@ -206,12 +206,19 @@ describe("One Location — the Share confirm step is a measured column", () => {
     expect(HUB_SOURCE).toContain("maxWidthClassName={null}");
   });
 
-  it("keeps a default clamp for a select-based editor that has no column", () => {
-    // The People tab's "New duration" renders a `select` straight into the
-    // 880px shell; without the default clamp its trigger stretches the width
-    // of the card. (The live-share "New time" ladder opts out with
-    // `maxWidthClassName={null}` on purpose — issue #6228 — because a wrapping
-    // row of content-width chips has nothing to stretch, unlike the old grid.)
+  it("keeps the default clamp for callers with no column of their own", () => {
+    // The clamp is `DurationSelector`'s default, and it is what stops a
+    // control rendering straight into the 880px shell from stretching to
+    // ~792px with 258px duration cells.
+    //
+    // Its old headline example, the recipient-side "New duration" `select`,
+    // is gone: that lane asks for time additively now, so there is nothing
+    // absolute to pick. See `components/one-location/redesign/request-more-time`.
+    // The live-share "New time" ladder opts out with `maxWidthClassName={null}`
+    // on purpose (issue #6228) -- a wrapping row of content-width chips has
+    // nothing to stretch, unlike the old grid. So this asserts the DEFAULT
+    // still exists for the next caller that does not measure its own column,
+    // which is the part neither of those two changes may quietly remove.
     const selectors = repoFile(
       "components/one-location/redesign/selectors.tsx",
     );

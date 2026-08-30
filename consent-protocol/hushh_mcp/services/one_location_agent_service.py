@@ -6565,6 +6565,13 @@ class OneLocationAgentService:
         Coordinates remain exclusively in the recipient-encrypted envelopes. A
         missing row is deliberately Ghost Mode so opening Map never makes a
         person discoverable.
+
+        `presenceMode` governs GENERAL visibility only -- being findable by
+        people who have not been handed an explicit share. It is not a switch
+        over private sharing: an active grant is delivered to the person it was
+        written for in either mode, because creating that grant was already the
+        decision to be seen by them. See the note on the marker query in
+        `list_map_state`, which is where the two used to be conflated.
         """
         row = self._execute_one(
             """
@@ -6669,19 +6676,45 @@ class OneLocationAgentService:
               envelope.created_at AS map_envelope_created_at,
               envelope.metadata AS map_envelope_metadata
             FROM one_location_share_grants g
-            -- Opt-in, and it stays opt-in.
+            -- The grant IS the opt-in. Ghost Mode is not a second one.
             --
-            -- `presence_mode` defaults to 'ghost', so appearing on somebody
-            -- else's map is something the sharer has to choose. Widening this
-            -- to "anyone who has not explicitly opted out" was considered and
-            -- rejected: it would have made every existing sharer visible
-            -- without asking them, which is not a default anyone gets to
-            -- change on their behalf. The answer was to make the choice
-            -- findable instead -- it now lives in Location settings rather
-            -- than only behind a Ghost toggle on the map screen.
-            JOIN one_location_map_preferences preference
-              ON preference.user_id = g.owner_user_id
-             AND preference.presence_mode = 'foreground_private'
+            -- This used to carry
+            --
+            --   JOIN one_location_map_preferences preference
+            --     ON preference.user_id = g.owner_user_id
+            --    AND preference.presence_mode = 'foreground_private'
+            --
+            -- which read "only show me people who have switched their map
+            -- presence on". The intent was that appearing on somebody else's
+            -- map should be chosen rather than defaulted, and the earlier note
+            -- here argued against widening it because `presence_mode` defaults
+            -- to 'ghost' and nobody's default may be changed for them.
+            --
+            -- That argument was about the wrong audience. It is sound for a
+            -- GENERAL audience -- your connections at large, people near you --
+            -- where no one has asked for you by name and silence must mean no.
+            -- It is not sound for the rows this query is made of. Every row
+            -- here exists because the owner deliberately created a share for
+            -- ONE named recipient, for a duration they picked, encrypted to
+            -- that recipient's key and to no one else's. Choosing that IS
+            -- choosing to be on that person's map; the publisher side has said
+            -- so in `hushh-webapp/app/one/location/page.tsx` for as long as it
+            -- has written `foreground_map_visible`.
+            --
+            -- So the JOIN was not enforcing consent. It was discarding it, and
+            -- silently: the sharer's grant was live, their envelope was
+            -- written and readable, the recipient's Location screen said "X is
+            -- sharing with you" -- and the map next to it had no pin, because
+            -- X had never opened a toggle X had no reason to know existed
+            -- (`presence_mode` defaults to 'ghost', so this was the DEFAULT
+            -- experience of private sharing, not an edge case). Reported as
+            -- "Ankit is sharing his location privately with me but I can not
+            -- see him on my map".
+            --
+            -- Ghost Mode keeps its meaning and its row; what it no longer does
+            -- is reach past the general audience into an explicit private
+            -- share. See `get_map_preferences` and the Ghost control on the map
+            -- sheet, which now states that rule where it is switched.
             LEFT JOIN actor_identity_cache owner ON owner.user_id = g.owner_user_id
             JOIN LATERAL (
               SELECT *

@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -240,6 +246,61 @@ describe("ConnectCirclesTab", () => {
     const smsCircle = screen.getByTestId("connect-circle-sms");
     expect(smsCircle).toBeTruthy();
     expect(smsCircle.querySelector("[data-one-sms-text-icon]")).toBeTruthy();
+  });
+
+  it("gives the SMS Circle the same red mark Location's People tab gives it", async () => {
+    // Reported: the same Circle looked like two different things depending on
+    // which tab you opened. Location's People tab draws a filled red disc
+    // reading "SMS"; this list drew a `Siren` glyph in the same indigo well it
+    // gives Trusted and every user-made Circle, so the one row whose whole
+    // point is that it behaves differently in an emergency read as another
+    // ordinary group.
+    //
+    // Upstream landed the same fix while this branch was in review, with a
+    // shared `SmsTextIcon` and the destructive token instead of a literal hex.
+    // The claim is unchanged, so it is asserted against what ships.
+    mocks.listCircles.mockResolvedValue([
+      circle("trusted", "Trusted", 20, "trusted"),
+      circle("sms", "SMS Circle", 4, "sms"),
+    ]);
+
+    render(<ConnectCirclesTab />);
+
+    const smsRow = await screen.findByTestId("connect-circle-sms");
+    const mark = within(smsRow).getByText("SMS");
+    const disc = mark.parentElement!;
+    // Red, round and filled -- the identity, not a tinted utility well.
+    expect(disc.className).toContain("bg-[color:var(--app-destructive)]");
+    expect(disc.className).toContain("rounded-full");
+    // 28px, because these rows are `density="compact"` and that is the size of
+    // the icon well beside them. Location's list draws the same disc at 36px,
+    // which is the size of ITS rows -- dropping that one in here would make
+    // the SMS row taller than its neighbours and push it past the compact
+    // separator's 58px inset.
+    expect(disc.className).toContain("h-7");
+    expect(disc.className).toContain("w-7");
+
+    // The indigo utility well is gone from this row, and only this row.
+    expect(smsRow.querySelector('[data-slot="settings-row-icon"]')).toBeNull();
+    const trustedIcon = screen
+      .getByTestId("connect-circle-trusted")
+      .querySelector('[data-slot="settings-row-icon"]');
+    expect(trustedIcon).not.toBeNull();
+    expect(trustedIcon).toHaveAttribute("data-icon-tone", "indigo");
+  });
+
+  it("marks every SMS Circle on the list, not only the one you own", async () => {
+    // An SMS Circle appears in the list of everyone ON it, so a viewer can see
+    // several. The mark is per row, not a badge on the first system Circle.
+    mocks.listCircles.mockResolvedValue([
+      circle("theirs", "Alice's SMS Circle", 4, "sms", "member"),
+      circle("mine", "SMS Circle", 3, "sms", "owner"),
+    ]);
+
+    render(<ConnectCirclesTab />);
+
+    await screen.findByText("Alice's SMS Circle");
+    expect(screen.getAllByText("SMS")).toHaveLength(2);
   });
 
   it("renders the server's name for a Circle you do not own", async () => {

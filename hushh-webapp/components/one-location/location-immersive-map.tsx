@@ -49,6 +49,7 @@ import {
   type NearbyCheckInPlaceFocus,
 } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -652,7 +653,27 @@ export function LocationImmersiveMap({
   // shares carry no coordinate to plot.
   const [activeShareCount, setActiveShareCount] = useState<number | null>(null);
   const [activeShareNames, setActiveShareNames] = useState<string[]>([]);
+  /**
+   * The same number, resolved and named for what it is to the reader.
+   *
+   * "Private sharing with 2 people" and "3 people sharing with you" are two
+   * different facts about two different audiences, and the sheet used to
+   * present neither: one was a floating chip over the map, the other was only
+   * inferable from how many pins happened to be drawn. They are two labelled
+   * rows now, above the Ghost control, because the whole point of the rule
+   * Ghost obeys is that these two audiences are not the same audience.
+   *
+   * Null means "not fetched yet", which is not the same as zero and must not
+   * be rendered as "sharing with 0".
+   */
+  const privateShareCount = activeShareCount ?? 0;
+  const privateShareCountKnown = activeShareCount !== null;
   const [sharingPopoverOpen, setSharingPopoverOpen] = useState(false);
+  /** The in-sheet twin of `sharingPopoverOpen`: the header chip's popover
+   *  opens over the map, which is the wrong place to answer a question asked
+   *  from a row at the bottom of the sheet. Collapsed by default so the sheet
+   *  keeps its height until somebody asks who the shares are with. */
+  const [privateSharesExpanded, setPrivateSharesExpanded] = useState(false);
   const [selected, setSelected] = useState<RenderMarker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
@@ -2120,21 +2141,25 @@ export function LocationImmersiveMap({
         presenceMode: nextMode,
       });
       setPreferences(next);
+      // "Nobody sees you on their map" was the old copy, and it described the
+      // old bug rather than the feature: it was true only because Ghost Mode
+      // was silently cancelling private shares the person had deliberately
+      // started. It says what it actually does now, and names the audience it
+      // does NOT touch -- the toggle sits directly above that count on the
+      // sheet, so the two lines have to agree.
       toast.success(
         nextMode === "ghost"
-          ? "Ghost Mode is on. Nobody sees you on their map."
-          // "Tap Locate me to appear" was true while the locate button was the
-          // only thing that ever published a map-visible position. Sharing does
-          // it now, so telling somebody to go and tap something else would send
-          // them looking for a step that no longer exists.
-          : "You will appear on the map of anyone you share with.",
+          ? privateShareCount > 0
+            ? `Ghost Mode is on. The ${privateShareCount === 1 ? "person" : `${privateShareCount} people`} you share with privately can still see you.`
+            : "Ghost Mode is on. You are hidden from your connections."
+          : "You are visible to your connections again.",
       );
     } catch {
       toast.error("Map visibility could not be updated.");
     } finally {
       setBusy(null);
     }
-  }, [demoMode, preferences.presenceMode, vaultOwnerToken]);
+  }, [demoMode, preferences.presenceMode, privateShareCount, vaultOwnerToken]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
     setSelected(marker);
@@ -2178,12 +2203,20 @@ export function LocationImmersiveMap({
         toast.success("Centered on your device location.");
         return;
       }
-      if (preferences.presenceMode !== "foreground_private") {
-        toast.message(
-          "Ghost Mode is on. Only you can see this.",
-        );
-        return;
-      }
+      // Ghost Mode used to stop here, and that was the bug.
+      //
+      // Every envelope below is encrypted to ONE named recipient's key and
+      // exists only because this person created a grant for them, for a
+      // duration they chose. Withholding it did not protect anybody: it broke
+      // the share they had already agreed to, on the default setting
+      // (`presenceMode` defaults to "ghost"), while the recipient's Location
+      // screen went on saying "sharing with you". Reported from the other end
+      // as "Ankit is sharing his location privately with me but I can not see
+      // him on my map"; the server half of the same gate is gone from
+      // `list_map_state`.
+      //
+      // Ghost Mode is a control over the GENERAL audience -- people who were
+      // never handed a share -- and it does not reach in here.
       const state = await OneLocationService.getState(vaultOwnerToken);
       const recipientsByKey = new Map(
         state.recipients.map((recipient) => [
@@ -2199,6 +2232,18 @@ export function LocationImmersiveMap({
         const names = activeShareLabels(state.ownerGrants);
         setActiveShareCount(names.length);
         setActiveShareNames(names);
+      }
+      // Nothing to send is not a failure, and it must not be reported as one.
+      // It is also the one place Ghost Mode is worth mentioning on this path:
+      // with no grants the only thing keeping you off every map is the general
+      // audience, which is exactly what the toggle governs.
+      if (grants.length === 0) {
+        toast.message(
+          preferences.presenceMode === "ghost"
+            ? "Ghost Mode is on, and you aren't sharing with anyone yet."
+            : "You aren't sharing your location with anyone yet.",
+        );
+        return;
       }
       await Promise.all(
         grants.map(async (grant) => {
@@ -2292,16 +2337,94 @@ export function LocationImmersiveMap({
     }
     return markers.length > 0
       ? `${markers.length} on your map`
-      : "No one sharing yet";
+      // "No one sharing yet" beside a subtitle reading "Sharing with 1" was
+      // the reported contradiction. Naming the audience resolves it without
+      // making the row any longer.
+      : "No one sharing with you yet";
   }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
   // Only when it adds something the title cannot. Restating the title in
   // smaller grey type is the noise this tray had most of.
+  /**
+   * INCOMING: people whose live location is on this map.
+   *
+   * `markers` is exactly that -- it is built from grants where the viewer is
+   * the recipient -- so this number is never affected by the viewer's own
+   * Ghost Mode, and the empty-state line under it says so, because "I turned
+   * on Ghost and now my map is empty" is the confusion the old two-pill row
+   * invited.
+   */
+  const incomingShareLabel =
+    markers.length === 0
+      ? "No one sharing with you"
+      : markers.length === 1
+        ? "1 person sharing with you"
+        : `${markers.length} people sharing with you`;
+
+  /** OUTGOING: people this account is sharing with. A different audience from
+   *  the one above, and the reason the two get separate rows. */
+  const privateShareLabel = !privateShareCountKnown
+    ? "Private sharing"
+    : privateShareCount === 0
+      ? "Not sharing with anyone privately"
+      : privateShareCount === 1
+        ? "Private sharing with 1 person"
+        : `Private sharing with ${privateShareCount} people`;
+
+  /**
+   * Only when it adds something the title cannot -- and the outgoing count no
+   * longer qualifies.
+   *
+   * This line used to read "Sharing with 1" under a title reading "No one
+   * sharing yet": two true statements about two different audiences, stacked
+   * as though they were one, which reads as a contradiction and was reported
+   * as one. The fix is not to reword it here. The sheet below now states both
+   * audiences in full, in their own labelled rows -- and this header only
+   * renders while the sheet is expanded, so keeping the count here as well
+   * would print the same fact twice on the same screen.
+   *
+   * What stays is the nearby radius, which nothing else says.
+   */
   const peopleDrawerSubtitle = nearbyPresenceState.presence
     ? `Within ${nearbyPresenceState.presence.radiusMeters} m · exact spots stay private`
-    : (activeShareCount ?? 0) > 0
-      ? `Sharing with ${activeShareCount}`
-      : null;
+    : null;
+
+  const privateShareHint = !privateShareCountKnown
+    ? "Checking your active shares…"
+    : privateShareCount > 0
+      ? // The lifetime, because it is the thing a person actually wonders
+        // about a share they started days ago -- and because it is now true
+        // without an asterisk: Ghost Mode no longer ends it early.
+        "Runs until you stop it or it expires"
+      : "Start one from Location to appear on their map";
+
+  /** Anything other than an explicit "visible" is treated as hidden, so an
+   *  unrecognised value from an older server errs toward privacy. */
+  const isGhostMode = preferences.presenceMode !== "foreground_private";
+
+  /**
+   * The rule, stated where it is switched.
+   *
+   * The old control said "Ghost Mode is on. Nobody sees you on their map",
+   * which was true only because Ghost was silently cancelling private shares
+   * the person had deliberately started. With that gone, the sentence has to
+   * name the audience it does not touch -- and it sits directly under the
+   * count of that audience, so the two lines are read together.
+   */
+  const ghostModeExplainer = isGhostMode
+    ? privateShareCount > 0
+      ? `Hidden from general visibility. The ${
+          privateShareCount === 1 ? "person" : `${privateShareCount} people`
+        } you share with privately still see you.`
+      : "Hidden from general visibility."
+    : privateShareCount > 0
+      ? "Not hidden from anyone. Private sharing is separate either way."
+      : "Not hidden from anyone.";
+
+  /** Check-in is a separate one-time share, and this is the one place that
+   *  decides whether it has a control on this sheet at all. */
+  const checkInActionAvailable =
+    !isCheckInSurface && nearbyCheckInAvailable && !demoMode;
 
   const connectNearbyAttendee = useCallback(
     async (attendee: OneLocationNearbyAttendee) => {
@@ -2915,6 +3038,10 @@ export function LocationImmersiveMap({
           data-testid="one-location-map-disclosure"
           style={{ paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING }}
         >
+          {/* The pin and the title on one line. Upstream landed the same
+              fix while this branch was in review -- geometry in
+              `map-consent-panel-layout.ts`, measured by
+              `e2e/one-location-map-consent-panel.layout.spec.ts`. */}
           <div className={MAP_CONSENT_HEADING_ROW_CLASSNAME}>
             <MapPin className={MAP_CONSENT_HEADING_ICON_CLASSNAME} />
             <h1 className={MAP_CONSENT_HEADING_TITLE_CLASSNAME}>
@@ -2945,7 +3072,10 @@ export function LocationImmersiveMap({
             has to grow again, it belongs on Location Settings beside the other
             one, not back in this paragraph.
           */}
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          <p
+            className="mt-2 text-sm leading-6 text-muted-foreground"
+            data-testid="map-consent-support"
+          >
             {MAP_CONSENT_SUPPORTING_LINE}
           </p>
           <Button
@@ -3411,89 +3541,249 @@ export function LocationImmersiveMap({
                 </div>
               ) : null}
 
-              <div
-                className={`mt-3 grid gap-2 ${
-                  demoAvailable ? "grid-cols-3" : "grid-cols-2"
-                }`}
+              {/*
+                Three audiences, three rows, in the order a person asks about
+                them. Reported as "this interface gives an illusion of a
+                check-in page and creates a little bit of confusion", and it
+                did, in two ways at once.
+
+                It read as a check-in page because the only filled, full-width,
+                accent-coloured control on the sheet said "Check in" -- the
+                strongest thing on screen was the one thing on it that is not
+                about the map. Check-in is a separate, one-time share, so it is
+                a secondary action down here now, next to Demo where the other
+                occasional actions live.
+
+                And the row above it, "Ghost | Everyone", read as a two-state
+                segmented control -- pick one -- when the two are not even the
+                same KIND of thing: Ghost writes a stored visibility
+                preference, "Everyone" moves the camera. Two adjacent equal
+                pills is the shape UI uses for "these are alternatives", and
+                the reporter read it exactly that way ("ghost, everyone mode").
+
+                What replaces them is the answer to the question the sheet was
+                being asked: who can see me, and who can I see. Those are three
+                independent facts and they are three labelled rows --
+
+                  - N people sharing with you   (incoming; frames them)
+                  - Private sharing with N      (outgoing; expands to names)
+                  - Ghost Mode                  (general visibility; a switch)
+
+                -- because the rule they obey is that they are NOT the same
+                audience. Ghost Mode governs general visibility. It does not
+                touch a private share, and the line under the switch says so
+                where the switch is, directly under the count it does not
+                affect. The gate that used to make that false lived in
+                `list_map_state` and in this file's `locateMe`, and is gone
+                from both.
+              */}
+              <section
+                className="mt-3 space-y-2"
+                aria-label="Who can see you, and who you can see"
+                data-testid="one-location-map-visibility"
               >
-                {demoAvailable ? (
-                  <Button
-                    className={`h-11 min-w-0 rounded-2xl px-2 ${
-                      demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
-                    }`}
-                    variant="secondary"
-                    aria-pressed={demoMode}
-                    data-testid="one-location-map-demo-toggle"
-                    onClick={toggleDemoPeople}
-                  >
-                    <UsersRound className="h-4 w-4 shrink-0" />
-                    {/* Pressed state is already carried by the accent fill and
-                        aria-pressed; the label need not say it too. */}
-                    <span className="truncate">Demo</span>
-                  </Button>
-                ) : null}
-                <Button
-                  className={`h-11 min-w-0 justify-between rounded-2xl px-2.5 ${
-                    preferences.presenceMode === "foreground_private"
-                      ? MAP_ACCENT_ACTIVE_CLASSNAME
-                      : ""
-                  }`}
-                  variant="secondary"
-                  aria-pressed={
-                    preferences.presenceMode === "foreground_private"
-                  }
-                  disabled={busy === "presence"}
-                  onClick={() => void setPresence()}
-                >
-                  <span className="truncate">
-                    {preferences.presenceMode === "ghost" ? "Ghost" : "Visible"}
-                  </span>
-                  {preferences.presenceMode === "ghost" ? (
-                    <EyeOff className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <Eye className="h-4 w-4 shrink-0" />
-                  )}
-                </Button>
-                <Button
-                  className="h-11 min-w-0 rounded-2xl px-2"
-                  variant="secondary"
+                {/* Incoming. Keeps the `show-everyone` id: this IS the old
+                    Everyone control, finally saying what it frames. */}
+                <button
+                  type="button"
+                  className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
                   data-testid="one-location-map-show-everyone"
+                  aria-label={
+                    markers.length > 0
+                      ? `${incomingShareLabel}. Fit them all on the map.`
+                      : incomingShareLabel
+                  }
                   onClick={() => void showEveryone()}
                 >
-                  Everyone
-                </Button>
-              </div>
-              {/*
-                Check in, moved down off the map.
-
-                It used to float in the top-right corner beside Locate, which
-                put two pills and a Sharing status over the top of the map on
-                every phone -- the reporter's "when i want to view my map".
-                Down here it is full width and under the thumb, sitting with
-                the people it is about rather than over the map it obscured.
-
-                Last in the sheet on purpose: the row above it is toggles
-                (Demo / Visible / Everyone), and this is the one thing on the
-                screen a person actually goes somewhere to do.
-              */}
-              {!isCheckInSurface && nearbyCheckInAvailable && !demoMode ? (
-                <Button
-                  className="mt-3 h-12 w-full rounded-2xl"
-                  aria-label={
-                    nearbyPresenceState.presence
-                      ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
-                      : "Check in nearby"
-                  }
-                  data-testid="one-location-map-nearby-check-in"
-                  onClick={openNearbyCheckIn}
-                >
-                  <UsersRound className="h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    {nearbyPresenceState.presence
-                      ? `Nearby ${nearbyPresenceState.attendees.length}`
-                      : "Check in"}
+                  <span
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                    aria-hidden="true"
+                  >
+                    <UsersRound className="h-[18px] w-[18px]" />
                   </span>
-                </Button>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {incomingShareLabel}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {markers.length > 0
+                        ? "Tap to fit everyone on the map"
+                        : "Ghost Mode never hides them from you"}
+                    </span>
+                  </span>
+                  <ChevronDown
+                    className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                </button>
+
+                {/* Outgoing. Hidden in demo, where the count is never fetched
+                    and a number would be fiction. */}
+                {!demoMode ? (
+                  <div className="rounded-2xl bg-muted/70">
+                    <button
+                      type="button"
+                      className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 disabled:cursor-default disabled:hover:bg-transparent"
+                      data-testid="one-location-map-private-shares"
+                      aria-expanded={privateSharesExpanded}
+                      disabled={privateShareCount === 0}
+                      aria-label={privateShareLabel}
+                      onClick={() => setPrivateSharesExpanded((open) => !open)}
+                    >
+                      <span
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                        aria-hidden="true"
+                      >
+                        <LocateFixed className="h-[18px] w-[18px]" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {privateShareLabel}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {privateShareHint}
+                        </span>
+                      </span>
+                      {privateShareCount > 0 ? (
+                        <ChevronDown
+                          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                            privateSharesExpanded ? "" : "-rotate-90"
+                          }`}
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </button>
+                    {privateSharesExpanded && privateShareCount > 0 ? (
+                      <ul
+                        className="grid gap-0.5 px-2 pb-2"
+                        aria-label="People you are sharing with privately"
+                      >
+                        {activeShareNames.map((name, index) => {
+                          const pin = markerForSharedPerson(name);
+                          return (
+                            <li key={`${name}-${index}`}>
+                              {/* Same two destinations as the header popover,
+                                  for the same reason: a row that names a person
+                                  has to go to that person. */}
+                              <button
+                                type="button"
+                                data-testid="one-location-map-private-share-person"
+                                data-has-pin={pin ? "true" : "false"}
+                                aria-label={
+                                  pin
+                                    ? `Show ${name} on your map`
+                                    : `Manage your location share with ${name}`
+                                }
+                                className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                                onClick={() => void openSharedPerson(name)}
+                              >
+                                <span
+                                  className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
+                                  aria-hidden="true"
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {name}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {/* General visibility. A switch, not a pill in a pair: it is a
+                    standing setting with an on and an off, and it is the only
+                    control here that changes what anyone else sees. */}
+                <div
+                  className="flex min-h-[52px] items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2"
+                  data-testid="one-location-map-ghost"
+                >
+                  <span
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                    aria-hidden="true"
+                  >
+                    {isGhostMode ? (
+                      <EyeOff className="h-[18px] w-[18px]" />
+                    ) : (
+                      <Eye className="h-[18px] w-[18px]" />
+                    )}
+                  </span>
+                  <label
+                    className="min-w-0 flex-1 cursor-pointer"
+                    htmlFor="one-location-map-ghost-toggle"
+                  >
+                    <span className="block text-sm font-medium">Ghost Mode</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {ghostModeExplainer}
+                    </span>
+                  </label>
+                  <Switch
+                    id="one-location-map-ghost-toggle"
+                    data-testid="one-location-map-ghost-toggle"
+                    checked={isGhostMode}
+                    disabled={busy === "presence"}
+                    onCheckedChange={() => void setPresence()}
+                  />
+                </div>
+              </section>
+
+              {/*
+                Check in and Demo: occasional actions, not map state.
+
+                Check-in used to be the filled full-width button at the bottom
+                of this sheet, which made the whole sheet read as a check-in
+                page. It is a separate, one-time share -- it does not change
+                who can see your live location and it is not undone by Ghost
+                Mode -- so it sits with Demo as a secondary action, and the
+                sheet above it is now the part that answers "who can see me".
+              */}
+              {checkInActionAvailable || demoAvailable ? (
+                <div
+                  className={`mt-2 grid gap-2 ${
+                    checkInActionAvailable && demoAvailable
+                      ? "grid-cols-2"
+                      : "grid-cols-1"
+                  }`}
+                >
+                  {demoAvailable ? (
+                    <Button
+                      className={`h-11 min-w-0 rounded-2xl px-2 ${
+                        demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
+                      }`}
+                      variant="secondary"
+                      aria-pressed={demoMode}
+                      data-testid="one-location-map-demo-toggle"
+                      onClick={toggleDemoPeople}
+                    >
+                      <UsersRound className="h-4 w-4 shrink-0" />
+                      {/* Pressed state is already carried by the accent fill and
+                          aria-pressed; the label need not say it too. */}
+                      <span className="truncate">Demo</span>
+                    </Button>
+                  ) : null}
+                  {checkInActionAvailable ? (
+                    <Button
+                      className="h-11 min-w-0 rounded-2xl px-2"
+                      variant="secondary"
+                      aria-label={
+                        nearbyPresenceState.presence
+                          ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
+                          : "Check in nearby"
+                      }
+                      data-testid="one-location-map-nearby-check-in"
+                      onClick={openNearbyCheckIn}
+                    >
+                      <UsersRound className="h-4 w-4 shrink-0" />
+                      <span className="truncate">
+                        {nearbyPresenceState.presence
+                          ? `Nearby ${nearbyPresenceState.attendees.length}`
+                          : "Check in"}
+                      </span>
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
               {status === "error" ? (
                 <p className="mt-2 text-center text-xs text-destructive">
