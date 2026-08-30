@@ -1756,7 +1756,7 @@ export default function ConnectPageClient() {
           id: "circles",
           title: "Circles",
           purpose:
-            "See the groups you are in -- Trusted holds everyone you are connected to, the SMS Circle gets your SOS -- and open one to manage who is in it.",
+            "See the groups you are in -- Trusted holds everyone you are connected to, the SMS Circle gets your SMS -- and open one to manage who is in it.",
         },
         {
           id: "people",

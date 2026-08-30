@@ -73,7 +73,18 @@ export function useFeedLiveRefresh(
       }
     };
 
-    if (document.visibilityState === "visible") startPolling();
+    // Refresh ON MOUNT, not only 45 seconds after it.
+    //
+    // This started the timer and nothing else, and the resource's own mount
+    // load is unforced -- so it short-circuits against a cache entry that is
+    // fresh for a full minute. Landing on the Feed 59s after the last fetch
+    // therefore did no network at all, and the first forced request went out
+    // 45s later: a 105-second worst case on the screen someone opened
+    // precisely to see what just happened.
+    if (document.visibilityState === "visible") {
+      run();
+      startPolling();
+    }
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     // iOS webviews do not always pair `focus` with a `visibilitychange`, so both

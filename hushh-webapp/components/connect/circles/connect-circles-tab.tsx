@@ -101,7 +101,7 @@ const SYSTEM_CIRCLE_COPY = {
   },
   sms: {
     title: "SMS Circle",
-    description: "Gets your SOS text",
+    description: "Gets your SMS",
   },
 } as const satisfies Record<SystemCircleKind, { title: string; description: string }>;
 
@@ -148,11 +148,11 @@ export function circleRowDescription(circle: OneLocationCircleSummary): string {
   }
   if (kind === "sms") {
     // An SMS Circle appears in the list of everyone ON it, not only its
-    // owner's. "Gets your SOS text" is true for exactly one of those readers;
+    // owner's. "Gets your SMS" is true for exactly one of those readers;
     // for the rest the line has to say what it means for THEM.
     const lead = owns
       ? SYSTEM_CIRCLE_COPY.sms.description
-      : "You'll get their SOS text";
+      : "You'll get their SMS";
     if (!owns) return lead;
     return others === 0 ? `${lead} · no one yet` : `${lead} · ${people}`;
   }

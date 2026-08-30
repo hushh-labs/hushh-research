@@ -4,6 +4,7 @@ import json
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -7302,3 +7303,92 @@ def test_map_preferences_doc_states_ghost_is_general_visibility_only() -> None:
     assert "GENERAL visibility only" in doc
     assert "not a switch over private sharing" in doc
     assert "list_map_state" in doc
+
+
+# ---------------------------------------------------------------------------
+# The share lane must survive the trip to the Feed.
+# ---------------------------------------------------------------------------
+#
+# `share_kind` is the only field separating the SMS (Save my Soul) emergency
+# lane from an ordinary share. It was allowlisted into the Feed payload and
+# read by the renderer, and still never arrived: every `location_share_created`
+# emitter and the expiry sweep built their event metadata by hand and left it
+# out, so an emergency was narrated as "started sharing location".
+#
+# The webapp test that covers the rendering half constructs its metadata by
+# hand, which is exactly why the gap survived review -- it can never observe
+# what the emitters actually write. These are source contracts rather than
+# runtime tests for the same reason: they hold the EMITTERS to carrying the
+# field, which is the half nothing else checks.
+
+_SERVICE_SOURCE = Path(one_location_agent_module.__file__).read_text(encoding="utf-8")
+
+
+def _metadata_block_after(marker: str, *, source: str) -> str:
+    """The literal that follows an event-type marker, up to its closing brace."""
+
+    start = source.index(marker)
+    window = source[start : start + 2000]
+    return window
+
+
+def test_every_share_created_emitter_carries_the_share_lane() -> None:
+    # Three write paths produce this event: the non-enforced branch, the
+    # enforced transaction's raw INSERT, and the with-envelope CTE that the
+    # SMS alert itself uses. All three must stamp the lane.
+    markers = [
+        'event_type="location_share_created"',
+        "CAST(:grant_id AS UUID), 'location_share_created',",
+        "'location_share_created',\n                jsonb_build_object(",
+    ]
+    for marker in markers:
+        assert marker in _SERVICE_SOURCE, f"emitter moved: {marker!r}"
+        block = _metadata_block_after(marker, source=_SERVICE_SOURCE)
+        assert "share_kind" in block, (
+            f"{marker!r} builds Feed metadata without share_kind, so the Feed "
+            "cannot tell an SMS alert from an ordinary share"
+        )
+
+
+def test_expiring_a_share_carries_the_share_lane() -> None:
+    # An 8-hour SMS alert nobody stops is ended by the lazy expiry sweep. That
+    # writer never read the grant's metadata, so the lane was absent from the
+    # domain event itself and no projection could put it back.
+    block = _metadata_block_after('event_type="location_share_expired"', source=_SERVICE_SOURCE)
+    assert "share_kind" in block
+    assert "COALESCE(target_grant.metadata ->> 'share_kind', '')" in _SERVICE_SOURCE, (
+        "the expiry sweep must RETURN the grant's lane for the event to carry it"
+    )
+
+
+def test_revoking_a_share_still_carries_the_share_lane() -> None:
+    # This one was already correct. Pinned so a future edit cannot quietly
+    # bring it back in line with the two that were wrong.
+    block = _metadata_block_after('event_type="location_share_revoked"', source=_SERVICE_SOURCE)
+    assert "share_kind" in block
+
+
+def test_feed_projection_migration_carries_the_share_lane_to_both_audiences() -> None:
+    # Emitting it is only half the trip. Migration 179's two projection
+    # functions build Feed metadata key by key -- deliberately, so nothing is
+    # copied wholesale into a plaintext row -- and neither listed this key, so
+    # both the sender's and the recipient's rows lost it again.
+    migration = (
+        Path(one_location_agent_module.__file__).parents[2]
+        / "db"
+        / "migrations"
+        / "186_feed_share_kind_projection.sql"
+    )
+    sql = migration.read_text(encoding="utf-8")
+
+    assert sql.count("CREATE OR REPLACE FUNCTION") == 2, (
+        "both the owner and recipient projections must be replaced"
+    )
+    # Three share-lifecycle families, two audiences.
+    assert sql.count("'share_kind', share_kind_value") == 6
+    for event in (
+        "location_share_created",
+        "location_share_revoked",
+        "location_share_expired",
+    ):
+        assert event in sql
