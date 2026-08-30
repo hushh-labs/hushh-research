@@ -17,6 +17,7 @@ export type FeedEventType =
   | "location_share_shortened"
   | "location_share_duration_changed"
   | "location_share_expired"
+  | "location_share_viewed"
   | "location_access_request"
   | "location_access_approved"
   | "location_access_denied"

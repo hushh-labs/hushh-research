@@ -16,7 +16,6 @@ import {
   ShieldCheck,
   Trash2,
   UsersRound,
-  MoreVertical,
 } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -35,7 +34,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -70,10 +68,18 @@ import {
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_AVATAR_CLASSNAME,
-  CIRCLE_MEMBER_MENU_CLASSNAME,
   CIRCLE_MEMBER_ROW_CLASSNAME,
   CIRCLE_MEMBER_TRAILING_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import { CircleMemberActionsMenu } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
+import {
+  CIRCLE_SHEET_BODY_CLASSNAME,
+  CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME,
+  CIRCLE_SHEET_HEADER_CLASSNAME,
+  CIRCLE_SHEET_NEXT_GROUP_HEADING_CLASSNAME,
+  CIRCLE_SHEET_SCROLL_AREA_CLASSNAME,
+  CIRCLE_SHEET_SCROLL_BODY_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-sheet-layout";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -92,6 +98,7 @@ import {
   filterPeopleByQuery,
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
+import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
@@ -906,12 +913,10 @@ function CircleMemberRow({
    *  to end. Offering Remove there is offering a control that cannot work. */
   membersRemovable?: boolean;
 }) {
-  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const isCurrentUser = member.userId === currentUserId;
   const canShare =
     !isCurrentUser && member.phoneVerified && member.secureLocationReady;
   const canRemove = isOwner && member.role !== "owner" && membersRemovable;
-  const hasMenu = canShare || canRemove;
 
   const relationship =
     !isCurrentUser && member.relationship && member.relationship !== "self"
@@ -1069,77 +1074,24 @@ function CircleMemberRow({
             </Link>
           </>
         ) : null}
-        {hasMenu ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={busy}
-                aria-label={`Actions for ${member.displayName}`}
-                className={CIRCLE_MEMBER_MENU_CLASSNAME}
-              >
-                <MoreVertical className="h-5 w-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {canShare ? (
-                <DropdownMenuItem onSelect={() => onShare()}>
-                  <Share2 className="h-4 w-4 text-current" />
-                  Share location
-                </DropdownMenuItem>
-              ) : null}
-              {canRemove ? (
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setConfirmRemoveOpen(true);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Remove from Circle
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          // Holds the kebab column open on the rows that have no kebab. Without
-          // it the roster's right edge steps in and out by 44px from row to row.
-          <span
-            aria-hidden="true"
-            className={CIRCLE_MEMBER_MENU_CLASSNAME}
-            data-testid="circle-member-menu-spacer"
-          />
-        )}
+        {/* The kebab, its actions and the confirm they lead to -- one module,
+            because which SURFACE carries them depends on the pointer. See
+            `circle-member-actions-menu.tsx`: a phone gets a bottom action
+            sheet headed by this member's own name, a desktop keeps the
+            anchored menu. It also renders the inert 44px spacer on the rows
+            that offer nothing, so the kebab column exists on every row. */}
+        <CircleMemberActionsMenu
+          displayName={member.displayName}
+          initials={circleInitials(member.displayName)}
+          photoUrl={member.photoUrl}
+          secondaryLine={secondaryLine}
+          canShare={canShare}
+          canRemove={canRemove}
+          busy={busy}
+          onShare={onShare}
+          onRemove={onRemove}
+        />
       </div>
-      {canRemove ? (
-        <AlertDialog
-          open={confirmRemoveOpen}
-          onOpenChange={setConfirmRemoveOpen}
-        >
-          <AlertDialogContent size="sm">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Remove {member.displayName}?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Circle shares with {member.displayName} will stop. Direct shares
-                stay unchanged.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                onClick={() => void onRemove()}
-                className="h-11 w-full sm:w-auto"
-              >
-                Remove
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      ) : null}
     </div>
   );
 }
@@ -1426,9 +1378,21 @@ export function CircleDetailFlow({
       ),
     [members, memberSearch],
   );
-  const filteredMembers = usesPagedMembers
-    ? members
-    : locallyFilteredMembers;
+  // The owner leads the roster in every kind of Circle, from either source --
+  // but only while the roster is a ROSTER. Once a query is typed the list is
+  // answering that query, and both search paths now rank a name that begins
+  // with what you typed above one that merely contains it (client-side in
+  // `filterPeopleByQuery`, server-side since #6244). Hoisting the owner
+  // through that would put a loose match above an exact one, on the one
+  // screen where the reader has already said who they are looking for.
+  // `circle-member-order.ts` documents why this is a partition rather than a
+  // second key on the A-Z sort.
+  const filteredMembers = useMemo(() => {
+    const rendered = usesPagedMembers ? members : locallyFilteredMembers;
+    return memberSearch.trim()
+      ? rendered
+      : sortCircleMembersOwnerFirst(rendered);
+  }, [usesPagedMembers, members, locallyFilteredMembers, memberSearch]);
 
   // Beside the "Members" heading. Unfiltered it is the same phrase the screen
   // title and the "Your circles" row use, so the number never changes wording
@@ -1830,10 +1794,10 @@ export function CircleDetailFlow({
                 aria-describedby={undefined}
                 className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
               >
-                <SheetHeader className="text-left">
+                <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
                   <SheetTitle>Rename Circle</SheetTitle>
                 </SheetHeader>
-                <div className="mt-5 space-y-4">
+                <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
                   <label className="block space-y-2">
                     <span className="text-[15px] font-semibold leading-5 text-foreground">
                       Circle name
@@ -1957,7 +1921,7 @@ export function CircleDetailFlow({
                 }}
                 className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
               >
-                <SheetHeader className="text-left">
+                <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
                   <SheetTitle>Invite code</SheetTitle>
                   {!inviteCode && !inviteCodeNeedsOwnerRotation ? (
                     <SheetDescription>
@@ -1966,7 +1930,7 @@ export function CircleDetailFlow({
                   ) : null}
                 </SheetHeader>
                 {inviteCode ? (
-                  <div className="mt-5 space-y-4">
+                  <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
                     <div className="rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 text-center shadow-[var(--app-card-shadow-standard)]">
                       <p className="break-all font-mono text-2xl font-bold tracking-[0.12em] text-foreground">
                         {inviteCode.code}
@@ -2007,7 +1971,12 @@ export function CircleDetailFlow({
                     ) : null}
                   </div>
                 ) : inviteCodeNeedsOwnerRotation && !canRotateInviteCode ? (
-                  <div className="mt-5 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--app-card-shadow-standard)]">
+                  <div
+                    className={cn(
+                      CIRCLE_SHEET_BODY_CLASSNAME,
+                      "rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--app-card-shadow-standard)]",
+                    )}
+                  >
                     <p className="text-[17px] font-semibold leading-[22px] text-foreground">
                       Invite code unavailable
                     </p>
@@ -2016,7 +1985,7 @@ export function CircleDetailFlow({
                     </p>
                   </div>
                 ) : (
-                  <div className="mt-5 space-y-3">
+                  <div className={cn(CIRCLE_SHEET_BODY_CLASSNAME, "space-y-3")}>
                     <Button
                       type="button"
                       disabled={busy}
@@ -2099,12 +2068,12 @@ export function CircleDetailFlow({
               // field they cannot see.
               className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
             >
-              <SheetHeader className="text-left">
+              <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
                 <SheetTitle>Add people</SheetTitle>
                 <SheetDescription>Choose connections.</SheetDescription>
               </SheetHeader>
 
-              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
+              <div className={CIRCLE_SHEET_SCROLL_BODY_CLASSNAME}>
                 <label className="relative block">
                   <span className="sr-only">Search connections</span>
                   <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -2119,7 +2088,7 @@ export function CircleDetailFlow({
                   />
                 </label>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <div className={CIRCLE_SHEET_SCROLL_AREA_CLASSNAME}>
                   {peopleLoading ? (
                     <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin" />
@@ -2145,6 +2114,9 @@ export function CircleDetailFlow({
                       filteredEligibleConnections.length ? (
                         <SettingsGroup
                           title="Your connections"
+                          headingClassName={
+                            CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME
+                          }
                           description={
                             remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
                               ? `Add up to ${CIRCLE_INVITE_BATCH_LIMIT} people at a time. ${peopleTotalCount} available; ${remainingCapacity} Circle slots remain.`
@@ -2278,7 +2250,12 @@ export function CircleDetailFlow({
                       ) : null}
 
                       {pendingInvites.length ? (
-                        <SettingsGroup title="Pending">
+                        <SettingsGroup
+                          title="Pending"
+                          headingClassName={
+                            CIRCLE_SHEET_NEXT_GROUP_HEADING_CLASSNAME
+                          }
+                        >
                           {pendingInvites.map((invite) => (
                             <SettingsRow
                               key={invite.id}

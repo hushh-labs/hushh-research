@@ -176,6 +176,7 @@ export function SettingsGroup({
   embedded = false,
   separatorInset,
   className,
+  headingClassName,
   shellClassName,
   contentClassName,
   testId = "settings-group",
@@ -218,6 +219,21 @@ export function SettingsGroup({
    */
   separatorInset?: boolean;
   className?: string;
+  /**
+   * Tunes the heading block's own spacing.
+   *
+   * The block carries `mt-7` because a settings SCREEN stacks groups down a
+   * page and 28px is what separates one section from the last. Inside a
+   * bottom sheet there is no previous section -- the group is the first thing
+   * under a header that has already introduced it -- so that 28px lands as a
+   * gap between the sheet's own title and the list it is titling. Reported on
+   * the Add people sheet as "search bahut jyada neeche aa raha".
+   *
+   * A caller-supplied class rather than a `compact` boolean: the value that is
+   * wrong here is a margin, and the surfaces that need to change it are the
+   * ones that own their own vertical rhythm.
+   */
+  headingClassName?: string;
   /** Lets a bounded manager make the shared group shell a flex viewport. */
   shellClassName?: string;
   /** Lets a bounded manager make the shared row stack the scroll owner. */
@@ -258,7 +274,12 @@ export function SettingsGroup({
   return (
     <section className={cn("w-full", className)} data-testid={testId}>
       {eyebrow || title || description || titleAction ? (
-        <div className="mb-2 mt-7 flex items-start justify-between gap-3 px-[6px]">
+        <div
+          className={cn(
+            "mb-2 mt-7 flex items-start justify-between gap-3 px-[6px]",
+            headingClassName,
+          )}
+        >
           <div className="min-w-0 flex-1 space-y-[var(--settings-heading-stack-gap)]">
             {eyebrow || title ? (
               <SectionLabel

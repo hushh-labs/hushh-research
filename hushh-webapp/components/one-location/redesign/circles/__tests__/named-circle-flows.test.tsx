@@ -1322,6 +1322,173 @@ describe("named Circle flows", () => {
     expect(spacers[0]).toHaveAttribute("aria-hidden", "true");
   });
 
+  // Reported on a Trusted Circle reading "Ankit Kumar Singh / JHUMMA KUMARI
+  // (You · Owner) / Neelesh Meena" -- the roster was A-Z, and the owner is
+  // whoever the alphabet puts in the middle. "Owner hamesha sabse upar hi
+  // rahega, sabhi kind ke circles ke liye", so both kinds are asserted here
+  // rather than only the one that was photographed.
+  it.each([
+    ["a Trusted Circle", "trusted" as const],
+    ["an ordinary Circle", null],
+  ])("puts the owner at the top of %s", async (_label, systemKind) => {
+    const roster = {
+      ...circle("circle-1", systemKind === "trusted" ? "Trusted" : "Family"),
+      systemKind,
+      memberCount: 3,
+      members: [
+        {
+          userId: "ankit-user",
+          displayName: "Ankit Kumar Singh",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        // Alphabetically between the two members, which is exactly where the
+        // report found them.
+        {
+          userId: "owner-user",
+          displayName: "Jhumma Kumari",
+          role: "owner" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "neelesh-user",
+          displayName: "Neelesh Meena",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => roster)}
+      />,
+    );
+
+    const owner = await screen.findByText("Jhumma Kumari");
+    for (const memberName of ["Ankit Kumar Singh", "Neelesh Meena"]) {
+      expect(
+        owner.compareDocumentPosition(screen.getByText(memberName)) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+
+    // A partition, not a re-sort: the two members keep the A-Z order they
+    // had underneath the owner.
+    expect(
+      screen
+        .getByText("Ankit Kumar Singh")
+        .compareDocumentPosition(screen.getByText("Neelesh Meena")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("stops hoisting the owner once the roster is answering a search", async () => {
+    // The owner leads a ROSTER. A searched list is answering a question, and
+    // both search paths rank a name that begins with the query above one that
+    // merely contains it -- hoisting the owner through that would put the
+    // wrong person first on the one screen where the reader has already said
+    // who they want. "Ankit Kumar Singh" and "Jhumma Kumari" both have a word
+    // beginning with "ku", so A-Z inside the rank decides, and Ankit wins.
+    const filler = Array.from({ length: 7 }, (_unused, index) => ({
+      userId: `filler-${index}`,
+      displayName: `Zz Filler ${index}`,
+      role: "member" as const,
+      phoneVerified: true,
+      secureLocationReady: true,
+    }));
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ({
+          ...circle("circle-1", "Family"),
+          memberCount: 9,
+          members: [
+            {
+              userId: "owner-user",
+              displayName: "Jhumma Kumari",
+              role: "owner" as const,
+              phoneVerified: true,
+              secureLocationReady: true,
+            },
+            {
+              userId: "ankit-user",
+              displayName: "Ankit Kumar Singh",
+              role: "member" as const,
+              phoneVerified: true,
+              secureLocationReady: true,
+            },
+            ...filler,
+          ],
+        }))}
+      />,
+    );
+
+    fireEvent.change(await screen.findByPlaceholderText("Search members"), {
+      target: { value: "ku" },
+    });
+
+    const ankit = await screen.findByText("Ankit Kumar Singh");
+    expect(
+      ankit.compareDocumentPosition(screen.getByText("Jhumma Kumari")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  // Reported on the Add people sheet: "extra space between the section is
+  // bad", "search bahut jyada neeche aa raha", "divs truncated bhi dikh rahe
+  // hain". None of that gap was written here -- it was SheetContent's `gap-4`,
+  // SheetHeader's `p-4`, the body's `mt-4` and SettingsGroup's `mt-7`, four
+  // sensible defaults stacking. Asserted on the rendered classes rather than
+  // measured, because jsdom has no layout: what regressed was which owner's
+  // default is in force, and that is exactly what these read back.
+  it("does not stack four owners' default spacing above the Add people list", async () => {
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => circle("circle-1", "Family"))}
+        onLoadEligibleConnections={vi.fn(async () => ({
+          eligibleConnections: [
+            { userId: "conn-1", displayName: "Asha Meena" },
+            { userId: "conn-2", displayName: "Neel Shah" },
+          ],
+          pendingInvites: [],
+          remainingCapacity: 5,
+        }))}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    const sheet = await screen.findByRole("dialog", { name: "Add people" });
+
+    // The header stops adding a second inset on top of the sheet's own, so
+    // the title lines up with the search field instead of sitting inboard of
+    // it, and stops adding 16px under a description the gap already spaced.
+    const header = sheet.querySelector('[data-slot="sheet-header"]');
+    expect(header?.className).toContain("p-0");
+    expect(header?.className).not.toContain("p-4");
+
+    const group = await screen.findByTestId(
+      "one-location-circle-eligible-connections",
+    );
+    const headingBlock = group
+      .querySelector('[data-slot="settings-group-heading"]')
+      ?.closest("section > div");
+    expect(headingBlock?.className).toContain("mt-0");
+    expect(headingBlock?.className).not.toContain("mt-7");
+
+    // And the list is still the thing that scrolls, so the "Add N people"
+    // button cannot be pushed off the bottom by a long roster.
+    const scroller = sheet.querySelector(".overflow-y-auto.overscroll-contain");
+    expect(scroller).not.toBeNull();
+    expect(scroller?.contains(group)).toBe(true);
+  });
+
   it("scopes quick actions to the row's own member and hides actions that don't apply", async () => {
     const onShareWithMember = vi.fn();
     const ownerCircle = {
