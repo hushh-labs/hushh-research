@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Loader2, Lock, ShieldAlert } from "lucide-react";
+import { Loader2, Lock, ShieldAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
+import { PkmMemoryLevel } from "@/components/profile/pkm-memory-level";
 import {
   PkmMemoryDetail,
   type MemorySharingState,
@@ -44,7 +45,9 @@ import {
   selectRelevantPkmMemoryCards,
   updatePkmDomainValue,
   type PkmMemoryCard,
+  type PkmPathSegment,
 } from "@/lib/pkm/pkm-memory-cards";
+import { pkmMemoryCardBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import {
   buildPkmShareBundles,
   pkmShareBundleState,
@@ -110,7 +113,8 @@ export function PkmNaturalPanel({
   const [bootstrapError, setBootstrapError] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [selectedDomainKey, setSelectedDomainKey] = useState<string | null>(null);
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [pathStack, setPathStack] = useState<PkmPathSegment[]>([]);
+  const [selectedCard, setSelectedCard] = useState<PkmMemoryCard | null>(null);
   const [domainDetail, setDomainDetail] = useState<DomainDetailState>(EMPTY_DOMAIN_DETAIL);
   const [memoryCardsNonce, setMemoryCardsNonce] = useState(0);
   const [memoryActionId, setMemoryActionId] = useState<string | null>(null);
@@ -270,6 +274,12 @@ export function PkmNaturalPanel({
     [selectedDomainKey, visibleMetadataDomains]
   );
 
+  // Entering or leaving a category always starts the nested browser at the
+  // category root; Back then walks the stack down exactly one segment at a time.
+  useEffect(() => {
+    setPathStack([]);
+  }, [selectedDomainKey]);
+
   // Only ever browse cards whose domain a consumer is allowed to see. This is a
   // second guard behind buildPkmMemorySnapshot: reserved domains (runtime
   // secrets, KYC) and domains a backend marks not consumer-visible must never
@@ -285,11 +295,6 @@ export function PkmNaturalPanel({
         ? browsableCards.filter((card) => card.domain === selectedDomainKey)
         : [],
     [browsableCards, selectedDomainKey]
-  );
-
-  const selectedCard = useMemo(
-    () => browsableCards.find((card) => card.id === selectedCardId) || null,
-    [browsableCards, selectedCardId]
   );
 
   const categoryCounts = useMemo(() => {
@@ -432,6 +437,7 @@ export function PkmNaturalPanel({
     };
   }, [
     isVaultUnlocked,
+    memoryCardsNonce,
     pkmChangeRevision,
     selectedMetadataDomain,
     user,
@@ -552,7 +558,7 @@ export function PkmNaturalPanel({
   useEffect(() => {
     if (selectedCard) void ensureSharingImpact(selectedCard);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCardId]);
+  }, [selectedCard?.id]);
 
   async function persistMemoryCardChange(params: {
     card: PkmMemoryCard;
@@ -623,7 +629,7 @@ export function PkmNaturalPanel({
       );
       morphyToast.success(params.action === "edited" ? "Memory updated." : "Memory forgotten.");
       resetMemoryActionState();
-      setSelectedCardId(null);
+      setSelectedCard(null);
       setMemoryCardsNonce((value) => value + 1);
     } catch (error) {
       setMemoryActionError(
@@ -803,7 +809,7 @@ export function PkmNaturalPanel({
   const recentMemories = browsableCards.slice(0, 6);
 
   function openMemory(card: PkmMemoryCard) {
-    setSelectedCardId(card.id);
+    setSelectedCard(card);
     setMemoryActionError(null);
   }
 
@@ -879,7 +885,7 @@ export function PkmNaturalPanel({
           deleting={memoryActionId === `${selectedCard.id}:deleted`}
           actionError={memoryActionError}
           onBack={() => {
-            setSelectedCardId(null);
+            setSelectedCard(null);
             setMemoryActionError(null);
           }}
           onOpenSharing={() => router.push(ROUTES.CONSENTS)}
@@ -893,49 +899,34 @@ export function PkmNaturalPanel({
   }
 
   if (selectedMetadataDomain) {
-    const categoryTitle = selectedMetadataDomain.displayName;
-    const categoryCards = domainMemoryCards;
     return (
-      <>{nativeBeacon}<div className="space-y-7" data-pkm-detail-panel="true">
-        <button
-          type="button"
-          onClick={() => setSelectedDomainKey(null)}
-          className="-ml-1 inline-flex min-h-11 items-center gap-1 text-[15px] font-normal text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden />
-          Memory
-        </button>
-
-        <h2 className="text-[26px] font-semibold leading-tight tracking-tight text-foreground">
-          {categoryTitle}
-        </h2>
-
-        {sharingImpactError ? (
-          <p className="px-1 text-sm text-destructive">{sharingImpactError}</p>
-        ) : null}
-
-        {categoryCards.length > 0 ? (
-          <SettingsGroup separatorInset testId={`memory-category-list-${selectedMetadataDomain.key}`}>
-            {categoryCards.map((card) => (
-              <PkmMemoryRow key={card.id} card={card} onOpen={openMemory} />
-            ))}
-          </SettingsGroup>
-        ) : domainDetail.loading || memoryCardsLoading ? (
-          <SurfaceInset className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            Opening {categoryTitle}…
-          </SurfaceInset>
-        ) : domainDetail.error ? (
-          <SurfaceInset className="space-y-1 p-4 text-sm text-muted-foreground">
-            <p className="font-semibold text-foreground">This category couldn’t be opened</p>
-            <p>Go back and try again.</p>
-          </SurfaceInset>
-        ) : (
-          <SurfaceInset className="p-4 text-sm text-muted-foreground">
-            Nothing is saved in {categoryTitle} yet.
-          </SurfaceInset>
-        )}
-      </div></>
+      <>
+        {nativeBeacon}
+        <PkmMemoryLevel
+          domainKey={selectedMetadataDomain.key}
+          domainTitle={selectedMetadataDomain.displayName}
+          data={domainDetail.data}
+          pathStack={pathStack}
+          loading={domainDetail.loading || memoryCardsLoading}
+          error={domainDetail.error}
+          sharingImpactError={sharingImpactError}
+          sourceLabel={selectedMetadataDomain.readableSourceLabel || undefined}
+          updatedAt={
+            selectedMetadataDomain.readableUpdatedAt ||
+            selectedMetadataDomain.lastUpdated ||
+            null
+          }
+          onDrill={(segment) => setPathStack((stack) => [...stack, segment])}
+          onBack={() => {
+            if (pathStack.length === 0) {
+              setSelectedDomainKey(null);
+              return;
+            }
+            setPathStack((stack) => stack.slice(0, -1));
+          }}
+          onOpenLeaf={openMemory}
+        />
+      </>
     );
   }
 
@@ -985,7 +976,12 @@ export function PkmNaturalPanel({
                 {searchResults.length > 0 ? (
                   <SettingsGroup title="Memories" separatorInset testId="memory-search-results">
                     {searchResults.map((card) => (
-                      <PkmMemoryRow key={card.id} card={card} onOpen={openMemory} />
+                      <PkmMemoryRow
+                        key={card.id}
+                        card={card}
+                        onOpen={openMemory}
+                        breadcrumb={pkmMemoryCardBreadcrumb(card)}
+                      />
                     ))}
                   </SettingsGroup>
                 ) : null}

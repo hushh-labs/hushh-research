@@ -43,8 +43,11 @@ export type PkmMemorySnapshot = {
 const DEFAULT_MAX_CARDS = 96;
 const DEFAULT_MAX_CARDS_PER_DOMAIN = 24;
 const MAX_VALUE_CHARS = 180;
-const MAX_DEPTH = 6;
-const MAX_ARRAY_ITEMS = 12;
+// Defensive traversal guard. Memory nesting and array length are arbitrary by
+// design, so this caps total nodes visited (against a pathologically large or
+// malformed blob) rather than imposing a fixed semantic depth or a per-array
+// item limit that would hide later entries from browsing and search.
+const MAX_TREE_NODE_VISITS = 20_000;
 
 const INTERNAL_KEYS = new Set([
   "algorithm",
@@ -144,11 +147,13 @@ function parseDomainSummary(metadata: PersonalKnowledgeModelMetadata | null): Ma
  * to resolve a turn-local provider credential; it is never agent memory.
  */
 export function shouldSkipPkmMemoryKey(key: string): boolean {
+  // A leading underscore marks a private/internal key by convention. Check it on
+  // the raw key: normalizeKey() strips underscores, so this must run before it.
+  if (String(key ?? "").trim().startsWith("_")) return true;
   const normalized = normalizeKey(key);
   if (!normalized) return true;
   if (INTERNAL_KEYS.has(normalized)) return true;
   if (INTERNAL_PKM_DOMAINS.has(normalized) || SECRET_KEY_PATTERN.test(normalized)) return true;
-  if (normalized.startsWith("_")) return true;
   if (normalized.endsWith("_id") && normalized !== "student_id") return true;
   if (normalized.includes("cipher") || normalized.includes("token")) return true;
   return false;
@@ -234,14 +239,20 @@ function flattenCards(params: {
   value: unknown;
   sourceLabel: string;
   updatedAt: string | null;
-  depth?: number;
   pathSegments?: PkmPathSegment[];
   cards?: PkmMemoryCard[];
+  visits?: { count: number };
 }): PkmMemoryCard[] {
-  const depth = params.depth || 0;
   const pathSegments = params.pathSegments || [];
   const cards = params.cards || [];
-  if (depth > MAX_DEPTH || cards.length >= DEFAULT_MAX_CARDS_PER_DOMAIN * 3) return cards;
+  const visits = params.visits || { count: 0 };
+  visits.count += 1;
+  if (
+    visits.count > MAX_TREE_NODE_VISITS ||
+    cards.length >= DEFAULT_MAX_CARDS_PER_DOMAIN * 3
+  ) {
+    return cards;
+  }
 
   const primitive = primitiveValue(params.value);
   if (primitive) {
@@ -274,13 +285,13 @@ function flattenCards(params: {
   }
 
   if (Array.isArray(params.value)) {
-    params.value.slice(0, MAX_ARRAY_ITEMS).forEach((item, index) => {
+    params.value.forEach((item, index) => {
       flattenCards({
         ...params,
         value: item,
-        depth: depth + 1,
         pathSegments: [...pathSegments, index],
         cards,
+        visits,
       });
     });
     return cards;
@@ -292,12 +303,29 @@ function flattenCards(params: {
     flattenCards({
       ...params,
       value: child,
-      depth: depth + 1,
       pathSegments: [...pathSegments, key],
       cards,
+      visits,
     });
   }
   return cards;
+}
+
+/**
+ * Public wrapper around the internal flattener: given one node of decrypted
+ * domain data and the exact path segments that reach it, return the readable
+ * leaf memory cards beneath it. Used by the nested Memory level navigator so a
+ * drilled-in leaf carries the same id / fingerprint / labels as a search hit.
+ */
+export function buildPkmMemoryCardsFromNode(params: {
+  domain: string;
+  domainTitle: string;
+  value: unknown;
+  sourceLabel: string;
+  updatedAt: string | null;
+  pathSegments: PkmPathSegment[];
+}): PkmMemoryCard[] {
+  return flattenCards(params);
 }
 
 function tokens(value: string): Set<string> {
