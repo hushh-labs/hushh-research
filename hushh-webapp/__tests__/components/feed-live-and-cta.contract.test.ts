@@ -93,8 +93,10 @@ describe("the ask flow's primary action keeps the action colour", () => {
       )?.[0] ?? "";
     expect(sendButton.length).toBeGreaterThan(0);
     expect(sendButton).toContain("bg-[color:var(--app-accent)]");
-    // Green is a status, and this screen already says it twice — in the banner
-    // above and in each person's row turning to "Asked".
+    // Green is a status, and the outcome is already said twice elsewhere —
+    // the Sonner toast the send raises, and each person's row turning to
+    // "Asked". A third telling on the button would be the one that cannot be
+    // dismissed.
     expect(sendButton).not.toContain("--app-success");
   });
 
@@ -103,14 +105,24 @@ describe("the ask flow's primary action keeps the action colour", () => {
       "components/one-location/redesign/location-redesign-hub.tsx",
     );
 
-    expect(hub).toContain("sentSelectionRef");
-    expect(hub).toContain("const sent = await vm.onSendRequest(reason)");
-    expect(hub).toContain("setJustSent(sent)");
-    // The latch must not be part of what disables the button, or one send
-    // retires the control for the life of the screen.
-    expect(hub).not.toContain(
-      "disabled={!isRequestFormValid || sendingRequest || justSent}",
+    // Reported from the field as "can't send req to rest after 1 cycle".
+    // The guarantee used to be "the latch is cleared when a new person is
+    // picked"; it is now the stronger "there is no latch". `justSent` and the
+    // `sentSelectionRef` that retired it went with the confirmation banner —
+    // see the Request-sent contract in one-location-copy-pass.
+    expect(hub).not.toMatch(/const \[justSent/);
+    expect(hub).not.toMatch(/setJustSent\(/);
+    expect(hub).not.toContain("sentSelectionRef");
+
+    // What Send is allowed to depend on: the current selection, and whether a
+    // send is already in flight. Nothing that outlives one round.
+    expect(hub).toContain(
+      "disabled={!isRequestFormValid || sendingRequest}",
     );
+    // And the step still advances only on a resolved success, so a failed send
+    // cannot present as a completed one.
+    expect(hub).toContain("const sent = await vm.onSendRequest(reason)");
+    expect(hub).toContain("if (sent) setStep(\"person\")");
   });
 });
 
