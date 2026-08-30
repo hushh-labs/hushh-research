@@ -165,14 +165,20 @@ export function DurationSelector({
           </SelectContent>
         </Select>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div
+          className="flex flex-wrap gap-2"
+          role="radiogroup"
+          aria-labelledby={label ? labelId : undefined}
+          aria-label={label ? undefined : "Duration"}
+        >
           {options.map((option) => {
             const active = option.value === value;
             return (
               <button
                 key={option.value}
                 type="button"
-                aria-pressed={active}
+                role="radio"
+                aria-checked={active}
                 onClick={() => onChange(option.value)}
                 className={cn(
                   "h-9 rounded-full border px-4 transition-colors touch-manipulation",

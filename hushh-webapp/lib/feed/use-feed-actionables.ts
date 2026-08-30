@@ -104,7 +104,7 @@ export interface FeedActionable {
   actions: FeedActionButton[];
   sortAt: number;
   /**
-   * Real-world instant to render as the row's "Today - 3:45 PM" label.
+   * Real-world instant to render as the row's local time label.
    * Distinct from `sortAt` (which falls back to when the row was first seen so
    * ordering never breaks) — null/absent exactly when there is no real
    * timestamp to show the user (a consent entry with no `issued_at`, or any

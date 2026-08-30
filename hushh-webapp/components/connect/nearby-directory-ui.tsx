@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Search as SearchIcon, X } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   CaptionText,
   PageSubtitle,
@@ -40,9 +39,19 @@ export type DirectoryAttribution = {
 
 export function DirectoryLoadingRows({ testId }: { testId: string }) {
   return (
-    <div className="space-y-3 px-1 py-2" data-testid={testId}>
-      {[0, 1, 2, 3].map((row) => (
-        <Skeleton key={row} className="h-11 w-full rounded-xl" />
+    <div className="space-y-1 px-0 py-1" data-testid={testId}>
+      {[0, 1, 2].map((row) => (
+        <div
+          key={row}
+          className="grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)] items-center gap-3 px-4"
+          aria-hidden
+        >
+          <div className="h-9 w-9 rounded-full bg-[color:var(--app-secondary-fill)] motion-safe:animate-pulse" />
+          <div className="min-w-0 space-y-2">
+            <div className="h-3.5 w-2/5 rounded-full bg-[color:var(--app-secondary-fill)] motion-safe:animate-pulse" />
+            <div className="h-3 w-3/5 rounded-full bg-[color:var(--app-tertiary-fill)] motion-safe:animate-pulse" />
+          </div>
+        </div>
       ))}
     </div>
   );

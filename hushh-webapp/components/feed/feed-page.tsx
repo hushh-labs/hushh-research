@@ -506,7 +506,11 @@ function FeedPageSession({
         : "empty-valid";
 
   return (
-    <AppPageShell as="main" width="reading" className="!px-0 pb-24 sm:pb-28">
+    <AppPageShell
+      as="main"
+      width="reading"
+      className="!px-0 pb-[calc(var(--app-screen-footer-pad)+16px)]"
+    >
       <NativeTestBeacon
         routeId="/one/feed"
         marker="native-route-feed"
@@ -518,9 +522,7 @@ function FeedPageSession({
         errorMessage={showColdError ? "Feed activity could not load." : null}
       />
       <div className="mx-auto w-full max-w-[40rem]">
-        {/* No in-body header: the shared top bar owns the "Feed" title + back
-            arrow (see resolveTopShellBreadcrumb). Only the sticky day dividers
-            below travel with the scroll. */}
+        {/* No in-body header: the shared top bar owns the single Feed title. */}
         <AppPageContentRegion>
           {hasLiveActionables ? (
             <section aria-label="Live" className="bg-accent/[0.03]">
@@ -545,20 +547,17 @@ function FeedPageSession({
           ) : null}
 
           {contentLoading && !hasHistory && !hasActionables ? (
-            <div
-              role="status"
-              className="px-4 py-16 text-center text-sm text-muted-foreground"
-            >
-              Loading your feed…
-            </div>
+            <FeedRowsSkeleton />
           ) : null}
 
           {showColdError ? (
             <div
               role="alert"
-              className="flex flex-col items-center gap-3 px-4 py-16 text-center text-sm text-muted-foreground"
+              className="mx-[6px] flex min-h-[116px] flex-col items-center justify-center gap-3 rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-8 text-center"
             >
-              <p>Couldn't load all of your activity.</p>
+              <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                Activity unavailable
+              </p>
               <Button
                 type="button"
                 variant="none"
@@ -594,11 +593,14 @@ function FeedPageSession({
           {showEmpty ? (
             <div
               role="status"
-              className="px-4 py-16 text-center text-sm text-muted-foreground"
+              className="mx-[6px] flex min-h-[116px] flex-col items-center justify-center gap-1 rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-8 text-center"
             >
-              {clearedThroughId
-                ? "No notifications yet."
-                : "You're all caught up."}
+              <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                No activity yet
+              </p>
+              <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                Your recent activity will appear here.
+              </p>
             </div>
           ) : null}
 
@@ -637,7 +639,7 @@ function FeedPageSession({
             ? dayGroups.map((group) => (
                 <section key={group.label} aria-label={group.label}>
                   <SectionLabel>{group.label}</SectionLabel>
-                  <div className="divide-y divide-[color:var(--foundation-hairline)]">
+                  <div className="mx-[6px] divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-none">
                     {group.items.map((item) => (
                       <FeedRow
                         key={item.id}
@@ -682,14 +684,38 @@ function FeedPageSession({
   );
 }
 
-/** Sticky day / section divider that follows the shared readable label scale. */
+/** Day / section divider that follows the shared readable label scale. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <AppSectionLabel
       as="h2"
-      className="sticky top-[var(--top-shell-live-height)] z-10 bg-background/85 px-[6px] pb-2 pt-7 backdrop-blur-md"
+      className="px-[6px] pb-2 pt-7 text-[13px] font-normal leading-[18px] text-[color:var(--app-section-label)]"
     >
       {children}
     </AppSectionLabel>
+  );
+}
+
+function FeedRowsSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading feed"
+      className="mx-[6px] overflow-hidden rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-none"
+    >
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className="grid min-h-[68px] grid-cols-[40px_minmax(0,1fr)_52px] items-center gap-x-3 border-b border-[color:var(--app-separator)] px-4 py-3 last:border-b-0"
+        >
+          <span className="h-10 w-10 rounded-full bg-foreground/[0.07]" />
+          <span className="space-y-2">
+            <span className="block h-3.5 w-2/3 rounded-full bg-foreground/[0.07]" />
+            <span className="block h-3 w-5/6 rounded-full bg-foreground/[0.055]" />
+          </span>
+          <span className="h-3 w-12 rounded-full bg-foreground/[0.055]" />
+        </div>
+      ))}
+    </div>
   );
 }

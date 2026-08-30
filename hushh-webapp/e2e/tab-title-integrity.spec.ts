@@ -36,8 +36,7 @@ const WIDTHS = [320, 360, 375, 390, 430, 768, 1280] as const;
  * simply unchecked -- so add to this when adding tabs.
  */
 const TAB_STRIPS: ReadonlyArray<{ surface: string; labels: string[] }> = [
-  { surface: "connect", labels: ["People", "RIAs", "Around you"] },
-  { surface: "connect/around-you", labels: ["Advisors", "Insurance", "Places"] },
+  { surface: "connect", labels: ["Connections", "Circles"] },
 ];
 
 /** The class strings SegmentedTabs emits, read from the component itself. */
@@ -46,7 +45,7 @@ function readSegmentedTabsClasses(): { option: string; label: string } {
     join(process.cwd(), "lib/morphy-ux/ui/segmented-tabs.tsx"),
     "utf8",
   );
-  const option = source.match(/"(press-scale relative isolate flex[^"]+)"/)?.[1];
+  const option = source.match(/"(relative isolate flex[^"]+)"/)?.[1];
   const label = source.match(/"(ui-text-form-label relative[^"]+)"/)?.[1];
   if (!option || !label) {
     throw new Error(
