@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import {
   Check,
   Copy,
@@ -32,11 +31,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   SheetClose,
   Sheet,
@@ -104,6 +98,7 @@ import { ContactSourceBadge } from "@/components/connections/contact-source-badg
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { othersCountLabel } from "@/lib/one-location/circle-member-count";
+import { ActionMenu } from "@/components/app-ui/action-menu";
 import { cn } from "@/lib/utils";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
@@ -389,51 +384,28 @@ export function CirclesSection({
             "[&_[data-radix-popper-content-wrapper]]:!transform-none",
           )}
         >
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                aria-label="Add Circle"
-                className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
-              >
-                <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuPrimitive.Content
-              data-slot="dropdown-menu-content"
-              side="bottom"
-              align="end"
-              alignOffset={0}
-              sideOffset={0}
-              collisionPadding={12}
-              className="z-[212] min-w-[12rem] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 text-[color:var(--app-primary-label)] shadow-[var(--app-card-shadow-standard)] outline-none dark:shadow-none"
-            >
-              <DropdownMenuItem
-                onSelect={onCreate}
-                data-voice-control-id="one-location-action-create-circle"
-                className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-              >
-                <Plus
-                  className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                  aria-hidden="true"
-                />
-                Create Circle
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={onJoin}
-                data-voice-control-id="one-location-action-join-circle"
-                className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-              >
-                <KeyRound
-                  className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                  aria-hidden="true"
-                />
-                Join with code
-              </DropdownMenuItem>
-            </DropdownMenuPrimitive.Content>
-          </DropdownMenu>
+          <ActionMenu
+            label="Add Circle"
+            title="Circles"
+            triggerIcon={Plus}
+            testId="one-location-add-circle"
+            items={[
+              {
+                id: "create",
+                label: "Create Circle",
+                icon: Plus,
+                onSelect: onCreate,
+                voiceControlId: "one-location-action-create-circle",
+              },
+              {
+                id: "join",
+                label: "Join with code",
+                icon: KeyRound,
+                onSelect: onJoin,
+                voiceControlId: "one-location-action-join-circle",
+              },
+            ]}
+          />
         </div>
       </div>
 
