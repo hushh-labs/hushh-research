@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -868,7 +869,7 @@ async function openLocationPermissionsStep() {
 }
 
 async function switchLocationTab(
-  name: "Now" | "People" | "Links",
+  name: "My location" | "People" | "Links",
   expectedHeading: string,
 ) {
   fireEvent.click(screen.getByRole("button", { name }));
@@ -953,10 +954,21 @@ describe("OneLocationAgentPage", () => {
     // and every test after it hangs on a clock that never moves -- three
     // unrelated failures from one. Cheap to make impossible.
     vi.useRealTimers();
+    cleanup();
+    document.body.style.pointerEvents = "";
+    document.body.removeAttribute("data-scroll-locked");
+    document
+      .querySelectorAll("[data-radix-focus-guard], [data-aria-hidden]")
+      .forEach((node) => node.remove());
   });
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    document.body.style.pointerEvents = "";
+    document.body.removeAttribute("data-scroll-locked");
+    document
+      .querySelectorAll("[data-radix-focus-guard], [data-aria-hidden]")
+      .forEach((node) => node.remove());
     // The shared store, holding a fix measured now — what a session with a
     // live movement watch looks like, and the precondition for the publisher.
     const busSnapshot = {
@@ -1363,8 +1375,8 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryByRole("button", { name: "Your Map" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Map$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Settings$/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Map$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Settings$/i })).toBeNull();
     expect(
       screen.getByRole("button", { name: /^Share location$/i }),
     ).toBeTruthy();
@@ -1444,7 +1456,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(screen.queryByText("Active shares")).toBeNull();
     expect(await toneOf("Sharing with you")).toBeUndefined();
-    expect(await toneOf("Needs review")).toBeUndefined();
+    expect(await toneOf("Location requests")).toBeUndefined();
   });
 
   it("renders Needs review with compact request cards and clear approval copy", async () => {
@@ -1472,7 +1484,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Needs review/i }),
+      await screen.findByRole("button", { name: /Location requests/i }),
     );
 
     const flow = await screen.findByTestId("one-location-needs-review");
@@ -1548,7 +1560,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Needs review/i }),
+      await screen.findByRole("button", { name: /Location requests/i }),
     );
 
     const flow = await screen.findByTestId("one-location-needs-review");
@@ -1640,10 +1652,10 @@ describe("OneLocationAgentPage", () => {
       }),
     ).toBeTruthy();
     expect(within(actions).getByText("Ask for location")).toBeTruthy();
-    expect(within(actions).getByText("Check in")).toBeTruthy();
+    expect(within(actions).getByText("Confirm arrival")).toBeTruthy();
     const retiredActionLabel = ["Their", "Location"].join(" ");
     expect(actions.textContent).not.toContain(retiredActionLabel);
-    expect(within(actions).queryByText("Confirm Arrival")).toBeNull();
+    expect(within(actions).queryByText("Check in")).toBeNull();
     expect(within(actions).getByText("Save My Soul")).toBeTruthy();
     expect(within(actions).getByText("Emergency alert")).toBeTruthy();
 
@@ -1658,16 +1670,15 @@ describe("OneLocationAgentPage", () => {
     actionCells?.forEach((cell) => {
       expect(cell.className).toContain("items-center");
       expect(cell.className).toContain("text-center");
-      expect(cell.className).toContain("rounded-[16px]");
-      expect(cell.className).toContain("min-h-[96px]");
-      expect(cell.className).toContain("px-5");
+      expect(cell.className).toContain("min-h-[58px]");
+      expect(cell.className).toContain("px-3");
     });
     expect(
       actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
-    ).toContain("text-[color:var(--app-accent)]");
+    ).toContain("text-[color:var(--app-accent-deep)]");
     expect(
       actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
-    ).toContain("[&>svg]:h-8");
+    ).toContain("[&>svg]:h-6");
     expect(
       actionGrid?.querySelectorAll("[data-one-location-action-icon] svg"),
     ).toHaveLength(2);
@@ -1684,21 +1695,24 @@ describe("OneLocationAgentPage", () => {
     expect(actions.textContent).not.toContain("location_on");
     expect(actions.textContent).not.toContain("where_to_vote");
     expect(actions.querySelector("[data-one-location-sms-row]")).toBeTruthy();
+    expect(
+      actions
+        .querySelector("[data-one-location-sms-row]")
+        ?.querySelector("[data-one-location-action-icon]")?.className,
+    ).toContain("bg-[color:var(--app-destructive)]");
 
     const activity = screen.getByTestId("one-location-now-activity");
     expect(within(activity).getByText("Sharing with you")).toBeTruthy();
-    expect(within(activity).getByText("Needs review")).toBeTruthy();
+    expect(within(activity).getByText("Location requests")).toBeTruthy();
     expect(within(activity).queryByText("Active shares")).toBeNull();
 
     expect(within(activity).queryByText("Share")).toBeNull();
-    const more = screen.getByTestId("one-location-now-more");
-    expect(within(more).getByText("Map")).toBeTruthy();
-    expect(within(more).getByText("Settings")).toBeTruthy();
+    expect(screen.queryByTestId("one-location-now-more")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Activity" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "More" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Your Map" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Map$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Settings$/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Map$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Settings$/i })).toBeNull();
     expect(screen.queryByText("Check-In")).toBeNull();
     expect(screen.queryByText("Quick actions")).toBeNull();
   });
@@ -1735,7 +1749,7 @@ describe("OneLocationAgentPage", () => {
       "leading-[18px]",
       "font-normal",
     );
-    expect(status.textContent).toBe("Location off");
+    expect(status.textContent).toBe("Off");
     // Still the switch's description wherever it renders.
     expect(
       screen
@@ -1747,16 +1761,12 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     const heading = screen.getByRole("heading", { name: "Location" });
-    const headerRow = heading.closest('[data-slot="page-header-row"]');
-    expect(headerRow).toBeTruthy();
-    expect(headerRow).toHaveClass("flex", "justify-between");
-    expect(screen.getByTestId("page-header").className).toContain(
-      "[&_[data-slot=page-header-row]]:!items-center",
-    );
-    expect(heading).toHaveClass("ui-text-agent-title");
+    expect(heading).toHaveClass("sr-only");
+    expect(screen.queryByTestId("page-header")).toBeNull();
+    const accessRow = screen.getByTestId("one-location-access-row");
     expect(screen.getByTestId("one-location-header-icon")).toBeTruthy();
     expect(
-      headerRow?.contains(
+      accessRow.contains(
         screen.getByRole("switch", { name: "Turn location on" }),
       ),
     ).toBe(true);
@@ -1780,7 +1790,7 @@ describe("OneLocationAgentPage", () => {
     // keeps meaning visible without wrapping the title.
     expect(locationStatus.querySelector(".sm\\:hidden")).toBeNull();
     expect(locationStatus.querySelector(".hidden.sm\\:inline")).toBeNull();
-    expect(locationStatus.textContent).toBe("Location off");
+    expect(locationStatus.textContent).toBe("Off");
     expect(locationStatus).not.toHaveAttribute("aria-hidden");
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
@@ -1799,7 +1809,7 @@ describe("OneLocationAgentPage", () => {
       name: "Turn location off",
     });
     expect(locationOnSwitch).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("Location on")).toBeTruthy();
+    expect(screen.getByText("On")).toBeTruthy();
 
     fireEvent.click(locationOnSwitch);
     await waitFor(() =>
@@ -1807,7 +1817,7 @@ describe("OneLocationAgentPage", () => {
         screen.getByRole("switch", { name: "Turn location on" }),
       ).toHaveAttribute("aria-checked", "false"),
     );
-    expect(screen.getByText("Location off")).toBeTruthy();
+    expect(screen.getByText("Off")).toBeTruthy();
     expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
@@ -2041,7 +2051,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(
       await screen.findByRole("switch", { name: "Turn location off" }),
     );
-    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Off")).toBeTruthy());
 
     await act(async () => {
       resolveApproval?.({
@@ -2087,9 +2097,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
-    await waitFor(() =>
-      expect(screen.getByText("Location limited")).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("Limited")).toBeTruthy());
     expect(
       screen.getByRole("switch", { name: "Turn location off" }),
     ).toHaveAttribute("aria-checked", "true");
@@ -2126,7 +2134,7 @@ describe("OneLocationAgentPage", () => {
     await act(async () => {
       releaseFix();
     });
-    await waitFor(() => expect(screen.getByText("Location on")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("On")).toBeTruthy());
   });
 
   it("does not let a late fix undo a pause made while it was in flight", async () => {
@@ -2143,7 +2151,7 @@ describe("OneLocationAgentPage", () => {
       name: "Turn location off",
     });
     fireEvent.click(onSwitch);
-    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Off")).toBeTruthy());
 
     // The fix belongs to an intent the person has already replaced. Applying it
     // would silently turn location back on after they turned it off.
@@ -2153,7 +2161,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
     ).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("Location off")).toBeTruthy();
+    expect(screen.getByText("Off")).toBeTruthy();
   });
 
   it("pauses the device without waiting on, or first probing, nearby presence", async () => {
@@ -2193,7 +2201,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(onSwitch);
 
-    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Off")).toBeTruthy());
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalledTimes(1));
     // Still in flight while the device already reads as paused.
     expect(releaseCheckout).not.toBeNull();
@@ -2538,7 +2546,7 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByPlaceholderText(/Search people/i)).toHaveValue(
       "Investor",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Now" }));
+    fireEvent.click(screen.getByRole("button", { name: "My location" }));
     fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
@@ -3666,7 +3674,7 @@ describe("OneLocationAgentPage", () => {
     // The header agrees with what the person just did.
     await waitFor(() =>
       expect(screen.getByTestId("one-location-header-status").textContent).toBe(
-        "Location on",
+        "On",
       ),
     );
     expect(
@@ -3777,7 +3785,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText("TB").className).toContain("text-[#6E6E73]");
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Now" }));
+    fireEvent.click(screen.getByRole("button", { name: "My location" }));
     expect(screen.queryByRole("button", { name: /Active shares/i })).toBeNull();
     await openSharePersonStep();
     fireEvent.change(screen.getByPlaceholderText("Search people"), {
@@ -4736,8 +4744,12 @@ describe("OneLocationAgentPage", () => {
     ).toEqual(["15 min", "1 hour", "2 hours", "Custom"]);
 
     // Removed from the face of the ladder, not from the lane.
-    expect(within(ladder).queryByRole("button", { name: "4 hours" })).toBeNull();
-    expect(within(ladder).queryByRole("button", { name: "8 hours" })).toBeNull();
+    expect(
+      within(ladder).queryByRole("button", { name: "4 hours" }),
+    ).toBeNull();
+    expect(
+      within(ladder).queryByRole("button", { name: "8 hours" }),
+    ).toBeNull();
 
     // And Custom still reaches them: one deliberate tap, then the wheel.
     fireEvent.click(within(ladder).getByRole("button", { name: "Custom" }));
@@ -6376,6 +6388,16 @@ describe("OneLocationAgentPage", () => {
         fireEvent.click(change);
       });
 
+      const sheet = await screen.findByTestId(
+        "one-location-live-share-duration-sheet",
+      );
+
+      await act(async () => {
+        fireEvent.click(
+          within(sheet).getByRole("button", { name: "Choose an end time…" }),
+        );
+      });
+
       const editor = await screen.findByTestId(
         "one-location-live-share-duration-editor",
       );
@@ -6415,8 +6437,8 @@ describe("OneLocationAgentPage", () => {
           within(card).getByTestId("one-location-live-share-change-time"),
         );
       });
-      const editor = await screen.findByTestId(
-        "one-location-live-share-duration-editor",
+      const sheet = await screen.findByTestId(
+        "one-location-live-share-duration-sheet",
       );
 
       // "Until I stop" is the largest increase there is, and the direction the
@@ -6425,12 +6447,7 @@ describe("OneLocationAgentPage", () => {
       // a scroll position JSDOM cannot lay out.
       await act(async () => {
         fireEvent.click(
-          within(editor).getByRole("button", { name: "Until I stop" }),
-        );
-      });
-      await act(async () => {
-        fireEvent.click(
-          within(editor).getByTestId("one-location-live-share-duration-save"),
+          within(sheet).getByRole("button", { name: "Until I stop" }),
         );
       });
 
@@ -6452,12 +6469,12 @@ describe("OneLocationAgentPage", () => {
     }
   }, 15000);
 
-  it("offers four common lengths and the open-ended row, one tap each", async () => {
-    // The report (issue #6228): Change time showed too many near-identical
-    // choices -- 15 min / 1 hour / 2 hours / 4 hours / 8 hours / Custom /
-    // Until I stop -- wrapped and left-hugging under the live clock. It is
-    // trimmed to the four common lengths plus the open-ended row; `8 hours`
-    // and the `Custom` wheel are gone.
+  it("offers the common lengths as one tap, with custom time behind a row", async () => {
+    // The report: Change time opened straight onto a two-column scroll wheel.
+    // Almost every change to a running share is one of five lengths, so those
+    // are now always visible and cost one tap each. The wheel is still
+    // reachable for anything in between -- removed from the default view, not
+    // removed.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
     try {
@@ -6471,37 +6488,34 @@ describe("OneLocationAgentPage", () => {
           within(card).getByTestId("one-location-live-share-change-time"),
         );
       });
-      const editor = await screen.findByTestId(
-        "one-location-live-share-duration-editor",
+      const sheet = await screen.findByTestId(
+        "one-location-live-share-duration-sheet",
+      );
+      const quickOptions = within(sheet).getByTestId(
+        "one-location-live-share-duration-quick-options",
       );
 
-      for (const label of [
-        "15 min",
-        "1 hour",
-        "2 hours",
-        "4 hours",
-        "Until I stop",
-      ]) {
+      for (const label of ["30 min", "2 hours", "Until I stop"]) {
         expect(
-          within(editor).getByRole("button", { name: label }),
+          within(quickOptions).getByRole("button", {
+            name: new RegExp(`^${label}`),
+          }),
         ).toBeInTheDocument();
       }
-      // The two choices the issue asked to drop.
       expect(
-        within(editor).queryByRole("button", { name: "8 hours" }),
-      ).toBeNull();
+        within(quickOptions).getByRole("button", {
+          name: "Choose an end time…",
+        }),
+      ).toBeInTheDocument();
       expect(
-        within(editor).queryByRole("button", { name: "Custom" }),
+        within(sheet).queryByTestId("one-location-live-share-duration-save"),
       ).toBeNull();
 
       // One tap on a rung is the whole interaction -- no drag, no confirm
-      // step of its own before Save.
-      await act(async () => {
-        fireEvent.click(within(editor).getByRole("button", { name: "2 hours" }));
-      });
+      // step of its own before the backend update.
       await act(async () => {
         fireEvent.click(
-          within(editor).getByTestId("one-location-live-share-duration-save"),
+          within(quickOptions).getByRole("button", { name: /^2 hours/ }),
         );
       });
 
