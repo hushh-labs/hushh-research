@@ -16,16 +16,19 @@
  *
  *   - the A-Z roster stays A-Z beneath the owner;
  *   - a PAGED roster keeps the server's order beneath the owner, rather than
- *     having a client-side alphabet fight the page boundaries;
- *   - a SEARCHED roster keeps `filterPeopleByQuery`'s relevance ranking
- *     beneath the owner.
+ *     having a client-side alphabet fight the page boundaries.
  *
  * Applied to the list about to be RENDERED rather than to the source, so the
  * owner leads whatever that list turned out to be. It can only hoist a row
- * that is in the list: a search the owner does not match still does not show
- * them, and on a paged roster whose first page has not reached the owner yet
- * there is nothing here to move. Both are correct -- this orders a roster, it
- * does not fetch one.
+ * that is in the list: on a paged roster whose first page has not reached the
+ * owner yet there is nothing here to move, which is correct -- this orders a
+ * roster, it does not fetch one.
+ *
+ * The caller stops applying it once a search query is typed, and that is
+ * deliberate: both search paths rank a name that BEGINS with the query above
+ * one that merely contains it, and hoisting the owner through that ranking
+ * would answer a typed question with the wrong person. A roster has no
+ * question to answer, which is why the owner leads it.
  */
 
 import type { OneLocationCircleRole } from "@/lib/one-location/types";

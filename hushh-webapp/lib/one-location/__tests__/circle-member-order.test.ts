@@ -56,8 +56,8 @@ describe("sortCircleMembersOwnerFirst", () => {
   });
 
   it("cannot invent an owner that is not in the list", () => {
-    // A searched roster the owner does not match, and a first page that has
-    // not reached them yet, are the same case: there is nothing to hoist.
+    // A paged roster whose first page has not reached the owner yet: there is
+    // nothing to hoist, and nothing is fetched to make one.
     expect(names(sortCircleMembersOwnerFirst([ankit, neelesh]))).toEqual([
       "Ankit Kumar Singh",
       "Neelesh Meena",

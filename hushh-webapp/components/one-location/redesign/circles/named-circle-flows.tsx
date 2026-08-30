@@ -1378,17 +1378,21 @@ export function CircleDetailFlow({
       ),
     [members, memberSearch],
   );
-  // The owner leads the roster in every kind of Circle, whichever of the two
-  // sources produced it and whatever a search did to the rest of the order.
-  // `circle-member-order.ts` documents why this is a partition applied to the
-  // rendered list rather than a second key on the A-Z sort.
-  const filteredMembers = useMemo(
-    () =>
-      sortCircleMembersOwnerFirst(
-        usesPagedMembers ? members : locallyFilteredMembers,
-      ),
-    [usesPagedMembers, members, locallyFilteredMembers],
-  );
+  // The owner leads the roster in every kind of Circle, from either source --
+  // but only while the roster is a ROSTER. Once a query is typed the list is
+  // answering that query, and both search paths now rank a name that begins
+  // with what you typed above one that merely contains it (client-side in
+  // `filterPeopleByQuery`, server-side since #6244). Hoisting the owner
+  // through that would put a loose match above an exact one, on the one
+  // screen where the reader has already said who they are looking for.
+  // `circle-member-order.ts` documents why this is a partition rather than a
+  // second key on the A-Z sort.
+  const filteredMembers = useMemo(() => {
+    const rendered = usesPagedMembers ? members : locallyFilteredMembers;
+    return memberSearch.trim()
+      ? rendered
+      : sortCircleMembersOwnerFirst(rendered);
+  }, [usesPagedMembers, members, locallyFilteredMembers, memberSearch]);
 
   // Beside the "Members" heading. Unfiltered it is the same phrase the screen
   // title and the "Your circles" row use, so the number never changes wording

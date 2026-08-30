@@ -1387,6 +1387,59 @@ describe("named Circle flows", () => {
     ).toBeTruthy();
   });
 
+  it("stops hoisting the owner once the roster is answering a search", async () => {
+    // The owner leads a ROSTER. A searched list is answering a question, and
+    // both search paths rank a name that begins with the query above one that
+    // merely contains it -- hoisting the owner through that would put the
+    // wrong person first on the one screen where the reader has already said
+    // who they want. "Ankit Kumar Singh" and "Jhumma Kumari" both have a word
+    // beginning with "ku", so A-Z inside the rank decides, and Ankit wins.
+    const filler = Array.from({ length: 7 }, (_unused, index) => ({
+      userId: `filler-${index}`,
+      displayName: `Zz Filler ${index}`,
+      role: "member" as const,
+      phoneVerified: true,
+      secureLocationReady: true,
+    }));
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ({
+          ...circle("circle-1", "Family"),
+          memberCount: 9,
+          members: [
+            {
+              userId: "owner-user",
+              displayName: "Jhumma Kumari",
+              role: "owner" as const,
+              phoneVerified: true,
+              secureLocationReady: true,
+            },
+            {
+              userId: "ankit-user",
+              displayName: "Ankit Kumar Singh",
+              role: "member" as const,
+              phoneVerified: true,
+              secureLocationReady: true,
+            },
+            ...filler,
+          ],
+        }))}
+      />,
+    );
+
+    fireEvent.change(await screen.findByPlaceholderText("Search members"), {
+      target: { value: "ku" },
+    });
+
+    const ankit = await screen.findByText("Ankit Kumar Singh");
+    expect(
+      ankit.compareDocumentPosition(screen.getByText("Jhumma Kumari")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   // Reported on the Add people sheet: "extra space between the section is
   // bad", "search bahut jyada neeche aa raha", "divs truncated bhi dikh rahe
   // hain". None of that gap was written here -- it was SheetContent's `gap-4`,
