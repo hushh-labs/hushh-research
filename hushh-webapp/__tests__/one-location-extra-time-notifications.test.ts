@@ -209,3 +209,80 @@ describe("the in-app path that never touches FCM", () => {
     expect(approved?.is_extension).toBe("true");
   });
 });
+
+
+/**
+ * Approving an extension ADDS to what is running (#6256).
+ *
+ * The server used to resolve "30 min more" as an absolute total and replace
+ * the live grant with it, destroying whatever was left. Now it adds, and the
+ * new total travels beside the increment -- so every line that carries the
+ * word "more" has to read the increment, not the total.
+ */
+describe("what an approved extension says it gave", () => {
+  it("names the time added, not the new total", () => {
+    // A thirty-minute top-up of a two-hour share leaves 2h30m running. Reading
+    // the total here would announce "gave you 2 hours 30 min more" for
+    // thirty minutes of extra access.
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "Neelesh Meena",
+      isExtension: true,
+      grantedDurationHours: 2.5,
+      addedDurationHours: 0.5,
+      grantedDurationMode: "timed",
+      nowMs: NOW,
+    });
+    expect(copy.description).toBe(
+      "Neelesh Meena gave you 30 min more of live location.",
+    );
+  });
+
+  it("falls back to the total for notifications sent before the fix", () => {
+    // Back then the approval really did replace the share with exactly this
+    // amount, so the old line is still true. Blanking it would be worse.
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "Neelesh Meena",
+      isExtension: true,
+      grantedDurationHours: 4,
+      grantedDurationMode: "timed",
+      nowMs: NOW,
+    });
+    expect(copy.description).toBe(
+      "Neelesh Meena gave you 4 hours more of live location.",
+    );
+  });
+
+  it("does not offer 'more' of a share that never ends", () => {
+    // `grantedLabel` for an open-ended share is the phrase "for as long as you
+    // need", which read as "gave you for as long as you need more of live
+    // location".
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "Neelesh Meena",
+      isExtension: true,
+      grantedDurationMode: "until_stopped",
+      nowMs: NOW,
+    });
+    expect(copy.title).toBe("More location time approved");
+    expect(copy.description).toBe(
+      "Neelesh Meena is now sharing live location until they stop.",
+    );
+  });
+
+  it("leaves a plain approval wording the total, which is what it granted", () => {
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "Neelesh Meena",
+      isExtension: false,
+      grantedDurationHours: 2,
+      addedDurationHours: 0.5,
+      grantedDurationMode: "timed",
+      nowMs: NOW,
+    });
+    expect(copy.description).toBe(
+      "Neelesh Meena shared live location with you 2 hours.",
+    );
+  });
+});

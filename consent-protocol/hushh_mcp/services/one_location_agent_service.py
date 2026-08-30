@@ -25,6 +25,7 @@ from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
+    MAX_LOCATION_SHARE_HOURS,
     TIMED_LOCATION_SHARE_DURATION_MODE,
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
     format_duration_label,
@@ -8726,6 +8727,49 @@ class OneLocationAgentService:
             },
         )
 
+    def _locked_live_share_between(
+        self, *, owner_user_id: str, recipient_user_id: str, is_sos_lane: bool
+    ) -> dict[str, Any] | None:
+        """{@link _active_grant_between}, row-locked, for a caller about to replace it.
+
+        An approval that ADDS to a running share has to read the share it is
+        about to revoke, and read it under the same lock the revoke will take.
+        `shorten_grant` locks the grant ROW rather than this pair's advisory
+        lock, so an unlocked read here would let a shorten commit in the gap and
+        then be silently undone by a sum computed from the pre-shorten expiry --
+        the same "a share's end time moved in a direction nobody chose" defect
+        this read exists to prevent.
+
+        Deliberately keyed on the PAIR and the lane rather than on the request's
+        `extends_grant_id`. The ask is pinned to whichever grant was live when it
+        was made; `create_grant` revokes whichever is live NOW. Reading the
+        pinned row would preserve time on a grant that is no longer there while
+        the revoke destroyed a different one.
+        """
+        return self._execute_one(
+            """
+            SELECT id, expires_at, duration_mode, duration_hours, status
+            FROM one_location_share_grants
+            WHERE owner_user_id = :owner_user_id
+              AND recipient_user_id = :recipient_user_id
+              AND status = 'active'
+              AND (expires_at IS NULL OR expires_at > NOW())"""  # nosec B608 - the
+            # lane predicate is a module-level constant of static SQL text and the
+            # lane itself is BOUND as `:is_sos_lane`; nothing caller-supplied
+            # reaches this statement.
+            + _share_lane_match_sql()
+            + """
+            ORDER BY created_at DESC
+            LIMIT 1
+            FOR UPDATE
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "recipient_user_id": recipient_user_id,
+                "is_sos_lane": bool(is_sos_lane),
+            },
+        )
+
     def set_grant_duration(
         self,
         *,
@@ -9296,6 +9340,12 @@ class OneLocationAgentService:
                 duration_mode=request_row.get("requested_duration_mode"),
             )
             was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
+            # Annotated rather than inferred. mypy takes the type from whichever
+            # of the three branches below it sees first, and they disagree
+            # (`float` vs `None`) -- the same inference trap `create_grant`
+            # documents around its two `grant` names.
+            resolved_hours: float | None
+            resolved_mode: str
             if automatic_preference is not None:
                 # Standing permission answers the locked request exactly. A
                 # browser-supplied override is not a fresh owner decision and
@@ -9324,6 +9374,76 @@ class OneLocationAgentService:
             else:
                 resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
                 resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
+            # AN EXTENSION ADDS TO WHAT IS STILL RUNNING.
+            #
+            # Every surface that words this ask already promises exactly that.
+            # The recipient taps "30 min more". `_access_ask_summary` tells the
+            # owner "is asking for 30 min more of your live location. They have
+            # 1 hour 50 minutes left." The owner's button says "Approve 30 min
+            # more". `deny_request` says the extra time was declined and "any
+            # access you already have is unchanged" -- a sentence that only
+            # parses if approving would have ADDED.
+            #
+            # Resolving the number as an absolute total is what turned 1h50m
+            # into 30m (#6256): `create_grant` revokes the live grant in this
+            # lane and inserts a new one, so an "extension" that named a smaller
+            # number than was left destroyed the difference -- on the one tap
+            # whose label says the opposite, and with a push telling the
+            # recipient they had been given MORE.
+            #
+            # Read from the pair's live grant rather than the ask's pinned
+            # `extends_grant_id`: the invariant is "an approval never destroys
+            # time", so the read has to cover exactly the rows the revoke will
+            # hit. Lane-scoped to the ordinary lane for the same reason
+            # `request_access` is -- nobody extends an emergency share by
+            # asking, and an SOS grant's hours must never enter this sum.
+            remaining_hours = 0.0
+            if was_extension and not _is_until_stopped_share(resolved_mode):
+                live_share = self._locked_live_share_between(
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=requester_user_id,
+                    is_sos_lane=False,
+                )
+                if live_share is None:
+                    # Expired, revoked, or replaced between the ask and this
+                    # tap. There is nothing to preserve, so the asked-for amount
+                    # stands on its own -- which is also what the person asked
+                    # for. `was_extension` stays true because the ledger records
+                    # the ask, not the outcome.
+                    pass
+                elif live_share.get("expires_at") is None:
+                    # The running share has no end. A timed top-up cannot be
+                    # "more" than open-ended, and handing it one would be this
+                    # same bug wearing a different hat. Falls through to the
+                    # automatic guard below, which sends a standing rule back to
+                    # the owner rather than deciding open-ended access for them.
+                    resolved_mode = UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+                    resolved_hours = None
+                elif resolved_hours is not None:
+                    # `max(0.0, ...)` is load-bearing: SQL NOW() is frozen at
+                    # this transaction's first statement while `_utcnow()` keeps
+                    # advancing, so a row can pass `expires_at > NOW()` above and
+                    # still be past its expiry by the time it is measured here.
+                    remaining_hours = max(
+                        0.0,
+                        (
+                            _parse_datetime(live_share["expires_at"], field_name="expires_at")
+                            - _utcnow()
+                        ).total_seconds()
+                        / 3600.0,
+                    )
+                    # Clamped, never refused. `normalize_duration_hours` inside
+                    # `create_grant` rejects anything over the day ceiling, so a
+                    # 23-hour share plus a 2-hour ask would fail the owner's tap
+                    # with a validation error on a request they are saying yes
+                    # to. The copy below names what was actually ADDED, so a
+                    # clamped approval reports the smaller amount rather than
+                    # the one that was asked for.
+                    resolved_hours = min(
+                        MAX_LOCATION_SHARE_HOURS,
+                        remaining_hours + float(resolved_hours),
+                    )
+
             if automatic_preference and (
                 _is_until_stopped_share(requested_mode) or _is_until_stopped_share(resolved_mode)
             ):
@@ -9389,6 +9509,20 @@ class OneLocationAgentService:
                 if _is_until_stopped_share(str(granted_mode))
                 else format_duration_label(granted_hours)
             )
+            # What this approval ADDED -- the only number an extension may put
+            # next to the word "more". Measured off the grant rather than off
+            # `requested_hours`, so a sum clamped at the day ceiling reports the
+            # smaller amount it really gave instead of the amount that was
+            # asked for.
+            added_hours = (
+                round(max(0.0, granted_hours - remaining_hours), 2)
+                if was_extension and granted_hours is not None
+                else None
+            )
+            # format_duration_label lives in the still-quarantined
+            # operons.location module, so its real `-> str` return erases to Any
+            # without this cast -- the same reason `_remaining_label` casts.
+            added_label = cast(str, format_duration_label(added_hours)) if added_hours else ""
             self._insert_event(
                 owner_user_id=owner_user_id,
                 actor_user_id=owner_user_id,
@@ -9404,6 +9538,10 @@ class OneLocationAgentService:
                     "counterpart_label": requester_label,
                     "owner_label": owner_label,
                     "is_extension": was_extension,
+                    # How much time this approval ADDED, so the Feed and the
+                    # bell can say "gave them 30 min more" rather than reading
+                    # the new total as if it were the increment.
+                    "added_duration_hours": added_hours,
                     "requested_duration_hours": requested_hours,
                     "requested_duration_mode": requested_mode,
                     "approval_mode": "automatic" if automatic_preference else "manual",
@@ -9425,9 +9563,19 @@ class OneLocationAgentService:
                 required=True,
             )
 
-        if granted_label and was_extension:
-            approved_body = f"{owner_label} gave you {granted_label} more of their live location."
-        elif granted_label:
+        if was_extension and _is_until_stopped_share(str(granted_mode)):
+            # An open-ended share cannot be given "more" of anything, and the
+            # branch below used to try: `granted_label` is the phrase "for as
+            # long as you need", which read as "gave you for as long as you
+            # need more of their live location".
+            approved_body = f"{owner_label} is now sharing their live location until they stop."
+        elif was_extension and added_label:
+            # The ADDED amount, not the new total. "gave you 30 min more" is
+            # what the recipient asked for and what they got; naming the total
+            # here would say "gave you 2 hours 20 min more" for a 30-minute
+            # top-up.
+            approved_body = f"{owner_label} gave you {added_label} more of their live location."
+        elif granted_label and not was_extension:
             approved_body = f"{owner_label} shared their live location with you {granted_label}."
         else:
             approved_body = f"{owner_label} approved your location request."
@@ -9451,6 +9599,10 @@ class OneLocationAgentService:
                 # data is an FCM payload (str values only) -- stringify the
                 # float duration rather than pass it through raw.
                 "duration_hours": str(granted_hours) if granted_hours is not None else None,
+                # The increment, beside the new total. Without it the client
+                # bell can only re-word the total, which for a 30-minute top-up
+                # of a 2-hour share reads as "2 hours 30 min more".
+                "added_duration_hours": str(added_hours) if added_hours is not None else None,
                 "duration_mode": granted_mode,
                 "expires_at": grant.get("expiresAt"),
                 "is_extension": "true" if was_extension else None,

@@ -364,18 +364,27 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const hasWho = who !== "Someone";
       const isExtension = metadataBool(item.metadata, "is_extension");
       const amount = metadataDurationLabel(item.metadata, "duration");
+      // The word "more" needs the INCREMENT, not the new total. Approving
+      // "30 min more" on a two-hour share now leaves two and a half hours
+      // running (#6256), and `duration_hours` is that total -- rendering it
+      // here would report a thirty-minute top-up as "gave you 2 hours 30 min
+      // more". Rows written before the fix carry no `added_duration_hours`,
+      // and for those the total WAS what the approval granted, so the
+      // fallback keeps their line true rather than blanking it.
+      const addedAmount =
+        metadataDurationLabel(item.metadata, "added_duration") || amount;
       const asRequester = iAskedForThis;
       const description = asRequester
         ? isExtension
-          ? amount
-            ? `Gave you ${amount} more`
+          ? addedAmount
+            ? `Gave you ${addedAmount} more`
             : "Gave you more location time"
           : amount
             ? `Shared location with you for ${amount}`
             : "Approved your location request"
         : isExtension
-          ? amount
-            ? `You gave them ${amount} more`
+          ? addedAmount
+            ? `You gave them ${addedAmount} more`
             : "You gave them more location time"
           : amount
             // Migration 151 stopped forwarding the approval-born

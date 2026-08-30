@@ -648,6 +648,16 @@ export function locationWorkflowNotificationCopy(params: {
   grantedDurationHours?: number | string | null;
   grantedDurationMode?: string | null;
   /**
+   * How much time an approved EXTENSION added, as opposed to the new total.
+   *
+   * Approving "30 min more" on a two-hour share leaves two and a half hours
+   * running (#6256), so `grantedDurationHours` is the total and putting it
+   * next to the word "more" reports a thirty-minute top-up as "2 hours 30 min
+   * more". Absent on notifications written before that fix, where the total
+   * really was what the approval granted.
+   */
+  addedDurationHours?: number | string | null;
+  /**
    * Which lane the notification is about.
    *
    * A person can hold an ordinary share and an SMS/Save-My-Soul share with the
@@ -693,6 +703,12 @@ export function locationWorkflowNotificationCopy(params: {
     params.grantedDurationMode === "until_stopped"
       ? "for as long as you need"
       : formatLocationDurationLabel(params.grantedDurationHours);
+  // The increment an extension added. Falls back to the total for anything
+  // sent before the server started reporting it separately -- back then the
+  // approval really did replace the running share with exactly this amount,
+  // so the old line stays true rather than going blank.
+  const addedLabel =
+    formatLocationDurationLabel(params.addedDurationHours) || grantedLabel;
 
   const revokedViaSms =
     normalizeOneLocationShareKind(params.shareKind) === "sos";
@@ -706,10 +722,19 @@ export function locationWorkflowNotificationCopy(params: {
     case "location_access_approved":
       // Name the number. "Approved" alone left the person who asked for four
       // hours with no way to learn they had been given one until it ran out.
-      if (grantedLabel && askFacts.isExtension) {
+      if (askFacts.isExtension && params.grantedDurationMode === "until_stopped") {
+        // An open-ended share cannot be given "more" of anything, and
+        // `grantedLabel` is the phrase "for as long as you need" -- which read
+        // as "gave you for as long as you need more of live location".
         return {
           title: "More location time approved",
-          description: `${ownerLabel} gave you ${grantedLabel} more of live location.`,
+          description: `${ownerLabel} is now sharing live location until they stop.`,
+        };
+      }
+      if (addedLabel && askFacts.isExtension) {
+        return {
+          title: "More location time approved",
+          description: `${ownerLabel} gave you ${addedLabel} more of live location.`,
         };
       }
       if (grantedLabel) {

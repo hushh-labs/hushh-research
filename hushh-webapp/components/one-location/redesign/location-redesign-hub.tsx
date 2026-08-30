@@ -2674,6 +2674,12 @@ function LocationDetailFlow({
                   // amount is exactly how an owner answers "forever?" with
                   // "two hours".
                   shorterApprovals={approveShorterDurationOptions(request)}
+                  // An extension ADDS the approved amount to the share still
+                  // running, so the rungs above are increments and have to say
+                  // so -- the same word the primary button already uses.
+                  isExtension={Boolean(
+                    request.isExtension || request.extendsGrantId,
+                  )}
                   onApproveShorter={(hours) =>
                     vm.onApprove(request, {
                       durationHoursOverride: hours,
