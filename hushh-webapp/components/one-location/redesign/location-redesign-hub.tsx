@@ -941,6 +941,43 @@ function selectedCountCopy(count: number, emptyCopy: string) {
   return `${count} selected`;
 }
 
+export type ShareCircleSection = {
+  id: "created" | "joined";
+  title: string;
+  circles: OneLocationCircleSummary[];
+};
+
+function isUserManagedShareCircle(circle: OneLocationCircleSummary): boolean {
+  return !circle.isSystem && circle.systemKind == null;
+}
+
+function circleMatchesQuery(
+  circle: OneLocationCircleSummary,
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return true;
+  return circle.name.toLocaleLowerCase().includes(normalizedQuery);
+}
+
+export function shareCircleSections(
+  circles: readonly OneLocationCircleSummary[],
+  query: string,
+): ShareCircleSection[] {
+  const ordered = circles
+    .filter(isUserManagedShareCircle)
+    .filter((circle) => circleMatchesQuery(circle, query));
+  const created = ordered.filter((circle) => circle.role === "owner");
+  const joined = ordered.filter((circle) => circle.role === "member");
+
+  const sections: ShareCircleSection[] = [
+    { id: "created", title: "Created by you", circles: created },
+    { id: "joined", title: "Joined Circles", circles: joined },
+  ];
+
+  return sections.filter((section) => section.circles.length > 0);
+}
+
 export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -4280,6 +4317,10 @@ function ShareFlow({
   }, [onEnterShareConfirm, step]);
 
   const filtered = vm.visibleShareRecipients;
+  const circleSections = useMemo(
+    () => shareCircleSections(vm.circles, vm.shareRecipientSearch),
+    [vm.circles, vm.shareRecipientSearch],
+  );
   /**
    * Who can already see you, by recipient — the same `activeOwnerGrants` the
    * Active shares screen lists, read here for the first time.
@@ -4444,13 +4485,6 @@ function ShareFlow({
     shareNoteLength > 0 ||
     shareNoteLength >= ONE_LOCATION_SHARE_NOTE_MAX_LENGTH - 20 ||
     shareNoteLimitExceeded;
-  // Picking a Circle selects its ready members in the list below, and those
-  // rows remain individually deselectable. Once one is turned off the recipients
-  // are no longer that Circle, so the Circle row stops reading as selected.
-  const shareableCircles = useMemo(
-    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
-    [vm.circles],
-  );
   const shareCircleFullySelected = isCircleSelectionFullySelected(
     vm.selectedShareCircleSelection,
     vm.selectedRecipientIds,
@@ -4637,74 +4671,66 @@ function ShareFlow({
           "Choose a Circle or contact.",
         )}
       />
-      {/* Trusted is not a group you share with.
-       *
-       * It listed here with the same glyph and count as a Circle somebody
-       * made, and one tap pre-selected every location-ready person in it --
-       * which, for a Circle whose roster IS the connection graph, is
-       * "everyone you know" behind a single press. The share then succeeded,
-       * because those people satisfy the connection arm anyway, so nothing
-       * refused it: this is the only place that says no.
-       *
-       * The eligibility SQL puts it plainly -- "Trusted records who you are
-       * connected to; it never decides who can see you" -- and the onboarding
-       * invite step already filters the same way. Only this picker is
-       * narrowed: the People tab, SOS contacts and the SMS flow still list
-       * every Circle. */}
-      {shareableCircles.length ? (
-        <SettingsGroup
-          title="Circles"
-          separatorInset
-          className="[&>div:first-child]:mt-0"
-        >
-          {[...shareableCircles]
-            .sort((a, b) =>
-              a.name === "SMS Circle" ? 1 : b.name === "SMS Circle" ? -1 : 0,
-            )
-            .map((circle) => {
-              const selected =
-                vm.selectedShareCircleSelection?.circle.id === circle.id &&
-                shareCircleFullySelected;
-              const circleRole = roleClasses("people");
-              return (
-                <SettingsRow
-                  key={circle.id}
-                  density="compact"
-                  disabled={vm.busy === "shareCircle"}
-                  onClick={() => void vm.onSelectShareCircle(circle.id)}
-                  ariaPressed={selected}
-                  ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle`}
-                  leading={
-                    <span
-                      className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                        circleRole.tile,
-                        circleRole.glyph,
-                      )}
-                    >
-                      <UsersRound className="h-[18px] w-[18px]" />
-                    </span>
-                  }
-                  title={circle.name}
-                  description={
-                    vm.busy === "shareCircle"
-                      ? "Loading…"
-                      : selected
-                        ? `${selectedReady.length} selected`
-                        : circleMemberCountLabel(circle.memberCount)
-                  }
-                  trailing={<SelectionDot selected={selected} />}
-                />
-              );
-            })}
-        </SettingsGroup>
-      ) : null}
       <PersonSearchInput
         value={vm.shareRecipientSearch}
         onChange={vm.setShareRecipientSearch}
-        placeholder="Search people"
+        placeholder="Search Circles or people"
         voiceControlId="one-location-share-recipient-search"
       />
+      {/* Product-managed Circles are deliberately excluded from ordinary Share:
+          Trusted is the connection graph, and SMS belongs to Save My Soul. */}
+      {circleSections.map((section) => (
+        <SettingsGroup
+          key={section.id}
+          title={
+            <span className="flex w-full items-center justify-between gap-4">
+              <span>{section.title}</span>
+              <span className="font-normal text-muted-foreground">
+                {section.circles.length}
+              </span>
+            </span>
+          }
+          separatorInset
+          className="[&>div:first-child]:mt-0"
+        >
+          {section.circles.map((circle) => {
+            const selected =
+              vm.selectedShareCircleSelection?.circle.id === circle.id &&
+              shareCircleFullySelected;
+            const circleRole = roleClasses("people");
+            return (
+              <SettingsRow
+                key={circle.id}
+                density="compact"
+                disabled={vm.busy === "shareCircle"}
+                onClick={() => void vm.onSelectShareCircle(circle.id)}
+                ariaPressed={selected}
+                ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle`}
+                leading={
+                  <span
+                    className={cn(
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                      circleRole.tile,
+                      circleRole.glyph,
+                    )}
+                  >
+                    <UsersRound className="h-[18px] w-[18px]" />
+                  </span>
+                }
+                title={circle.name}
+                description={
+                  vm.busy === "shareCircle"
+                    ? "Loading…"
+                    : selected
+                      ? `${selectedReady.length} selected`
+                      : circleMemberCountLabel(circle.memberCount)
+                }
+                trailing={<SelectionDot selected={selected} />}
+              />
+            );
+          })}
+        </SettingsGroup>
+      ))}
       {filtered.length ? (
         // ONE scroll region around BOTH groups, not one per group. The list had
         // a 340px budget and a single scrolling surface; two capped groups
@@ -4752,14 +4778,13 @@ function ShareFlow({
         // A typo used to be reported as "you have no contacts", which sends a
         // person with twenty of them off to invite people they already have.
         // The list being empty and the QUERY being empty are different facts.
-        <EmptyState
-          title="No matching people"
-          description="Try a different name."
-        />
+        circleSections.length ? null : (
+          <EmptyState title="No matches" description="Try a different name." />
+        )
       ) : (
         <EmptyState
-          title="No trusted people yet"
-          description="Invite someone first."
+          title="No one to share with"
+          description="Create a Circle or invite someone first."
         />
       )}
       {/* A plain step change. Advancing must not depend on device permission:

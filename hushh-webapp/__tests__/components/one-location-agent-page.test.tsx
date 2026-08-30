@@ -2476,7 +2476,9 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText("Search people")).toHaveValue("");
+    expect(screen.getByPlaceholderText("Search Circles or people")).toHaveValue(
+      "",
+    );
     expect(
       screen.getByRole("button", {
         name: /Deselect Investor D for private sharing/i,
@@ -2497,7 +2499,7 @@ describe("OneLocationAgentPage", () => {
     mockUseSearchParams.mockReturnValue(shareParams);
     rerender(<OneLocationAgentPage />);
 
-    fireEvent.change(screen.getByPlaceholderText("Search people"), {
+    fireEvent.change(screen.getByPlaceholderText("Search Circles or people"), {
       target: { value: "Trusted" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -2563,7 +2565,9 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText("Search people")).toHaveValue("");
+    expect(screen.getByPlaceholderText("Search Circles or people")).toHaveValue(
+      "",
+    );
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(
       screen.getByRole("button", {
@@ -3788,7 +3792,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "My location" }));
     expect(screen.queryByRole("button", { name: /Active shares/i })).toBeNull();
     await openSharePersonStep();
-    fireEvent.change(screen.getByPlaceholderText("Search people"), {
+    fireEvent.change(screen.getByPlaceholderText("Search Circles or people"), {
       target: { value: "advisor" },
     });
 
