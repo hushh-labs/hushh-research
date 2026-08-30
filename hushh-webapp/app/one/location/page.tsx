@@ -336,6 +336,7 @@ import type {
   OneLocationRecommendationReason,
   OneLocationRecipient,
   OneLocationRecipientPage,
+  OneLocationShareDurationMode,
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
@@ -1643,12 +1644,25 @@ function LocalMapPreview({
   showNavigation = true,
   viewportResetKey,
   staleAction,
+  nested = false,
 }: {
   point: PlainLocationPoint;
   // Self-location previews do not need Directions/Start - you are already there.
   showNavigation?: boolean;
   viewportResetKey?: string | number;
   staleAction?: ReactNode;
+  /**
+   * True when a container already draws the card around this preview.
+   *
+   * Standalone (Check-In), this component IS the card and needs its own
+   * border and 24px radius. Inside SharedWithMeCard it sits in a subcard that
+   * already clips to 14px, and drawing a second 24px card inside a 14px clip
+   * is what sliced the outline off at the corners: the child bulged past the
+   * parent on all four, so the border read as the wrong shape rather than as
+   * a border at all. Nested, it inherits the container's rounding and draws
+   * no border of its own.
+   */
+  nested?: boolean;
 }) {
   const captured = formatDateTime(point.capturedAt);
   const accuracy = locationAccuracyLabel(point);
@@ -1668,8 +1682,26 @@ function LocalMapPreview({
         : `Paused · last seen ${freshness.agoLabel}`;
 
   return (
-    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
-      <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
+    <div
+      className={cn(
+        "w-full min-w-0 max-w-full overflow-hidden bg-[color:var(--app-card-surface-default-solid)]",
+        nested
+          ? "rounded-[inherit]"
+          : "rounded-[var(--app-card-radius-standard)] border border-border/70",
+      )}
+    >
+      <div
+        className={cn(
+          "relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]",
+          // Nested in SharedWithMeCard the preview draws no card of its own, so
+          // THIS element frames the map: a 2px iOS-accent outline rounded to the
+          // container's 14px inner radius on top (so the stroke follows the same
+          // curve the container clips to instead of being sliced by it) and
+          // square on the bottom, where the metadata column continues below.
+          nested &&
+            "rounded-t-[14px] rounded-b-none border-2 border-[color:var(--app-accent)]",
+        )}
+      >
         <LiveMap point={point} viewportResetKey={viewportResetKey} />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
@@ -8473,7 +8505,11 @@ export function OneLocationAgentPageContent({
   const approveAccessRequest = useCallback(
     async (
       request: OneLocationAccessRequest,
-      options?: { automatic?: boolean },
+      options?: {
+        automatic?: boolean;
+        durationHoursOverride?: number;
+        durationModeOverride?: OneLocationShareDurationMode;
+      },
     ): Promise<boolean> => {
       if (!vaultOwnerToken) return false;
       const automatic = options?.automatic === true;
@@ -8489,9 +8525,15 @@ export function OneLocationAgentPageContent({
         // the ask carried no amount (older clients, referral requests).
         const requestedHours = Number(request.requestedDurationHours);
         const approvedHours =
-          Number.isFinite(requestedHours) && requestedHours > 0
+          options?.durationHoursOverride ??
+          (Number.isFinite(requestedHours) && requestedHours > 0
             ? requestedHours
-            : Number(durationHours);
+            : Number(durationHours));
+        const approvedMode =
+          options?.durationModeOverride ??
+          (request.requestedDurationMode === "until_stopped"
+            ? "until_stopped"
+            : "timed");
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
@@ -8499,11 +8541,7 @@ export function OneLocationAgentPageContent({
           // Automatic approval answers the locked request exactly; only a
           // manual owner action may override its duration.
           durationHours: automatic ? undefined : approvedHours,
-          durationMode: automatic
-            ? undefined
-            : request.requestedDurationMode === "until_stopped"
-              ? "until_stopped"
-              : "timed",
+          durationMode: automatic ? undefined : approvedMode,
           autoApproveRuleVersion: automatic
             ? autoApprovePreference.ruleVersion
             : undefined,
@@ -8572,8 +8610,14 @@ export function OneLocationAgentPageContent({
   );
 
   const handleApprove = useCallback(
-    async (request: OneLocationAccessRequest) => {
-      await approveAccessRequest(request);
+    async (
+      request: OneLocationAccessRequest,
+      options?: {
+        durationHoursOverride?: number;
+        durationModeOverride?: OneLocationShareDurationMode;
+      },
+    ) => {
+      return approveAccessRequest(request, options);
     },
     [approveAccessRequest],
   );
@@ -8638,16 +8682,18 @@ export function OneLocationAgentPageContent({
 
   const handleDeny = useCallback(
     async (requestId: string) => {
-      if (!vaultOwnerToken) return;
+      if (!vaultOwnerToken) return false;
       setBusy("deny");
       try {
         await OneLocationService.denyRequest({ vaultOwnerToken, requestId });
         toast.success("Request denied.");
         void refresh().catch(() => null);
+        return true;
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not deny request.",
         );
+        return false;
       } finally {
         setBusy(null);
       }
@@ -13277,8 +13323,8 @@ export function OneLocationAgentPageContent({
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
     onSendRequest: (reason) => handleRequestAccess(reason),
-    onApprove: (request) => void handleApprove(request),
-    onDeny: (requestId) => void handleDeny(requestId),
+    onApprove: (request, options) => handleApprove(request, options),
+    onDeny: (requestId) => handleDeny(requestId),
     onWithdrawRequest: (requestId) => void handleWithdrawRequest(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
@@ -13366,12 +13412,14 @@ export function OneLocationAgentPageContent({
       showNavigation,
       viewportResetKey,
       staleAction,
+      nested,
     ) => (
       <LocalMapPreview
         point={point}
         showNavigation={showNavigation}
         viewportResetKey={`${mapViewportResetKey}:${viewportResetKey ?? "default"}`}
         staleAction={staleAction}
+        nested={nested}
       />
     ),
     mapLocationHref: googleMapsLocationUrl,

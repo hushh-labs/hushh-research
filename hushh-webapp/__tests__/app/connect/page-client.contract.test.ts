@@ -78,26 +78,26 @@ describe("Connect canonical surface contract", () => {
     expect(source).not.toContain("offeredHandles: catalog.offerableItems");
   });
 
-  it("keeps the four-option hub strip narrow enough that no tab title truncates", () => {
-    // Measured, not assumed. With the strip's stock 16px option padding, the
-    // hub's widest label is the first thing to lose useful space at phone
-    // widths. Tab titles are ours, not user content, so an ellipsis in one is a
-    // defect rather than graceful degradation.
-    //
-    // Chromium against the built stylesheet, after this override: 320/360/375/
-    // 390/430/768/1280px all clean, no horizontal overflow, strip height
-    // unchanged. jsdom cannot catch a regression here -- it does no layout --
-    // and Playwright is not in the blocking lane, so the override itself is
-    // what gets pinned. Removing it puts the ellipsis straight back.
+  it("keeps Connect navigation split into one primary strip and one compact directory menu", () => {
+    // The old four-option strip was readable only through width overrides and
+    // still competed with the page title. Connect now follows the Location hub
+    // rhythm: one primary route strip, then a compact directory selector inside
+    // the Connections surface.
     const source = readFileSync(
       join(process.cwd(), "app/connect/page-client.tsx"),
       "utf8",
     );
 
+    expect(source).toContain("const CONNECT_PRIMARY_TABS = [");
+    expect(source).toContain('{ value: "connections", label: "Connections" }');
+    expect(source).toContain('{ value: "circles", label: "Circles" }');
     expect(source).toContain(
-      '"[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"',
+      'const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(',
     );
     expect(source).toContain(
+      "aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}",
+    );
+    expect(source).not.toContain(
       '["people", "advisors", "circles", "nearby"] as const',
     );
   });

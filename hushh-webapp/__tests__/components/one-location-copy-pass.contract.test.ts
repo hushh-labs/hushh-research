@@ -233,4 +233,27 @@ describe("One Location — the Share confirm step is a measured column", () => {
     // And the hint is no longer right-aligned into the far corner.
     expect(classNames.some((c) => c.includes("text-right"))).toBe(false);
   });
+
+  it("does not draw a second card inside the clipped map preview", () => {
+    // The report: the map's outline "does not follow the map's actual shape
+    // and gets cut off at the corners". LocalMapPreview drew its own card --
+    // border plus a 24px radius -- inside SharedWithMeCard's 14px clip, so
+    // the child bulged past the parent on all four corners and the border was
+    // sliced there. Standalone (Check-In) it still IS the card and keeps both.
+    const page = repoFile("app/one/location/page.tsx");
+
+    // The nested branch inherits the container's rounding rather than
+    // asserting one of its own.
+    expect(page).toContain('nested');
+    expect(page).toContain('"rounded-[inherit]"');
+    // ...and the standalone branch keeps the card it is.
+    expect(page).toContain(
+      '"rounded-[var(--app-card-radius-standard)] border border-border/70"',
+    );
+
+    // The one call site that sits inside a clipping container asks for it.
+    expect(HUB_SOURCE).toContain(
+      "// SharedWithMeCard already draws and clips the card",
+    );
+  });
 });

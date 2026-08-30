@@ -6,18 +6,24 @@ import { describe, expect, it } from "vitest";
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 describe("Light mode surface depth contract", () => {
-  it("keeps a visible mobile light-mode card shadow for iCloud surfaces", () => {
+  it("keeps grouped surfaces flat in light and dark mode", () => {
     const globals = fs.readFileSync(path.join(WEBAPP_ROOT, "app/globals.css"), "utf8");
 
-    expect(globals).toContain("--app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);");
-    expect(globals).toContain("--shadow-md: 0 8px 22px 0 rgba(120, 120, 128, 0.16);");
+    expect(globals).toContain("--app-card-shadow-standard: none;");
+    expect(globals).not.toContain(
+      "--app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);",
+    );
   });
-    it("preserves shared app card surface token stability", () => {
+
+  it("preserves shared app card surface token stability", () => {
     const globals = fs.readFileSync(
       path.join(WEBAPP_ROOT, "app/globals.css"),
       "utf8"
     );
 
+    expect(globals).toContain("--app-card-radius-compact: 16px;");
+    expect(globals).toContain("--app-card-radius-standard: 18px;");
+    expect(globals).toContain("--app-card-radius-feature: 20px;");
     expect(globals).toContain("--app-card-surface-default-solid:");
     expect(globals).toContain("--app-card-border-standard:");
   });

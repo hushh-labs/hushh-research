@@ -5,6 +5,7 @@ import {
   deletePkmDomainValue,
   pkmMemoryRowLabels,
   selectRelevantPkmMemoryCards,
+  shouldSkipPkmMemoryKey,
   updatePkmDomainValue,
 } from "@/lib/pkm/pkm-memory-cards";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
@@ -170,6 +171,44 @@ describe("PKM memory cards", () => {
     expect(card.pathSegments).toContain("sf_residence_001");
     expect(card.detail).not.toMatch(/sf residence|sf_residence_001/i);
     expect(card.detail).toContain("Changes");
+  });
+
+  it("browses and searches array items past index 11 (no per-array truncation)", () => {
+    const holdings = Array.from({ length: 15 }, (_, index) => `HOLD${index + 1}`);
+    const snapshot = buildPkmMemorySnapshot({
+      metadata,
+      fullBlob: { professional: { portfolio: { holdings } } },
+    });
+
+    const item15 = snapshot.cards.find((entry) => entry.path === "portfolio.holdings[14]");
+    expect(item15?.value).toBe("HOLD15");
+
+    const found = selectRelevantPkmMemoryCards(snapshot.cards, "HOLD15", 5);
+    expect(found.map((entry) => entry.value)).toContain("HOLD15");
+  });
+
+  describe("shouldSkipPkmMemoryKey", () => {
+    it("hides raw underscore-prefixed keys that normalization would otherwise unmask", () => {
+      expect(shouldSkipPkmMemoryKey("_internal")).toBe(true);
+      expect(shouldSkipPkmMemoryKey("_private_metadata")).toBe(true);
+      expect(shouldSkipPkmMemoryKey("  _hidden")).toBe(true);
+    });
+
+    it("still renders ordinary user keys", () => {
+      expect(shouldSkipPkmMemoryKey("risk_profile")).toBe(false);
+      expect(shouldSkipPkmMemoryKey("target_corpus")).toBe(false);
+      expect(shouldSkipPkmMemoryKey("student_id")).toBe(false);
+      expect(shouldSkipPkmMemoryKey("primary_bank")).toBe(false);
+    });
+
+    it("keeps existing reserved / secret / id filtering", () => {
+      expect(shouldSkipPkmMemoryKey("runtime_secrets")).toBe(true);
+      expect(shouldSkipPkmMemoryKey("kyc_workflow")).toBe(true);
+      expect(shouldSkipPkmMemoryKey("manifest_version")).toBe(true);
+      expect(shouldSkipPkmMemoryKey("vault_passphrase")).toBe(true);
+      expect(shouldSkipPkmMemoryKey("access_token")).toBe(true);
+      expect(shouldSkipPkmMemoryKey("artifact_id")).toBe(true);
+    });
   });
 
   describe("pkmMemoryRowLabels", () => {

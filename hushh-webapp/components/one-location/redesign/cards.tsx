@@ -269,6 +269,8 @@ export function RequestCard({
   reason,
   approveLabel = "Approve",
   onApprove,
+  oneHourApproveLabel,
+  onApproveOneHour,
   onDecline,
 }: {
   name: string;
@@ -276,21 +278,45 @@ export function RequestCard({
   promptLine: string;
   reason?: string;
   approveLabel?: string;
-  onApprove: () => void;
-  onDecline: () => void;
+  onApprove: () => void | boolean | Promise<void | boolean>;
+  oneHourApproveLabel?: string;
+  onApproveOneHour?: () => void | boolean | Promise<void | boolean>;
+  onDecline: () => void | boolean | Promise<void | boolean>;
 }) {
-  // Latch the decision on THIS card, the moment it is pressed.
+  // Latch the decision on THIS card once the pressed action settles.
   //
   // Two problems this solves. First, `approveBusy` is derived from one global
   // busy value, so approving a single request put a spinner on EVERY card in
-  // the list. Second, that spinner was held across three sequential server
-  // calls — approve, publish the encrypted point, reload state — none of which
-  // the person is waiting to see. They pressed Approve; the answer is "yes".
+  // the list. Second, a failed approval used to look approved because the card
+  // answered before the callback could report failure.
   //
-  // So the card answers immediately and the work continues behind it. The same
-  // latch blocks a second press, which is what makes the optimism safe.
+  // The per-card pending state blocks double taps without turning the whole
+  // needs-review list into one global spinner.
   const [decision, setDecision] = useState<"approved" | "declined" | null>(null);
-  const decided = decision !== null;
+  const [pendingDecision, setPendingDecision] = useState<
+    "approve" | "one-hour" | "decline" | null
+  >(null);
+  const decided = decision !== null || pendingDecision !== null;
+  const hasOneHourApproval = Boolean(oneHourApproveLabel && onApproveOneHour);
+
+  const settleDecision = async (
+    nextDecision: "approved" | "declined",
+    pending: "approve" | "one-hour" | "decline",
+    action: () => void | boolean | Promise<void | boolean>,
+  ) => {
+    if (decided) return;
+    setPendingDecision(pending);
+    try {
+      const result = await action();
+      if (result === false) {
+        setPendingDecision(null);
+        return;
+      }
+      setDecision(nextDecision);
+    } catch {
+      setPendingDecision(null);
+    }
+  };
 
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4 shadow-none")}>
@@ -330,28 +356,49 @@ export function RequestCard({
           {decision === "approved" ? "Approved" : "Declined"}
         </StatusText>
       ) : (
-        <div className="mt-3.5 grid grid-cols-1 gap-2.5 min-[430px]:grid-cols-[0.82fr_1.18fr]">
+        <div
+          className={cn(
+            "mt-3.5 grid grid-cols-1 gap-2.5",
+            hasOneHourApproval
+              ? "min-[430px]:grid-cols-2"
+              : "min-[430px]:grid-cols-[0.82fr_1.18fr]",
+          )}
+        >
           <Button
-            onClick={() => {
-              if (decided) return;
-              setDecision("approved");
-              onApprove();
-            }}
+            onClick={() => void settleDecision("approved", "approve", onApprove)}
             disabled={decided}
-            // Deliberately not `isLoading`: the card has already answered. A
-            // spinner here would reintroduce the wait it was pressed to remove.
-            className="ui-text-button-label order-1 h-11 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 min-[430px]:order-2"
+            isLoading={pendingDecision === "approve"}
+            className={cn(
+              "ui-text-button-label order-1 h-11 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90",
+              hasOneHourApproval
+                ? "min-[430px]:col-span-2"
+                : "min-[430px]:order-2",
+            )}
           >
             {approveLabel}
           </Button>
+          {hasOneHourApproval ? (
+            <Button
+              onClick={() =>
+                void settleDecision("approved", "one-hour", () =>
+                  onApproveOneHour?.(),
+                )
+              }
+              disabled={decided}
+              isLoading={pendingDecision === "one-hour"}
+              className="ui-text-button-label order-2 h-11 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80"
+            >
+              {oneHourApproveLabel}
+            </Button>
+          ) : null}
           <Button
-            onClick={() => {
-              if (decided) return;
-              setDecision("declined");
-              onDecline();
-            }}
+            onClick={() => void settleDecision("declined", "decline", onDecline)}
             disabled={decided}
-            className="ui-text-button-label order-2 h-11 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80 min-[430px]:order-1"
+            isLoading={pendingDecision === "decline"}
+            className={cn(
+              "ui-text-button-label h-11 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80",
+              hasOneHourApproval ? "order-3" : "order-2 min-[430px]:order-1",
+            )}
           >
             Decline
           </Button>
