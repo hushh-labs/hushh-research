@@ -1018,9 +1018,9 @@ textarea {
   /* ── Apple iCloud card contract ───────────────────────────────── */
   /* Shared app card contract */
   --theme-color-boxShadow: rgba(120, 120, 128, 0.16);
-  --app-card-radius-compact: 24px;
-  --app-card-radius-standard: 24px;
-  --app-card-radius-feature: 24px;
+  --app-card-radius-compact: 16px;
+  --app-card-radius-standard: 18px;
+  --app-card-radius-feature: 20px;
   --app-card-surface-data: #f7f7fa;
   --app-card-surface-compact: #fcfcfd;
   --app-card-surface-default: #ffffff;
@@ -1031,17 +1031,17 @@ textarea {
   --app-card-surface-sticky-header-solid: #f6f7fb;
   --app-card-border-standard: rgba(60, 60, 67, 0.09);
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
-  --app-card-shadow-standard: 0 4px 18px rgba(0, 0, 0, 0.04);
-  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.05);
+  --app-card-shadow-standard: none;
+  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.04);
   --app-list-row-surface: color-mix(
     in srgb,
     var(--app-card-surface-default-solid) 90%,
     transparent
   );
   --app-segmented-active-surface: #ffffff;
-  --app-segmented-active-foreground: #000000;
-  --app-segmented-active-border: rgba(60, 60, 67, 0.08);
-  --app-segmented-active-shadow: 0 1px 2px rgba(60, 60, 67, 0.08);
+  --app-segmented-active-foreground: var(--app-accent);
+  --app-segmented-active-border: rgba(60, 60, 67, 0.1);
+  --app-segmented-active-shadow: none;
   --app-shell-surface-bg: var(--app-glass-surface);
   --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.9);
   --app-shell-surface-border: var(--app-glass-border);
@@ -3695,9 +3695,9 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
 
   /* Dark: shared app card contract */
   --theme-color-boxShadow: rgba(0, 0, 0, 0.65);
-  --app-card-radius-compact: 24px;
-  --app-card-radius-standard: 24px;
-  --app-card-radius-feature: 24px;
+  --app-card-radius-compact: 16px;
+  --app-card-radius-standard: 18px;
+  --app-card-radius-feature: 20px;
   --app-card-surface-data: var(--app-primary-surface);
   --app-card-surface-compact: var(--app-primary-surface);
   --app-card-surface-default: var(--app-primary-surface);
@@ -3711,7 +3711,7 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
   --app-card-shadow-standard: none;
   --app-card-shadow-feature: none;
   --app-segmented-active-surface: var(--app-neutral-fill-strong);
-  --app-segmented-active-foreground: #ffffff;
+  --app-segmented-active-foreground: var(--app-accent);
   --app-segmented-active-border: rgba(235, 235, 245, 0.1);
   --app-segmented-active-shadow: none;
   --app-shell-surface-bg: var(--app-glass-surface);
@@ -3726,8 +3726,8 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
 @media (max-width: 639px) {
   html.light,
   .light {
-    --app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);
-    --shadow-md: 0 8px 22px 0 rgba(120, 120, 128, 0.16);
+    --app-card-shadow-standard: none;
+    --shadow-md: 0 6px 18px 0 rgba(120, 120, 128, 0.08);
   }
 
   html.dark,

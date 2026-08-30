@@ -31,7 +31,7 @@ export function SegmentedTabs({
   return (
     <div
       className={cn(
-        "relative grid w-full rounded-full p-1 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        "relative grid min-h-11 w-full rounded-[14px] p-0.5 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
         "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-none",
         className
       )}
@@ -56,10 +56,10 @@ export function SegmentedTabs({
               if (!disabled && !isActive) onValueChange(option.value);
             }}
             className={cn(
-              "relative isolate flex min-h-9 min-w-0 items-center justify-center overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-10 sm:px-4.5",
+              "relative isolate flex min-h-10 min-w-0 items-center justify-center overflow-hidden rounded-[12px] border px-3 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:px-4",
               isActive
-                ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[var(--app-segmented-active-shadow)]"
-                : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-secondary-fill)] hover:text-[color:var(--app-primary-label)]",
+                ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-normal shadow-[var(--app-segmented-active-shadow)]"
+                : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
               disabled && "cursor-not-allowed opacity-60"
             )}
           >
