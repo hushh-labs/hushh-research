@@ -1489,13 +1489,21 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(flow).getByRole("button", { name: "Approve 1 hour" }),
     ).toBeTruthy();
+    // The single hard-coded "Allow 1 hour" is gone. A one-hour ask still has
+    // shorter answers -- the two below it -- and they are offered by name
+    // rather than not at all, which was the reported gap.
     expect(
       within(flow).queryByRole("button", { name: "Allow 1 hour" }),
     ).toBeNull();
+    expect(
+      within(within(flow).getByTestId("one-location-approve-shorter"))
+        .getAllByRole("button")
+        .map((button) => button.textContent?.trim()),
+    ).toEqual(["15 min", "30 min"]);
     expect(within(flow).getByRole("button", { name: "Decline" })).toBeTruthy();
   });
 
-  it("lets Needs review approve a longer request for only one hour", async () => {
+  it("lets Needs review approve a longer request for any shorter amount", async () => {
     const request = {
       id: "request_review_four_hours",
       ownerUserId: "user_a",
@@ -1548,8 +1556,15 @@ describe("OneLocationAgentPage", () => {
       within(flow).getByRole("button", { name: "Approve 4 hours" }),
     ).toBeTruthy();
 
+    // Four shorter answers for a four-hour ask, not one fixed step.
+    expect(
+      within(within(flow).getByTestId("one-location-approve-shorter"))
+        .getAllByRole("button")
+        .map((button) => button.textContent?.trim()),
+    ).toEqual(["15 min", "30 min", "1 hour", "2 hours"]);
+
     fireEvent.click(
-      within(flow).getByRole("button", { name: "Allow 1 hour" }),
+      within(flow).getByRole("button", { name: "Approve for 1 hour instead" }),
     );
 
     await waitFor(() => expect(mockApproveRequest).toHaveBeenCalledTimes(1));
