@@ -110,6 +110,7 @@ import type {
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationRecipient,
+  OneLocationShareDurationMode,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
@@ -411,8 +412,14 @@ export type LocationHubViewModel = {
   /** Resolves true when at least one request actually reached the server. */
   onSendRequest: (reason?: string | null) => Promise<boolean>;
   onAskReshare: (grant: OneLocationGrant) => void;
-  onApprove: (request: OneLocationAccessRequest) => void;
-  onDeny: (requestId: string) => void;
+  onApprove: (
+    request: OneLocationAccessRequest,
+    options?: {
+      durationHoursOverride?: number;
+      durationModeOverride?: OneLocationShareDurationMode;
+    },
+  ) => void | boolean | Promise<void | boolean>;
+  onDeny: (requestId: string) => void | boolean | Promise<void | boolean>;
   /**
    * Take back a request YOU sent. Not `onDeny`, which is the owner refusing an
    * ask made of them -- these are opposite ends of the same request.
@@ -2597,6 +2604,18 @@ function LocationDetailFlow({
                   reason={request.message ?? undefined}
                   approveLabel={locationApproveActionLabel(request, vm.nowMs)}
                   onApprove={() => vm.onApprove(request)}
+                  oneHourApproveLabel={
+                    canApproveForOneHour(request) ? "Allow 1 hour" : undefined
+                  }
+                  onApproveOneHour={
+                    canApproveForOneHour(request)
+                      ? () =>
+                          vm.onApprove(request, {
+                            durationHoursOverride: 1,
+                            durationModeOverride: "timed",
+                          })
+                      : undefined
+                  }
                   onDecline={() => vm.onDeny(request.id)}
                 />
               </div>
@@ -3205,6 +3224,14 @@ function requestDurationLabel(request: OneLocationAccessRequest): string {
     return "Until stopped";
   }
   return formatLocationDurationLabel(request.requestedDurationHours);
+}
+
+function canApproveForOneHour(request: OneLocationAccessRequest): boolean {
+  if (request.requestedDurationMode === "until_stopped") {
+    return true;
+  }
+  const requestedHours = Number(request.requestedDurationHours);
+  return Number.isFinite(requestedHours) && requestedHours > 1;
 }
 
 function sentRequestStatusLine(
