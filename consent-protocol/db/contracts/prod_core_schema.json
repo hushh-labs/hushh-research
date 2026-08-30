@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 187,
+  "expected_migration_version": 188,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
