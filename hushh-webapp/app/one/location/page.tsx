@@ -639,7 +639,7 @@ export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
   "circle-detail": "Circle detail",
   "temp-link": "Temporary link",
   "check-in": "Check in",
-  sos: "Emergency SOS",
+  sos: "Emergency SMS",
   "sms-contacts": "Emergency contacts",
   settings: "Location settings",
   "active-shares": "Active shares",
@@ -725,8 +725,8 @@ const LOCATION_VOICE_CONTROLS = [
   },
   {
     id: "one-location-action-sos",
-    label: "Send SOS",
-    purpose: "Open emergency SOS.",
+    label: "Send SMS",
+    purpose: "Open emergency SMS.",
     actionId: "location.open_sos",
     role: "button",
   },
@@ -10831,14 +10831,14 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken) {
       return {
         status: "blocked" as const,
-        summary: "Unlock One before stopping an SOS.",
+        summary: "Unlock One before stopping an SMS.",
       };
     }
     const incident = sosIncident;
     if (!incident?.grantIds.length) {
       return {
         status: "blocked" as const,
-        summary: "There is no SOS running to stop.",
+        summary: "There is no SMS running to stop.",
       };
     }
     const grantCount = incident.grantIds.length;
@@ -10854,8 +10854,8 @@ export function OneLocationAgentPageContent({
       // stronger than that would be one this cannot actually check.
       summary:
         grantCount === 1
-          ? "Stopped the SOS and revoked the share it created."
-          : `Stopped the SOS and revoked the ${grantCount} shares it created.`,
+          ? "Stopped the SMS and revoked the share it created."
+          : `Stopped the SMS and revoked the ${grantCount} shares it created.`,
     };
   });
 
@@ -10866,7 +10866,7 @@ export function OneLocationAgentPageContent({
       if (!vaultOwnerToken) {
         return {
           status: "blocked" as const,
-          summary: "Unlock One before sending an SOS alert.",
+          summary: "Unlock One before sending an SMS alert.",
         };
       }
       // Same re-entry guard handleTriggerSos itself enforces -- checked here
@@ -10876,14 +10876,14 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "There is already an SOS running. Say stop the S O S to end it first.",
+            "There is already an SMS running. Stop it before sending another.",
         };
       }
       if (locationPermissionBlocksSharing(permission)) {
         return {
           status: "blocked" as const,
           summary:
-            "Location access is off, so I cannot send an SOS alert with your position.",
+            "Location access is off, so I cannot send an SMS alert with your position.",
         };
       }
       const readyRecipients = smsActionRecipients.filter(
@@ -10894,7 +10894,7 @@ export function OneLocationAgentPageContent({
           status: "blocked" as const,
           summary: smsActionRecipients.length
             ? "Your emergency contacts are not ready to receive an alert yet."
-            : "Add at least one emergency contact before sending an SOS alert.",
+            : "Add at least one emergency contact before sending an SMS alert.",
         };
       }
       const note = String(slots?.note ?? "").trim() || null;
@@ -10912,16 +10912,16 @@ export function OneLocationAgentPageContent({
         );
         return {
           status: "blocked" as const,
-          summary: "Sending an SOS alert needs a confirmation.",
+          summary: "Sending an SMS alert needs a confirmation.",
           data: {
             [VOICE_CONFIRM_DATA_KEY]: {
               actionId: "location.trigger_sos",
               slots: { note: note ?? "", confirmed: true },
-              prompt: `Send an SOS alert to ${names} right now?`,
-              subject: { name: "SOS alert", detail: names },
+              prompt: `Send an SMS alert to ${names} right now?`,
+              subject: { name: "SMS alert", detail: names },
               consequence:
                 getKaiActionById("location.trigger_sos")?.meaning ?? null,
-              confirmLabel: "Send SOS",
+              confirmLabel: "Send SMS",
             },
           },
         };
@@ -10929,7 +10929,7 @@ export function OneLocationAgentPageContent({
       void handleTriggerSos(note);
       return {
         status: "succeeded" as const,
-        summary: "Sending your SOS alert now.",
+        summary: "Sending your SMS alert now.",
       };
     },
     [
@@ -10947,7 +10947,7 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken) {
       return {
         status: "blocked" as const,
-        summary: "Unlock One before sending an SOS alert.",
+        summary: "Unlock One before sending an SMS alert.",
       };
     }
     // Never invented: an unreadable preference falls back to "open", the
@@ -10967,7 +10967,7 @@ export function OneLocationAgentPageContent({
     router.replace(`${ROUTES.ONE_LOCATION}?action=sos`, { scroll: false });
     return {
       status: "succeeded" as const,
-      summary: "Opening the SOS screen.",
+      summary: "Opening the SMS screen.",
     };
   });
 
@@ -11001,7 +11001,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Nobody in your connections can receive an SOS under that name.",
+            "Nobody in your connections can receive an SMS under that name.",
         };
       }
       if (matches.length > 1) {
@@ -11036,7 +11036,7 @@ export function OneLocationAgentPageContent({
       }
       return {
         status: "succeeded" as const,
-        summary: `${recipientLabel(match).trim()} will now be sent your location if you trigger an SOS.`,
+        summary: `${recipientLabel(match).trim()} will now be sent your location if you send an SMS.`,
       };
     },
   );
@@ -11124,7 +11124,7 @@ export function OneLocationAgentPageContent({
       }
       return {
         status: "succeeded" as const,
-        summary: `${recipientLabel(match).trim()} will no longer be sent your location in an SOS.`,
+        summary: `${recipientLabel(match).trim()} will no longer be sent your location in an SMS.`,
       };
     },
   );

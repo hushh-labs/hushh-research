@@ -181,7 +181,7 @@ describe("circleRowDescription", () => {
       "Everyone you're connected to · 7 people",
     );
     expect(circleRowDescription(circle("s", "SMS Circle", 4, "sms"))).toBe(
-      "Gets your SOS text · 3 people",
+      "Gets your SMS · 3 people",
     );
   });
 
@@ -190,7 +190,7 @@ describe("circleRowDescription", () => {
       "Everyone you're connected to",
     );
     expect(circleRowDescription(circle("s", "SMS Circle", 1, "sms"))).toBe(
-      "Gets your SOS text · no one yet",
+      "Gets your SMS · no one yet",
     );
   });
 
@@ -199,17 +199,21 @@ describe("circleRowDescription", () => {
     // the ones you do not own -- "Alice's SMS Circle" -- because three
     // friends' rosters would otherwise be three identical rows.
     const theirs = circle("s", "Alice's SMS Circle", 4, "sms", "member");
-    expect(circleRowDescription(theirs)).toBe("You'll get their SOS text");
+    expect(circleRowDescription(theirs)).toBe("You'll get their SMS");
   });
 
-  it("never tells a member it is their own SOS text", () => {
+  it("never tells a member it is their own SMS", () => {
     const theirs = circle("s", "Alice's SMS Circle", 4, "sms", "member");
-    expect(circleRowDescription(theirs)).not.toContain("your SOS");
+    // SMS is Save my Soul, this product's own name for the lane; "SOS" is the
+    // server's word and is never shown to a person. Both are checked so the
+    // rename cannot regress in either direction.
+    expect(circleRowDescription(theirs)).not.toContain("your SMS");
+    expect(circleRowDescription(theirs)).not.toMatch(/SOS/i);
   });
 
   it("still recognises an SMS Circle from a server that predates systemKind", () => {
     const legacy = { ...circle("s", "SMS Circle", 3, "sms"), systemKind: null };
-    expect(circleRowDescription(legacy)).toBe("Gets your SOS text · 2 people");
+    expect(circleRowDescription(legacy)).toBe("Gets your SMS · 2 people");
   });
 });
 

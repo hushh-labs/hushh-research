@@ -202,12 +202,20 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         // For an approval-born share this is the requester's ONLY row (152
         // writes it; 153 deliberately does not add a second for the approval),
         // so it names the granted amount that the event metadata carries.
+        // "SMS", never "SOS". SMS is this product's own name -- Save my
+        // Soul -- not the phone carrier's. The service layer already says so
+        // ("the emergency (SMS / Save My Soul) lane"), the Circle that carries
+        // it is the "SMS Circle", and the notification list says "SMS sharing
+        // stopped with X". The Feed was the one surface calling it an SOS, so
+        // the same alert read as a different feature depending on where you
+        // saw it. The short form is also what keeps these lines on one row at
+        // phone width.
         description: isSos
           ? sharedWithMe
             ? shareAmount
-              ? `Emergency SOS shared with you for ${shareAmount}`
-              : "Emergency SOS shared with you"
-            : "You sent an emergency SOS"
+              ? `SMS for ${shareAmount}`
+              : "Sent you an SMS"
+            : "You sent an SMS"
           : sharedWithMe
             ? shareAmount
               ? `Shared location with you for ${shareAmount}`
@@ -230,8 +238,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         // Audience decides the sentence; reason only refines the owner's.
         description: isSosShare(item.metadata)
           ? sharedWithMe
-            ? "Emergency SOS ended"
-            : "You ended your emergency SOS"
+            ? "SMS ended"
+            : "You ended your SMS"
           : sharedWithMe
             ? "Sharing stopped"
             : ownerRevoked
@@ -249,9 +257,15 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         person: counterpartPerson(item.metadata, who),
         // No audience split: this line names no subject, and the row's title is
         // already the other person, so it reads correctly from both sides.
+        // Both lines shortened to fit the row on one line at 375px. The
+        // description column is ~197px there, about 30 characters of 13px
+        // Inter, and "Sharing ended when time ran out" is 31 -- which is the
+        // "Stopped sharing - time ran..." QA photographed. Nothing is lost:
+        // the row's title is already the other person, so the sentence never
+        // needed to name a subject.
         description: isSosShare(item.metadata)
-          ? "Emergency SOS ended when time ran out"
-          : "Sharing ended when time ran out",
+          ? "SMS ran out of time"
+          : "Ended when time ran out",
         href: ROUTES.ONE_LOCATION,
       };
     }

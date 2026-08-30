@@ -16,6 +16,13 @@ import {
  * while the list it badged asked the server nothing after the app opened.
  *
  * This pins the signal every Feed surface now shares.
+ *
+ * It re-checks ON MOUNT as well as on the interval. It used to start the timer
+ * and nothing else, and the resource's own mount load is unforced -- so it
+ * short-circuits against a cache entry that stays fresh for a full minute.
+ * Landing on the Feed 59s after the last fetch therefore did no network at
+ * all, and the first forced request went out 45s after that: a 105-second
+ * worst case on the screen someone opened precisely to see what just happened.
  */
 
 function setVisibility(state: DocumentVisibilityState) {
@@ -44,18 +51,42 @@ describe("useFeedLiveRefresh", () => {
     const refresh = vi.fn();
     renderHook(() => useFeedLiveRefresh(refresh));
 
-    expect(refresh).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS);
+    // Mount is itself the freshest moment to ask.
     expect(refresh).toHaveBeenCalledTimes(1);
 
+    vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS);
+    expect(refresh).toHaveBeenCalledTimes(2);
+
     vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS * 2);
-    expect(refresh).toHaveBeenCalledTimes(3);
+    expect(refresh).toHaveBeenCalledTimes(4);
+  });
+
+  it("asks once on mount rather than waiting out the first interval", () => {
+    // The 105s worst case, pinned. A surface that mounts visible must have
+    // asked the server before any timer has run.
+    const refresh = vi.fn();
+    renderHook(() => useFeedLiveRefresh(refresh));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-checks when a push says new activity arrived", () => {
+    // A push IS the server telling us something happened. Before this the Feed
+    // learned about it only from its own timer, so an event that had already
+    // lit up the phone's notification tray could still be missing from the
+    // list the person opened to look at it.
+    const refresh = vi.fn();
+    renderHook(() => useFeedLiveRefresh(refresh));
+    refresh.mockClear();
+
+    dispatchFeedStateChanged("arrived");
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("stops polling while the tab is hidden and catches up on return", () => {
     const refresh = vi.fn();
     renderHook(() => useFeedLiveRefresh(refresh));
+
+    refresh.mockClear();
 
     setVisibility("hidden");
     vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS * 5);
@@ -75,6 +106,7 @@ describe("useFeedLiveRefresh", () => {
   it("re-checks on window focus, which iOS webviews raise without a visibility change", () => {
     const refresh = vi.fn();
     renderHook(() => useFeedLiveRefresh(refresh));
+    refresh.mockClear();
 
     window.dispatchEvent(new Event("focus"));
     expect(refresh).toHaveBeenCalledTimes(1);
@@ -83,6 +115,7 @@ describe("useFeedLiveRefresh", () => {
   it("re-checks when something was acted on, but not when rows were only marked read", () => {
     const refresh = vi.fn();
     renderHook(() => useFeedLiveRefresh(refresh));
+    refresh.mockClear();
 
     // Opening the Feed marks it read. Re-fetching in response would only return
     // the rows already on screen.
@@ -101,6 +134,7 @@ describe("useFeedLiveRefresh", () => {
   it("defers action signals from a hidden tab until it becomes visible", () => {
     const refresh = vi.fn();
     renderHook(() => useFeedLiveRefresh(refresh));
+    refresh.mockClear();
 
     setVisibility("hidden");
     dispatchFeedStateChanged("action");
@@ -121,6 +155,7 @@ describe("useFeedLiveRefresh", () => {
 
     const refresh = vi.fn();
     const { unmount } = renderHook(() => useFeedLiveRefresh(refresh));
+    refresh.mockClear();
     unmount();
     vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS * 3);
     window.dispatchEvent(new Event("focus"));
@@ -137,10 +172,13 @@ describe("useFeedLiveRefresh", () => {
       { initialProps: { fn: first } },
     );
 
+    // `first` owns the mount call; everything after the rerender is `second`.
+    expect(first).toHaveBeenCalledTimes(1);
+
     rerender({ fn: second });
     vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS);
 
-    expect(first).not.toHaveBeenCalled();
+    expect(first).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenCalledTimes(1);
   });
 });

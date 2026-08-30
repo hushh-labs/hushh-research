@@ -43,7 +43,7 @@ export const VOICE_AGENT_EXAMPLE_GROUPS: readonly VoiceAgentExampleGroup[] = [
       },
       {
         phrase: "Trigger SOS",
-        result: "Opens the emergency SOS screen.",
+        result: "Opens the emergency SMS screen.",
       },
     ],
   },

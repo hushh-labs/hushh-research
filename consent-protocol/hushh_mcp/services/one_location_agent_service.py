@@ -3217,7 +3217,11 @@ class OneLocationAgentService:
               target_grant.id,
               target_grant.owner_user_id,
               target_grant.recipient_user_id,
-              target_grant.expires_at
+              target_grant.expires_at,
+              -- The lane this grant belonged to. Without it the expiry event
+              -- cannot say WHICH share ran out, and an emergency reads as an
+              -- ordinary share reaching its timer.
+              COALESCE(target_grant.metadata ->> 'share_kind', '') AS share_kind
                 """,
                 {"user_id": user_id},
             )
@@ -3238,7 +3242,17 @@ class OneLocationAgentService:
                     recipient_user_id=recipient_user_id or None,
                     grant_id=grant_id,
                     event_type="location_share_expired",
-                    metadata={"reason": "expires_at", "counterpart_label": recipient_label},
+                    metadata={
+                        "reason": "expires_at",
+                        "counterpart_label": recipient_label,
+                        # Same discriminator the revoke event already carries.
+                        # Omitting it here is what made an emergency share that
+                        # simply ran out of time report itself as an ordinary
+                        # share ending -- on the Feed, and for BOTH parties,
+                        # because the recipient's row is a copy of this metadata.
+                        "share_kind": str(row.get("share_kind") or "").strip().lower()
+                        or "standard",
+                    },
                     required=True,
                 )
                 if grant_id and recipient_user_id:
@@ -5049,6 +5063,14 @@ class OneLocationAgentService:
         grant_params: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Atomically authorize and replace a relationship-backed grant."""
+        share_kind = ""
+        try:
+            share_kind = str(
+                (json.loads(grant_params.get("metadata_json") or "{}") or {}).get("share_kind")
+                or ""
+            )
+        except (TypeError, ValueError):
+            share_kind = ""
         bound_connection = getattr(self, "_key_writer_connection", None)
         transaction = (
             nullcontext(bound_connection)
@@ -5157,6 +5179,12 @@ class OneLocationAgentService:
                                 # share-created row when request approval writes
                                 # its richer event immediately afterwards.
                                 "reason": str(params.get("event_reason") or ""),
+                                # The lane, for the same reason the sibling
+                                # emission above carries it: this is the enforced
+                                # write path, and a share created through a
+                                # relationship must reach the Feed describing the
+                                # same lane as one created without.
+                                "share_kind": share_kind,
                             }
                         ),
                     },
@@ -5390,6 +5418,21 @@ class OneLocationAgentService:
                     "duration_hours": _duration_metadata_value(duration),
                     "duration_mode": resolved_duration_mode,
                     "counterpart_label": recipient_label,
+                    # WHICH LANE STARTED.
+                    #
+                    # The grant row has carried `share_kind` since #5552 and the
+                    # revoke event carries it too, but this event -- the one that
+                    # announces the share -- never did. `share_kind` is the only
+                    # field separating the emergency SMS lane from an ordinary
+                    # share, so without it the Feed rendered an SOS as "You
+                    # started sharing location" and, when it ended, correctly as
+                    # an SOS: one alert narrated by two different vocabularies.
+                    #
+                    # The recipient's row is a copy of this metadata (the fan-out
+                    # trigger in migration 152 adds only `feed_audience`), so
+                    # writing it here fixes the sender's Feed and the recipient's
+                    # Feed in one place.
+                    "share_kind": resolved_kind,
                     # Why this grant exists. The audit ledger keeps the row
                     # either way; the Feed fan-out trigger reads this to drop
                     # the duplicate. Approving a request already writes
@@ -5780,7 +5823,12 @@ class OneLocationAgentService:
                 jsonb_build_object(
                   'duration_hours', g.duration_hours,
                   'duration_mode', g.duration_mode,
-                  'counterpart_label', COALESCE(NULLIF(e.display_name, ''), 'A trusted person')
+                  'counterpart_label', COALESCE(NULLIF(e.display_name, ''), 'A trusted person'),
+                  -- The lane, carried straight off the grant that was just
+                  -- written. This is the path the SMS (Save my Soul) alert
+                  -- itself takes, so without it the one share that most needs
+                  -- to be told apart was the one the Feed could not tell apart.
+                  'share_kind', COALESCE(NULLIF(g.metadata ->> 'share_kind', ''), 'standard')
                 ),
                 NOW()
               FROM completed_grant g
