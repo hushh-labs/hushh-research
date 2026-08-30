@@ -6285,22 +6285,30 @@ def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
     )
     assert grant["shareKind"] == "sos"
     assert grant["shareMessage"] == "Come get me"
-    assert service.notifications == []
+
+    # Scoped to the ALERT. `add_sms_contact` above now tells the contact they
+    # were added -- a different notification, and the whole point of that
+    # change. What this test guards is that the alert itself waits for the
+    # envelope, so a recipient is never told a location is available before one
+    # is readable.
+    def share_alerts() -> list[dict]:
+        return [
+            n for n in service.notifications if n["notification_type"] == "location_share_created"
+        ]
+
+    assert share_alerts() == []
+    assert [n["notification_type"] for n in service.notifications] == ["location_sms_contact_added"]
 
     service.store_encrypted_envelope(
         owner_user_id="user_a",
         grant_id=grant["id"],
         envelope=encrypted_envelope("key-user_b", "ciphertext"),
     )
-    assert len(service.notifications) == 1
-    assert service.notifications[0]["title"] == "Save my Soul"
-    assert service.notifications[0]["body"] == "User A: Come get me"
-    assert service.notifications[0]["data"]["notification_profile"] == (
-        "one_location_sms_emergency"
-    )
-    assert service.notifications[0]["data"]["notification_category"] == (
-        "ONE_LOCATION_SMS_EMERGENCY"
-    )
+    assert len(share_alerts()) == 1
+    assert share_alerts()[0]["title"] == "Save my Soul"
+    assert share_alerts()[0]["body"] == "User A: Come get me"
+    assert share_alerts()[0]["data"]["notification_profile"] == ("one_location_sms_emergency")
+    assert share_alerts()[0]["data"]["notification_category"] == ("ONE_LOCATION_SMS_EMERGENCY")
 
 
 # ---------------------------------------------------------------------------
@@ -7392,3 +7400,78 @@ def test_feed_projection_migration_carries_the_share_lane_to_both_audiences() ->
         "location_share_expired",
     ):
         assert event in sql
+
+
+# ---------------------------------------------------------------------------
+# SMS Circle membership must reach both people.
+# ---------------------------------------------------------------------------
+#
+# Being on someone's SMS Circle is the list that receives their Save my Soul
+# alert, so membership decides whether an emergency reaches you at all. It was
+# the one relationship the product changed in total silence: `add_sms_contact`
+# was a lock plus an INSERT and `remove_sms_contact` a bare DELETE -- no event,
+# no Feed row, no push, on either side.
+
+
+def test_adding_an_sms_contact_announces_it() -> None:
+    assert "_record_sms_contact_change" in _SERVICE_SOURCE
+    add_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index("def add_sms_contact(") : _SERVICE_SOURCE.index(
+            "def remove_sms_contact("
+        )
+    ]
+    assert "_record_sms_contact_change(" in add_block, (
+        "adding an SMS contact must announce itself, or the person taking on "
+        "the duty is never told they have it"
+    )
+    assert "added=True" in add_block
+
+
+def test_removing_an_sms_contact_announces_it_only_when_one_went() -> None:
+    remove_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index("def remove_sms_contact(") : _SERVICE_SOURCE.index(
+            "def _record_sms_contact_change("
+        )
+    ]
+    # Guarded on the DELETE actually removing a row: announcing a no-op would
+    # tell somebody they had lost a duty they never held.
+    assert "if removed:" in remove_block
+    assert "added=False" in remove_block
+
+
+def test_the_sms_contact_announcement_reaches_the_contact_too() -> None:
+    block = _SERVICE_SOURCE[_SERVICE_SOURCE.index("def _record_sms_contact_change(") :][:4000]
+    # The domain event carries both labels, because the projection writes a row
+    # for each audience and each one names the OTHER person.
+    assert '"counterpart_label": contact_label' in block
+    assert '"owner_label": owner_label' in block
+    assert "recipient_user_id=contact_user_id" in block
+    # And a push, for the side that is not looking at the app.
+    assert "_send_metadata_notification(" in block
+    assert "user_id=contact_user_id" in block
+    # Never fails the membership change it is announcing.
+    assert "required=False" in block
+    assert "except Exception:" in block
+
+
+def test_sms_contact_events_are_allowed_and_projected_to_both_audiences() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "187_one_location_sms_contact_events.sql").read_text(encoding="utf-8")
+
+    # The audit table constrains its event types, so a new one that is not
+    # added to the CHECK is rejected at write time.
+    assert "one_location_events_event_type_check" in sql
+    for event in ("location_sms_contact_added", "location_sms_contact_removed"):
+        assert event in sql
+
+    # Two rows per transition: the owner's and the contact's.
+    assert sql.count("INSERT INTO feed_events") == 2
+    assert "'feed_audience', 'recipient'" in sql
+    assert "NEW.recipient_user_id <> NEW.owner_user_id" in sql
+    assert "one_location_sms_contact_events_feed_fanout" in sql
+
+    rollback = (
+        migrations / "rollback" / "187_one_location_sms_contact_events.rollback.sql"
+    ).read_text(encoding="utf-8")
+    assert "DROP TRIGGER IF EXISTS one_location_sms_contact_events_feed_fanout" in rollback
+    assert "location_sms_contact_added" not in rollback.split("ADD CONSTRAINT")[1]
