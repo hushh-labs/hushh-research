@@ -204,7 +204,7 @@ describe("Feed Clear transaction", () => {
     expect(mocks.feedRowRender).not.toHaveBeenCalled();
     expect(screen.queryByText("row-5")).toBeNull();
     await waitFor(() =>
-      expect(screen.getByText("No notifications yet.")).toBeInTheDocument(),
+      expect(screen.getByText("No activity yet")).toBeInTheDocument(),
     );
   });
 

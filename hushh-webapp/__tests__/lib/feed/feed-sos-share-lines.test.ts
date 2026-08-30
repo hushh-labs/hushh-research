@@ -88,7 +88,7 @@ describe("an SOS share reads as an emergency, not a share", () => {
       const revoked = presentFeedItem(
         item({ event_type: "location_share_revoked", metadata }),
       );
-      expect(revoked.description).toBe("Stopped sharing location");
+      expect(revoked.description).toBe("Sharing stopped");
     }
   });
 
