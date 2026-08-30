@@ -65,6 +65,14 @@ import {
   groupGrantsByCounterpart,
   type OneLocationGrantLaneGroup,
 } from "@/lib/one-location/grant-lanes";
+import {
+  describeShareRemaining,
+  parseTimestamp,
+} from "@/lib/one-location/share-countdown";
+import {
+  resolveShareDurationHours,
+  shareReplacementsLosingTime,
+} from "@/lib/one-location/share-replacement";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
@@ -146,6 +154,11 @@ import {
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
+import {
+  ShareReplacementConfirmDialog,
+  ShareReplacementNotice,
+  type ShareReplacementRow,
+} from "./share-replacement-notice";
 // LocationTypeSelector stays exported from ./selectors, unused for now, so
 // PR #4767 can wire it back to a real precision mode without rebuilding it.
 import {
@@ -4321,6 +4334,55 @@ function ShareFlow({
     .filter((recipient): recipient is OneLocationRecipient =>
       Boolean(recipient && vm.isRecipientShareReady(recipient)),
     );
+  /**
+   * Whose live share this one would CUT SHORT.
+   *
+   * Sharing again does not add to what somebody already has — the backend
+   * revokes their live grant and inserts a new one — so picking a duration
+   * shorter than what is still running gives time back rather than granting
+   * it. Step 1 shows each row's remaining time, but the duration is chosen
+   * here, and nothing compared the two until this. Empty for a first share and
+   * for any extension, so the ordinary case stays silent.
+   *
+   * Reuses the `nowMs` this step already ticks every 30 seconds, so a screen
+   * left open cannot quote a remaining time that has since run out.
+   */
+  const shareReplacementRows: ShareReplacementRow[] = shareReplacementsLosingTime(
+    {
+      recipientUserIds: selectedReady.map((recipient) => recipient.userId),
+      activeOwnerGrants: vm.activeOwnerGrants,
+      durationValue: vm.shareDurationHours,
+      nowMs,
+    },
+  ).map(({ recipientUserId, grant, untilStopped }) => {
+    const recipient = recipientById.get(recipientUserId);
+    return {
+      recipientUserId,
+      label: recipient ? vm.recipientLabel(recipient) : "This person",
+      // The same two vocabularies every other surface uses for the two kinds
+      // of live share, so the warning cannot describe one of them in words
+      // the Active shares screen never says.
+      remainingLabel: untilStopped
+        ? "Until you stop"
+        : describeShareRemaining(
+            (parseTimestamp(grant.expiresAt) ?? nowMs) - nowMs,
+          ),
+    };
+  });
+  const shareReplacementDurationLabel = formatLocationDurationLabel(
+    resolveShareDurationHours(vm.shareDurationHours),
+  );
+  const [shareReplacementConfirmOpen, setShareReplacementConfirmOpen] =
+    useState(false);
+  // The dialog must never outlive the reason it opened. Leaving the confirm
+  // step, or de-selecting the person whose share was at risk, both make it a
+  // question about nothing.
+  const shareReplacementCount = shareReplacementRows.length;
+  useEffect(() => {
+    if (step !== "details" || !shareReplacementCount) {
+      setShareReplacementConfirmOpen(false);
+    }
+  }, [shareReplacementCount, step]);
   const shareNoteLength = vm.shareMessage.length;
   const shareNoteLimitExceeded =
     shareNoteLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
@@ -4464,9 +4526,26 @@ function ShareFlow({
           }
         />
 
+        {/* Between the rail that says WHO and the button that starts it: the
+            one place an owner is still looking at both the people and the
+            duration. Renders nothing unless somebody actually loses time. */}
+        <ShareReplacementNotice
+          rows={shareReplacementRows}
+          newDurationLabel={shareReplacementDurationLabel}
+        />
+
         <div className="space-y-2.5">
           <Button
-            onClick={vm.onConfirmShare}
+            // Unchanged for every share that takes nothing away. When one
+            // would, the tap opens the confirm dialog instead of posting, and
+            // the dialog's own action is what reaches `onConfirmShare`.
+            onClick={() => {
+              if (shareReplacementRows.length) {
+                setShareReplacementConfirmOpen(true);
+                return;
+              }
+              vm.onConfirmShare();
+            }}
             disabled={!vm.canShare || shareNoteLimitExceeded}
             isLoading={vm.busy === "share"}
             data-voice-control-id="one-location-confirm-share"
@@ -4482,6 +4561,18 @@ function ShareFlow({
             Cancel
           </Button>
         </div>
+
+        <ShareReplacementConfirmDialog
+          open={shareReplacementConfirmOpen}
+          onOpenChange={setShareReplacementConfirmOpen}
+          rows={shareReplacementRows}
+          newDurationLabel={shareReplacementDurationLabel}
+          busy={vm.busy === "share"}
+          onConfirm={() => {
+            setShareReplacementConfirmOpen(false);
+            vm.onConfirmShare();
+          }}
+        />
       </div>
     );
   }

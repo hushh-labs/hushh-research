@@ -196,6 +196,7 @@ import {
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
+import { resolveShareDurationHours } from "@/lib/one-location/share-replacement";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import {
@@ -1308,20 +1309,21 @@ function privateShareDurationPayload(value: string): {
   durationHours?: number;
   durationMode: "timed" | "until_stopped";
 } {
-  if (value === "until_stopped") {
-    return { durationMode: "until_stopped" };
-  }
   // No "today" branch: the token cannot reach here any more (the picker has
   // no such rung, and `Number("today")` is NaN so the wheel rewrote it to
   // "0.25" on sight). Anything else is clamped into the window the backend
   // accepts — `gt=0, le=24` — rather than posted and rejected.
-  const hours = Number(value);
-  return {
-    durationHours: Number.isFinite(hours)
-      ? Math.min(24, Math.max(0.25, hours))
-      : 0.25,
-    durationMode: "timed",
-  };
+  //
+  // The clamp itself lives in `resolveShareDurationHours` because the confirm
+  // step's "this replaces a live share" warning has to compare the duration
+  // that is actually POSTED. Two copies of the arithmetic would eventually
+  // disagree, and a warning that quotes a different number from the request is
+  // capable of promising a share the app does not create.
+  const hours = resolveShareDurationHours(value);
+  if (hours === null) {
+    return { durationMode: "until_stopped" };
+  }
+  return { durationHours: hours, durationMode: "timed" };
 }
 
 function privateShareDurationLabel(value: string): string {
