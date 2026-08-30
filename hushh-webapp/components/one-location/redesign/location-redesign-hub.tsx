@@ -5059,25 +5059,23 @@ function AskFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
-  // Keep the person on this screen after sending so the confirmation is tied to
-  // the specific request they just made, rather than popping straight back to
-  // the hub.
+  // Keep the person on this screen after sending, so the roster they just acted
+  // on is still the thing in front of them and the next ask is one tap away
+  // rather than a trip back through the hub.
   //
-  // `justSent` is a confirmation, NOT a one-shot lock. It used to latch true
-  // forever the moment the button was tapped, which meant (a) a failed send
-  // still said "Request sent." and (b) after one round the button stayed
-  // disabled, so somebody who asked three people could not then ask the rest
-  // without leaving the screen and coming back. Now it is set from the resolved
-  // result, and choosing the next person clears it and re-arms Send.
-  const [justSent, setJustSent] = useState(false);
-  // Who the last send was for. Anyone selected who is NOT in it is a person
-  // being lined up for a new ask, which is what retires the confirmation and
-  // re-arms Send.
+  // There is no `justSent` banner any more. `handleRequestAccess` already
+  // raises a Sonner toast on a resolved success ("Request sent. We'll notify
+  // you here when they respond."), and every person asked already carries the
+  // outcome durably in their own row -- an "Asked" pill and "Asked just now for
+  // 1 hour, waiting on them". So the banner was the third telling of the same
+  // fact, and the only one that took permanent layout at the top of the screen
+  // to say something that stopped being news a second later. Reported as
+  // exactly that: "request sent is not looking cool, do you really think we
+  // want a bar for this only".
   //
-  // Compared as a set rather than counted: sending subtracts only the people it
-  // actually asked, so a person tapped mid-send survives into a non-empty
-  // selection, and a count would read that leftover as "nothing new here".
-  const sentSelectionRef = useRef<readonly string[]>([]);
+  // `frontend-pattern-catalog.md` has said so since before this screen existed:
+  // "Do not create inline route banners for row-level saves... Inline errors
+  // are for stable page-blocking states only." A sent request is neither.
   const selectedRequestOwnerIds = vm.selectedRequestOwnerIds;
   const selectedRequestRecipients = useMemo(() => {
     const byId = new globalThis.Map(
@@ -5089,12 +5087,6 @@ function AskFlow({
         Boolean(recipient),
       );
   }, [selectedRequestOwnerIds, vm.recipients]);
-  useEffect(() => {
-    const hasNewPick = selectedRequestOwnerIds.some(
-      (id) => !sentSelectionRef.current.includes(id),
-    );
-    if (hasNewPick) setJustSent(false);
-  }, [selectedRequestOwnerIds]);
   // Guards a double-tap inside the same frame, where `vm.busy` has not yet
   // re-rendered the button as disabled.
   const sendInFlightRef = useRef(false);
@@ -5249,14 +5241,13 @@ function AskFlow({
     if (!isRequestFormValid || sendingRequest || sendInFlightRef.current)
       return;
     sendInFlightRef.current = true;
-    sentSelectionRef.current = vm.selectedRequestOwnerIds;
     void (async () => {
       try {
-        // Confirm only what actually happened: the banner appears on a
-        // resolved success, and a failure leaves the composer intact with its
-        // own error toast.
+        // Confirm only what actually happened. `onSendRequest` resolves true
+        // only once at least one request reached the server, and raises the
+        // toast itself; a failure leaves the composer intact with its own error
+        // toast and never moves the step.
         const sent = await vm.onSendRequest(reason);
-        setJustSent(sent);
         if (sent) setStep("person");
       } finally {
         sendInFlightRef.current = false;
@@ -5399,18 +5390,8 @@ function AskFlow({
         )}
       />
 
-      {justSent ? (
-        <div
-          role="status"
-          className="flex items-start gap-2.5 rounded-[20px] border border-[color:var(--app-success)]/25 bg-[color:var(--app-primary-surface)] px-4 py-4 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
-        >
-          <ShieldCheck className="mt-0.5 h-[19px] w-[19px] shrink-0 text-[color:var(--app-success)]" />
-          <p className="text-[17px] font-medium leading-[22px] text-foreground">
-            Request sent.
-          </p>
-        </div>
-      ) : null}
-
+      {/* No confirmation banner here. The send raises a toast, and each person
+          asked says so in their own row -- see the note beside `sendRequest`. */}
       <section className="space-y-3">
         <PersonSearchInput
           value={searchDraft}

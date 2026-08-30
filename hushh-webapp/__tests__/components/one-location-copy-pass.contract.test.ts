@@ -13,6 +13,8 @@ const HUB_SOURCE = repoFile(
   "components/one-location/redesign/location-redesign-hub.tsx",
 );
 const CONNECT_SOURCE = repoFile("app/connect/page-client.tsx");
+/** The route that owns the send, and therefore the toast that confirms it. */
+const PAGE_SOURCE = repoFile("app/one/location/page.tsx");
 
 /**
  * The duration ceiling is owned by the consent protocol, not by the web app.
@@ -112,6 +114,36 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     expect(HUB_SOURCE).not.toContain("<WarningCard");
     // The surviving statement, on the live link's own card.
     expect(HUB_SOURCE).toContain("Anyone with this link can see your location.");
+  });
+
+  it("drops the Request sent banner in favour of the toast that already fired", () => {
+    // Reported on the Ask screen: "request sent is not looking cool, do you
+    // really think we want a bar for this only". The screen was telling the
+    // same fact three times -- a toast raised by `handleRequestAccess`, an
+    // "Asked" pill and an "Asked just now ... waiting on them" line on every
+    // row it applied to, and then a banner pinned above the search field to
+    // announce something that stopped being news a second later.
+    //
+    // `frontend-pattern-catalog.md`: "Do not create inline route banners for
+    // row-level saves... Inline errors are for stable page-blocking states
+    // only." A sent request is neither, so the banner and the `justSent` latch
+    // that drove it are both gone.
+    // Matched on the constructs, not on the words: the code comment that
+    // explains WHY the banner went is worth keeping, and a bare
+    // `not.toContain("justSent")` would forbid writing it down.
+    expect(HUB_SOURCE).not.toMatch(/const \[justSent/);
+    expect(HUB_SOURCE).not.toMatch(/setJustSent\(/);
+    expect(HUB_SOURCE).not.toMatch(/\{justSent \?/);
+    // A line that is nothing but the words is a JSX text node -- i.e. a banner
+    // rendering them. In a comment they are always preceded by `//` or `*`.
+    expect(HUB_SOURCE).not.toMatch(/^\s*Request sent\.\s*$/m);
+
+    // The channel that survives, and the durable per-row telling that made the
+    // banner redundant in the first place.
+    expect(PAGE_SOURCE).toContain(
+      "Request sent. We'll notify you here when they respond.",
+    );
+    expect(HUB_SOURCE).toContain("waiting on them");
   });
 });
 

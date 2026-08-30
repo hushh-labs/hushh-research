@@ -4790,9 +4790,16 @@ describe("OneLocationAgentPage", () => {
         has_note: false,
       }),
     );
+    // The confirmation is a toast, not a banner. It used to be both, on a
+    // screen whose rows already say "Asked just now ... waiting on them" --
+    // three tellings of one fact, one of them holding permanent layout to say
+    // something that stopped being news a second later.
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringContaining("Request sent."),
+      ),
     );
+    expect(screen.queryByText("Request sent.")).toBeNull();
   });
 
   // Reported from the field: "can't send req to rest after 1 cycle". Asking
@@ -4815,7 +4822,9 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringContaining("Request sent."),
+      ),
     );
 
     // Sending clears the composer, so with nobody chosen there is nothing to
@@ -4876,7 +4885,9 @@ describe("OneLocationAgentPage", () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringContaining("Request sent."),
+      ),
     );
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
 
@@ -4916,7 +4927,13 @@ describe("OneLocationAgentPage", () => {
           .hasAttribute("disabled"),
       ).toBe(false),
     );
-    expect(screen.queryByRole("status")).toBeNull();
+    // Asserted on the toast, not on the absence of a banner: with the banner
+    // gone, `queryByRole("status")` is null whether the send worked or not, so
+    // it would pass for the wrong reason. The channel that DOES carry a
+    // success is the one that has to stay silent.
+    expect(toast.success).not.toHaveBeenCalledWith(
+      expect.stringContaining("Request sent."),
+    );
   });
 
   it("renders my requests with safe labels instead of raw owner ids", async () => {
