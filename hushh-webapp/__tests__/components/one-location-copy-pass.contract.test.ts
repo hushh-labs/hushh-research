@@ -129,17 +129,41 @@ describe("One Location — hub tab naming", () => {
 });
 
 describe("One Location — People actions stay reachable and single-flight", () => {
-  it("keeps Find contacts mounted for action routing and disabled while syncing", () => {
-    const start = HUB_SOURCE.indexOf(
-      'data-voice-control-id="one-location-find-contacts"',
-    );
-    expect(start).toBeGreaterThan(-1);
-    const addPeopleMenu = HUB_SOURCE.slice(start - 600, start + 900);
+  // The "+" menus moved to the shared `ActionMenu`, which is a bottom sheet on
+  // a phone and an anchored menu on a pointer -- an anchored menu opened
+  // straight down ONTO the very list it belongs to. The properties this test
+  // was written for did not change; where they are declared did.
+  const ACTION_MENU_SOURCE = repoFile("components/app-ui/action-menu.tsx");
 
-    expect(addPeopleMenu).toContain("<DropdownMenuContent");
-    expect(addPeopleMenu).toContain("forceMount");
-    expect(addPeopleMenu).toContain('disabled={vm.busy === "contactSync"}');
-    expect(addPeopleMenu).toContain('aria-busy={vm.busy === "contactSync"');
+  it("keeps Find contacts listed and merely disabled while syncing", () => {
+    const start = HUB_SOURCE.indexOf('voiceControlId: "one-location-find-contacts"');
+    expect(start).toBeGreaterThan(-1);
+    const addPeopleMenu = HUB_SOURCE.slice(start - 900, start + 200);
+
+    // Present in the item list unconditionally -- a row that disappears
+    // mid-action is not a disabled control, it is a missing one.
+    expect(addPeopleMenu).toContain('id: "find-contacts"');
+    expect(addPeopleMenu).toContain('disabled: vm.busy === "contactSync"');
+    expect(addPeopleMenu).toContain('busy: vm.busy === "contactSync"');
+  });
+
+  it("refuses a second tap rather than queueing it, in both presentations", () => {
+    // Single-flight is the point: the sheet returns early and the menu
+    // preventDefaults, so a disabled row can never fire its action.
+    expect(ACTION_MENU_SOURCE).toContain("if (item.disabled) return;");
+    expect(ACTION_MENU_SOURCE).toContain("event.preventDefault();");
+    // The pointer lane keeps the content mounted, as it always did.
+    expect(ACTION_MENU_SOURCE).toContain("forceMount");
+  });
+
+  it("does not open a section's menu on top of that section's own list", () => {
+    // The reported defect, pinned: on a phone the surface is a bottom sheet,
+    // not a menu anchored under a "+" that sits above the list.
+    expect(ACTION_MENU_SOURCE).toContain('side="bottom"');
+    expect(ACTION_MENU_SOURCE).toContain("useIsMobile");
+    // And the presentation is frozen while open, so a rotation cannot remount
+    // the menu under the hand using it.
+    expect(ACTION_MENU_SOURCE).toContain("if (!open) setSheetPresentation(isMobile);");
   });
 });
 

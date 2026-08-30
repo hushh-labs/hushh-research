@@ -71,15 +71,10 @@ import {
   resolveShareDurationHours,
   shareReplacementsLosingTime,
 } from "@/lib/one-location/share-replacement";
+import { ActionMenu } from "@/components/app-ui/action-menu";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -3389,63 +3384,51 @@ export function PeopleHub({
     </Button>
   );
   const addConnectionsMenu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label="Add people"
-          className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
-        >
-          <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        forceMount
-        className="min-w-52 rounded-2xl border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1.5 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
-      >
-        <DropdownMenuItem
-          data-voice-control-id="one-location-find-contacts"
-          aria-busy={vm.busy === "contactSync" || undefined}
-          disabled={vm.busy === "contactSync"}
-          onSelect={(event) => {
-            if (vm.busy === "contactSync") {
-              event.preventDefault();
-              return;
-            }
-            vm.onSyncContacts();
-          }}
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-        >
-          {vm.busy === "contactSync"
+    <ActionMenu
+      label="Add people"
+      title="Connections"
+      triggerIcon={Plus}
+      testId="one-location-add-people"
+      items={[
+        {
+          id: "find-contacts",
+          // Kept mounted and merely DISABLED while a sync is in flight, so a
+          // second tap is refused rather than queued -- single-flight, and
+          // visibly so. Removing the row instead would make the control
+          // disappear mid-action.
+          label: vm.busy === "contactSync"
             ? "Finding contacts…"
             : vm.contactSyncSummary
               ? "Sync contacts again"
-              : "Find contacts"}
-        </DropdownMenuItem>
-        {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
-          <DropdownMenuItem onSelect={() => vm.onViewContactSyncResults?.()}>
-            View contact sync results
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuItem
-          onSelect={() => onInvite()}
-          data-voice-control-id="one-location-action-invite"
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-        >
-          Invite to One
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => onAddConnections()}
-          data-voice-control-id="one-location-add-connections"
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-        >
-          Manage connections
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+              : "Find contacts",
+          onSelect: () => vm.onSyncContacts(),
+          disabled: vm.busy === "contactSync",
+          busy: vm.busy === "contactSync",
+          voiceControlId: "one-location-find-contacts",
+        },
+        ...(vm.contactSyncSummary && vm.onViewContactSyncResults
+          ? [
+              {
+                id: "sync-results",
+                label: "View contact sync results",
+                onSelect: () => vm.onViewContactSyncResults?.(),
+              },
+            ]
+          : []),
+        {
+          id: "invite",
+          label: "Invite to One",
+          onSelect: () => onInvite(),
+          voiceControlId: "one-location-action-invite",
+        },
+        {
+          id: "manage",
+          label: "Manage connections",
+          onSelect: () => onAddConnections(),
+          voiceControlId: "one-location-add-connections",
+        },
+      ]}
+    />
   );
 
   return (
