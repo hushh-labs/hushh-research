@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const service = vi.hoisted(() => ({
   checkInNearby: vi.fn(),
   checkoutNearby: vi.fn(),
+  extendNearbyPresence: vi.fn(),
   getPermissionState: vi.fn(),
   getNearbyPresence: vi.fn(),
   nearbyPlaces: vi.fn(),
@@ -162,7 +163,7 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
-  it("uses the compact Check in header and a count-aware place expansion", async () => {
+  it("uses the compact nearby check-in header and a count-aware place expansion", async () => {
     service.nearbyPlaces.mockResolvedValue([
       {
         placeId: "long-name-cafe",
@@ -208,7 +209,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Check in" }),
+      screen.getByRole("heading", { name: "Check in nearby" }),
     ).toBeInTheDocument();
     // The build-stage badge is gone: it reported how finished the feature is,
     // which is a fact about the roadmap, not about the person's decision.
@@ -878,7 +879,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByTestId("nearby-presence-active");
-    const checkout = screen.getByRole("button", { name: "Check out" });
+    const checkout = screen.getByRole("button", { name: "I'm leaving" });
     // "now" adds nothing a person could act on.
     expect(
       screen.queryByRole("button", { name: "Check out now" }),
@@ -954,8 +955,8 @@ describe("NearbyCheckInSheet", () => {
     await waitFor(() => {
       expect(service.getNearbyPresence).toHaveBeenCalledTimes(2);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Check out" }));
-    await screen.findByTestId("nearby-presence-setup");
+    fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+    await screen.findByTestId("nearby-presence-completed");
 
     resolveOldPoll?.(activeState);
     await Promise.resolve();
@@ -1005,7 +1006,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByTestId("nearby-presence-active");
-    fireEvent.click(screen.getByRole("button", { name: "Check out" }));
+    fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
     await waitFor(() => {
       expect(service.checkoutNearby).toHaveBeenCalledTimes(1);
     });
@@ -1018,11 +1019,67 @@ describe("NearbyCheckInSheet", () => {
     await act(async () => {
       resolveCheckout?.(checkedOutState);
     });
-    expect(await screen.findByTestId("nearby-presence-setup")).toBeInTheDocument();
+    expect(await screen.findByTestId("nearby-presence-completed")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Check out" }),
+      screen.queryByRole("button", { name: "I'm leaving" }),
     ).not.toBeInTheDocument();
     expect(service.getNearbyPresence).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds time from the active check-in without reopening the setup flow", async () => {
+    const activeState = {
+      presence: {
+        status: "active" as const,
+        audience: "all_opted_in" as const,
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        placeLabel: "Stanford University",
+      },
+      attendees: [
+        {
+          participantAlias: "alias-1",
+          displayName: "Neelesh Meena",
+          relationship: "connected" as const,
+          canConnect: false,
+          checkedInAt: new Date().toISOString(),
+        },
+      ],
+    };
+    service.getNearbyPresence.mockResolvedValue(activeState);
+    service.extendNearbyPresence.mockResolvedValue({
+      ...activeState,
+      presence: {
+        ...activeState.presence,
+        expiresAt: new Date(Date.now() + 90 * 60_000).toISOString(),
+      },
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    const active = await screen.findByTestId("nearby-presence-active");
+    expect(active.textContent).toContain("1 person nearby");
+    fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+    fireEvent.click(screen.getByRole("button", { name: "30 min more" }));
+
+    await waitFor(() => {
+      expect(service.extendNearbyPresence).toHaveBeenCalledWith({
+        vaultOwnerToken: "owner-token",
+        incrementMinutes: 30,
+      });
+    });
+    expect(screen.queryByTestId("nearby-presence-setup")).not.toBeInTheDocument();
+    expect(screen.getByTestId("nearby-presence-active")).toBeInTheDocument();
   });
 
   it("does not request location or Places for an already-active check-in", async () => {
@@ -1113,7 +1170,7 @@ describe("NearbyCheckInSheet", () => {
     );
     service.nearbyPlaces.mockClear();
 
-    fireEvent.click(screen.getByPlaceholderText("Search"));
+    fireEvent.click(screen.getByPlaceholderText("Search places"));
     await act(async () => {
       // A failed refresh must degrade the drawer, not blank it.
       fireEvent.click(screen.getByRole("button", { name: "All" }));
@@ -1317,7 +1374,7 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(service.nearbyPlaces).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "clinic" },
     });
     await waitFor(() => {
@@ -1341,7 +1398,7 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByText(/sorted by distance/)).not.toBeInTheDocument();
     expect(screen.getByText("Google Maps")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "" },
     });
     expect(await screen.findByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1384,7 +1441,7 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(submit).toBeEnabled();
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "clinic" },
     });
     expect(
@@ -2119,7 +2176,7 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
-  describe("post-checkout Saved Places offer", () => {
+  describe("post-checkout completion", () => {
     const anchoredPresence = {
       presence: {
         status: "active" as const,
@@ -2136,7 +2193,10 @@ describe("NearbyCheckInSheet", () => {
       attendees: [],
     };
 
-    const renderAndCheckOut = async (vaultKey: string | null = "vault-key") => {
+    const renderAndCheckOut = async (
+      vaultKey: string | null = "vault-key",
+      onOpenChange = vi.fn(),
+    ) => {
       service.getNearbyPresence.mockResolvedValue(anchoredPresence);
       service.checkoutNearby.mockResolvedValue({
         presence: null,
@@ -2151,25 +2211,33 @@ describe("NearbyCheckInSheet", () => {
           vaultOwnerToken="owner-token"
           vaultKey={vaultKey}
           captureCurrentPosition={vi.fn().mockResolvedValue(point)}
-          onOpenChange={vi.fn()}
+          onOpenChange={onOpenChange}
         />,
       );
 
       await screen.findByTestId("nearby-presence-active");
-      fireEvent.click(screen.getByRole("button", { name: "Check out" }));
-      await screen.findByTestId("nearby-presence-setup");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      await screen.findByTestId("nearby-presence-completed");
+      return onOpenChange;
     };
 
-    it("offers the checked-out venue when it is not already saved", async () => {
+    it("ends in a simple completed state instead of reopening setup", async () => {
       savedPlaces.loadSavedLocations.mockResolvedValue([]);
 
       await renderAndCheckOut();
 
-      const prompt = await screen.findByTestId("nearby-save-place-prompt");
-      expect(prompt.textContent).toContain("Blue Bottle Coffee");
+      const completed = await screen.findByTestId("nearby-presence-completed");
+      expect(completed.textContent).toContain("Check-in ended");
+      expect(completed.textContent).toContain("Blue Bottle Coffee");
+      expect(completed.textContent).toContain("You're no longer visible nearby.");
+      expect(screen.queryByTestId("nearby-presence-setup")).not.toBeInTheDocument();
+      expect(screen.queryByText("Checked out from")).not.toBeInTheDocument();
+      expect(
+        await screen.findByRole("button", { name: "Save for faster check-ins" }),
+      ).toBeInTheDocument();
     });
 
-    it("suppresses the offer when that venue is already saved", async () => {
+    it("suppresses the save action when that venue is already saved", async () => {
       // 37.42755/-122.16975 is a few metres from the anchor, inside the 25 m
       // duplicate radius, so this must read as the same place.
       savedPlaces.loadSavedLocations.mockResolvedValue([
@@ -2189,16 +2257,16 @@ describe("NearbyCheckInSheet", () => {
         expect(savedPlaces.loadSavedLocations).toHaveBeenCalled();
       });
       expect(
-        screen.queryByTestId("nearby-save-place-prompt"),
+        screen.queryByRole("button", { name: "Save for faster check-ins" }),
       ).not.toBeInTheDocument();
     });
 
-    it("does not offer when the vault is locked", async () => {
+    it("does not show the save action when the vault is locked", async () => {
       await renderAndCheckOut(null);
 
       expect(savedPlaces.loadSavedLocations).not.toHaveBeenCalled();
       expect(
-        screen.queryByTestId("nearby-save-place-prompt"),
+        screen.queryByRole("button", { name: "Save for faster check-ins" }),
       ).not.toBeInTheDocument();
     });
 
@@ -2207,8 +2275,11 @@ describe("NearbyCheckInSheet", () => {
       savedPlaces.addSavedLocation.mockResolvedValue([]);
 
       await renderAndCheckOut();
-      await screen.findByTestId("nearby-save-place-prompt");
-      fireEvent.click(screen.getByRole("button", { name: /Save to Places/ }));
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Save for faster check-ins",
+        }),
+      );
 
       await waitFor(() => {
         expect(savedPlaces.addSavedLocation).toHaveBeenCalledTimes(1);
@@ -2223,26 +2294,20 @@ describe("NearbyCheckInSheet", () => {
           longitude: -122.1697,
         },
       });
+      expect(await screen.findByText("Saved for next time.")).toBeInTheDocument();
     });
 
-    it("dismisses the offer without saving", async () => {
+    it("finishes without saving", async () => {
       savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      const onOpenChange = await renderAndCheckOut("vault-key", vi.fn());
 
-      await renderAndCheckOut();
-      await screen.findByTestId("nearby-save-place-prompt");
-      fireEvent.click(
-        screen.getByRole("button", { name: "Dismiss saved place suggestion" }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("nearby-save-place-prompt"),
-        ).not.toBeInTheDocument();
-      });
+      expect(onOpenChange).toHaveBeenCalledWith(false);
       expect(savedPlaces.addSavedLocation).not.toHaveBeenCalled();
     });
 
-    it("keeps Check out styled as a neutral action, not a destructive one", async () => {
+    it("keeps leaving styled as a neutral action, not a destructive one", async () => {
       service.getNearbyPresence.mockResolvedValue(anchoredPresence);
 
       render(
@@ -2256,7 +2321,7 @@ describe("NearbyCheckInSheet", () => {
       );
 
       await screen.findByTestId("nearby-presence-active");
-      const checkOut = screen.getByRole("button", { name: "Check out" });
+      const checkOut = screen.getByRole("button", { name: "I'm leaving" });
       // Red is reserved for dangerous and irreversible actions. Checking out is
       // neither — you can check back in.
       expect(checkOut.className).not.toContain("app-destructive");

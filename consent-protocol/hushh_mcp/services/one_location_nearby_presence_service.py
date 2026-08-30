@@ -194,6 +194,13 @@ class NearbyPresenceStore(Protocol):
 
     def checkout(self, user_id: str) -> bool: ...
 
+    def extend_presence(
+        self,
+        *,
+        user_id: str,
+        increment_minutes: int,
+    ) -> dict[str, Any] | None: ...
+
     def purge_terminal(self, *, older_than_hours: float) -> dict[str, int]: ...
 
 
@@ -550,6 +557,31 @@ class PostgresNearbyPresenceStore:
             {"user_id": user_id},
         )
         return bool(row)
+
+    def extend_presence(
+        self,
+        *,
+        user_id: str,
+        increment_minutes: int,
+    ) -> dict[str, Any] | None:
+        self._expire_due()
+        return self._execute_one(
+            """
+            UPDATE one_location_nearby_presences
+            SET
+              expires_at = expires_at + (:increment_minutes * INTERVAL '1 minute'),
+              version = version + 1,
+              updated_at = NOW()
+            WHERE owner_user_id = :user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            RETURNING *
+            """,
+            {
+                "user_id": user_id,
+                "increment_minutes": int(increment_minutes),
+            },
+        )
 
     def purge_terminal(self, *, older_than_hours: float) -> dict[str, int]:
         expired_count = self._expire_due()
@@ -1218,6 +1250,33 @@ class OneLocationNearbyPresenceService:
         owner_user_id = self._require_user(user_id)
         self._store.checkout(owner_user_id)
         return {"presence": None, "attendees": [], "checkedOut": True}
+
+    def extend(
+        self,
+        *,
+        user_id: str,
+        increment_minutes: int,
+    ) -> dict[str, Any]:
+        owner_user_id = self._require_user(user_id)
+        self._require_verified_profile(owner_user_id)
+        normalized_increment = int(increment_minutes)
+        if normalized_increment not in {30, 60}:
+            raise NearbyPresenceError(
+                "NEARBY_PRESENCE_EXTENSION_INVALID",
+                "Choose 30 minutes or 1 hour.",
+                status_code=422,
+            )
+        row = self._store.extend_presence(
+            user_id=owner_user_id,
+            increment_minutes=normalized_increment,
+        )
+        if not row:
+            raise NearbyPresenceError(
+                "NEARBY_PRESENCE_NOT_ACTIVE",
+                "This check-in has already ended.",
+                status_code=409,
+            )
+        return self.get_state(user_id=owner_user_id)
 
     def request_connection(
         self,

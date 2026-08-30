@@ -332,6 +332,55 @@ def test_checkout_remains_available_when_simulation_is_disabled(client, monkeypa
     assert response.headers["cache-control"] == "private, no-store"
 
 
+def test_extend_nearby_presence_uses_token_identity(client, monkeypatch):
+    class FakePresenceService:
+        def extend(self, *, user_id, increment_minutes):
+            assert user_id == "u1"
+            assert increment_minutes == 30
+            return {
+                "presence": {
+                    "status": "active",
+                    "placeLabel": "Demo Hall",
+                    "radiusMeters": 500,
+                },
+                "attendees": [],
+            }
+
+    monkeypatch.setattr(
+        location_routes,
+        "_nearby_presence_service",
+        lambda: FakePresenceService(),
+    )
+
+    response = client.patch(
+        "/api/one/location/nearby-presence",
+        json={"incrementMinutes": 30},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["presence"]["placeLabel"] == "Demo Hall"
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_extend_nearby_presence_rejects_unsupported_increment(client, monkeypatch):
+    class FailIfCalledPresenceService:
+        def extend(self, **kwargs):
+            raise AssertionError("unsupported increments must not reach service")
+
+    monkeypatch.setattr(
+        location_routes,
+        "_nearby_presence_service",
+        lambda: FailIfCalledPresenceService(),
+    )
+
+    response = client.patch(
+        "/api/one/location/nearby-presence",
+        json={"incrementMinutes": 45},
+    )
+
+    assert response.status_code == 422
+
+
 def test_connection_request_accepts_alias_only_in_body(client, monkeypatch):
     class FakePresenceService:
         def request_connection(self, **kwargs):
