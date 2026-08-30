@@ -206,11 +206,12 @@ describe("One Location — the Share confirm step is a measured column", () => {
     expect(HUB_SOURCE).toContain("maxWidthClassName={null}");
   });
 
-  it("keeps the default clamp for the two editors that have no column", () => {
-    // The live-share "New time" editor and the People tab's "New duration"
-    // render straight into the 880px shell. Without the default they stretch to
-    // ~792px and their duration cells reach 258px — the exact state an earlier
-    // round was fixing.
+  it("keeps a default clamp for a select-based editor that has no column", () => {
+    // The People tab's "New duration" renders a `select` straight into the
+    // 880px shell; without the default clamp its trigger stretches the width
+    // of the card. (The live-share "New time" ladder opts out with
+    // `maxWidthClassName={null}` on purpose — issue #6228 — because a wrapping
+    // row of content-width chips has nothing to stretch, unlike the old grid.)
     const selectors = repoFile(
       "components/one-location/redesign/selectors.tsx",
     );
