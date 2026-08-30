@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -3548,78 +3547,3 @@ def test_an_add_naming_only_blocked_people_still_fails_loudly():
     assert raised.value.status_code == 409
     # Unnamed, like every other refusal about somebody else's history.
     assert "friend-one" not in raised.value.args[0]
-
-
-# ---------------------------------------------------------------------------
-# One-letter people search, on the PAGED path.
-# ---------------------------------------------------------------------------
-#
-# Both paged people searches filtered with a bare substring and ordered A-Z.
-# With connections named "Ankit Kumar Singh" and "Neelesh Meena", typing `n`
-# matched BOTH -- "Ankit" and "Singh" each carry an "n" -- and then sorted
-# Ankit first. One-letter search read as broken.
-#
-# `filterPeopleByQuery` in hushh-webapp/lib/one-location/people-search.ts
-# already fixed this for the client's own path and is covered by the protected
-# behaviour `location-people-search-finds-a-person-from-one-letter`. The
-# server-paged path never got it, so the same sheet behaved differently
-# depending on which loader it was given. These hold the two together.
-
-from hushh_mcp.services.one_location_circle_service import (  # noqa: E402
-    _people_query_match_params,
-)
-
-_CIRCLE_SERVICE_SOURCE = Path(circle_service_module.__file__).read_text(encoding="utf-8")
-
-
-def test_one_character_query_is_marked_as_such() -> None:
-    assert _people_query_match_params("n")["query_is_single_char"] is True
-    assert _people_query_match_params("ne")["query_is_single_char"] is False
-    assert _people_query_match_params("")["query_is_single_char"] is False
-
-
-def test_the_match_patterns_separate_a_beginning_from_a_mid_word_hit() -> None:
-    params = _people_query_match_params("n")
-    prefix = re.compile(str(params["query_prefix_re"]))
-    word = re.compile(str(params["query_word_re"]).replace("[:alnum:]", "a-z0-9"))
-
-    # "neelesh meena" begins with it; "ankit kumar singh" only carries it.
-    assert prefix.search("neelesh meena")
-    assert not prefix.search("ankit kumar singh")
-    assert word.search("neelesh meena")
-    assert not word.search("ankit kumar singh")
-
-    # A word beginning that is not the first word still ranks above mid-word.
-    assert word.search("ankit narayan")
-
-
-def test_a_query_cannot_smuggle_a_pattern_into_the_search() -> None:
-    # A name containing regex punctuation must be searched for literally.
-    params = _people_query_match_params("r.")
-    prefix = re.compile(str(params["query_prefix_re"]))
-    assert prefix.search("r. meena")
-    assert not prefix.search("rx meena")
-
-
-def test_an_empty_query_matches_nothing_through_the_rank_patterns() -> None:
-    # The SQL gates on `:query = ''` before these are consulted, but they must
-    # never match by accident if that gate is ever reordered.
-    params = _people_query_match_params("")
-    assert re.compile(str(params["query_prefix_re"])).search("anyone") is None
-
-
-def test_both_paged_people_searches_rank_and_narrow_the_same_way() -> None:
-    # Two call sites: Circle members, and the "Add people" eligible
-    # connections sheet the defect was reported on.
-    assert _CIRCLE_SERVICE_SOURCE.count("query_prefix_re") == 3  # helper + 2 SQL
-    assert _CIRCLE_SERVICE_SOURCE.count("AS match_rank") == 2
-    # Relevance first, then A-Z inside it -- the client's documented shape.
-    assert _CIRCLE_SERVICE_SOURCE.count("ORDER BY match_rank, normalized_name") == 2
-    assert _CIRCLE_SERVICE_SOURCE.count("ORDER BY page_rows.match_rank") == 2
-    # One character keeps only word-beginning matches...
-    assert _CIRCLE_SERVICE_SOURCE.count("WHERE NOT :query_is_single_char") == 2
-    # ...but never empties a list that has a match.
-    assert (
-        _CIRCLE_SERVICE_SOURCE.count("SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2")
-        == 2
-    )

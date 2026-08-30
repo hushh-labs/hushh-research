@@ -103,6 +103,7 @@ tests/test_contact_match_correctness.py
 # production deploy back -- both green, both unrun, for as long as they have
 # existed.
 tests/services/test_one_location_circle_service.py
+tests/services/test_people_search_sql.py
 tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py

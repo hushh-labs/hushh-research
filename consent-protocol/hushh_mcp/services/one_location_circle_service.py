@@ -29,6 +29,7 @@ from hushh_mcp.services.connection_graph_service import (
     ensure_connection_origin,
     revoke_circle_origins,
 )
+from hushh_mcp.services.people_search_sql import people_query_match_params
 from mcp_modules.log_redaction import redact_log_field
 
 logger = logging.getLogger(__name__)
@@ -329,32 +330,6 @@ def _clean_kind(value: str | None) -> str:
             status_code=422,
         )
     return kind
-
-
-def _people_query_match_params(normalized_query: str) -> dict[str, object]:
-    """Bind values for the three-tier name match the paged people searches use.
-
-    The tiers mirror `filterPeopleByQuery` in
-    `hushh-webapp/lib/one-location/people-search.ts` exactly, because a paged
-    list and an unpaged one must not disagree about what a query means. Both
-    sheets used a bare substring match ordered A-Z, so with connections named
-    "Ankit Kumar Singh" and "Neelesh Meena", typing `n` matched BOTH -- "Ankit"
-    and "Singh" each carry an "n" -- and then sorted the wrong one first. The
-    client already fixed this for its own path and is covered by the protected
-    behaviour `location-people-search-finds-a-person-from-one-letter`; the
-    server-paged path never got it.
-
-    A word boundary is anything that is not a letter or a digit, which keeps
-    "Jean-Luc", "O'Brien" and "R. Meena" splitting the way a reader splits
-    them. The query is regex-escaped, so a name containing `.` or `*` cannot
-    turn a search into a pattern.
-    """
-    escaped = re.escape(normalized_query)
-    return {
-        "query_prefix_re": f"^{escaped}" if normalized_query else "$^",
-        "query_word_re": (f"(^|[^[:alnum:]]){escaped}" if normalized_query else "$^"),
-        "query_is_single_char": len(normalized_query) == 1,
-    }
 
 
 class OneLocationCircleService:
@@ -1057,7 +1032,7 @@ class OneLocationCircleService:
         normalized_page = max(1, int(page or 1))
         normalized_limit = max(1, min(int(limit or 50), 100))
         normalized_query = str(query or "").strip().lower()
-        query_match = _people_query_match_params(normalized_query)
+        query_match = people_query_match_params(normalized_query)
         offset = (normalized_page - 1) * normalized_limit
         try:
             result = self._db.execute_raw(
@@ -2880,7 +2855,7 @@ class OneLocationCircleService:
         normalized_page = max(1, int(page or 1))
         normalized_limit = max(1, min(int(limit or 50), 100))
         normalized_query = str(query or "").strip().lower()
-        query_match = _people_query_match_params(normalized_query)
+        query_match = people_query_match_params(normalized_query)
         offset = (normalized_page - 1) * normalized_limit
         try:
             result = self._db.execute_raw(
