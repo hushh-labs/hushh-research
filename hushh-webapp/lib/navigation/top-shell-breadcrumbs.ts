@@ -982,13 +982,25 @@ function resolveTopShellBreadcrumbInner(
     }
   }
 
-  if (pathname === ROUTES.CONNECT || pathname === ROUTES.MARKETPLACE) {
+  if (pathname === ROUTES.CONNECT) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      // Connect is a level-two workspace. Keep the shared shell back affordance
-      // available so this entry behaves like the other One capability routes.
+      // Connect is a level-two workspace. Like Location, the top shell names
+      // the parent ("One") while the route owns the single visible page title.
+      hideBack: false,
+      items: [{ label: "One" }],
+    };
+  }
+
+  if (pathname === ROUTES.MARKETPLACE) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      // Keep Marketplace on its existing shared-shell breadcrumb; the Connect
+      // route above is the only place where the duplicate page title exists.
       hideBack: false,
       items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Connect" }],
     };
