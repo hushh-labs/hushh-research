@@ -68,6 +68,7 @@ import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { ReferralService } from "@/lib/services/referral-service";
 import { isShareCancellationError, shareLink } from "@/lib/share/share-link";
+import { useSettingsReturn } from "@/lib/permissions/use-settings-return";
 
 export type ContactSyncStatus =
   | "idle"
@@ -266,6 +267,17 @@ export type UseContactSync = {
   resultsOpen: boolean;
   setResultsOpen: (open: boolean) => void;
   sync: () => Promise<void>;
+  /**
+   * Send somebody to the OS settings app for contact access, and watch for
+   * them coming back.
+   *
+   * Exposed rather than kept private because the trip is only worth taking if
+   * something is waiting on the other side: this arms the return watcher and
+   * says the way back before they go. A surface that calls
+   * `openContactPermissionSettings` directly gets the jump without either, and
+   * that is the state this was reported in.
+   */
+  openContactSettings: () => Promise<void>;
   invite: () => Promise<void>;
   requestConnection: (addresseeUserId: string) => Promise<void>;
   resultsSheetProps: ContactSyncResultsSheetProps;
@@ -319,6 +331,30 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
   const inFlightRef = useRef(false);
 
   /**
+   * True from the moment we hand somebody to the OS settings app until they
+   * come back with contact access on.
+   *
+   * Reported after an iOS build: "settings ios wali jab bhi open ho rahin,
+   * either for syncing contacts or this settings, ek back tap mein app par
+   * switch nahi karwa rha -- mereko application back mein dekh kar kholna
+   * pda." Whether iOS draws its "‹ Back to Hushh" pill is iOS's call, but the
+   * half that was ours was worse: the toast that sent them was gone by the
+   * time they returned, nothing re-read the permission, and the only way
+   * forward was to find the same button and press it again. So the trip ended
+   * where it started no matter how they got back.
+   *
+   * A ref as well as state: the state drives the watcher, and the ref lets the
+   * resume decide whether it is a resume without joining a dependency array
+   * that would restart the watcher every render.
+   */
+  const [awaitingContactSettings, setAwaitingContactSettings] = useState(false);
+  const awaitingContactSettingsRef = useRef(false);
+  const markAwaitingContactSettings = useCallback((next: boolean) => {
+    awaitingContactSettingsRef.current = next;
+    setAwaitingContactSettings(next);
+  }, []);
+
+  /**
    * The sync callback, read at click time rather than captured.
    *
    * "Sync again" and "Check more" live inside a toast that outlives the sync
@@ -331,6 +367,15 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    * the moment the button is actually pressed.
    */
   const syncRef = useRef<(() => Promise<void>) | null>(null);
+
+  /**
+   * Read at click time, exactly like {@link syncRef} and for the same reason:
+   * the "Open Settings" action lives inside a toast that outlives the sync
+   * that raised it, and the callback it points at is declared below `sync`.
+   * Capturing it in `sync`'s closure would make `sync` depend on it and put
+   * the two in a cycle.
+   */
+  const openContactSettingsRef = useRef<(() => Promise<void>) | null>(null);
 
   /**
    * Resolve the contact source before anybody reaches the button.
@@ -606,7 +651,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
           case "open_settings":
             return {
               label: "Open Settings",
-              onClick: () => void openContactPermissionSettings(),
+              onClick: () => void openContactSettingsRef.current?.(),
             };
           case "invite":
             // The other half of a contact scan. Until this shipped, the count
@@ -664,7 +709,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         toast.error(message, {
           action: {
             label: "Open Settings",
-            onClick: () => void openContactPermissionSettings(),
+            onClick: () => void openContactSettingsRef.current?.(),
           },
         });
       } else if (failure === "unavailable") {
@@ -682,6 +727,65 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     syncRef.current = sync;
   }, [sync]);
 
+  /**
+   * Hand them to the OS, and remember that we did.
+   *
+   * The remembering is the whole point. Without it the app treats the return
+   * as an ordinary foreground and the person is back where they started.
+   * `opened === false` means nothing launched -- a browser, or an OS that
+   * refused -- and watching for a return from a place nobody went to would
+   * leave the watcher armed forever.
+   */
+  const openContactSettingsAndWatch = useCallback(async () => {
+    const opened = await openContactPermissionSettings();
+    if (!opened) return;
+    markAwaitingContactSettings(true);
+    // Said before they leave, because after they leave there is no surface of
+    // ours to say it on. Names the switch AND the way back, which is the part
+    // the report singled out: "settings mein desired operation enable/disable
+    // karne ke baad entry ka path bhi dete hain".
+    toast.info("Turn on Contacts for Hushh, then come back — we'll pick up where you left off.");
+  }, [markAwaitingContactSettings]);
+
+  /**
+   * Is contact access on now?
+   *
+   * `limited` counts. iOS limited access is a real grant over a hand-picked
+   * subset, and a sync across that subset is exactly what somebody who chose
+   * it asked for -- refusing to resume until they widen it would answer their
+   * decision by ignoring it.
+   */
+  const readContactsGranted = useCallback(async () => {
+    try {
+      const permission = await HushhContacts.getPermissionState();
+      return permission?.state === "granted" || permission?.state === "limited";
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const onContactsRestored = useCallback(() => {
+    if (!awaitingContactSettingsRef.current) return;
+    markAwaitingContactSettings(false);
+    // Resume the work, not just the permission. The trip was never about the
+    // switch -- it was about syncing contacts, and finishing that is what the
+    // person actually came back for.
+    toast.success("Contact access is on. Syncing…");
+    void syncRef.current?.();
+  }, [markAwaitingContactSettings]);
+
+  useEffect(() => {
+    openContactSettingsRef.current = openContactSettingsAndWatch;
+  }, [openContactSettingsAndWatch]);
+
+  useSettingsReturn({
+    enabled: awaitingContactSettings,
+    readGranted: readContactsGranted,
+    onRestored: onContactsRestored,
+    // No `permissionName`: the Permissions API has no entry for contacts, so
+    // the lifecycle signals are the whole mechanism here.
+  });
+
   return {
     available,
     googleFallback,
@@ -691,6 +795,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     resultsOpen,
     setResultsOpen,
     sync,
+    openContactSettings: openContactSettingsAndWatch,
     invite,
     requestConnection,
     resultsSheetProps: {
