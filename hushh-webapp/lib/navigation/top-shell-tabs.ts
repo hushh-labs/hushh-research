@@ -87,7 +87,7 @@ export const TOP_SHELL_TAB_REGISTRY = {
     tabs: [
       // Keep the authored value `now` so existing links and Kai's
       // `location.open_now` action continue resolving.
-      { value: "now", label: "Now", href: "/one/location" },
+      { value: "now", label: "My location", href: "/one/location" },
       {
         value: "people",
         label: "People",

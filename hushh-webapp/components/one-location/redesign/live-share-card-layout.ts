@@ -11,8 +11,8 @@
  * control inside a 320px phone without clipping any of them.
  */
 
-/** Card body. The running-share card stays compact on the Now hub. */
-export const LIVE_SHARE_CARD_CLASSNAME = "overflow-hidden p-4";
+/** Card body. `overflow-hidden` clips the progress fill to the rounded corner. */
+export const LIVE_SHARE_CARD_CLASSNAME = "overflow-hidden p-4 sm:p-5";
 
 /**
  * Badge on the left, the one action on the right, sharing a centreline — the
@@ -33,15 +33,21 @@ export const LIVE_SHARE_ACTION_CLASSNAME =
  * hides the one fact the card exists to state.
  */
 export const LIVE_SHARE_TITLE_CLASSNAME =
-  "mt-3 text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]";
+  "text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]";
 
-/** The remaining time and wall-clock end read as one sentence. */
+/** Compact metadata row: the timer is information, not the whole screen. */
 export const LIVE_SHARE_CLOCK_ROW_CLASSNAME =
-  "mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[15px] leading-[20px] text-[color:var(--app-secondary-label)]";
+  "mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[15px] leading-5 text-[color:var(--app-secondary-label)]";
 
 /** `tabular-nums` keeps the width fixed as the digits change, so it cannot jitter. */
 export const LIVE_SHARE_CLOCK_CLASSNAME =
-  "font-semibold text-foreground tabular-nums";
+  "font-medium text-[color:var(--app-primary-label)] tabular-nums";
+
+export const LIVE_SHARE_PROGRESS_TRACK_CLASSNAME =
+  "mt-3 h-1 w-full overflow-hidden rounded-full bg-black/[0.07] dark:bg-white/[0.12]";
+
+export const LIVE_SHARE_PROGRESS_FILL_CLASSNAME =
+  "h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-linear";
 
 export const LIVE_SHARE_FOOTER_CLASSNAME = "min-w-0 [overflow-wrap:anywhere]";
 
@@ -50,4 +56,4 @@ export const LIVE_SHARE_FOOTER_CLASSNAME = "min-w-0 [overflow-wrap:anywhere]";
  * one obvious next action and one quieter editing affordance.
  */
 export const LIVE_SHARE_FOOTER_ROW_CLASSNAME =
-  "mt-3 flex flex-col gap-2";
+  "mt-3 flex flex-wrap items-center justify-end gap-x-3 gap-y-1";

@@ -45,8 +45,9 @@ function serverMaxShareHours(): number {
 
 /** Every `{ value: "…", label: "…" }` duration option authored in the hub. */
 function durationOptionsIn(source: string): { value: string; label: string }[] {
-  return [...source.matchAll(/\{\s*value:\s*"([^"]+)",\s*label:\s*"([^"]+)"\s*\}/g)]
-    .map((m) => ({ value: m[1], label: m[2] }));
+  return [
+    ...source.matchAll(/\{\s*value:\s*"([^"]+)",\s*label:\s*"([^"]+)"\s*\}/g),
+  ].map((m) => ({ value: m[1], label: m[2] }));
 }
 
 describe("One Location — link durations stay inside the server's ceiling", () => {
@@ -109,11 +110,15 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     // buttons state how long the link lives, and the card that replaces this
     // block once a link exists carries the concise link visibility line on the
     // object it is about.
-    expect(HUB_SOURCE).not.toContain('title="Anyone with this link can see you"');
+    expect(HUB_SOURCE).not.toContain(
+      'title="Anyone with this link can see you"',
+    );
     expect(HUB_SOURCE).not.toContain("The link stops on its own.");
     expect(HUB_SOURCE).not.toContain("<WarningCard");
     // The surviving statement, on the live link's own card.
-    expect(HUB_SOURCE).toContain("Anyone with this link can see your location.");
+    expect(HUB_SOURCE).toContain(
+      "Anyone with this link can see your location.",
+    );
   });
 
   it("drops the Request sent banner in favour of the toast that already fired", () => {
@@ -150,9 +155,9 @@ describe("One Location — link durations stay inside the server's ceiling", () 
 describe("One Location — hub tab naming", () => {
   const locationTabs = TOP_SHELL_TAB_REGISTRY.location;
 
-  it("labels the first tab Now while keeping its `now` query value", () => {
+  it("labels the first tab My location while keeping its `now` query value", () => {
     const first = locationTabs.tabs[0];
-    expect(first.label).toBe("Now");
+    expect(first.label).toBe("My location");
     // The value is the deep-link contract (`?view=now`, Kai's
     // `location.open_now`). Renaming the label must not move it.
     expect(first.value).toBe("now");
@@ -168,7 +173,9 @@ describe("One Location — People actions stay reachable and single-flight", () 
   const ACTION_MENU_SOURCE = repoFile("components/app-ui/action-menu.tsx");
 
   it("keeps Find contacts listed and merely disabled while syncing", () => {
-    const start = HUB_SOURCE.indexOf('voiceControlId: "one-location-find-contacts"');
+    const start = HUB_SOURCE.indexOf(
+      'voiceControlId: "one-location-find-contacts"',
+    );
     expect(start).toBeGreaterThan(-1);
     const addPeopleMenu = HUB_SOURCE.slice(start - 900, start + 200);
 
@@ -195,7 +202,9 @@ describe("One Location — People actions stay reachable and single-flight", () 
     expect(ACTION_MENU_SOURCE).toContain("useIsMobile");
     // And the presentation is frozen while open, so a rotation cannot remount
     // the menu under the hand using it.
-    expect(ACTION_MENU_SOURCE).toContain("if (!open) setSheetPresentation(isMobile);");
+    expect(ACTION_MENU_SOURCE).toContain(
+      "if (!open) setSheetPresentation(isMobile);",
+    );
   });
 });
 
@@ -308,7 +317,7 @@ describe("One Location — the Share confirm step is a measured column", () => {
 
     // The nested branch inherits the container's rounding rather than
     // asserting one of its own.
-    expect(page).toContain('nested');
+    expect(page).toContain("nested");
     expect(page).toContain('"rounded-[inherit]"');
     // ...and the standalone branch keeps the card it is.
     expect(page).toContain(
