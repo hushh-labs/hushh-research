@@ -154,7 +154,10 @@ import {
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
-import { FULL_DURATION_LADDER } from "./duration-presets";
+import {
+  FULL_DURATION_LADDER,
+  REQUEST_DURATION_LADDER,
+} from "./duration-presets";
 import {
   AskForMoreTime,
   type RequestMoreTimeHours,
@@ -5189,7 +5192,10 @@ function AskFlow({
               label="How long"
               presentation="ladder"
               allowUntilStop={false}
-              rungs={FULL_DURATION_LADDER}
+              // Not FULL: the two lanes shared one constant for a moment, and
+              // trimming this screen to four cells must not take rungs off the
+              // owner's own "New time" editor, which has a card to itself.
+              rungs={REQUEST_DURATION_LADDER}
             />
             <ReasonChips
               value={reason}

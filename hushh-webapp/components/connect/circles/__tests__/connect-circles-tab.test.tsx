@@ -256,9 +256,9 @@ describe("ConnectCirclesTab", () => {
     // point is that it behaves differently in an emergency read as another
     // ordinary group.
     //
-    // The mark is one component (`redesign/circles/circle-sms-mark`) rendered
-    // by both surfaces, so this asserts the shipped element rather than a
-    // second copy of the class string.
+    // Upstream landed the same fix while this branch was in review, with a
+    // shared `SmsTextIcon` and the destructive token instead of a literal hex.
+    // The claim is unchanged, so it is asserted against what ships.
     mocks.listCircles.mockResolvedValue([
       circle("trusted", "Trusted", 20, "trusted"),
       circle("sms", "SMS Circle", 4, "sms"),
@@ -267,18 +267,18 @@ describe("ConnectCirclesTab", () => {
     render(<ConnectCirclesTab />);
 
     const smsRow = await screen.findByTestId("connect-circle-sms");
-    const mark = within(smsRow).getByTestId("one-location-circle-sms-mark");
-    expect(mark).toHaveAttribute("data-circle-mark", "sms");
-    expect(mark).toHaveTextContent("SMS");
+    const mark = within(smsRow).getByText("SMS");
+    const disc = mark.parentElement!;
     // Red, round and filled -- the identity, not a tinted utility well.
-    expect(mark.className).toContain("bg-[#FF3B30]");
-    expect(mark.className).toContain("rounded-full");
-    expect(mark.className).toContain("text-white");
-    // `size="sm"`: these rows are `density="compact"`, whose icon well is 28px.
-    // Location's 36px `md` mark here would make this row taller than the ones
-    // around it and push it past the compact separator's 58px inset.
-    expect(mark.className).toContain("h-7");
-    expect(mark.className).toContain("w-7");
+    expect(disc.className).toContain("bg-[color:var(--app-destructive)]");
+    expect(disc.className).toContain("rounded-full");
+    // 28px, because these rows are `density="compact"` and that is the size of
+    // the icon well beside them. Location's list draws the same disc at 36px,
+    // which is the size of ITS rows -- dropping that one in here would make
+    // the SMS row taller than its neighbours and push it past the compact
+    // separator's 58px inset.
+    expect(disc.className).toContain("h-7");
+    expect(disc.className).toContain("w-7");
 
     // The indigo utility well is gone from this row, and only this row.
     expect(smsRow.querySelector('[data-slot="settings-row-icon"]')).toBeNull();
@@ -300,9 +300,7 @@ describe("ConnectCirclesTab", () => {
     render(<ConnectCirclesTab />);
 
     await screen.findByText("Alice's SMS Circle");
-    expect(screen.getAllByTestId("one-location-circle-sms-mark")).toHaveLength(
-      2,
-    );
+    expect(screen.getAllByText("SMS")).toHaveLength(2);
   });
 
   it("renders the server's name for a Circle you do not own", async () => {

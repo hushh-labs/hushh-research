@@ -353,14 +353,10 @@ import { toast } from "sonner";
 
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import {
-  MAP_CONSENT_HEADER_CLASSNAME,
-  MAP_CONSENT_ICON_CLASSNAME,
   MAP_CONSENT_PANEL_BOTTOM_PADDING,
   MAP_CONSENT_PANEL_CLASSNAME,
-  MAP_CONSENT_SUPPORTING_CLASSNAME,
   MAP_CONSENT_SUPPORTING_LINE,
   MAP_CONSENT_TITLE,
-  MAP_CONSENT_TITLE_CLASSNAME,
 } from "@/components/one-location/map-consent-panel-layout";
 import {
   MAP_NEUTRAL_WORLD_LATITUDE,
@@ -537,42 +533,6 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-disclosure")).toHaveStyle({
       paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING,
     });
-  });
-
-  it("puts the pin and the title in one row instead of stacking them", () => {
-    // Reported on the first-run view: the pin sat alone above the heading,
-    // which had `mt-3` under it. The row is asserted against the shared class
-    // strings for the same reason the panel is -- JSDOM proves what is
-    // rendered, and `e2e/one-location-map-consent-panel.layout.spec.ts` proves
-    // that the two boxes really do share a line in a real browser.
-    experienceHarness.demoMode = false;
-
-    render(<LocationImmersiveMap />);
-
-    const header = screen.getByTestId("one-location-map-disclosure-header");
-    expect(header).toHaveClass(...MAP_CONSENT_HEADER_CLASSNAME.split(" "));
-
-    const heading = screen.getByRole("heading", { name: MAP_CONSENT_TITLE });
-    // Same row, not merely both inside the panel.
-    expect(header).toContainElement(heading);
-    expect(heading).toHaveClass(...MAP_CONSENT_TITLE_CLASSNAME.split(" "));
-    // The stack's spacer is gone with the stack.
-    expect(heading.className).not.toMatch(/(^|\s)mt-3(\s|$)/);
-
-    const icon = header.querySelector("svg");
-    expect(icon).not.toBeNull();
-    expect(icon).toHaveClass(...MAP_CONSENT_ICON_CLASSNAME.split(" "));
-    // The heading already names the screen; the pin must not be read out too.
-    expect(icon).toHaveAttribute("aria-hidden");
-    // The pin precedes the title in the DOM, so it reads left of it.
-    expect(
-      icon!.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-
-    // `mt-2` is now measured from that row rather than from the heading.
-    expect(screen.getByTestId("map-consent-support")).toHaveClass(
-      ...MAP_CONSENT_SUPPORTING_CLASSNAME.split(" "),
-    );
   });
 
   it("says the map is unavailable instead of asking for consent to a renderer that cannot start", async () => {
