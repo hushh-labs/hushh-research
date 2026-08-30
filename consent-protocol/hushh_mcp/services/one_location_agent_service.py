@@ -33,6 +33,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_source_platform,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
 
@@ -3998,14 +3999,33 @@ class OneLocationAgentService:
                       AND mine.status = 'active'
                   )
                 )
-            ), filtered AS (
-              SELECT * FROM eligible
+            ), matched AS (
+              -- One rule for every people search; see people_search_sql.py.
+              -- This list is the People tab's Connections, and it was the
+              -- third screen reported as "one char search is not working":
+              -- `n` kept both "Neelesh Meena" and "Ankit Kumar Singh", then
+              -- sorted Ankit first.
+              SELECT *,
+                CASE
+                  WHEN :query = '' THEN 0
+                  WHEN normalized_name ~ :query_prefix_re THEN 0
+                  WHEN normalized_name ~ :query_word_re THEN 1
+                  ELSE 2
+                END AS match_rank
+              FROM eligible
               WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+            ), filtered AS (
+              SELECT * FROM matched
+              WHERE NOT :query_is_single_char
+                 OR match_rank < 2
+                 OR NOT EXISTS (
+                      SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                    )
             ), total AS (
               SELECT COUNT(*)::BIGINT AS total_count FROM filtered
             ), page_rows AS (
               SELECT * FROM filtered
-              ORDER BY normalized_name, user_id
+              ORDER BY match_rank, normalized_name, user_id
               OFFSET :offset LIMIT :limit
             )
             SELECT page_rows.user_id, page_rows.display_name, page_rows.email,
@@ -4034,11 +4054,13 @@ class OneLocationAgentService:
               WHERE key.user_id = page_rows.user_id AND key.status = 'active'
               ORDER BY key.created_at DESC LIMIT 1
             ) recipient_key ON TRUE
-            ORDER BY page_rows.normalized_name, page_rows.user_id
+            ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                     page_rows.user_id
             """,
             {
                 "owner_user_id": owner_user_id,
                 "query": normalized_query,
+                **people_query_match_params(normalized_query),
                 "offset": offset,
                 "limit": normalized_limit,
             },
