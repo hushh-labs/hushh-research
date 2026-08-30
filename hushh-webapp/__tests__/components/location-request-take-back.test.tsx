@@ -10,8 +10,8 @@
 // owner approves, or the owner denies. A wrong name or a changed mind was
 // permanent until the other side happened to answer.
 //
-// Two surfaces show a sent request, so both are checked here: the person row
-// on Request location, and the "Requests sent" list on the hub. The hub's
+// Two surfaces show a sent request, so both are checked here: the waiting
+// sheet on Ask for location, and the "Requests sent" list on the hub. The hub's
 // flows are internals of a ~3000-line module, so their wiring is asserted as a
 // source contract -- the pattern this repo already uses for hub placement --
 // while the row's own behaviour is rendered for real.
@@ -61,9 +61,7 @@ describe("the row for someone you already asked", () => {
 
   it("still says access when the row really is a live share", () => {
     // The default has to survive: most rows carrying this control are shares.
-    render(
-      <TrustedPersonCard name="Neelesh Meena" onRemove={vi.fn()} />,
-    );
+    render(<TrustedPersonCard name="Neelesh Meena" onRemove={vi.fn()} />);
     expect(screen.getByLabelText("Remove Neelesh Meena's access")).toBeTruthy();
   });
 
@@ -84,12 +82,13 @@ describe("the row for someone you already asked", () => {
   });
 });
 
-describe("Request location wires the take-back to the pending ask", () => {
+describe("Ask for location wires the take-back to the waiting sheet", () => {
   const ask = functionBody("AskFlow");
 
-  it("offers it on a row whose request is still unanswered", () => {
-    expect(ask).toContain("vm.onWithdrawRequest(pendingRequestId)");
-    expect(ask).toContain("const pendingRequestId = status.pendingRequestId");
+  it("offers pending request management through the waiting sheet", () => {
+    expect(ask).toContain("Waiting for responses");
+    expect(ask).toContain("Cancel request");
+    expect(ask).toContain("vm.onWithdrawRequest(request.id)");
   });
 
   it("keeps the live-share revoke on rows that have a grant", () => {
@@ -101,7 +100,7 @@ describe("Request location wires the take-back to the pending ask", () => {
   it("spins on the request being taken back, not on a grant id", () => {
     // A pending request has no grant, so keying its busy state off
     // `revokingGrantId` would leave the button live through the whole call.
-    expect(ask).toContain("vm.withdrawingRequestId === pendingRequestId");
+    expect(ask).toContain("vm.withdrawingRequestId === request.id");
   });
 });
 

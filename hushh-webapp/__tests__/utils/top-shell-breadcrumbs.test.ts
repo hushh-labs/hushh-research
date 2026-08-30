@@ -7,7 +7,9 @@ describe("top shell breadcrumbs", () => {
     expect(
       resolveTopShellBreadcrumb(
         "/one/kai",
-        new URLSearchParams("tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA"),
+        new URLSearchParams(
+          "tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA",
+        ),
       ),
     ).toEqual({
       backHref: "/one/kai?tab=analysis",
@@ -267,10 +269,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "RIA", href: "/one/setup" },
-        { label: "Claim profile" },
-      ],
+      items: [{ label: "RIA", href: "/one/setup" }, { label: "Claim profile" }],
     });
   });
 
@@ -580,7 +579,7 @@ describe("top shell breadcrumbs", () => {
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.
       ["share", "Share location"],
-      ["ask", "Request location"],
+      ["ask", "Ask for location"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
       ["settings", "Settings"],
@@ -883,13 +882,19 @@ describe("top shell breadcrumbs", () => {
     // An unrecognized view value must not deepen into the Debate crumb; it stays
     // a plain three-crumb Picks with Back to RIA.
     expect(
-      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=garbage")),
+      resolveTopShellBreadcrumb(
+        "/ria/picks",
+        new URLSearchParams("view=garbage"),
+      ),
     ).toEqual(barePicks);
 
     // The Picks debate match is case-sensitive (view === "debate"), so a
     // capitalized value is treated as unknown rather than the debate sub-view.
     expect(
-      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
+      resolveTopShellBreadcrumb(
+        "/ria/picks",
+        new URLSearchParams("view=Debate"),
+      ),
     ).toEqual(barePicks);
   });
 });

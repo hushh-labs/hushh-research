@@ -208,13 +208,13 @@ describe("One Location — People actions stay reachable and single-flight", () 
   });
 });
 
-describe("One Location — the Request location trail agrees with the screen", () => {
+describe("One Location — the Ask for location trail agrees with the screen", () => {
   it("uses one spelling for the crumb, the flow title and the hub row", () => {
     const params = new URLSearchParams({ action: "ask" });
     const crumbs = resolveTopShellBreadcrumb("/one/location", params);
     const last = crumbs?.items.at(-1)?.label;
 
-    expect(last).toBe("Request location");
+    expect(last).toBe("Ask for location");
     // The header contract: the last crumb IS the screen's title. Matched on
     // the title prop rather than a whole single-line element, so the guard
     // survives the header gaining an eyebrow or a description and wrapping

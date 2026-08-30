@@ -57,6 +57,8 @@ export const REQUEST_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
   { value: "1", label: "1 hour" },
   { value: "2", label: "2 hours" },
+  { value: "4", label: "4 hours" },
+  { value: "8", label: "8 hours" },
 ];
 
 /**
@@ -209,9 +211,7 @@ export function DurationPresetPicker({
 
   return (
     <div role="group" aria-labelledby={labelledBy} className="space-y-2">
-      <div
-        className={cn(DURATION_GRID_CLASS, centered && "sm:justify-center")}
-      >
+      <div className={cn(DURATION_GRID_CLASS, centered && "sm:justify-center")}>
         {rungs.map((rung) => {
           const active = !wheelOpen && value === rung.value;
           return (
