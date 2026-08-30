@@ -7,16 +7,12 @@ import {
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 
 describe("top shell contextual tabs", () => {
-  it("uses route state as the selection authority for Location", () => {
-    expect(resolveTopShellTabSet("/one/location")).toMatchObject({
-      label: "Location",
-      activeValue: "now",
-    });
-    expect(resolveTopShellTabSet("/one/location?view=inbox")).toMatchObject({
-      // Legacy Inbox links land on the canonical Now tab; focused action
-      // parameters are resolved by the Location hub after route settlement.
-      activeValue: "now",
-    });
+  it("keeps Location tabs inside the Location hub instead of the global top shell", () => {
+    // The Location page renders Now / People / Links under the module header.
+    // Keeping them in the fixed top shell puts the tabs before "Location" and
+    // reverses the hierarchy, especially visible on the Links tab.
+    expect(resolveTopShellTabSet("/one/location")).toBeNull();
+    expect(resolveTopShellTabSet("/one/location?view=inbox")).toBeNull();
     expect(resolveTopShellTabSet("/one/location?action=share")).toBeNull();
     expect(resolveTopShellTabSet("/one/location/map")).toBeNull();
   });
@@ -153,16 +149,12 @@ describe("top shell contextual tabs", () => {
     });
   });
 
-  it("keeps static-export Location tabs in the shared top shell", () => {
-    expect(resolveTopShellTabSet("/one/location/?view=links")).toMatchObject({
-      id: "location",
-      activeValue: "links",
-    });
+  it("keeps static-export Location hub routes out of the shared top shell", () => {
+    expect(resolveTopShellTabSet("/one/location/?view=links")).toBeNull();
     expect(
       resolveTopShellRouteProfile("/one/location/?view=inbox").model,
     ).toMatchObject({
-      mode: "bar-with-tabs",
-      tabs: { id: "location", activeValue: "now" },
+      mode: "bar",
     });
   });
 
@@ -170,7 +162,7 @@ describe("top shell contextual tabs", () => {
     ["/login", "hidden"],
     ["/one/profile", "bar"],
     ["/one/location?action=share", "bar"],
-    ["/one/location?view=people", "bar-with-tabs"],
+    ["/one/location?view=people", "bar"],
     ["/one/kai?tab=analysis", "bar-with-tabs"],
     ["/one/consent?tab=history", "bar-with-tabs"],
     ["/ria/picks", "bar-with-tabs"],

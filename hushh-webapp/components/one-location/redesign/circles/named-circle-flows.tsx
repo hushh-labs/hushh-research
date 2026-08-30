@@ -175,9 +175,97 @@ function circleListPeopleLabel(memberCount: number | null | undefined): string {
   return `${others} ${others === 1 ? "person" : "people"}`;
 }
 
+type CircleListGroupKey = "created" | "joined" | "built-in";
+
+type CircleListGroup = {
+  key: CircleListGroupKey;
+  title: string;
+  circles: OneLocationCircleSummary[];
+};
+
+function circleListGroupKey(
+  circle: OneLocationCircleSummary,
+): CircleListGroupKey {
+  if (circle.systemKind || circle.isSystem) return "built-in";
+  return circle.role === "owner" ? "created" : "joined";
+}
+
+function groupCirclesForPeopleTab(
+  circles: readonly OneLocationCircleSummary[],
+): CircleListGroup[] {
+  const groups: CircleListGroup[] = [
+    { key: "created", title: "Created by you", circles: [] },
+    { key: "joined", title: "Joined circles", circles: [] },
+    { key: "built-in", title: "Built-in", circles: [] },
+  ];
+  const groupByKey = new Map(groups.map((group) => [group.key, group]));
+
+  for (const circle of circles) {
+    groupByKey.get(circleListGroupKey(circle))?.circles.push(circle);
+  }
+
+  return groups.filter((group) => group.circles.length > 0);
+}
+
 function circleDetailMemberCountLabel(count: number): string {
   if (count <= 1) return "Only you";
   return `${count} people`;
+}
+
+function CircleSummaryRow({
+  circle,
+  onOpen,
+}: {
+  circle: OneLocationCircleSummary;
+  onOpen: (circleId: string) => void;
+}) {
+  const isSmsCircle = circle.systemKind === "sms";
+  const initials = circleInitials(circle.name);
+  const showInitials =
+    !isSmsCircle && circle.systemKind !== "trusted" && initials;
+
+  return (
+    <SettingsRow
+      leading={
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center",
+            isSmsCircle
+              ? "rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
+              : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+          )}
+          data-testid={
+            isSmsCircle
+              ? "one-location-circle-sms-mark"
+              : "one-location-circle-neutral-mark"
+          }
+        >
+          {isSmsCircle ? (
+            <SmsTextIcon className="text-[11px] font-bold tracking-[-0.2px]" />
+          ) : showInitials ? (
+            initials
+          ) : (
+            <UsersRound className="h-[17px] w-[17px]" />
+          )}
+        </span>
+      }
+      title={circle.name}
+      description={
+        isSmsCircle
+          ? `Save My Soul · ${circleListPeopleLabel(circle.memberCount)}`
+          : circleListPeopleLabel(circle.memberCount)
+      }
+      chevron
+      onClick={() => onOpen(circle.id)}
+      className={cn(
+        "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
+        "[&>button]:min-h-[60px] sm:[&>button]:min-h-16",
+        "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
+        "[&_[data-slot=settings-row-description]]:!mt-0.5 [&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
+      )}
+      testId={`one-location-circle-${circle.id}`}
+    />
+  );
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -226,16 +314,10 @@ export function CirclesSection({
     ? (incomingInvites.find((invite) => invite.id === focusedInviteId) ?? null)
     : null;
 
-  const orderedCircles = useMemo(() => {
-    return [...circles].sort((left, right) => {
-      const isSystemLeft = Boolean(left.systemKind || left.isSystem);
-      const isSystemRight = Boolean(right.systemKind || right.isSystem);
-      if (isSystemLeft !== isSystemRight) {
-        return isSystemLeft ? 1 : -1;
-      }
-      return 0;
-    });
-  }, [circles]);
+  const circleGroups = useMemo(
+    () => groupCirclesForPeopleTab(circles),
+    [circles],
+  );
 
   useEffect(() => {
     if (
@@ -468,62 +550,36 @@ export function CirclesSection({
         </div>
       ) : null}
 
-      {orderedCircles.length ? (
-        <SettingsGroup
-          separatorInset
-          shellClassName={CIRCLES_GROUP_SURFACE}
-          testId="one-location-circle-list"
-        >
-          {orderedCircles.map((circle) => {
-            const isSmsCircle = circle.systemKind === "sms";
-            const initials = circleInitials(circle.name);
-            const showInitials =
-              !isSmsCircle && circle.systemKind !== "trusted" && initials;
-            return (
-              <SettingsRow
-                key={circle.id}
-                leading={
-                  <span
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center",
-                      isSmsCircle
-                        ? "rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-                        : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
-                    )}
-                    data-testid={
-                      isSmsCircle
-                        ? "one-location-circle-sms-mark"
-                        : "one-location-circle-neutral-mark"
-                    }
-                  >
-                    {isSmsCircle ? (
-                      <SmsTextIcon className="text-[11px] font-bold tracking-[-0.2px]" />
-                    ) : showInitials ? (
-                      initials
-                    ) : (
-                      <UsersRound className="h-[17px] w-[17px]" />
-                    )}
-                  </span>
-                }
-                title={circle.name}
-                description={
-                  isSmsCircle
-                    ? `Save My Soul · ${circleListPeopleLabel(circle.memberCount)}`
-                    : circleListPeopleLabel(circle.memberCount)
-                }
-                chevron
-                onClick={() => onOpen(circle.id)}
-                className={cn(
-                  "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
-                  "[&>button]:min-h-[60px] sm:[&>button]:min-h-16",
-                  "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
-                  "[&_[data-slot=settings-row-description]]:!mt-0.5 [&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
-                )}
-                testId={`one-location-circle-${circle.id}`}
-              />
-            );
-          })}
-        </SettingsGroup>
+      {circleGroups.length ? (
+        <div className="space-y-4" data-testid="one-location-circle-list">
+          {circleGroups.map((group) => (
+            <section
+              key={group.key}
+              className="space-y-2"
+              data-testid={`one-location-circle-group-${group.key}`}
+            >
+              <SectionLabel
+                as="h3"
+                className="px-[6px] text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]"
+              >
+                {group.title}
+              </SectionLabel>
+              <SettingsGroup
+                separatorInset
+                shellClassName={CIRCLES_GROUP_SURFACE}
+                testId={`one-location-circle-group-list-${group.key}`}
+              >
+                {group.circles.map((circle) => (
+                  <CircleSummaryRow
+                    key={circle.id}
+                    circle={circle}
+                    onOpen={onOpen}
+                  />
+                ))}
+              </SettingsGroup>
+            </section>
+          ))}
+        </div>
       ) : (
         <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
           <EmptyState

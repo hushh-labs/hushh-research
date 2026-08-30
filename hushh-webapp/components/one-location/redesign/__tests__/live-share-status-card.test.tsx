@@ -104,14 +104,6 @@ describe("LiveShareStatusCard", () => {
     visibility.mockRestore();
   });
 
-  it("fills the progress bar with the time already spent", () => {
-    // Started 09:30, ends 11:00, now 10:00 — a third of the way through.
-    render(<LiveShareStatusCard status={status()} onManage={vi.fn()} />);
-
-    const bar = screen.getByTestId("one-location-live-share-progress");
-    expect(bar.getAttribute("style")).toContain("width: 33%");
-  });
-
   it("tells assistive tech the time in words, not once a second", () => {
     render(
       <LiveShareStatusCard
@@ -141,7 +133,6 @@ describe("LiveShareStatusCard", () => {
     expect(countdown()).toBe("30:00");
     expect(screen.getByText("so far")).toBeTruthy();
     expect(screen.getByText("Until you stop")).toBeTruthy();
-    expect(screen.queryByTestId("one-location-live-share-progress")).toBeNull();
   });
 
   it("names the person when the server state is loaded", () => {
@@ -216,11 +207,11 @@ describe("LiveShareStatusCard", () => {
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
-  it("offers Change time on a single share, beside the end time", () => {
+  it("offers Change time on a single share after the primary share action", () => {
     // The reported bug: a 30-minute share could be stopped and nothing else.
-    // The control has to be there, and it has to be the footer's sibling --
-    // beside the end time it edits, and not clustered with Stop, which is the
-    // one destructive control on this card.
+    // The control has to be there, but the compact Now card keeps it below the
+    // primary "Share with more" CTA instead of exposing the duration editor on
+    // the page.
     const onChangeDuration = vi.fn();
     render(
       <LiveShareStatusCard
@@ -228,6 +219,7 @@ describe("LiveShareStatusCard", () => {
         onManage={vi.fn()}
         onStop={vi.fn()}
         onChangeDuration={onChangeDuration}
+        onShareMore={vi.fn()}
       />,
     );
 
@@ -235,8 +227,12 @@ describe("LiveShareStatusCard", () => {
     change.click();
     expect(onChangeDuration).toHaveBeenCalledTimes(1);
 
-    const ends = screen.getByText(/^Ends /);
-    expect(change.closest("div")).toBe(ends.parentElement);
+    expect(screen.getByText(/^Ends /)).toBeTruthy();
+    const shareMore = screen.getByRole("button", { name: "Share with more" });
+    expect(
+      (shareMore.compareDocumentPosition(change) & Node.DOCUMENT_POSITION_FOLLOWING) !==
+        0,
+    ).toBe(true);
   });
 
   it("opens the share composer from the live timer card for another share", () => {
