@@ -27,8 +27,9 @@ describe("One Location settings placement", () => {
 
   it("offers Ask for location inside the compact Now actions", () => {
     // Request location is an action, not status or utility. The My Location
-    // tab shows Ask, Confirm arrival, SMS, and only count-backed incoming rows
-    // without dashboard section labels or the old active-shares row.
+    // tab shows Ask and Confirm arrival as quick actions, then SMS and only
+    // count-backed incoming rows in the utility group. No dashboard labels or
+    // old active-shares row.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
@@ -37,15 +38,17 @@ describe("One Location settings placement", () => {
     expect(nowSource).toContain('testId: "one-location-request-row"');
     expect(nowSource).toContain('title: "Ask for location"');
     expect(nowSource).toContain('title: "Confirm arrival"');
-    expect(nowSource).toContain('title: "Save My Soul"');
+    expect(nowSource).toContain("<LocationSmsUtilityRow");
 
     const actionsIndex = nowSource.indexOf("LocationActionGrid");
     const requestIndex = nowSource.indexOf('title: "Ask for location"');
+    const smsIndex = nowSource.indexOf("<LocationSmsUtilityRow");
     const activityIndex = nowSource.indexOf("one-location-now-activity");
     const moreIndex = nowSource.indexOf("one-location-now-more");
     expect(actionsIndex).toBeGreaterThan(-1);
     expect(requestIndex).toBeGreaterThan(actionsIndex);
-    expect(activityIndex).toBeGreaterThan(requestIndex);
+    expect(activityIndex).toBeGreaterThan(actionsIndex);
+    expect(smsIndex).toBeGreaterThan(activityIndex);
     expect(moreIndex).toBe(-1);
     expect(nowSource).not.toContain('title: "Map"');
     expect(nowSource).not.toContain('title: "Settings"');

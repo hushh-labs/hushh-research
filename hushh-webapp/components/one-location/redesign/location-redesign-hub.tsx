@@ -74,6 +74,8 @@ import {
 import { ActionMenu } from "@/components/app-ui/action-menu";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import {
   Dialog,
   DialogContent,
@@ -1122,6 +1124,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const activeFlowRef = useRef<FlowKind>("none");
   const resetShareComposer = vm.resetShareComposer;
   const startShareComposer = vm.startShareComposer;
+  const locationTabSet = useMemo(
+    () => ({
+      ...LOCATION_TAB_DEFINITION,
+      activeValue: tab,
+    }),
+    [tab],
+  );
 
   const resetShareLocalState = useCallback(() => {
     setShareStep("person");
@@ -1564,7 +1573,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* ----------------------------------------------------------------- */
   return (
     <div className="space-y-4 sm:space-y-5">
-      <h1 className="sr-only">Location</h1>
+      <PageHeader
+        title="Location"
+        icon={MapPin}
+        accent="default"
+        actionsInlineMobile
+        actions={<LocationHeaderActions vm={vm} />}
+      />
+      <TopShellTabs tabSet={locationTabSet} />
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews
           tabSetId={LOCATION_TAB_DEFINITION.id}
@@ -1618,13 +1634,10 @@ const PEOPLE_HEADER_ACTION =
   "relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]";
 
 const LOCATION_GROUP_SURFACE =
-  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:shadow-none";
+  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-none ring-1 ring-inset ring-[color:var(--app-separator)]";
 
 const LOCATION_GROUP_SHELL_CLASSNAME =
-  "[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:!shadow-none";
-
-const LOCATION_INTERACTIVE_SURFACE =
-  "bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:shadow-none";
+  "[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-none ring-1 ring-inset ring-[color:var(--app-separator)]";
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
@@ -1681,12 +1694,6 @@ function NowHub({
   return (
     <div className="space-y-3" data-testid="one-location-now-hub">
       <LocationAccessRow vm={vm} />
-      <LocationPermissionRecoveryCard
-        blocked={vm.locationBlocked}
-        busy={vm.locationAcquiring}
-        onRetry={vm.onShowMyLocation}
-        onOpenSettings={vm.onOpenLocationSettings}
-      />
       {/* Sharing is the one thing on this screen that keeps running after you
           leave it, so it reports itself first and keeps its own clock. */}
       {vm.liveShare ? (
@@ -1728,7 +1735,7 @@ function NowHub({
           the search bar can name the individual control a person is asking for
           rather than only the screen it lives on. */}
       {!vm.liveShare ? (
-        <LocationPrimaryShareCard onClick={onStartShare} />
+        <LocationCurrentStateSurface vm={vm} onStartShare={onStartShare} />
       ) : null}
       <LocationActionGrid
         items={[
@@ -1736,7 +1743,6 @@ function NowHub({
             title: "Ask for location",
             ariaLabel: "Request location",
             icon: <LocationMenuGlyph name="ask" size={34} />,
-            tone: "blue",
             onClick: onRequestLocation,
             controlId: "one-location-action-ask",
             actionId: "location.open_ask",
@@ -1746,42 +1752,38 @@ function NowHub({
             title: "Confirm arrival",
             ariaLabel: "Confirm arrival",
             icon: <LocationMenuGlyph name="checkIn" size={34} />,
-            tone: "blue",
             onClick: onCheckIn,
             controlId: "one-location-action-check-in",
             actionId: "location.open_check_in",
           },
-          {
-            title: "Save My Soul",
-            subtitle: "Emergency alert",
-            ariaLabel: "Save My Soul emergency alert",
-            icon: <SmsTextIcon />,
-            tone: "red",
-            onClick: onSos,
-            controlId: "one-location-action-sos",
-            actionId: "location.open_sos",
-          },
         ]}
       />
 
-      {activityRows.length ? (
-        <div className="pt-1">
-          <LocationMenuListGroup testId="one-location-now-activity">
-            {activityRows.map((row) => (
-              <LocationMenuListRow
-                key={row.voiceControlId}
-                leading={row.leading}
-                title={row.title}
-                trailingValue={row.value}
-                ariaLabel={row.ariaLabel}
-                onClick={row.onClick}
-                voiceControlId={row.voiceControlId}
-                voiceActionId={row.voiceActionId}
-              />
-            ))}
-          </LocationMenuListGroup>
-        </div>
-      ) : null}
+      <div className="pt-1">
+        <LocationMenuListGroup
+          testId={
+            activityRows.length
+              ? "one-location-now-activity"
+              : "one-location-now-utility"
+          }
+        >
+          <LocationSmsUtilityRow onClick={onSos} />
+          {activityRows.length
+            ? activityRows.map((row) => (
+                <LocationMenuListRow
+                  key={row.voiceControlId}
+                  leading={row.leading}
+                  title={row.title}
+                  trailingValue={row.value}
+                  ariaLabel={row.ariaLabel}
+                  onClick={row.onClick}
+                  voiceControlId={row.voiceControlId}
+                  voiceActionId={row.voiceActionId}
+                />
+              ))
+            : null}
+        </LocationMenuListGroup>
+      </div>
     </div>
   );
 }
@@ -1943,8 +1945,13 @@ function LocationAccessRow({ vm }: { vm: LocationHubViewModel }) {
         <RowLabel as="h2" className="text-[color:var(--app-primary-label)]">
           Location access
         </RowLabel>
+        <RowDescription
+          as="p"
+          className="mt-0.5 text-[color:var(--app-secondary-label)]"
+        >
+          {locationAccessRowStatusText(vm)}
+        </RowDescription>
       </div>
-      <LocationHeaderActions vm={vm} />
     </section>
   );
 }
@@ -2018,7 +2025,20 @@ function LocationMenuListRow({
   );
 }
 
-function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
+function locationAccessRowStatusText(vm: LocationHubViewModel): string {
+  const status = locationHeaderStatusText(vm).toLocaleLowerCase();
+  return `Access ${status}`;
+}
+
+function LocationCurrentStateSurface({
+  vm,
+  onStartShare,
+}: {
+  vm: LocationHubViewModel;
+  onStartShare: () => void;
+}) {
+  const state = currentLocationStateCopy(vm, onStartShare);
+
   return (
     <section aria-label="Share location" data-testid="one-location-now-primary">
       <div
@@ -2029,28 +2049,152 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           <LocationSharePulseIcon />
           <span className="min-w-0 space-y-0.5">
             <CardTitle as="span" className="block">
-              You&apos;re not sharing
+              {state.title}
             </CardTitle>
             <PageSubtitle as="span" className="block">
-              Choose a Circle or contact.
+              {state.description}
             </PageSubtitle>
           </span>
         </div>
-        <div className="border-t border-[color:var(--app-separator)] px-4 py-3 sm:px-5">
-          <button
-            type="button"
-            data-voice-control-id="one-location-action-share"
-            data-voice-action-id="location.open_share"
-            data-voice-label="Share location"
-            aria-label="Share location"
-            onClick={onClick}
-            className="inline-flex min-h-[48px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-          >
-            <ButtonLabel as="span">Share location</ButtonLabel>
-          </button>
-        </div>
+        {state.actionLabel ? (
+          <div className="border-t border-[color:var(--app-separator)] px-4 py-3 sm:px-5">
+            <button
+              type="button"
+              data-voice-control-id={state.controlId}
+              data-voice-action-id={state.actionId}
+              data-voice-label={state.actionLabel}
+              aria-label={state.actionLabel}
+              onClick={state.onClick}
+              disabled={state.busy}
+              className="inline-flex min-h-[48px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:cursor-wait disabled:opacity-65"
+            >
+              {state.busy ? (
+                <Loader2
+                  aria-hidden="true"
+                  className="mr-2 h-4 w-4 animate-spin"
+                />
+              ) : null}
+              <ButtonLabel as="span">{state.actionLabel}</ButtonLabel>
+            </button>
+          </div>
+        ) : null}
       </div>
     </section>
+  );
+}
+
+function currentLocationStateCopy(
+  vm: LocationHubViewModel,
+  onStartShare: () => void,
+): {
+  title: string;
+  description: string;
+  actionLabel: string | null;
+  onClick: () => void;
+  busy: boolean;
+  controlId: string;
+  actionId: string;
+} {
+  if (vm.locationBlocked) {
+    return {
+      title: "Location is blocked in Settings",
+      description: "Open Settings to share or confirm arrival.",
+      actionLabel: "Open Settings",
+      onClick: vm.onOpenLocationSettings,
+      busy: false,
+      controlId: "one-location-action-open-settings",
+      actionId: "location.open_settings",
+    };
+  }
+
+  if (vm.locationAcquiring) {
+    return {
+      title: "Finding your location…",
+      description: "This usually takes a moment.",
+      actionLabel: null,
+      onClick: vm.onShowMyLocation,
+      busy: true,
+      controlId: "one-location-action-find-location",
+      actionId: "location.refresh",
+    };
+  }
+
+  if (!vm.locationEnabled) {
+    return {
+      title: "Turn on location to start sharing",
+      description: "Location is required for sharing and arrival confirmation.",
+      actionLabel: "Turn on location",
+      onClick: vm.onShowMyLocation,
+      busy: false,
+      controlId: "one-location-action-enable-location",
+      actionId: "location.resume_updates",
+    };
+  }
+
+  if (vm.locationPaused) {
+    return {
+      title: "Location updates are paused",
+      description: "Resume to share or confirm arrival.",
+      actionLabel: "Resume updates",
+      onClick: vm.onResumeMyLocation,
+      busy: false,
+      controlId: "one-location-action-resume-location",
+      actionId: "location.resume_updates",
+    };
+  }
+
+  return {
+    title: "You’re not sharing",
+    description: "Choose a Circle or person.",
+    actionLabel: "Share location",
+    onClick: onStartShare,
+    busy: false,
+    controlId: "one-location-action-share",
+    actionId: "location.open_share",
+  };
+}
+
+function LocationSmsUtilityRow({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      data-one-location-sms-row=""
+      data-one-location-emergency-cell=""
+      data-voice-control-id="one-location-action-sos"
+      data-voice-action-id="location.open_sos"
+      data-voice-label="Save My Soul emergency alert"
+      aria-label="Save My Soul emergency alert"
+      onClick={onClick}
+      className="group flex min-h-16 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-[color:var(--app-destructive-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive-border)]"
+    >
+      <span className="flex min-w-0 items-center gap-3">
+        <span
+          aria-hidden
+          data-one-location-action-icon=""
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)] transition-transform group-active:scale-95"
+        >
+          <SmsTextIcon />
+        </span>
+        <span className="min-w-0">
+          <RowLabel
+            as="span"
+            className="block min-w-0 break-words font-semibold"
+          >
+            Save My Soul
+          </RowLabel>
+          <RowDescription
+            as="span"
+            className="mt-0.5 block min-w-0 break-words !text-[color:var(--app-destructive)]"
+          >
+            Emergency alert
+          </RowDescription>
+        </span>
+      </span>
+      <ChevronRight
+        aria-hidden="true"
+        className="h-5 w-5 shrink-0 text-[color:var(--app-destructive)]/45"
+      />
+    </button>
   );
 }
 
@@ -2082,10 +2226,8 @@ function LocationSharePulseIcon() {
 
 type LocationActionGridItem = {
   title: string;
-  subtitle?: string;
   ariaLabel: string;
   icon: ReactNode;
-  tone: "blue" | "red";
   onClick: () => void;
   controlId: string;
   actionId: string;
@@ -2093,9 +2235,6 @@ type LocationActionGridItem = {
 };
 
 function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
-  const regularItems = items.filter((item) => item.tone !== "red");
-  const emergencyItem = items.find((item) => item.tone === "red");
-
   return (
     <section
       aria-label="Actions"
@@ -2104,9 +2243,12 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
     >
       <div
         data-one-location-action-grid=""
-        className="grid w-full grid-cols-1 gap-3 min-[360px]:grid-cols-2"
+        className={cn(
+          LOCATION_GROUP_SURFACE,
+          "grid w-full grid-cols-1 divide-y divide-[color:var(--app-separator)] min-[360px]:grid-cols-2 min-[360px]:divide-x min-[360px]:divide-y-0",
+        )}
       >
-        {regularItems.map((item) => (
+        {items.map((item) => (
           <button
             key={item.controlId}
             type="button"
@@ -2117,10 +2259,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.ariaLabel}
             aria-label={item.ariaLabel}
             onClick={item.onClick}
-            className={cn(
-              LOCATION_INTERACTIVE_SURFACE,
-              "group flex min-h-[58px] min-w-0 items-center justify-center gap-2 rounded-[16px] px-3 py-3 text-center transition-colors hover:bg-[color:var(--app-secondary-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]",
-            )}
+            className="group flex min-h-[68px] min-w-0 items-center justify-center gap-2 px-3 py-3 text-center transition-colors hover:bg-[color:var(--app-secondary-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
           >
             <span
               aria-hidden
@@ -2137,52 +2276,6 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           </button>
         ))}
       </div>
-      {emergencyItem ? (
-        <button
-          key={emergencyItem.controlId}
-          type="button"
-          data-testid={emergencyItem.testId}
-          data-one-location-sms-row=""
-          data-one-location-emergency-cell=""
-          data-voice-control-id={emergencyItem.controlId}
-          data-voice-action-id={emergencyItem.actionId}
-          data-voice-label={emergencyItem.ariaLabel}
-          aria-label={emergencyItem.ariaLabel}
-          onClick={emergencyItem.onClick}
-          className={cn(
-            LOCATION_GROUP_SURFACE,
-            "group mt-3 flex min-h-16 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[color:var(--app-destructive-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive-border)]",
-          )}
-        >
-          <span className="flex min-w-0 items-center gap-3">
-            <span
-              aria-hidden
-              data-one-location-action-icon=""
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)] transition-transform group-active:scale-95"
-            >
-              {emergencyItem.icon}
-            </span>
-            <span className="min-w-0">
-              <RowLabel
-                as="span"
-                className="block min-w-0 break-words font-semibold"
-              >
-                {emergencyItem.title}
-              </RowLabel>
-              <RowDescription
-                as="span"
-                className="mt-0.5 block min-w-0 break-words !text-[color:var(--app-destructive)]"
-              >
-                {emergencyItem.subtitle}
-              </RowDescription>
-            </span>
-          </span>
-          <ChevronRight
-            aria-hidden="true"
-            className="h-5 w-5 shrink-0 text-[color:var(--app-destructive)]/45"
-          />
-        </button>
-      ) : null}
     </section>
   );
 }

@@ -39,18 +39,25 @@ describe("blocked-location recovery placement", () => {
     expect(functionBody("SosFlow")).toContain("LocationPermissionRecoveryCard");
   });
 
-  it("is rendered by the Location hub", () => {
-    expect(functionBody("LocationRedesignHub")).toContain(
-      "LocationPermissionRecoveryCard",
-    );
+  it("is folded into the Location hub primary state", () => {
+    const nowBody = functionBody("NowHub");
+    const stateBody = functionBody("currentLocationStateCopy");
+
+    expect(nowBody).toContain("LocationCurrentStateSurface");
+    expect(stateBody).toContain("Location is blocked in Settings");
+    expect(stateBody).toContain("Open Settings to share or confirm arrival.");
+    expect(stateBody).toContain("vm.onOpenLocationSettings");
   });
 
   it("is gated on an observed block, never shown unconditionally", () => {
     // Telling someone their browser is blocking location when it is not sends
     // them into settings for no reason and teaches them to ignore the message.
-    for (const fn of ["SosFlow", "LocationRedesignHub"]) {
+    for (const fn of ["SosFlow", "currentLocationStateCopy"]) {
       const body = functionBody(fn);
-      const index = body.indexOf("LocationPermissionRecoveryCard");
+      const index =
+        fn === "SosFlow"
+          ? body.indexOf("LocationPermissionRecoveryCard")
+          : body.indexOf("Location is blocked in Settings");
       const around = body.slice(Math.max(0, index - 400), index + 400);
       expect(around, `${fn} must gate the card on locationBlocked`).toMatch(
         /locationBlocked/,
