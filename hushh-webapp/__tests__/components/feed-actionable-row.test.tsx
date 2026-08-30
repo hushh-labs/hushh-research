@@ -223,7 +223,7 @@ describe("FeedActionableRow", () => {
       vi.useRealTimers();
     });
 
-    it("shows the formatted day/time label when displayTimestamp is set", () => {
+    it("shows the formatted local time label when displayTimestamp is set", () => {
       render(
         <FeedActionableRow
           item={actionable({
@@ -233,7 +233,7 @@ describe("FeedActionableRow", () => {
         />,
       );
 
-      expect(screen.getByText(/^Today - 03:45\s?PM$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^03:45\s?PM$/i)).toBeInTheDocument();
     });
 
     it("shows no time label when displayTimestamp is null", () => {
@@ -265,7 +265,7 @@ describe("FeedActionableRow", () => {
         />,
       );
 
-      expect(screen.getByText(/^Today - 03:45\s?PM$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^03:45\s?PM$/i)).toBeInTheDocument();
       expect(screen.getByText("Row description")).toBeInTheDocument();
     });
   });

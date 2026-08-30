@@ -103,7 +103,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "security") return "Security";
   if (panel === "referrals") return "Invite friends";
   if (panel === "support") return "Support & feedback";
-  if (panel === "gmail") return "Gmail receipts";
+  if (panel === "gmail") return "Gmail";
   if (panel === "regulatory") return "Regulatory profile";
   return null;
 }
@@ -982,13 +982,25 @@ function resolveTopShellBreadcrumbInner(
     }
   }
 
-  if (pathname === ROUTES.CONNECT || pathname === ROUTES.MARKETPLACE) {
+  if (pathname === ROUTES.CONNECT) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      // Connect is a level-two workspace. Keep the shared shell back affordance
-      // available so this entry behaves like the other One capability routes.
+      // Connect is a level-two workspace. Like Location, the top shell names
+      // the parent ("One") while the route owns the single visible page title.
+      hideBack: false,
+      items: [{ label: "One" }],
+    };
+  }
+
+  if (pathname === ROUTES.MARKETPLACE) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      // Keep Marketplace on its existing shared-shell breadcrumb; the Connect
+      // route above is the only place where the duplicate page title exists.
       hideBack: false,
       items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Connect" }],
     };
@@ -1121,6 +1133,18 @@ function resolveTopShellBreadcrumbInner(
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Gmail", href: ROUTES.GMAIL },
         { label: "Legacy receipts" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.PROFILE_SECURITY_DEVICES) {
+    return {
+      backHref: ROUTES.PROFILE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Trusted devices" },
       ],
     };
   }

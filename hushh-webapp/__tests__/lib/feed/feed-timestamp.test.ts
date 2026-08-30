@@ -13,42 +13,39 @@ describe("formatFeedTimestamp", () => {
     vi.useRealTimers();
   });
 
-  // AM/PM casing is locale-dependent (this codebase deliberately delegates
-  // locale resolution to the runtime, see local-date-time.ts) — assert the
-  // digits/day-prefix exactly and match am/pm case-insensitively.
-  it("labels a same-day instant as Today, 12-hour clock", () => {
+  it("renders a same-day instant as local time only", () => {
     const sameDay = new Date(2026, 7, 12, 15, 45, 0);
-    expect(formatFeedTimestamp(sameDay)).toMatch(/^Today - 03:45\s?PM$/i);
+    expect(formatFeedTimestamp(sameDay)).toBe("03:45 PM");
   });
 
-  it("labels the previous calendar day as Yesterday", () => {
+  it("does not repeat the previous calendar day in the row timestamp", () => {
     const yesterday = new Date(2026, 7, 11, 9, 5, 0);
-    expect(formatFeedTimestamp(yesterday)).toMatch(/^Yesterday - 09:05\s?AM$/i);
+    expect(formatFeedTimestamp(yesterday)).toBe("09:05 AM");
   });
 
   it("keeps one-digit morning hours visually aligned", () => {
     const earlyMorning = new Date(2026, 7, 12, 1, 5, 0);
-    expect(formatFeedTimestamp(earlyMorning)).toMatch(/^Today - 01:05\s?AM$/i);
+    expect(formatFeedTimestamp(earlyMorning)).toBe("01:05 AM");
   });
 
-  it("labels anything older with a short weekday", () => {
+  it("does not repeat older weekday labels in the row timestamp", () => {
     const older = new Date(2026, 7, 10, 18, 30, 0); // Mon
-    expect(formatFeedTimestamp(older)).toMatch(/^Mon - 06:30\s?PM$/i);
+    expect(formatFeedTimestamp(older)).toBe("06:30 PM");
   });
 
   it("always renders 12-hour time, never 24-hour", () => {
     const afternoon = new Date(2026, 7, 12, 15, 45, 0); // 15:45 local
     const label = formatFeedTimestamp(afternoon);
-    expect(label).toMatch(/03:45\s?PM/i);
+    expect(label).toBe("03:45 PM");
     expect(label).not.toContain("15:45");
   });
 
   it("formats noon and midnight correctly", () => {
-    expect(formatFeedTimestamp(new Date(2026, 7, 12, 12, 0, 0))).toMatch(
-      /^Today - 12:00\s?PM$/i,
+    expect(formatFeedTimestamp(new Date(2026, 7, 12, 12, 0, 0))).toBe(
+      "12:00 PM",
     );
-    expect(formatFeedTimestamp(new Date(2026, 7, 12, 0, 0, 0))).toMatch(
-      /^Today - 12:00\s?AM$/i,
+    expect(formatFeedTimestamp(new Date(2026, 7, 12, 0, 0, 0))).toBe(
+      "12:00 AM",
     );
   });
 

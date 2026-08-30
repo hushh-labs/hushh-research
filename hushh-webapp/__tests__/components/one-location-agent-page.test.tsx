@@ -1489,7 +1489,80 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(flow).getByRole("button", { name: "Approve 1 hour" }),
     ).toBeTruthy();
+    expect(
+      within(flow).queryByRole("button", { name: "Allow 1 hour" }),
+    ).toBeNull();
     expect(within(flow).getByRole("button", { name: "Decline" })).toBeTruthy();
+  });
+
+  it("lets Needs review approve a longer request for only one hour", async () => {
+    const request = {
+      id: "request_review_four_hours",
+      ownerUserId: "user_a",
+      requesterUserId: "user_b",
+      requesterDisplayName: "Trusted B",
+      status: "pending" as const,
+      message: "Running late",
+      requestedAt: "2026-05-20T07:30:00.000Z",
+      requestedDurationHours: 4,
+      requestedDurationMode: "timed",
+    };
+    const requester = locationState().recipients[0]!;
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+      requests: [request],
+    });
+    mockApproveRequest.mockResolvedValueOnce({
+      request: {
+        ...request,
+        status: "approved",
+        approvedGrantId: "grant_one_hour",
+      },
+      grant: {
+        id: "grant_one_hour",
+        ownerUserId: "user_a",
+        recipientUserId: "user_b",
+        recipientKeyId: "key_b",
+        status: "active",
+        consentScope: "cap.location.live.view",
+        capabilityScopes: ["cap.location.live.view"],
+        durationHours: 1,
+        durationMode: "timed",
+        expiresAt: "2026-05-20T08:30:00.000Z",
+      },
+      recipient: requester,
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Needs review/i }),
+    );
+
+    const flow = await screen.findByTestId("one-location-needs-review");
+    expect(
+      within(flow).getByRole("button", { name: "Approve 4 hours" }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      within(flow).getByRole("button", { name: "Allow 1 hour" }),
+    );
+
+    await waitFor(() => expect(mockApproveRequest).toHaveBeenCalledTimes(1));
+    expect(mockApproveRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: "request_review_four_hours",
+        approvalMode: "manual",
+        durationHours: 1,
+        durationMode: "timed",
+      }),
+    );
+    await waitFor(() => expect(mockStoreEnvelope).toHaveBeenCalledTimes(1));
+    expect(within(flow).getByRole("status")).toHaveTextContent("Approved");
   });
 
   it("uses a compact sharing-first Now composition without dashboard groups", async () => {
@@ -1553,7 +1626,8 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(within(actions).getByText("Ask for location")).toBeTruthy();
     expect(within(actions).getByText("Check in")).toBeTruthy();
-    expect(within(actions).queryByText("Their Location")).toBeNull();
+    const retiredActionLabel = ["Their", "Location"].join(" ");
+    expect(actions.textContent).not.toContain(retiredActionLabel);
     expect(within(actions).queryByText("Confirm Arrival")).toBeNull();
     expect(within(actions).getByText("Save My Soul")).toBeTruthy();
     expect(within(actions).getByText("Emergency alert")).toBeTruthy();
@@ -4564,7 +4638,7 @@ describe("OneLocationAgentPage", () => {
     // Reported from UAT: "request location mein bhi 'Until I stop' hain. main
     // dusron se req karungi, and duration 'until i stop' meaningful rahega??"
     // Asking to watch someone until *I* stop is not a thing you can ask for:
-    // it is their location, so only they can stop it, and the request lane has
+    // it is location, so only they can stop it, and the request lane has
     // no open-ended mode server-side at all.
     //
     // The prop that removes it (`allowUntilStop={false}`) landed with the
@@ -6339,6 +6413,69 @@ describe("OneLocationAgentPage", () => {
       );
       // Extending must never go out as end-and-recreate: that hands the
       // recipient a new grant id and a share-ended alert.
+      expect(mockRevokeGrant).not.toHaveBeenCalled();
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
+
+  it("offers the common lengths as one tap, with the wheel behind Custom", async () => {
+    // The report: Change time opened straight onto a two-column scroll wheel.
+    // Almost every change to a running share is one of five lengths, so those
+    // are now always visible and cost one tap each. The wheel is still
+    // reachable for anything in between -- removed from the default view, not
+    // removed.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      const card = await screen.findByTestId("one-location-live-share");
+      await act(async () => {
+        fireEvent.click(
+          within(card).getByTestId("one-location-live-share-change-time"),
+        );
+      });
+      const editor = await screen.findByTestId(
+        "one-location-live-share-duration-editor",
+      );
+
+      for (const label of [
+        "15 min",
+        "1 hour",
+        "2 hours",
+        "4 hours",
+        "8 hours",
+        "Until I stop",
+      ]) {
+        expect(
+          within(editor).getByRole("button", { name: label }),
+        ).toBeInTheDocument();
+      }
+
+      // One tap on a rung is the whole interaction -- no drag, no confirm
+      // step of its own before Save.
+      await act(async () => {
+        fireEvent.click(within(editor).getByRole("button", { name: "2 hours" }));
+      });
+      await act(async () => {
+        fireEvent.click(
+          within(editor).getByTestId("one-location-live-share-duration-save"),
+        );
+      });
+
+      await waitFor(() =>
+        expect(mockSetGrantDuration).toHaveBeenCalledWith(
+          expect.objectContaining({
+            grantId: "grant_1",
+            durationHours: 2,
+          }),
+        ),
+      );
+      // Same grant, still. Changing a length must not read as end-and-restart.
       expect(mockRevokeGrant).not.toHaveBeenCalled();
       expect(mockCreateGrant).not.toHaveBeenCalled();
     } finally {

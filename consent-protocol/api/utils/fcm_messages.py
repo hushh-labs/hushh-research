@@ -10,6 +10,18 @@ ONE_LOCATION_SMS_EMERGENCY_PROFILE = "one_location_sms_emergency"
 ONE_LOCATION_SMS_EMERGENCY_CATEGORY = "ONE_LOCATION_SMS_EMERGENCY"
 ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL = "one_location_sms_emergency_v1"
 ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND = "one_location_sms_alarm.wav"
+ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES: frozenset[str] = frozenset(
+    {
+        "location_share_revoked",
+        "location_share_shortened",
+        "location_share_duration_changed",
+        "location_share_expired",
+        "location_access_request_withdrawn",
+        "location_circle_code_joined",
+        "location_circle_member_invite_accepted",
+    }
+)
+ALERT_PRESENTATION_DATA_KEYS: frozenset[str] = frozenset({"title", "body", "image"})
 
 
 def _webpush_link(request_url: str) -> str | None:
@@ -43,12 +55,23 @@ def _webpush_link(request_url: str) -> str | None:
 
 def _is_one_location_sms_emergency(data: dict[str, str]) -> bool:
     profile = str(data.get("notification_profile") or "").strip().lower()
+    category = str(data.get("notification_category") or "").strip().upper()
+    share_kind = str(data.get("share_kind") or "").strip().lower()
     if profile == ONE_LOCATION_SMS_EMERGENCY_PROFILE:
         return True
-    return (
-        str(data.get("type") or "").strip().lower() == "location_share_created"
-        and str(data.get("share_kind") or "").strip().lower() == "sos"
-    )
+    if category == ONE_LOCATION_SMS_EMERGENCY_CATEGORY:
+        return True
+    return share_kind == "sos"
+
+
+def _is_one_location_feed_only_transport(
+    normalized_type: str,
+    *,
+    data: dict[str, str],
+) -> bool:
+    if normalized_type == "location_share_revoked" and _is_one_location_sms_emergency(data):
+        return False
+    return normalized_type in ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES
 
 
 def build_push_message(
@@ -66,6 +89,17 @@ def build_push_message(
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
     is_sms_emergency = _is_one_location_sms_emergency(data)
+    force_feed_only_transport = _is_one_location_feed_only_transport(
+        normalized_type,
+        data=data,
+    )
+    show_alert = bool(show_alert) and not force_feed_only_transport
+    if force_feed_only_transport:
+        data = {
+            key: value
+            for key, value in data.items()
+            if key.strip().lower() not in ALERT_PRESENTATION_DATA_KEYS
+        }
     # Presentation is part of the transport contract, not something a client
     # should infer from missing title/body fields. In particular, consent
     # bookkeeping events are intentionally data-only and must never be turned

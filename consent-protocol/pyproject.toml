@@ -8,6 +8,8 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 readme = "README.md"
 dependencies = [
+    "ag-ui-adk==0.7.0",
+    "ag-ui-protocol==0.1.21",
     "asyncpg>=0.29.0",
     "cryptography>=44.0.0",
     "defusedxml>=0.7.1",

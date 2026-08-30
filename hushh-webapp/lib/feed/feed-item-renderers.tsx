@@ -22,6 +22,10 @@ export type FeedItemPresentation = {
   label: string;
   description: string;
   href: string | null;
+  person?: {
+    displayName: string;
+    photoUrl: string | null;
+  } | null;
 };
 
 const DOMAIN_ICON: Record<FeedSourceDomain, LucideIcon> = {
@@ -41,6 +45,20 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   connected_systems: "Connected systems",
   connections: "Connections",
 };
+
+/**
+ * True when this row is an emergency SOS rather than an ordinary share.
+ *
+ * The lane split is "sos" vs everything else, matching _is_sos_lane in
+ * one_location_agent_service.py -- not one lane per share kind. Until
+ * share_kind was added to the feed metadata allowlist this was unknowable
+ * client-side, so an SOS narrated as "Shared location with you", then
+ * "Stopped sharing location": an alert reading as routine activity on the
+ * one screen someone scans to find out what needs them.
+ */
+function isSosShare(metadata: Record<string, unknown>): boolean {
+  return metadataString(metadata, "share_kind").toLowerCase() === "sos";
+}
 
 function metadataString(metadata: Record<string, unknown>, key: string): string {
   const value = metadata[key];
@@ -91,6 +109,28 @@ function resolveCounterpartName(metadata: Record<string, unknown>): string {
   );
 }
 
+function resolveCounterpartPhotoUrl(
+  metadata: Record<string, unknown>,
+): string | null {
+  return (
+    metadataString(metadata, "counterpart_photo_url") ||
+    metadataString(metadata, "counterpartPhotoUrl") ||
+    metadataString(metadata, "photo_url") ||
+    metadataString(metadata, "photoUrl") ||
+    null
+  );
+}
+
+function counterpartPerson(
+  metadata: Record<string, unknown>,
+  displayName: string,
+): FeedItemPresentation["person"] {
+  if (displayName === "Someone") return null;
+  return {
+    displayName,
+    photoUrl: resolveCounterpartPhotoUrl(metadata),
+  };
+}
 
 /**
  * One line per event_type. Wording lives here, not in the backend row, so
@@ -153,18 +193,26 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "location_share_created": {
       const hasWho = who !== "Someone";
       const shareAmount = metadataDurationLabel(item.metadata, "duration");
+      const isSos = isSosShare(item.metadata);
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         // For an approval-born share this is the requester's ONLY row (152
         // writes it; 153 deliberately does not add a second for the approval),
         // so it names the granted amount that the event metadata carries.
-        description: sharedWithMe
-          ? shareAmount
-            ? `Shared their location with you for ${shareAmount}`
-            : "Shared their location with you"
-          : "You started sharing location",
+        description: isSos
+          ? sharedWithMe
+            ? shareAmount
+              ? `Emergency SOS shared with you for ${shareAmount}`
+              : "Emergency SOS shared with you"
+            : "You sent an emergency SOS"
+          : sharedWithMe
+            ? shareAmount
+              ? `Shared location with you for ${shareAmount}`
+              : "Shared location with you"
+            : "You started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -175,15 +223,20 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         // `reason` describes what the OWNER did, so on the recipient's row
         // "owner_revoke" is still true and "You stopped sharing location"
         // would be shown to the one person who did not stop anything.
         // Audience decides the sentence; reason only refines the owner's.
-        description: sharedWithMe
-          ? "Stopped sharing their location"
-          : ownerRevoked
-            ? "You stopped sharing location"
-            : "Stopped sharing location",
+        description: isSosShare(item.metadata)
+          ? sharedWithMe
+            ? "Emergency SOS ended"
+            : "You ended your emergency SOS"
+          : sharedWithMe
+            ? "Sharing stopped"
+            : ownerRevoked
+              ? "You stopped sharing"
+              : "Sharing stopped",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -193,9 +246,12 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         // No audience split: this line names no subject, and the row's title is
         // already the other person, so it reads correctly from both sides.
-        description: "Stopped sharing - time ran out",
+        description: isSosShare(item.metadata)
+          ? "Emergency SOS ended when time ran out"
+          : "Sharing ended when time ran out",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -219,8 +275,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? `You asked for ${amount} more`
             : "You asked for more location time"
           : amount
-            ? `You asked to see their location for ${amount}`
-            : "You asked to see their location"
+            ? `You asked to see location for ${amount}`
+            : "You asked to see location"
         : isExtension
           ? amount
             ? `Asked for ${amount} more`
@@ -232,6 +288,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description,
         href: buildOneLocationWorkflowHref({
           requestId: metadataString(item.metadata, "request_id") || undefined,
@@ -250,7 +307,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? `Gave you ${amount} more`
             : "Gave you more location time"
           : amount
-            ? `Shared their location with you for ${amount}`
+            ? `Shared location with you for ${amount}`
             : "Approved your location request"
         : isExtension
           ? amount
@@ -262,12 +319,13 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             // of that whole tap. It has to say the share STARTED, not just
             // that a request was answered -- main's wording, carrying the
             // amount this branch adds.
-            ? `You approved ${amount}. Now sharing.`
-            : "You approved. Now sharing.";
+            ? `You approved sharing for ${amount}`
+            : "You approved sharing";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description,
         href: ROUTES.ONE_LOCATION,
       };
@@ -278,7 +336,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const asRequester = iAskedForThis;
       const description = asRequester
         ? isExtension
-          ? "Declined the extra time — your current access is unchanged"
+          ? "Extra time declined"
           : "Declined your location request"
         : isExtension
           ? "You declined the extra time"
@@ -287,6 +345,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description,
         href: ROUTES.ONE_LOCATION,
       };
@@ -299,13 +358,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description: sharedWithMe
           ? ownerShortened
             ? "Shortened your location access"
             : "You gave back your remaining time early"
           : ownerShortened
-            ? "You shortened their location access"
-            : "Gave back their remaining time early",
+            ? "You shortened location access"
+            : "Gave back remaining time early",
         href: buildOneLocationWorkflowHref({
           grantId: metadataString(item.metadata, "grant_id") || undefined,
           section: sharedWithMe ? "people" : "shared",
@@ -317,7 +377,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const direction = metadataString(item.metadata, "direction");
       const description = sharedWithMe
         ? direction === "until_stopped"
-          ? "Is sharing until they stop"
+          ? "Sharing until they stop"
           : direction === "extended"
             ? "Gave you more time"
             : "Shortened your location access"
@@ -325,11 +385,12 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           ? "You changed sharing to until you stop"
           : direction === "extended"
             ? "You gave them more time"
-            : "You shortened their access";
+            : "You shortened access";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description,
         href: buildOneLocationWorkflowHref({
           grantId: metadataString(item.metadata, "grant_id") || undefined,
@@ -343,9 +404,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location request",
+        person: counterpartPerson(item.metadata, who),
         description: iAskedForThis
           ? "You took back your location request"
-          : "Took back their location request",
+          : "Took back location request",
         href: buildOneLocationWorkflowHref({
           requestId: metadataString(item.metadata, "request_id") || undefined,
           section: iAskedForThis ? "my_requests" : "approvals",
@@ -358,6 +420,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: who !== "Someone" ? who : "Location referral",
+        person: counterpartPerson(item.metadata, who),
         description: ownerLabel
           ? `Referred you into a location request for ${ownerLabel}`
           : "Referred you into a location request",
@@ -377,6 +440,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: who !== "Someone" ? who : "Public location link",
+        person: counterpartPerson(item.metadata, who),
         description: publicLocationViewed
           ? "Opened your public location link"
           : "Requested location access from your public link",
@@ -393,6 +457,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: who !== "Someone" ? who : "One Network",
+        person: counterpartPerson(item.metadata, who),
         description: sharedWithMe
           ? "You joined their One Network"
           : "Joined your One Network",
@@ -405,6 +470,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: who !== "Someone" ? who : "Circle member",
+        person: counterpartPerson(item.metadata, who),
         description: circleName
           ? `Joined ${circleName} using your code`
           : "Joined your Circle using your code",
@@ -420,6 +486,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: who !== "Someone" ? who : "Circle member",
+        person: counterpartPerson(item.metadata, who),
         description: circleName
           ? `Accepted your invitation and joined ${circleName}`
           : "Accepted your invitation and joined your Circle",
@@ -549,6 +616,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
+        person: counterpartPerson(item.metadata, who),
         description: !hasWho
           ? "A connection was accepted."
           : actorIsSelf
@@ -564,6 +632,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
+        person: counterpartPerson(item.metadata, who),
         description: !hasWho
           ? "A connection request was rejected."
           : actorIsSelf
@@ -579,6 +648,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
+        person: counterpartPerson(item.metadata, who),
         description: !hasWho
           ? "A connection was removed."
           : actorIsSelf

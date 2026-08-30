@@ -665,12 +665,13 @@
       "data_class": "personal_encrypted",
       "exact_tables": [
         "agent_chat_conversations",
-        "agent_chat_messages"
+        "agent_chat_messages",
+        "one_adk_sessions"
       ],
       "id": "agent_chat_encrypted_memory",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly"
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
     },
     {
       "data_class": "audit_regulated",
@@ -1032,6 +1033,17 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_information_request_bundles",
+        "one_information_request_items"
+      ],
+      "id": "one_person_information_requests",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated person-profile and Agent One workflows that prepare, create, inspect, cancel, expire, revoke, and export viewer-to-owner consent requests using opaque consumer scope references."
     },
     {
       "data_class": "workflow_state",
@@ -4585,6 +4597,53 @@
       "alias": null,
       "api_dependencies": [
         {
+          "backend_endpoint_family": "/api/{public/people/*,one/people/*,one/information-requests/*}",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch; native static export emits one non-production route fixture while runtime identity remains the opaque personRef.",
+          "nextjs_api_route": "/api/{public/people/{personRef},one/{path*}}",
+          "nextjs_proxy_file": "app/api/public/people/[personRef]/route.ts; app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/person-profile-service.ts",
+          "service_methods": [
+            "getPublic",
+            "getViewer",
+            "createInformationRequest",
+            "getInformationRequestExports",
+            "cancelInformationRequest",
+            "connect",
+            "cancelConnectionRequest",
+            "removeConnection"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-person-profile",
+      "page_file": "app/people/[personRef]/page.tsx",
+      "pathname": "/people/[personRef]",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "people.profile.cancel_connection_request",
+          "people.profile.connect",
+          "people.profile.manage_consent",
+          "people.profile.remove_connection",
+          "people.profile.review_information_request"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.people.person_profile"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
           "backend_endpoint_family": "/pkm/*",
           "native_transport": "CapacitorHttp direct backend plus client vault/PKM services",
           "nextjs_api_route": "/api/pkm/{path*}",
@@ -5180,28 +5239,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "134924af217c3cd05bf4ea2f4b96f6f5ca0ed031f2e9c9c9e03f11c9d9f479eb",
+    "action_gateway": "ad1c14d11ad34a758103eb32781f0ee09d5fc4f21070f9d90faabef025b58703",
     "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
-    "cache_manifest": "734cae0bc468da32e9aa6f5b680c5fb40d49696e3b90629c533791ad5288f8f4",
-    "data_plane": "16a6bb7ebddcbfd360a07034ed83ba0b966d8667fe879bee928991d0f591e04d",
+    "cache_manifest": "a46b2b991274b6b0e6ed0264ad83504622599f3c34bbe55ffa902cc940b04097",
+    "data_plane": "98d0c1fe2d78f7eb75b176dc067dafb45c6c0a68d2f27b91359740f318e539fb",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "02545ed2dbef3d9b5fe4b895c1356e782cfb0e34af5207563ac792a4bcbd0ccf",
-    "route_index": "8b0278cc2a76ccc2b3c5b35e4e9bb4d0ca8dcf4b08f313f368ca992f634ea262",
-    "route_layout": "178064ac4f170604e1014eb9eb87fad2aae55c1a9a7039dbd34c4b20ea51704b",
-    "surface_map": "24c517f46dab35bc730499bb1bde7191a7b06b7f3243d681c60c0568898ee216",
+    "one_specialist_tools": "376cf3193426e923607c74d060cdfe4678e6661dc22042b25f34a36c89e5bbfa",
+    "route_index": "b9210b4d9dbb7b668cb349e4039a730aa9a3af2dda33468b6debf79c54c8fd08",
+    "route_layout": "298b995aa9e33959391ffe2bbce29bc223a4c14dacd54894dc7a93a7df6e95a9",
+    "surface_map": "9ef9c1d2eb91b109fc9bedce84febde5d72730e22229108482bf90ffd7e2c64a",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 193,
+    "actions": 198,
     "agents": 19,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 134,
+    "physical_routes": 135,
     "semantic_routes": 14,
-    "table_families": 53
+    "table_families": 54
   }
 }

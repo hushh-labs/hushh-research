@@ -104,7 +104,7 @@ export interface FeedActionable {
   actions: FeedActionButton[];
   sortAt: number;
   /**
-   * Real-world instant to render as the row's "Today - 3:45 PM" label.
+   * Real-world instant to render as the row's local time label.
    * Distinct from `sortAt` (which falls back to when the row was first seen so
    * ordering never breaks) — null/absent exactly when there is no real
    * timestamp to show the user (a consent entry with no `issued_at`, or any
@@ -167,7 +167,7 @@ function consentSummary(entry: ConsentCenterEntry): string {
 
 /**
  * A pending location access request is actionable in the viewer's "Needs you"
- * feed only when the viewer OWNS the request (their location is being asked for)
+ * feed only when the viewer OWNS the request (location is being asked for)
  * and did NOT send it themselves. `state.requests` carries BOTH directions, so
  * without this guard a user's own OUTGOING request leaks back onto their feed as
  * an incoming "wants to see your location" card labelled with their own name.

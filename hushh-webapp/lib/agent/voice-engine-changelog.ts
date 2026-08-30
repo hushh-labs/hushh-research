@@ -19,6 +19,55 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   {
     version: "1.6",
     date: "2026-08-28",
+    title: "Fixed: voice said an action opened somewhere it didn't",
+    description:
+      "Opening a screen by voice could report it as having opened in a completely different part of the app -- \"Voice Settings opened in Finance.\" The action was right; only the sentence was wrong. It now names what it opened and nothing else.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Answer a connection request from your Feed, hands-free",
+    description:
+      "Saying \"accept their request\" while looking at your Feed now works directly. Voice offered nothing at all on that screen before, even though it could already do this.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Find people from your contacts, by voice",
+    description:
+      "Ask One to check your contacts against Hussh from the Location screen. It could always do this; it was just never offered.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Fixed: action cards cut off the message and repeated themselves",
+    description:
+      "A long line -- like being told to add an emergency contact before sending an SOS -- was trimmed with dots part way through, hiding the part that told you what to do. Asking twice for the same thing also stacked the same line up twice. Cards now show the whole message, once.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Fixed: a few phrases could match two different commands",
+    description:
+      "Some wording belonged to two commands at once, so which one ran was a coin flip. Every phrase now points at a single command, and the one on the screen you are looking at wins when two screens share a name.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Voice now works on Your Map and Check in",
+    description:
+      "Those two screens offered no voice commands at all -- checking in near you, confirming a place, or checking out only worked from the Location hub. They now work while you are actually looking at them.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
+    title: "Fixed: many Location commands were never offered",
+    description:
+      "Approving a request, creating a circle, sending an SOS, saving a place and more existed but were never suggested, so they usually did nothing unless you named them exactly. Everything Location can do is now offered.",
+  },
+  {
+    version: "1.6",
+    date: "2026-08-28",
     title: "Fixed: a few \"open X\" requests before sign-in said they weren't available",
     description:
       "On the very first screen, before your vault is unlocked, asking to open certain Hussh screens could say they weren't available even though they were. Voice now only offers what it can actually open there.",
@@ -63,7 +112,7 @@ export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
     date: "2026-08-26",
     title: "Accept or decline a connection request, hands-free",
     description:
-      "Say \"accept their connection request\" or \"decline their request\" for a request waiting in your Feed -- no need to open it and tap. Asking to connect with someone who already asked you now points you straight to this instead of trying to send a second request.",
+      "Say \"accept their connection request\" or \"decline request\" for a request waiting in your Feed -- no need to open it and tap. Asking to connect with someone who already asked you now points you straight to this instead of trying to send a second request.",
   },
   {
     version: "1.6",

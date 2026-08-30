@@ -339,6 +339,7 @@ import type {
   OneLocationRecommendationReason,
   OneLocationRecipient,
   OneLocationRecipientPage,
+  OneLocationShareDurationMode,
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
@@ -430,6 +431,23 @@ const SHARE_VOICE_DURATION_VALUES = new Set<string>([
   ...SHARE_DURATION_LADDER.map((rung) => rung.value),
   SHARE_DURATION_UNTIL_STOP_VALUE,
   "0.5",
+  "2",
+  "4",
+  "8",
+  "24",
+]);
+
+// What One will accept when someone says "ask <name> for location".
+//
+// The same numeric ladder as a share, minus "until I stop": a request is
+// sent as `requestedDurationMode: "timed"`, so there is no open-ended
+// request for that token to mean. Kept as its own set rather than reusing
+// SHARE_VOICE_DURATION_VALUES so that difference stays visible -- accepting
+// "until you stop it" here would resolve to NaN hours on a timed request.
+const ASK_VOICE_DURATION_VALUES = new Set<string>([
+  "0.25",
+  "0.5",
+  "1",
   "2",
   "4",
   "8",
@@ -1629,12 +1647,25 @@ function LocalMapPreview({
   showNavigation = true,
   viewportResetKey,
   staleAction,
+  nested = false,
 }: {
   point: PlainLocationPoint;
   // Self-location previews do not need Directions/Start - you are already there.
   showNavigation?: boolean;
   viewportResetKey?: string | number;
   staleAction?: ReactNode;
+  /**
+   * True when a container already draws the card around this preview.
+   *
+   * Standalone (Check-In), this component IS the card and needs its own
+   * border and 24px radius. Inside SharedWithMeCard it sits in a subcard that
+   * already clips to 14px, and drawing a second 24px card inside a 14px clip
+   * is what sliced the outline off at the corners: the child bulged past the
+   * parent on all four, so the border read as the wrong shape rather than as
+   * a border at all. Nested, it inherits the container's rounding and draws
+   * no border of its own.
+   */
+  nested?: boolean;
 }) {
   const captured = formatDateTime(point.capturedAt);
   const accuracy = locationAccuracyLabel(point);
@@ -1654,8 +1685,26 @@ function LocalMapPreview({
         : `Paused · last seen ${freshness.agoLabel}`;
 
   return (
-    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
-      <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
+    <div
+      className={cn(
+        "w-full min-w-0 max-w-full overflow-hidden bg-[color:var(--app-card-surface-default-solid)]",
+        nested
+          ? "rounded-[inherit]"
+          : "rounded-[var(--app-card-radius-standard)] border border-border/70",
+      )}
+    >
+      <div
+        className={cn(
+          "relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]",
+          // Nested in SharedWithMeCard the preview draws no card of its own, so
+          // THIS element frames the map: a 2px iOS-accent outline rounded to the
+          // container's 14px inner radius on top (so the stroke follows the same
+          // curve the container clips to instead of being sliced by it) and
+          // square on the bottom, where the metadata column continues below.
+          nested &&
+            "rounded-t-[14px] rounded-b-none border-2 border-[color:var(--app-accent)]",
+        )}
+      >
         <LiveMap point={point} viewportResetKey={viewportResetKey} />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
@@ -4689,7 +4738,7 @@ export function OneLocationAgentPageContent({
       const effectiveShareReadySelectedRecipients =
         effectiveSelectedShareRecipients.filter(isShareReadyRecipient);
       // Test the SELECTION, not the share-ready subset of it. Those differ
-      // whenever someone is picked who has not finished their own Location
+      // whenever someone is picked who has not finished Location
       // setup, and reading the subset made this answer "nobody is selected"
       // about a person who was visibly selected on screen -- sending the voice
       // chain back to pick someone it had already picked. Observed live: the
@@ -4712,8 +4761,8 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked",
           summary: blockedNames.length
-            ? `${blockedNames.join(", ")} still needs to finish their own Location setup before you can share with them.`
-            : "Someone you picked still needs to finish their Location setup.",
+            ? `${blockedNames.join(", ")} still needs to finish Location setup before you can share with them.`
+            : "Someone you picked still needs to finish Location setup.",
         };
       }
       if (shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) {
@@ -5683,7 +5732,7 @@ export function OneLocationAgentPageContent({
         });
         playOneLocationNotificationSound();
         toast.success(
-          `Asked ${receivedGrantOwnerLabel(grant)} to share their location again.`,
+          `Asked ${receivedGrantOwnerLabel(grant)} to share location again.`,
         );
       } catch (error) {
         toast.error(oneLocationErrorMessage(error, "Could not send request."));
@@ -7032,7 +7081,12 @@ export function OneLocationAgentPageContent({
   // send can never leave a success message on screen (it used to latch
   // optimistically the moment the button was tapped).
   const handleRequestAccess = useCallback(
-    async (reason?: string | null) => {
+    // `durationHoursOverride` is how the voice path supplies a duration the
+    // person actually said. Passed as an argument rather than written to
+    // state first, exactly as handleShare takes one: a setState would not
+    // be visible to this call, so the request would still go out carrying
+    // the previous value.
+    async (reason?: string | null, durationHoursOverride?: string) => {
       if (!vaultOwnerToken || !selectedRequestOwners.length) return false;
       if (!auth.user || !auth.userId) {
         toast.error("Refresh your session before sending a location request.");
@@ -7070,15 +7124,19 @@ export function OneLocationAgentPageContent({
           }
         })();
         for (const owner of selectedRequestOwners) {
-          // Send the duration the person actually picked. The Ask screen has
-          // shown a "Duration requested" control all along; it was collected
-          // and then dropped here, so the owner was asked an unquantified
-          // question and approved whatever their own control happened to say.
+          // The duration the person actually asked for, when they said one.
+          //
+          // `durationHours` is NOT an Ask-screen control: it is shared state
+          // written only by the share composer, the circle-invite control and
+          // the public-link control, so falling back to it asks the owner for
+          // whatever an unrelated flow last set, or the initial "1". The voice
+          // path now always supplies an override; the tap path still has no
+          // control of its own to read (tracked separately).
           await OneLocationService.requestAccess({
             vaultOwnerToken: activeVaultOwnerToken,
             ownerUserId: owner.userId,
             message: buildOneLocationRequestMessage(reason, requestMessage),
-            requestedDurationHours: Number(durationHours),
+            requestedDurationHours: Number(durationHoursOverride ?? durationHours),
             requestedDurationMode: "timed",
           });
           successCount += 1;
@@ -8365,7 +8423,11 @@ export function OneLocationAgentPageContent({
   const approveAccessRequest = useCallback(
     async (
       request: OneLocationAccessRequest,
-      options?: { automatic?: boolean },
+      options?: {
+        automatic?: boolean;
+        durationHoursOverride?: number;
+        durationModeOverride?: OneLocationShareDurationMode;
+      },
     ): Promise<boolean> => {
       if (!vaultOwnerToken) return false;
       const automatic = options?.automatic === true;
@@ -8381,9 +8443,15 @@ export function OneLocationAgentPageContent({
         // the ask carried no amount (older clients, referral requests).
         const requestedHours = Number(request.requestedDurationHours);
         const approvedHours =
-          Number.isFinite(requestedHours) && requestedHours > 0
+          options?.durationHoursOverride ??
+          (Number.isFinite(requestedHours) && requestedHours > 0
             ? requestedHours
-            : Number(durationHours);
+            : Number(durationHours));
+        const approvedMode =
+          options?.durationModeOverride ??
+          (request.requestedDurationMode === "until_stopped"
+            ? "until_stopped"
+            : "timed");
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
@@ -8391,11 +8459,7 @@ export function OneLocationAgentPageContent({
           // Automatic approval answers the locked request exactly; only a
           // manual owner action may override its duration.
           durationHours: automatic ? undefined : approvedHours,
-          durationMode: automatic
-            ? undefined
-            : request.requestedDurationMode === "until_stopped"
-              ? "until_stopped"
-              : "timed",
+          durationMode: automatic ? undefined : approvedMode,
           autoApproveRuleVersion: automatic
             ? autoApprovePreference.ruleVersion
             : undefined,
@@ -8464,8 +8528,14 @@ export function OneLocationAgentPageContent({
   );
 
   const handleApprove = useCallback(
-    async (request: OneLocationAccessRequest) => {
-      await approveAccessRequest(request);
+    async (
+      request: OneLocationAccessRequest,
+      options?: {
+        durationHoursOverride?: number;
+        durationModeOverride?: OneLocationShareDurationMode;
+      },
+    ) => {
+      return approveAccessRequest(request, options);
     },
     [approveAccessRequest],
   );
@@ -8530,16 +8600,18 @@ export function OneLocationAgentPageContent({
 
   const handleDeny = useCallback(
     async (requestId: string) => {
-      if (!vaultOwnerToken) return;
+      if (!vaultOwnerToken) return false;
       setBusy("deny");
       try {
         await OneLocationService.denyRequest({ vaultOwnerToken, requestId });
         toast.success("Request denied.");
         void refresh().catch(() => null);
+        return true;
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not deny request.",
         );
+        return false;
       } finally {
         setBusy(null);
       }
@@ -10492,7 +10564,7 @@ export function OneLocationAgentPageContent({
     async (slots) => {
       // Mirrors location.select_share_recipient's own matching/ambiguity
       // rules exactly -- same connections list, same "never guess" discipline
-      // -- because asking someone for their location and sharing yours with
+      // -- because asking someone for location and sharing yours with
       // them draw from the identical pool of people.
       const resolvedRecipientId = String(
         slots?.resolvedRecipientId ?? "",
@@ -10692,11 +10764,30 @@ export function OneLocationAgentPageContent({
     },
   );
 
-  useLocalOnboardingActionHandler("location.send_request", async () => {
+  useLocalOnboardingActionHandler("location.send_request", async (slots) => {
     if (!vaultOwnerToken) {
       return {
         status: "blocked" as const,
         summary: "Unlock One before sending a request.",
+      };
+    }
+    // Ask for the length, never assume it -- the same rule
+    // location.share_selected already follows, for the same reason. The
+    // number here is what the other person is shown and approves, so a
+    // guess is a question asked on their behalf. There is no Ask-screen
+    // control to fall back to either: `durationHours` belongs to the
+    // share composer and the link controls, so falling through would
+    // request whatever an unrelated flow last set.
+    //
+    // "until you stop it" is deliberately absent: requestAccess is sent
+    // as `requestedDurationMode: "timed"`, so an open-ended request has
+    // nothing to map onto.
+    const requestedDuration = String(slots?.duration_hours ?? "").trim();
+    if (!ASK_VOICE_DURATION_VALUES.has(requestedDuration)) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "For how long do you want location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
       };
     }
     if (!selectedRequestOwners.length) {
@@ -10709,7 +10800,7 @@ export function OneLocationAgentPageContent({
       .map((owner) => recipientLabel(owner).trim())
       .filter(Boolean);
     const names = ownerNames.join(", ");
-    const sent = await handleRequestAccess();
+    const sent = await handleRequestAccess(null, requestedDuration);
     if (!sent) {
       return {
         status: "blocked" as const,
@@ -10720,8 +10811,8 @@ export function OneLocationAgentPageContent({
       status: "succeeded" as const,
       summary:
         selectedRequestOwners.length === 1
-          ? `Asked ${names || "them"} for their location.`
-          : `Asked ${selectedRequestOwners.length} people for their location.`,
+          ? `Asked ${names || "them"} for location.`
+          : `Asked ${selectedRequestOwners.length} people for location.`,
       data: ownerNames.length
         ? {
             subject: {
@@ -10900,7 +10991,7 @@ export function OneLocationAgentPageContent({
         };
       }
       // Resolved against the people who are ELIGIBLE to receive an SOS, not the
-      // whole connection list. Someone who has not finished their own Location
+      // whole connection list. Someone who has not finished Location
       // setup cannot receive one, and adding them would build an emergency
       // contact list that quietly does not work when it is needed.
       const matches = sosActionRecipients.filter((recipient) =>
@@ -13150,8 +13241,8 @@ export function OneLocationAgentPageContent({
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
     onSendRequest: (reason) => handleRequestAccess(reason),
-    onApprove: (request) => void handleApprove(request),
-    onDeny: (requestId) => void handleDeny(requestId),
+    onApprove: (request, options) => handleApprove(request, options),
+    onDeny: (requestId) => handleDeny(requestId),
     onWithdrawRequest: (requestId) => void handleWithdrawRequest(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
@@ -13227,12 +13318,14 @@ export function OneLocationAgentPageContent({
       showNavigation,
       viewportResetKey,
       staleAction,
+      nested,
     ) => (
       <LocalMapPreview
         point={point}
         showNavigation={showNavigation}
         viewportResetKey={`${mapViewportResetKey}:${viewportResetKey ?? "default"}`}
         staleAction={staleAction}
+        nested={nested}
       />
     ),
     mapLocationHref: googleMapsLocationUrl,

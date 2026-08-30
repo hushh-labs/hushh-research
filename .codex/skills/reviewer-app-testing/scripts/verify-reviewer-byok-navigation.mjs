@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createReviewerSessionHarness } from "./reviewer-session-harness.mjs";
+import { prepareReviewerRehearsal } from "./reviewer-rehearsal-preflight.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -31,6 +32,7 @@ if (process.argv.includes("--help")) {
   process.exit(0);
 }
 
+const preflight = await prepareReviewerRehearsal({ repoRoot, appOrigin });
 const reviewer = await createReviewerSessionHarness({ repoRoot, appOrigin, timeoutMs });
 const browser = await reviewer.chromium.launch({
   headless: process.env.PLAYWRIGHT_HEADLESS !== "0",
@@ -48,6 +50,7 @@ try {
   }
   await firstSession.page.waitForTimeout(1_000);
   await reviewer.assertVaultContinuity(firstSession.page, "same-session route chain");
+  firstSession.readOnlyGuard.assertNoBlockedMutation();
   firstSession.capture.assertNoCriticalApiFailures("same-session route chain");
   await firstSession.context.close();
   firstSession = null;
@@ -55,12 +58,13 @@ try {
   freshSession = await reviewer.openSession(browser, routes.at(-1) || "/agent");
   freshKeyCommitment = reviewer.vaultKeyCommitment(await freshSession.capture.vaultState());
   await freshSession.page.waitForTimeout(1_000);
+  freshSession.readOnlyGuard.assertNoBlockedMutation();
   freshSession.capture.assertNoCriticalApiFailures("fresh-session re-unlock");
   if (firstKeyCommitment !== freshKeyCommitment) {
     throw new Error("Fresh-session reviewer unlock resolved a different vault key commitment.");
   }
   process.stdout.write(
-    `[reviewer-app-testing] PASS visible_vault_challenge=1 same_session_routes=${routes.length} cold_session_reunlock=1\n`
+    `[reviewer-app-testing] PASS visible_vault_challenge=1 same_session_routes=${routes.length} cold_session_reunlock=1 mutation_policy=${preflight.mutationPolicy}\n`
   );
 } finally {
   await firstSession?.context.close().catch(() => undefined);

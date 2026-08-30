@@ -84,7 +84,7 @@ describe("PublicLocationViewPageClient", () => {
       await screen.findByText("Neelesh Meena's live location"),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Neelesh Meena is sharing their live location with you/),
+      screen.getByText(/Neelesh Meena is sharing live location with you/),
     ).toBeTruthy();
     expect(screen.getByText("Neelesh Meena's location")).toBeTruthy();
     expect(screen.queryByText(/A trusted person/)).toBeNull();
@@ -100,7 +100,7 @@ describe("PublicLocationViewPageClient", () => {
 
     expect(await screen.findByText("Shared location")).toBeTruthy();
     expect(
-      screen.getByText(/A trusted person is sharing their live location/),
+      screen.getByText(/A trusted person is sharing live location/),
     ).toBeTruthy();
     expect(screen.queryByText(/A trusted person's/)).toBeNull();
   });

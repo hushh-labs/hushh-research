@@ -23,6 +23,7 @@
     "build:one-gateway": "npm run build:voice-gateway",
     "verify:one-gateway": "npm run verify:voice-gateway",
     "verify:one-voice": "npm run verify:voice-gateway && node ./scripts/voice/verify-one-voice-evals.mjs && vitest run __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/voice/one-voice-transport.test.ts",
+    "verify:agent-chat-protocol": "python3 ../scripts/ops/verify_agui_agent_chat_contract.py && vitest run __tests__/services/agent-chat-client.test.ts",
     "verify:morphy-ax": "vitest run __tests__/morphy-ax/morphy-ax-contract.test.ts __tests__/lib/agent-runtime-context.test.tsx __tests__/voice/voice-feature-flags.test.ts",
     "verify:analytics": "vitest run __tests__/services/observability-schema.test.ts __tests__/services/observability-route-map.test.ts __tests__/services/observability-growth.test.ts __tests__/services/observability-native-firebase.test.ts __tests__/services/observability-web-transport.test.ts __tests__/services/consent-pending-count.test.ts",
     "verify:analytics:governed": "npm run verify:analytics && npm run audit:analytics-sandbox && npm run smoke:analytics:uat && cd .. && python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health && ./bin/hushh docs verify",
@@ -80,6 +81,8 @@
     "android:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:test"
   },
   "dependencies": {
+    "@ag-ui/client": "0.0.59",
+    "@ag-ui/core": "0.0.59",
     "@base-ui/react": "^1.4.1",
     "@capacitor-firebase/analytics": "^8.2.0",
     "@capacitor-firebase/authentication": "^8.2.0",

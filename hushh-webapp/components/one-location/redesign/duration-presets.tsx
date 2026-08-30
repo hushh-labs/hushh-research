@@ -45,14 +45,31 @@ export const SHARE_DURATION_LADDER: DurationRung[] = [
  * The three that stay are the ones an ask is actually made in -- "where are
  * you now" (15 min), the default hour, and an afternoon (2 hours). 4 and 8
  * hours did not disappear: `Custom` reaches any value the backend accepts, and
- * a cell that is one deliberate tap away is not a feature removed. Compare
- * {@link SHARE_DURATION_LADDER}, which makes the same trade harder -- two
- * rungs -- for the same reason.
+ * a cell that is one deliberate tap away is not a feature removed.
+ *
+ * Deliberately NOT {@link FULL_DURATION_LADDER}, which those two lanes briefly
+ * shared. Asking for somebody else's location and re-timing your own are not
+ * the same decision on the same screen: the owner's "New time" editor sits in
+ * a card of its own with room for five rungs, and shortening ITS ladder to
+ * trim this one would take choices away from a lane nobody complained about.
  */
 export const REQUEST_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
   { value: "1", label: "1 hour" },
   { value: "2", label: "2 hours" },
+];
+
+/**
+ * The fuller ladder, used by the live-share "New time" editor. Named for its
+ * shape rather than one lane: a person changing an active share reaches for
+ * five lengths, and the wheel behind `Custom` still covers anything between.
+ */
+export const FULL_DURATION_LADDER: DurationRung[] = [
+  { value: "0.25", label: "15 min" },
+  { value: "1", label: "1 hour" },
+  { value: "2", label: "2 hours" },
+  { value: "4", label: "4 hours" },
+  { value: "8", label: "8 hours" },
 ];
 
 export const SHARE_DURATION_UNTIL_STOP_VALUE = "until_stopped";

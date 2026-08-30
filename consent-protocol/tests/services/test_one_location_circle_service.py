@@ -3451,3 +3451,99 @@ def test_a_shared_system_circle_falls_back_rather_than_showing_the_uid() -> None
         }
     )
     assert named["name"] == "hushh Social's SMS Circle"
+
+
+def test_one_person_who_left_recently_does_not_block_the_rest_of_the_batch():
+    """Picking several people and having one be ineligible must not stop the rest.
+
+    Both membership rules used to reject the whole request. Leaving a Circle
+    costs a cooldown that binds the owner too -- correctly, it is how someone
+    says no to a Circle and makes it stick -- but the rule is about ONE person,
+    and applying it to the batch meant nobody was added and the only
+    explanation was that "someone" you selected had left.
+
+    Asserted at the guard rather than through a completed insert: what changed
+    is which people survive it, and the surviving list is what every later
+    step reads. Driving the full write path would need a dozen more positional
+    fixtures and would pin the harness rather than the behaviour.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}, {"user_id": "friend-two"}],
+        None,
+        [{"user_id": "friend-one", "status": "left", "left_recently": True}],
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            invitee_user_ids=["friend-one", "friend-two"],
+        )
+
+    # It got PAST the cooldown guard, which used to end the request here.
+    assert raised.value.code != "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY"
+
+    # And carried only the eligible person forward. The connection lookup is
+    # the first step after the guard, so its parameters are where the filtered
+    # roster first becomes observable.
+    connection_params = [
+        params
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "FROM one_location_connections" in sql or "connection.id AS connection_id" in sql
+    ]
+    assert connection_params, "expected the connection lookup to run"
+    assert connection_params[0]["invitee_user_ids"] == ["friend-two"]
+
+
+def test_an_add_naming_only_blocked_people_still_fails_loudly():
+    """Filtering must not turn a doomed request into a silent success.
+
+    With everyone named removed, there is nothing to do -- and returning an
+    empty success would tell the person their add worked when nobody was
+    added. The precise error each rule always raised is still raised.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}],
+        None,
+        [{"user_id": "friend-one", "status": "active", "left_recently": False}],
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            invitee_user_ids=["friend-one"],
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_ALREADY_MEMBER"
+    assert raised.value.status_code == 409
+    # Unnamed, like every other refusal about somebody else's history.
+    assert "friend-one" not in raised.value.args[0]

@@ -29,6 +29,7 @@ from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
     is_voice_entirely_disabled,
@@ -64,6 +65,10 @@ from hushh_mcp.services.one_location_circle_service import (
 from hushh_mcp.services.one_location_nearby_presence_service import (
     NearbyPresenceError,
     OneLocationNearbyPresenceService,
+)
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
 )
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
@@ -396,7 +401,7 @@ async def _verify_backend_direct_authorization(
     session_user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
     if not session_user_id:
         return False, "", "The user is not signed in."
-    token = str(tool_context.state.get(_STATE_CONSENT_TOKEN) or "").strip()
+    token = resolve_request_secret(tool_context.state.get(_STATE_CONSENT_TOKEN))
     if not token:
         return False, "", "The vault is locked. Unlock it, then try again."
     valid, _reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
@@ -1448,6 +1453,109 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
         "connections",
         lambda: ConnectionsService().list_connections(user_id=user_id),
     )
+
+
+async def discover_person_information(
+    person: str,
+    tool_context: ToolContext,
+    domain: str = "",
+) -> dict[str, Any]:
+    """Resolve a connected person and list the exact information they expose for requests.
+
+    This is discovery only. It returns opaque ``scopeRef`` values and a public
+    profile route; it never creates consent, exposes raw ``attr.*`` scopes, or
+    reads a granted value. The profile review surface remains the sole place
+    where the requester selects fields and confirms a request.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    try:
+        connections = ConnectionsService().list_connections(user_id=user_id)
+        resolution = resolve_spoken_names(
+            connections,
+            person,
+            lambda item: str(item.get("displayName") or ""),
+        )
+        if resolution.unresolved:
+            unresolved = resolution.unresolved[0]
+            if unresolved.kind == "ambiguous":
+                return {
+                    "status": "needs_clarification",
+                    "message": (
+                        "More than one connection matched. Ask which person they mean: "
+                        f"{
+                            ambiguous_match_names(
+                                unresolved.matches, lambda item: str(item.get('displayName') or '')
+                            )
+                        }."
+                    ),
+                }
+            return {
+                "status": "not_found",
+                "message": f"{unresolved.spoken_text or person} is not in your connections.",
+            }
+        if len(resolution.resolved) != 1:
+            return {
+                "status": "needs_clarification",
+                "message": "Name one connection whose requestable information you want to inspect.",
+            }
+
+        connection = resolution.resolved[0]
+        person_ref = str(connection.get("publicPersonRef") or "").strip()
+        if not person_ref:
+            return {
+                "status": "unavailable",
+                "message": "That person's request profile is not ready yet.",
+            }
+        profile = await PersonProfileService().get_viewer_profile(
+            viewer_user_id=user_id,
+            public_person_ref=person_ref,
+        )
+        requested_domain = normalize_spoken_name(domain)
+        scopes = []
+        for item in profile.get("requestableScopes") or []:
+            item_domain = str(item.get("domain") or "").strip()
+            if requested_domain and requested_domain not in normalize_spoken_name(item_domain):
+                continue
+            scopes.append(
+                {
+                    "scopeRef": item.get("scopeRef"),
+                    "label": item.get("label") or "Information",
+                    "description": item.get("description"),
+                    "domain": item_domain or "Other",
+                    "sensitivity": item.get("sensitivity") or "standard",
+                }
+            )
+        return {
+            "status": "ok",
+            "person": {
+                "displayName": profile.get("displayName")
+                or connection.get("displayName")
+                or "Hussh member",
+                "personRef": person_ref,
+                "profilePath": f"/people/{person_ref}",
+                "relationship": (profile.get("relationship") or {}).get("status"),
+            },
+            "domainFilter": domain.strip() or None,
+            "requestableScopes": scopes,
+            "scopeCount": len(scopes),
+            "nextStep": (
+                "Present these exact fields grouped by domain, then link to profilePath. "
+                "The person must select fields and confirm the request on that profile."
+            ),
+        }
+    except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
+        return {"status": "failed", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("discover_person_information failed")
+        return {
+            "status": "failed",
+            "message": "That information catalog is temporarily unavailable. Please try again.",
+        }
 
 
 async def list_pending_connection_requests(

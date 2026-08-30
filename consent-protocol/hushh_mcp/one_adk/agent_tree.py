@@ -55,6 +55,7 @@ from hushh_mcp.agents.onboarding.agent import (
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
+    discover_person_information,
     get_location_circle_members,
     journey_for_specialist_request,
     list_app_actions,
@@ -69,6 +70,7 @@ from hushh_mcp.one_adk.action_tools import (
     start_app_goal,
 )
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
     specialist_label,
@@ -290,12 +292,13 @@ _ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(
 ONE_IDENTITY_INSTRUCTION: str = (
     # Agent identity is authored in AgentManifestV2. The remainder is dynamic
     # runtime/tool policy that cannot be represented as another authored agent.
-    str(_ONE_MANIFEST.system_instruction).strip()
+    str(_ONE_MANIFEST.system_instruction).strip()  # nosec B608 - prompt text, not SQL
     + '\n\nIf anyone asks your name or who you are, answer simply: "I\'m One." '
     "Never call yourself Kai, Gemini, or any other name. Speak warmly, "
     "concisely, and in plain English.\n\n"
     # Section 1b: durable persona, north stars, and authoritative roster.
-     + _ONE_PERSONA_GROUNDING + "\n\n"
+    + _ONE_PERSONA_GROUNDING  # nosec B608 - prompt text, not SQL
+    + "\n\n"
     # Section 2: conversational rules.
     "Visible controls take priority over introductions. Use your intelligence in "
     "the current turn to assess what the person means: whether they are asking "
@@ -564,6 +567,13 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "tool says; never guess which circle was meant. Summarize what these "
     "tools return in plain language; never invent a name, count, or status "
     "they did not report.\n\n"
+    "When the person asks what information can be requested from a named connection, "
+    "or narrows that request to a domain such as financial or identity, call "
+    "discover_person_information with the name and optional domain. Present only the exact "
+    "labels, descriptions, domain groups, and sensitivity returned. Never invent a scope, "
+    "show a raw scope identifier, or imply that a social connection grants access. End with "
+    "a Markdown link using the returned profilePath so the person can select exact fields "
+    "and confirm the consent request. Do not claim a request was sent from discovery alone.\n\n"
     # Guide mode: some actions cannot be triggered by the app at all, only by
     # the person (run_app_action reports these as 'manual_only', e.g. picking
     # a file or connecting a third-party account). This is not a dead end.
@@ -634,7 +644,9 @@ def _one_runtime_instruction(context: Any) -> str:
     """Inject bounded server-sanitized route, layer, and action guidance."""
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
-    pkm_context = state_getter(STATE_PKM_CONTEXT) if callable(state_getter) else None
+    pkm_context = resolve_request_secret(
+        state_getter(STATE_PKM_CONTEXT) if callable(state_getter) else None
+    )
     pkm_instruction = ""
     if isinstance(pkm_context, str) and pkm_context.strip():
         pkm_instruction = (
@@ -865,7 +877,7 @@ async def resolve_onboarding_goal(
             "status": "disabled",
             "message": "Onboarding goals are not enabled for this session.",
         }
-    consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(tool_context.state.get(STATE_CONSENT_TOKEN))
     phase = str(onboarding.get("phase") or "anonymous_auth")
     # One's current ADK turn supplies semantic fields. The deterministic layer
     # validates them but never reclassifies the request with keywords.
@@ -935,7 +947,7 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
     """
     state = tool_context.state
     user_id = str(state.get(STATE_USER_ID) or "").strip()
-    consent_token = str(state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(state.get(STATE_CONSENT_TOKEN))
     if not user_id or not consent_token:
         return None
     conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
@@ -958,7 +970,7 @@ async def _specialist_turn(
 
     voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
-    consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(tool_context.state.get(STATE_CONSENT_TOKEN))
     availability = resolve_specialist_availability(
         agent_id=agent_id,
         user_id=user_id,
@@ -1381,6 +1393,15 @@ def _build_ria_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
+def _resolve_text_model(model: Any | None) -> Any:
+    """Resolve text-model authority without requiring cloud ADC in test collection."""
+    if model is not None:
+        return model
+    if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
+        return _SPECIALIST_MODEL
+    return build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+
+
 def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     """Build One's semantic but lower-privilege pre-vault text head.
 
@@ -1390,7 +1411,7 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     """
     return LlmAgent(
         name="one_intro",
-        model=model or build_managed_gemini_adk_model(_SPECIALIST_MODEL),
+        model=_resolve_text_model(model),
         description="One's informational, pre-vault private-agent surface.",
         instruction=(
             "You are One, the private agent inside Hussh. This is an informational "
@@ -1459,7 +1480,7 @@ def _financial_readiness_instruction(context: Any) -> str:
 def _bounded_finance_context(context: Any) -> str:
     state = getattr(context, "state", None)
     getter = getattr(state, "get", None)
-    pkm_context = getter(STATE_PKM_CONTEXT) if callable(getter) else None
+    pkm_context = resolve_request_secret(getter(STATE_PKM_CONTEXT) if callable(getter) else None)
     if not isinstance(pkm_context, str) or not pkm_context.strip():
         return _financial_readiness_instruction(context)
     return _financial_readiness_instruction(context) + (
@@ -1573,6 +1594,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         list_pending_location_requests,
         list_my_outgoing_location_requests,
         list_my_connections,
+        discover_person_information,
         list_pending_connection_requests,
         calendar_summary,
         calendar_events,
@@ -1607,7 +1629,10 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
     surfaces run the specialist-generation model with the identical
     instruction and roster - ONE decision-maker, two transport heads.
     """
-    text_model = model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    # Route modules construct both ADK apps during import so FastAPI can
+    # register the canonical endpoint. The shared resolver keeps that import
+    # credential-independent in tests while hosted runtimes stay explicit.
+    text_model = _resolve_text_model(model)
     return LlmAgent(
         name="one",
         model=text_model,

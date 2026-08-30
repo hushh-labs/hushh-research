@@ -73,7 +73,7 @@ describe("the requester's popup", () => {
     });
     expect(copy.title).toBe("More location time approved");
     expect(copy.description).toBe(
-      "Neelesh Meena gave you 4 hours more of their live location.",
+      "Neelesh Meena gave you 4 hours more of live location.",
     );
   });
 
@@ -86,7 +86,7 @@ describe("the requester's popup", () => {
       nowMs: NOW,
     });
     expect(copy.description).toBe(
-      "Neelesh Meena shared their live location with you 1 hour.",
+      "Neelesh Meena shared live location with you 1 hour.",
     );
   });
 

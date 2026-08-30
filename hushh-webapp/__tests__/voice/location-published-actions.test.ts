@@ -7,6 +7,13 @@ import {
   deriveLocationVoiceActions,
 } from "@/lib/voice/location-voice-actions";
 
+// Mirrors PUBLISHABLE_EXECUTION_PATHS in location-voice-actions.ts.
+// `control` is in the set: agent-action-runtime dispatches it through the
+// same handler registry as `local_handler`, so a control action with a
+// handler runs like a local one. Leaving it out silently dropped
+// location.find_contacts from every Location screen.
+const PUBLISHABLE_PATHS = new Set(["local_handler", "route", "control"]);
+
 /**
  * LOCATION_VOICE_ACTIONS used to be a hand-typed 23-entry list that drifted
  * out of sync with the real contract three times (#6080, #6106-#6112). It is
@@ -23,8 +30,7 @@ describe("LOCATION_VOICE_ACTIONS stays in sync with the generated gateway", () =
       .filter(
         (action) =>
           action.execution_target.status === "wired" &&
-          (action.execution_target.path === "local_handler" ||
-            action.execution_target.path === "route") &&
+          PUBLISHABLE_PATHS.has(action.execution_target.path) &&
           action.execution_policy !== "manual_only" &&
           !LOCATION_VOICE_ACTIONS_EXCLUDE_IDS.has(action.action_id),
       )
@@ -45,14 +51,29 @@ describe("LOCATION_VOICE_ACTIONS stays in sync with the generated gateway", () =
     expect(LOCATION_VOICE_ACTIONS.length).toBeGreaterThan(25);
   });
 
-  it("includes location.checkout_nearby now that it has a real voice handler", () => {
-    // Used to be excluded: wired in the contract, but its UI called
-    // OneLocationService.checkoutNearby() directly with no
-    // useLocalOnboardingActionHandler registration anywhere. It now has one
-    // in nearby-check-in-sheet.tsx, so LOCATION_VOICE_ACTIONS_EXCLUDE_IDS no
-    // longer carries this id -- confirm both sides of that.
+  it("includes location.checkout_nearby, which executes backend-direct", () => {
+    // Was excluded on the mistaken reading that no local handler meant the
+    // action was broken. It is in BACKEND_DIRECT_ACTION_IDS -- it mutates
+    // server-side and never needed a frontend registration at all.
     expect(LOCATION_VOICE_ACTIONS_EXCLUDE_IDS.has(CHECKOUT_NEARBY)).toBe(false);
     expect(LOCATION_VOICE_ACTIONS.some((action) => action.actionId === CHECKOUT_NEARBY)).toBe(
+      true,
+    );
+  });
+
+  it("publishes control-path actions, not just local_handler and route", () => {
+    // location.find_contacts is execution_target.path "control". It was wired,
+    // given a handler, and made visible in the gateway -- and still never
+    // offered on any Location screen, because the publish filter admitted only
+    // two of the three runnable paths. The action existed, worked, and was
+    // silently never suggested.
+    const FIND_CONTACTS = "location.find_contacts";
+    const contract = listKaiActionsForSurface({ screen: "one_location" }).find(
+      (action) => action.action_id === FIND_CONTACTS,
+    );
+    expect(contract?.execution_target.status).toBe("wired");
+    expect(contract?.execution_target.path).toBe("control");
+    expect(LOCATION_VOICE_ACTIONS.some((action) => action.actionId === FIND_CONTACTS)).toBe(
       true,
     );
   });
@@ -102,8 +123,7 @@ describe("deriveLocationVoiceActions stays in sync for the map and check-in scre
         .filter(
           (action) =>
             action.execution_target.status === "wired" &&
-            (action.execution_target.path === "local_handler" ||
-              action.execution_target.path === "route") &&
+            PUBLISHABLE_PATHS.has(action.execution_target.path) &&
             action.execution_policy !== "manual_only" &&
             !LOCATION_VOICE_ACTIONS_EXCLUDE_IDS.has(action.action_id),
         )

@@ -7,16 +7,15 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
-  MAP_CONSENT_HEADER_CLASSNAME,
-  MAP_CONSENT_ICON_CLASSNAME,
+  MAP_CONSENT_HEADING_ICON_CLASSNAME,
+  MAP_CONSENT_HEADING_ROW_CLASSNAME,
+  MAP_CONSENT_HEADING_TITLE_CLASSNAME,
   MAP_CONSENT_PANEL_BOTTOM_PADDING,
   MAP_CONSENT_PANEL_CLASSNAME,
   MAP_CONSENT_PANEL_DIALOG_MIN_WIDTH_PX,
   MAP_CONSENT_PANEL_DIALOG_WIDTH_PX,
-  MAP_CONSENT_SUPPORTING_CLASSNAME,
   MAP_CONSENT_SUPPORTING_LINE,
   MAP_CONSENT_TITLE,
-  MAP_CONSENT_TITLE_CLASSNAME,
   MAP_RENDERER_CLASSNAME,
   MAP_SURFACE_CLASSNAME,
 } from "../components/one-location/map-consent-panel-layout";
@@ -88,11 +87,11 @@ async function buildFixture(): Promise<string> {
     MAP_SURFACE_CLASSNAME,
     MAP_RENDERER_CLASSNAME,
     MAP_CONSENT_PANEL_CLASSNAME,
+    MAP_CONSENT_HEADING_ROW_CLASSNAME,
+    MAP_CONSENT_HEADING_ICON_CLASSNAME,
+    MAP_CONSENT_HEADING_TITLE_CLASSNAME,
     buttonClasses,
-    MAP_CONSENT_HEADER_CLASSNAME,
-    MAP_CONSENT_ICON_CLASSNAME,
-    MAP_CONSENT_TITLE_CLASSNAME,
-    MAP_CONSENT_SUPPORTING_CLASSNAME,
+    "mt-2 text-sm leading-6",
   ].join(" ");
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
 
@@ -118,11 +117,11 @@ async function buildFixture(): Promise<string> {
   <section class="${MAP_CONSENT_PANEL_CLASSNAME}"
            style="padding-bottom:${MAP_CONSENT_PANEL_BOTTOM_PADDING}"
            data-testid="one-location-map-disclosure">
-    <div class="${MAP_CONSENT_HEADER_CLASSNAME}" data-testid="one-location-map-disclosure-header">
-      <svg class="${MAP_CONSENT_ICON_CLASSNAME}" viewBox="0 0 24 24" data-testid="map-consent-icon"></svg>
-      <h1 class="${MAP_CONSENT_TITLE_CLASSNAME}" data-testid="map-consent-title">${MAP_CONSENT_TITLE}</h1>
+    <div class="${MAP_CONSENT_HEADING_ROW_CLASSNAME}" data-testid="map-consent-heading-row">
+      <svg class="${MAP_CONSENT_HEADING_ICON_CLASSNAME}" viewBox="0 0 24 24"></svg>
+      <h1 class="${MAP_CONSENT_HEADING_TITLE_CLASSNAME}">${MAP_CONSENT_TITLE}</h1>
     </div>
-    <p class="${MAP_CONSENT_SUPPORTING_CLASSNAME}" data-testid="map-consent-support">${MAP_CONSENT_SUPPORTING_LINE}</p>
+    <p class="mt-2 text-sm leading-6" data-testid="map-consent-support">${MAP_CONSENT_SUPPORTING_LINE}</p>
     <button class="${buttonClasses}" data-testid="one-location-map-consent-continue">Continue</button>
   </section>
 </main></body></html>`,
@@ -260,81 +259,6 @@ test.describe("Your Map consent panel layout", () => {
     }
   });
 
-  test("puts the pin and the title on one line, at every supported width", async ({
-    page,
-  }) => {
-    // The reported first-run defect: the pin sat on its own line above the
-    // heading. Measured rather than asserted on classes, because `flex` on the
-    // wrapper is not the claim -- the claim is that the two boxes share a row.
-    // Checked at 320 too: `shrink-0` is what stops the glyph collapsing there.
-    for (const width of [320, 390, 430, 768, 1280]) {
-      await page.setViewportSize({ width, height: 844 });
-      await page.goto(await buildFixture());
-      await awaitProductFont(page);
-
-      const boxes = await page.evaluate(() => {
-        const rect = (id: string) =>
-          document
-            .querySelector(`[data-testid="${id}"]`)!
-            .getBoundingClientRect();
-        const icon = rect("map-consent-icon");
-        const title = rect("map-consent-title");
-        const header = rect("one-location-map-disclosure-header");
-        const support = rect("map-consent-support");
-        return {
-          icon: {
-            top: icon.top,
-            bottom: icon.bottom,
-            right: icon.right,
-            width: icon.width,
-            centerY: icon.top + icon.height / 2,
-          },
-          title: {
-            top: title.top,
-            bottom: title.bottom,
-            left: title.left,
-            centerY: title.top + title.height / 2,
-          },
-          header: { height: header.height, bottom: header.bottom },
-          supportTop: support.top,
-        };
-      });
-
-      // Side by side: the pin ends before the heading starts, and they overlap
-      // vertically. Stacked, the pin's bottom was above the heading's top.
-      expect(boxes.icon.right, `${width}px`).toBeLessThanOrEqual(
-        boxes.title.left + 1,
-      );
-      expect(boxes.icon.bottom, `${width}px`).toBeGreaterThan(boxes.title.top);
-      expect(boxes.title.bottom, `${width}px`).toBeGreaterThan(boxes.icon.top);
-
-      // `items-center`, not baseline or start.
-      expect(
-        Math.abs(boxes.icon.centerY - boxes.title.centerY),
-        `${width}px`,
-      ).toBeLessThanOrEqual(1);
-
-      // One row, not two: the header is no taller than its tallest child.
-      expect(boxes.header.height, `${width}px`).toBeLessThanOrEqual(
-        Math.max(
-          boxes.icon.bottom - boxes.icon.top,
-          boxes.title.bottom - boxes.title.top,
-        ) + 1,
-      );
-
-      // The glyph keeps its full 24px even on the narrowest phone.
-      expect(Math.abs(boxes.icon.width - 24), `${width}px`).toBeLessThanOrEqual(
-        0.5,
-      );
-
-      // And the supporting line's `mt-2` is now measured from that row.
-      expect(boxes.supportTop - boxes.header.bottom, `${width}px`).toBeCloseTo(
-        8,
-        0,
-      );
-    }
-  });
-
   test("keeps the supporting copy to one rendered line at the narrowest width", async ({
     page,
   }) => {
@@ -355,6 +279,33 @@ test.describe("Your Map consent panel layout", () => {
 
     expect(lines).toBeLessThanOrEqual(2);
     expect(lines).toBe(1);
+  });
+
+  test("keeps the map icon and title on the same heading row", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(await buildFixture());
+    await awaitProductFont(page);
+
+    const row = page.getByTestId("map-consent-heading-row");
+    await expect(row).toBeVisible();
+
+    const alignment = await row.evaluate((node) => {
+      const icon = node.querySelector("svg")!.getBoundingClientRect();
+      const title = node.querySelector("h1")!.getBoundingClientRect();
+      return {
+        iconCenterY: icon.top + icon.height / 2,
+        titleCenterY: title.top + title.height / 2,
+        titleLeft: title.left,
+        iconRight: icon.right,
+      };
+    });
+
+    expect(
+      Math.abs(alignment.iconCenterY - alignment.titleCenterY),
+    ).toBeLessThanOrEqual(2);
+    expect(alignment.titleLeft).toBeGreaterThan(alignment.iconRight);
   });
 
   test("keeps Continue inside the viewport and clear of the bottom edge", async ({

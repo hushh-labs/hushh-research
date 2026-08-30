@@ -15,12 +15,23 @@ describe("deriveSyncDisplay", () => {
       NOW,
     );
     expect(d.tone).toBe("active");
-    expect(d.label).toMatch(/^Active · last synced /);
+    expect(d.label).toMatch(/^Trusted · last synced /);
   });
 
-  it("shows 'not yet synced' for an active device that never synced", () => {
+  it("never claims live reachability for a trusted device", () => {
+    // status="active" means authorized, not running. The label must not imply
+    // the agent is reachable right now -- there is no liveness channel.
+    const d = deriveSyncDisplay(
+      { status: "active", last_synced_at: NOW - 2 * 86_400_000 },
+      NOW,
+    );
+    expect(d.label).not.toMatch(/^Active\b/);
+    expect(d.label).toContain("Trusted");
+  });
+
+  it("shows 'not yet synced' for a trusted device that never synced", () => {
     const d = deriveSyncDisplay({ status: "active", last_synced_at: null }, NOW);
-    expect(d).toEqual({ label: "Active · not yet synced", tone: "neutral" });
+    expect(d).toEqual({ label: "Trusted · not yet synced", tone: "neutral" });
   });
 
   it("reports a sealed device as reported, never asserts sealing as fact", () => {

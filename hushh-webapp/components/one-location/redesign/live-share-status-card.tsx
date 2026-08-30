@@ -26,7 +26,6 @@ import {
   formatShareDuration,
   formatShareEndsAt,
   parseTimestamp,
-  shareProgressRatio,
 } from "@/lib/one-location/share-countdown";
 import { useShareClock } from "@/lib/one-location/use-share-clock";
 import {
@@ -37,11 +36,9 @@ import {
   LIVE_SHARE_FOOTER_CLASSNAME,
   LIVE_SHARE_FOOTER_ROW_CLASSNAME,
   LIVE_SHARE_HEADER_CLASSNAME,
-  LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
-  LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
   LIVE_SHARE_TITLE_CLASSNAME,
 } from "./live-share-card-layout";
-import { CARD_SURFACE, MUTED_TEXT } from "./tokens";
+import { CARD_SURFACE } from "./tokens";
 
 export type LiveShareStatus = {
   /** How many of your shares are live right now. */
@@ -154,7 +151,6 @@ export function LiveShareStatusCard({
     onEnded?.();
   }, [ended, onEnded]);
 
-  const progress = shareProgressRatio(startedAtMs, endsAtMs, nowMs);
   const clock = openEnded
     ? formatShareDuration(elapsedMs)
     : formatShareDuration(Math.max(0, remainingMs ?? 0));
@@ -266,7 +262,12 @@ export function LiveShareStatusCard({
         {title}
       </p>
 
-      <p className={LIVE_SHARE_CLOCK_ROW_CLASSNAME}>
+      <p
+        className={LIVE_SHARE_CLOCK_ROW_CLASSNAME}
+        data-ui-contract="required-copy"
+        data-ui-id="location-live-share-time-summary"
+        data-ui-truncation="forbid"
+      >
         <span
           // The visible clock changes every second; a live region here would
           // announce it every second too. The sentence below carries the value
@@ -280,58 +281,25 @@ export function LiveShareStatusCard({
         >
           {clock}
         </span>
-        <span aria-hidden="true" className={cn(MUTED_TEXT, "shrink-0")}>
+        <span aria-hidden="true" className="shrink-0">
           {openEnded ? "so far" : "left"}
         </span>
-        <span className="sr-only">{spoken}</span>
-      </p>
-
-      {progress !== null ? (
-        <div
-          aria-hidden="true"
-          className={LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}
-        >
-          <div
-            data-testid="one-location-live-share-progress"
-            className={LIVE_SHARE_PROGRESS_FILL_CLASSNAME}
-            style={{ width: `${Math.round(progress * 100)}%` }}
-          />
-        </div>
-      ) : null}
-
-      {footer || onChangeDuration ? (
-        <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
-          {footer ? (
-            <p
-              data-ui-contract="required-copy"
+        {footer ? (
+          <>
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
+            <span
+              aria-hidden="true"
               data-ui-id="location-live-share-ends"
-              data-ui-truncation="forbid"
-              data-ui-role="description"
-              className={cn(MUTED_TEXT, LIVE_SHARE_FOOTER_CLASSNAME)}
+              className={cn(LIVE_SHARE_FOOTER_CLASSNAME, "min-w-0")}
             >
               {footer}
-            </p>
-          ) : null}
-
-          {onChangeDuration ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={runChildAction(onChangeDuration)}
-              className={cn(
-                LIVE_SHARE_ACTION_CLASSNAME,
-                "ml-auto text-[color:var(--app-accent)]",
-              )}
-              data-ui-contract="occlusion-sensitive"
-              data-ui-role="control"
-              data-ui-id="location-live-share-duration"
-              data-testid="one-location-live-share-change-time"
-            >
-              Change time
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+            </span>
+          </>
+        ) : null}
+        <span className="sr-only">{spoken}</span>
+      </p>
 
       {onShareMore ? (
         <Button
@@ -345,6 +313,26 @@ export function LiveShareStatusCard({
         >
           Share with more
         </Button>
+      ) : null}
+
+      {onChangeDuration ? (
+        <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={runChildAction(onChangeDuration)}
+            className={cn(
+              LIVE_SHARE_ACTION_CLASSNAME,
+              "mx-auto text-[color:var(--app-accent)]",
+            )}
+            data-ui-contract="occlusion-sensitive"
+            data-ui-role="control"
+            data-ui-id="location-live-share-duration"
+            data-testid="one-location-live-share-change-time"
+          >
+            Change time
+          </Button>
+        </div>
       ) : null}
     </section>
   );

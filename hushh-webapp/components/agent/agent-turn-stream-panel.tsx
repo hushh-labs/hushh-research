@@ -1,8 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useMemo, type ReactNode } from "react";
 
 import {
   AppStreamPanel,
@@ -32,7 +30,6 @@ export type AgentTurnStreamPanelProps = {
   sources?: AgentSource[];
 };
 
-const MAX_VISIBLE_THINKING_CHARACTERS = 4_000;
 const MAX_VISIBLE_SOURCES = 8;
 
 const SOURCE_SUMMARIES: Record<string, { badge: string; message: string }> = {
@@ -52,11 +49,6 @@ function cleanVisibleText(value: string | null | undefined, fallback: string): s
 
 function normalizeToolLabel(toolEvent: AgentChatToolEvent): string {
   return cleanVisibleText(toolEvent.label, "Action");
-}
-
-function truncateVisibleText(value: string, limit: number): string {
-  if (value.length <= limit) return value;
-  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
 function normalizeSpecialistSources(sources: AgentSource[]): AppStreamProgressItem[] {
@@ -125,9 +117,6 @@ export function AgentTurnStreamPanel({
   thinkingText,
   sources = [],
 }: AgentTurnStreamPanelProps) {
-  // Provider thought summaries can arrive in many tiny SSE frames. Deferring
-  // their markdown formatting keeps answer-token rendering responsive.
-  const deferredThinkingText = useDeferredValue(thinkingText ?? "");
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
       streamEvents.map((event) => ({
@@ -138,29 +127,15 @@ export function AgentTurnStreamPanel({
       })),
     [streamEvents]
   );
-  const visibleThinkingText = useMemo(
-    () => truncateVisibleText(deferredThinkingText.trim(), MAX_VISIBLE_THINKING_CHARACTERS),
-    [deferredThinkingText]
-  );
   const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
-  const thinkingContent = visibleThinkingText ? (
-    <div
-      className="max-h-28 overflow-y-auto overscroll-contain pr-1 text-sm leading-6 text-muted-foreground"
-      aria-label="Working notes"
-    >
-      <div className="prose prose-sm max-w-none break-words text-muted-foreground prose-p:my-1.5 prose-headings:my-2 prose-headings:text-foreground prose-strong:text-foreground prose-li:my-0.5 dark:prose-invert">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleThinkingText}</ReactMarkdown>
-      </div>
-    </div>
-  ) : undefined;
+  // Provider reasoning is deliberately not rendered. Consumer activity is
+  // limited to sanitized tool, memory, and specialist lifecycle facts.
+  void thinkingText;
 
   return (
     <AppStreamPanel
-      title="Agent response stream"
-      progressItems={progressItems}
-      thinkingContent={thinkingContent}
-      evidenceItems={specialistItems}
-      evidenceTitle="Sources consulted"
+      title="One activity"
+      progressItems={[...progressItems, ...specialistItems]}
       responseText={responseText}
       response={response}
       responsePendingLabel="One is preparing your response."

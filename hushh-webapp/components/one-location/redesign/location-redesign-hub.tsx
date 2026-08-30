@@ -13,9 +13,9 @@
  *   NOT call services, encrypt, or mutate consent state. It only renders and
  *   delegates to the existing handlers, so the feature's functionality, consent
  *   gating, analytics, and crypto are unchanged.
- * - The global shell owns the visible tab strip. This route consumes the same
- *   central registry only to render the active swipe panel; focused task flows
- *   hide the shell tabs through their `?action=` route state.
+ * - The Location hub owns the visible tab strip directly under its module
+ *   header. It still consumes the central registry so labels, destinations,
+ *   selection, swipes, and deep links cannot drift from the shared top shell.
  */
 
 import {
@@ -27,15 +27,19 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import {
   Loader2,
+  Copy,
+  Link2,
   MapPin,
   Pencil,
   Plus,
   Send,
+  Share2,
   Check,
   ShieldCheck,
   UserRoundPlus,
@@ -49,6 +53,7 @@ import {
   shortAgo,
   type RequestRecipientStatus,
 } from "@/lib/one-location/request-recipient-status";
+import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
   formatLocationDurationLabel,
@@ -62,6 +67,7 @@ import {
 } from "@/lib/one-location/grant-lanes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -89,7 +95,6 @@ import {
   RowDescription,
   RowLabel,
   SectionLabel,
-  SectionTitle,
   TrailingValue,
 } from "@/components/app-ui/typography";
 import type {
@@ -108,6 +113,7 @@ import type {
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationRecipient,
+  OneLocationShareDurationMode,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
@@ -131,7 +137,6 @@ import {
   initialsFrom,
   RequestCard,
   SharedWithMeCard,
-  TemporaryLinkCard,
   type GrantViewStatus,
 } from "./cards";
 
@@ -149,7 +154,7 @@ import {
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
-import { REQUEST_DURATION_LADDER } from "./duration-presets";
+import { FULL_DURATION_LADDER } from "./duration-presets";
 import {
   AskForMoreTime,
   type RequestMoreTimeHours,
@@ -278,7 +283,7 @@ export type LocationHubViewModel = {
    * The device has refused location and only its settings can undo that.
    * Distinct from `locationEnabled`, which is the preview control's own state:
    * a user whose location works perfectly still starts with the preview off,
-   * and must not be told their location is blocked.
+   * and must not be told location is blocked.
    */
   locationBlocked: boolean;
   /**
@@ -426,8 +431,14 @@ export type LocationHubViewModel = {
   /** Resolves true when at least one request actually reached the server. */
   onSendRequest: (reason?: string | null) => Promise<boolean>;
   onAskReshare: (grant: OneLocationGrant) => void;
-  onApprove: (request: OneLocationAccessRequest) => void;
-  onDeny: (requestId: string) => void;
+  onApprove: (
+    request: OneLocationAccessRequest,
+    options?: {
+      durationHoursOverride?: number;
+      durationModeOverride?: OneLocationShareDurationMode;
+    },
+  ) => void | boolean | Promise<void | boolean>;
+  onDeny: (requestId: string) => void | boolean | Promise<void | boolean>;
   /**
    * Take back a request YOU sent. Not `onDeny`, which is the owner refusing an
    * ask made of them -- these are opposite ends of the same request.
@@ -435,7 +446,7 @@ export type LocationHubViewModel = {
   onWithdrawRequest: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
   onStopGrant: (grantId: string) => void;
-  /** Grant currently showing the inline duration editor, or null. */
+  /** Grant currently showing the duration editor, or null. */
   editingGrantId: string | null;
   /**
    * Which amount is in flight, as `grantId:hours`.
@@ -466,7 +477,7 @@ export type LocationHubViewModel = {
   /*
    * The same edit, for the share you are giving rather than the one you are
    * receiving. It is separate state because it is a different consent: the
-   * block above asks someone else for more of their location, this one revises
+   * block above asks someone else for more of location, this one revises
    * your own, so it applies straight away and never turns into a request.
    */
   /** True while the live share card's inline time editor is open. */
@@ -626,6 +637,8 @@ export type LocationHubViewModel = {
     showNavigation?: boolean,
     viewportResetKey?: string | number,
     staleAction?: ReactNode,
+    /** True when the caller already draws the card around the preview. */
+    nested?: boolean,
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
@@ -938,6 +951,17 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const nearbyPrivateCheckIn =
     searchParams.get(FLOW_ACTION_PARAM) === PRIVATE_CHECK_IN_ACTION &&
     searchParams.get(FLOW_SOURCE_PARAM) === NEARBY_CHECK_IN_SOURCE;
+  // Editing emergency contacts from SOS is a detour, not a destination.
+  //
+  // "Edit contacts" opens ?action=sms-contacts&source=sos, which then
+  // redirects to the SMS Circle -- and openCircleDetail pins the hub tab
+  // to "people", because that is where circles live. Closing therefore
+  // returned to the People tab and dropped the person out of the SOS flow
+  // they were part-way through. The source param already rode along; only
+  // the way back never read it. Mirrors nearbyPrivateCheckIn above.
+  const editingSosContacts =
+    searchParams.get(FLOW_ACTION_PARAM) === FLOW_TO_ACTION["circle-detail"] &&
+    searchParams.get(FLOW_SOURCE_PARAM) === SOS_FLOW_SOURCE;
   const nearbyReturnToken = searchParams.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM);
   const nearbyCheckInReturnHref =
     nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
@@ -1425,7 +1449,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             circleId={String(searchParams.get("circleId") || "")}
             currentUserId={vm.userId}
             busy={vm.busy === "namedCircle"}
-            onBack={() => closeFlow("people")}
+            onBack={() =>
+              editingSosContacts ? openFlow("sos") : closeFlow("people")
+            }
             onLoad={vm.onLoadNamedCircle}
             onLoadOverview={vm.onLoadNamedCircleOverview}
             onLoadMembersPage={vm.onLoadNamedCircleMembersPage}
@@ -1465,6 +1491,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             collapsedGrantIds={collapsedGrantIds}
             onRequestLocation={() => openFlow("ask")}
+            onStartShare={() => {
+              vm.clearNamedCircleShareContext();
+              openShareFlow();
+            }}
             onCollapseGrant={(grantId) =>
               setCollapsedGrantIds((current) => new Set(current).add(grantId))
             }
@@ -1527,6 +1557,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         onOpenSettings={vm.onOpenLocationSettings}
       />
 
+      <TopShellTabs
+        tabSet={{
+          ...LOCATION_TAB_DEFINITION,
+          activeValue: tab,
+        }}
+      />
+
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews
           tabSetId={LOCATION_TAB_DEFINITION.id}
@@ -1544,7 +1581,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 openShareFlow();
               }}
               onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
-              onOpenSettings={vm.onOpenLocationSettings}
+              // The app's own Location settings, not the OS permission
+              // screen. This tile carries voiceActionId
+              // "location.open_settings", a route action to
+              // ?action=settings -- so asking for it by voice already
+              // opened the right screen while tapping it left the app
+              // entirely. onOpenLocationSettings stays where it belongs:
+              // the permission recovery cards, whose whole job is sending
+              // someone to the OS to grant access.
+              onOpenSettings={() => openFlow("settings")}
               onCheckIn={() =>
                 nearbyCheckInAvailable
                   ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
@@ -1585,12 +1630,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 const PEOPLE_HEADER_ACTION =
   "relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]";
 
-/** People-only grouped surface: compact geometry, shared semantic theme. */
-const PEOPLE_GROUP_SURFACE =
-  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none";
-
 const LOCATION_GROUP_SURFACE =
-  "overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:shadow-none";
+  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:shadow-none";
+
+const LOCATION_GROUP_SHELL_CLASSNAME =
+  "[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:!shadow-none";
 
 const LOCATION_INTERACTIVE_SURFACE =
   "bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:shadow-none";
@@ -1697,15 +1741,34 @@ function NowHub({
           onEnded={vm.onLiveShareEnded}
         />
       ) : null}
-      {vm.liveShare && vm.liveShareDurationEditing ? (
-        <LiveShareDurationEditor
-          value={vm.liveShareDurationHours}
-          onChange={vm.setLiveShareDurationHours}
-          onCancel={vm.onEditLiveShareDurationCancel}
-          onSave={vm.onSaveLiveShareDuration}
-          saving={vm.liveShareDurationSaving}
-        />
-      ) : null}
+      <Dialog
+        open={Boolean(vm.liveShare && vm.liveShareDurationEditing)}
+        onOpenChange={(open) => {
+          if (!open) vm.onEditLiveShareDurationCancel();
+        }}
+      >
+        <DialogContent
+          className="max-w-[min(420px,calc(100%-2rem))] gap-4 rounded-[24px] p-4 sm:max-w-[420px]"
+          showCloseButton={!vm.liveShareDurationSaving}
+        >
+          <DialogHeader className="gap-1 text-left">
+            <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
+              Change time
+            </DialogTitle>
+            <DialogDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+              Set a new end time for this share.
+            </DialogDescription>
+          </DialogHeader>
+          <LiveShareDurationEditor
+            value={vm.liveShareDurationHours}
+            onChange={vm.setLiveShareDurationHours}
+            onCancel={vm.onEditLiveShareDurationCancel}
+            onSave={vm.onSaveLiveShareDuration}
+            saving={vm.liveShareDurationSaving}
+            surface={false}
+          />
+        </DialogContent>
+      </Dialog>
       {/* Every row and cell below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -1738,11 +1801,7 @@ function NowHub({
             title: "Save My Soul",
             subtitle: "Emergency alert",
             ariaLabel: "Save My Soul emergency alert",
-            icon: (
-              <span className="text-[10px] font-semibold leading-none">
-                SMS
-              </span>
-            ),
+            icon: <SmsTextIcon />,
             tone: "red",
             onClick: onSos,
             controlId: "one-location-action-sos",
@@ -2152,6 +2211,7 @@ function LocationDetailFlow({
   focusGrantId,
   collapsedGrantIds,
   onRequestLocation,
+  onStartShare,
   onCollapseGrant,
   onExpandGrant,
 }: {
@@ -2162,6 +2222,9 @@ function LocationDetailFlow({
   focusGrantId?: string | null;
   collapsedGrantIds: Set<string>;
   onRequestLocation?: () => void;
+  /** Opens the share composer AND its flow. Seeding the composer alone
+   *  leaves the person on the same screen with nothing visibly changed. */
+  onStartShare?: () => void;
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
@@ -2312,7 +2375,7 @@ function LocationDetailFlow({
     },
     "shared-with-me": {
       title: "Shared with me",
-      description: "People sharing their location with you.",
+      description: "People sharing location with you.",
     },
     "needs-review": {
       title: "Needs review",
@@ -2342,7 +2405,12 @@ function LocationDetailFlow({
               return (
                 <SettingsRow
                   key={group.counterpartUserId}
-                  leading={<ActiveShareAvatar name={name} />}
+                  leading={
+                    <ActiveShareAvatar
+                      name={name}
+                      photoUrl={group.primaryGrant.recipientPhotoUrl}
+                    />
+                  }
                   title={name}
                   description={
                     single ? (
@@ -2392,7 +2460,11 @@ function LocationDetailFlow({
                 type="button"
                 size="sm"
                 className="rounded-full"
-                onClick={() => vm.startShareComposer()}
+                // startShareComposer alone only seeds the draft -- it never
+                // opened the flow, so this button did nothing at all.
+                onClick={() =>
+                  onStartShare ? onStartShare() : vm.startShareComposer()
+                }
               >
                 Share location
               </Button>
@@ -2430,6 +2502,7 @@ function LocationDetailFlow({
                   <SharedWithMeCard
                     isSmsTriggered={Boolean(group.smsGrant)}
                     name={ownerName}
+                    photoUrl={grant.ownerPhotoUrl}
                     statusLine={
                       multiLane ? (
                         `${group.grants.length} live shares`
@@ -2535,6 +2608,9 @@ function LocationDetailFlow({
                             )}
                             Ask to refresh
                           </Button>,
+                          // SharedWithMeCard already draws and clips the card
+                          // around this preview.
+                          true,
                         )
                       : null}
                   </SharedWithMeCard>
@@ -2545,7 +2621,7 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="No one is sharing with you"
-            description="Ask someone to share their location."
+            description="Ask someone to share location."
             action={
               onRequestLocation ? (
                 <Button
@@ -2568,6 +2644,7 @@ function LocationDetailFlow({
               <div key={request.id} data-request-id={request.id}>
                 <RequestCard
                   name={vm.requesterLabel(request)}
+                  photoUrl={request.requesterPhotoUrl}
                   // The amount, and whether it is extra time on a share already
                   // running. Every card used to read "Asks to see your location"
                   // whether the person wanted fifteen minutes or another day.
@@ -2575,6 +2652,18 @@ function LocationDetailFlow({
                   reason={request.message ?? undefined}
                   approveLabel={locationApproveActionLabel(request, vm.nowMs)}
                   onApprove={() => vm.onApprove(request)}
+                  oneHourApproveLabel={
+                    canApproveForOneHour(request) ? "Allow 1 hour" : undefined
+                  }
+                  onApproveOneHour={
+                    canApproveForOneHour(request)
+                      ? () =>
+                          vm.onApprove(request, {
+                            durationHoursOverride: 1,
+                            durationModeOverride: "timed",
+                          })
+                      : undefined
+                  }
                   onDecline={() => vm.onDeny(request.id)}
                 />
               </div>
@@ -2968,10 +3057,16 @@ function personInitials(name: string): string {
   return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
 }
 
-function ActiveShareAvatar({ name }: { name: string }) {
+function ActiveShareAvatar({
+  name,
+  photoUrl,
+}: {
+  name: string;
+  photoUrl?: string | null;
+}) {
   return (
     <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center">
-      <Avatar initials={personInitials(name)} size={40} />
+      <Avatar initials={personInitials(name)} imageUrl={photoUrl} size={40} />
       <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[#34C759]" />
     </span>
   );
@@ -3034,6 +3129,7 @@ function StopGrantTextButton({
 /** One person in the People list: avatar (+ live dot) · name · status · action. */
 function PersonRow({
   name,
+  photoUrl,
   fromContacts,
   subtitle,
   active,
@@ -3042,6 +3138,7 @@ function PersonRow({
   expansion,
 }: {
   name: string;
+  photoUrl?: string | null;
   fromContacts?: boolean;
   subtitle: string;
   /** True when there's a live connection (you're sharing or they're sharing). */
@@ -3056,6 +3153,9 @@ function PersonRow({
    */
   expansion?: ReactNode;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = Boolean(photoUrl) && !imageFailed;
+
   return (
     // The separator and the hover wash belong to the whole row INCLUDING its
     // breakdown: a person's two shares are one row, and a hairline cutting
@@ -3069,8 +3169,24 @@ function PersonRow({
     >
       <div className="flex min-h-[60px] items-center gap-3 px-4 py-2.5 sm:min-h-16">
         <div className="relative shrink-0">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]">
-            {personInitials(name)}
+          <span
+            className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]"
+            aria-hidden
+          >
+            {showImage && photoUrl ? (
+              <Image
+                src={photoUrl}
+                alt=""
+                fill
+                sizes="36px"
+                unoptimized
+                referrerPolicy="no-referrer"
+                className="object-cover"
+                onError={() => setImageFailed(true)}
+              />
+            ) : (
+              personInitials(name)
+            )}
           </span>
           {active ? (
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
@@ -3149,6 +3265,14 @@ function requestDurationLabel(request: OneLocationAccessRequest): string {
     return "Until stopped";
   }
   return formatLocationDurationLabel(request.requestedDurationHours);
+}
+
+function canApproveForOneHour(request: OneLocationAccessRequest): boolean {
+  if (request.requestedDurationMode === "until_stopped") {
+    return true;
+  }
+  const requestedHours = Number(request.requestedDurationHours);
+  return Number.isFinite(requestedHours) && requestedHours > 1;
 }
 
 function sentRequestStatusLine(
@@ -3383,7 +3507,7 @@ export function PeopleHub({
             <div className="col-span-3 row-start-3 mt-3 sm:col-span-4 sm:mt-3.5">
               {filtered.length ? (
                 <div
-                  className={PEOPLE_GROUP_SURFACE}
+                  className={LOCATION_GROUP_SURFACE}
                   data-testid="one-location-people-list"
                 >
                   {filtered.map((r, i) => {
@@ -3408,6 +3532,7 @@ export function PeopleHub({
                       <PersonRow
                         key={r.userId}
                         name={name}
+                        photoUrl={r.photoUrl}
                         fromContacts={r.connectedFromContacts}
                         expansion={
                           shareGroup && !singleGrant ? (
@@ -3428,7 +3553,7 @@ export function PeopleHub({
                             </div>
                           ) : null
                         }
-                        // Someone sharing their location with you right now
+                        // Someone sharing location with you right now
                         // used to read "Ready for private location sharing" —
                         // the recommendation line, which describes what COULD
                         // happen and so says the opposite of what is. The row
@@ -3672,54 +3797,135 @@ function publicLinkStatusLabel(label?: string | null): string {
   return label.replace(/^Stops in\b/i, "Expires in");
 }
 
-/** One active-link row: tinted icon tile · title · subtitle · Copy (design). */
+function LinkIdentityMark({
+  tone = "accent",
+}: {
+  tone?: "accent" | "success";
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]",
+        tone === "success"
+          ? "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)] dark:bg-[color:var(--app-success)]/15"
+          : "bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]",
+      )}
+    >
+      {tone === "success" ? (
+        <ShieldCheck className="h-[17px] w-[17px]" strokeWidth={2.1} />
+      ) : (
+        <Link2 className="h-[17px] w-[17px]" strokeWidth={2.1} />
+      )}
+    </span>
+  );
+}
+
+function PublicLinkActionRows({
+  onCopy,
+  onShare,
+  onRevoke,
+  revokeBusy,
+}: {
+  onCopy: () => boolean | Promise<boolean>;
+  onShare: () => void;
+  onRevoke: () => void;
+  revokeBusy?: boolean;
+}) {
+  const [copyLabel, setCopyLabel] = useState("Copy link");
+  const [copyBusy, setCopyBusy] = useState(false);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current) {
+        clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    if (copyBusy) return;
+    setCopyBusy(true);
+    try {
+      const copied = await onCopy();
+      if (!copied) return;
+      setCopyLabel("Copied");
+      if (copyResetRef.current) {
+        clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = setTimeout(() => {
+        setCopyLabel("Copy link");
+      }, 1600);
+    } finally {
+      setCopyBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 px-4 pb-4 pt-2">
+      <div className="grid grid-cols-1 gap-2 min-[340px]:grid-cols-2">
+        <Button
+          onClick={onShare}
+          className="ui-text-button-label h-12 rounded-[15px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        >
+          <Share2 className="mr-1.5 h-4 w-4" />
+          Share
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleCopy}
+          disabled={copyBusy}
+          aria-busy={copyBusy || undefined}
+          className="ui-text-button-label h-12 rounded-[15px]"
+        >
+          <Copy className="mr-1.5 h-4 w-4" />
+          {copyBusy ? "Copying…" : copyLabel}
+        </Button>
+      </div>
+      <div className="border-t border-[color:var(--app-separator)] pt-1">
+        <button
+          type="button"
+          onClick={onRevoke}
+          disabled={revokeBusy}
+          className="ui-text-button-label min-h-11 w-full text-left text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+        >
+          {revokeBusy ? "Revoking…" : "Revoke link"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** One active-link row: shared grouped row · title · subtitle · Copy. */
 function ActiveLinkRow({
-  icon,
-  tileClass,
+  tone,
   title,
   subtitle,
   onCopy,
-  first,
 }: {
-  icon: ReactNode;
-  tileClass: string;
+  tone: "accent" | "success";
   title: string;
   subtitle: string;
   onCopy: () => void;
-  first: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "flex min-h-[60px] items-center gap-3.5 py-3.5",
-        !first && "border-t border-[color:var(--app-separator)]",
-      )}
-    >
-      <span
-        className={cn(
-          "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
-          tileClass,
-        )}
-      >
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <RowLabel as="p" className="truncate">
-          {title}
-        </RowLabel>
-        <RowDescription as="p" className="mt-0.5 truncate">
-          {subtitle}
-        </RowDescription>
-      </div>
-      <Button
-        variant="outline"
-        onClick={onCopy}
-        size="sm"
-        className="shrink-0 border-[color:var(--app-accent)] px-4 text-[color:var(--app-accent)]"
-      >
-        Copy
-      </Button>
-    </div>
+    <SettingsRow
+      density="compact"
+      leading={<LinkIdentityMark tone={tone} />}
+      title={title}
+      description={subtitle}
+      trailing={
+        <Button
+          variant="outline"
+          onClick={onCopy}
+          size="sm"
+          className="shrink-0 border-[color:var(--app-accent)] px-4 text-[color:var(--app-accent)]"
+        >
+          Copy
+        </Button>
+      }
+    />
   );
 }
 
@@ -3765,135 +3971,123 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
 
   return (
     <div className="space-y-4">
-      <div className="px-[6px]">
-        <SectionTitle as="h2">Temporary link</SectionTitle>
-      </div>
-
-      {hasLiveLink ? (
-        hasShareableLink ? (
-          <TemporaryLinkCard
-            statusLine={
-              temp
-                ? publicLinkStatusLabel(
-                    vm.expiresCountdownLabel(temp.expiresAt),
-                  )
-                : "Active"
-            }
-            description="Anyone with this link can see your location."
-            // No countdown until the row lands: inventing one from the
-            // duration that was picked would drift from the expiry the server
-            // actually stamped.
-            onCopy={vm.onCopyPublicInvite}
-            onShare={vm.onSharePublicInvite}
-            // Revoking needs the invite's id, which arrives with the row. In
-            // the moment before it does, the control shows itself as busy
-            // rather than pretending to work -- which is honest, because a
-            // refresh really is in flight. Copy and Share are unaffected: the
-            // URL is already in hand.
-            onRevoke={() => {
-              if (temp) vm.onRevokePublicInvite(temp);
-            }}
-            revokeBusy={vm.busy === "publicRevoke" || !temp}
-          />
+      <SettingsGroup
+        title="Temporary link"
+        separatorInset
+        shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}
+        className="[&>div:first-child]:mt-0"
+        testId="one-location-links-temporary-link"
+      >
+        {hasLiveLink ? (
+          hasShareableLink ? (
+            <>
+              <SettingsRow
+                density="compact"
+                leading={<LinkIdentityMark />}
+                title="Link is live"
+                description={
+                  <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--app-success)]" />
+                    <span>
+                      {temp
+                        ? publicLinkStatusLabel(
+                            vm.expiresCountdownLabel(temp.expiresAt),
+                          )
+                        : "Active"}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>Anyone with this link can see your location.</span>
+                  </span>
+                }
+              />
+              <PublicLinkActionRows
+                onCopy={vm.onCopyPublicInvite}
+                onShare={vm.onSharePublicInvite}
+                onRevoke={() => {
+                  if (temp) vm.onRevokePublicInvite(temp);
+                }}
+                revokeBusy={vm.busy === "publicRevoke" || !temp}
+              />
+            </>
+          ) : (
+            <>
+              <SettingsRow
+                density="compact"
+                leading={<LinkIdentityMark />}
+                title="Link is live"
+                description="Active, but unavailable on this device."
+              />
+              <div className="px-4 pb-4 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (temp) vm.onRevokePublicInvite(temp);
+                  }}
+                  disabled={vm.busy === "publicRevoke" || !temp}
+                  className="ui-text-button-label min-h-11 w-full text-left text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {vm.busy === "publicRevoke" || !temp
+                    ? "Stopping…"
+                    : "Stop link"}
+                </button>
+              </div>
+            </>
+          )
         ) : (
-          // Live, and its URL is gone: an invite from before the token could be
-          // re-derived from its row. Copy and Share would be dead controls, so
-          // they are not offered -- but the link is still out there watching,
-          // so ending it has to stay reachable. Saying why keeps this from
-          // reading as a bug the person should retry.
-          <div className={cn(SUBCARD_SURFACE, "space-y-4 p-5 sm:p-6")}>
-            <p className="text-[15px] leading-5 text-muted-foreground">
-              Active, but the link is unavailable on this device.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                if (temp) vm.onRevokePublicInvite(temp);
-              }}
-              disabled={vm.busy === "publicRevoke" || !temp}
-              className="min-h-11 w-full text-left text-[15px] font-semibold leading-5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
-            >
-              {vm.busy === "publicRevoke" || !temp ? "Stopping…" : "Stop link"}
-            </button>
-          </div>
-        )
-      ) : (
-        // No warning banner above the picker. It said two things the screen
-        // already says better: the duration control underneath states exactly
-        // how long the link lives, and the card that replaces this whole block
-        // once a link exists carries the concise visibility line on
-        // the object it is actually about. An amber panel repeating both, on
-        // the one screen whose entire purpose is to create the link, read as a
-        // reason not to press the button rather than as information.
-        <div className={cn(SUBCARD_SURFACE, "space-y-5 p-5 sm:p-6")}>
-          <p className="text-[15px] leading-5 text-muted-foreground">
-            Anyone with this link can see your location until it expires.
-          </p>
-          <div className="space-y-2.5">
-            <p className="text-[15px] font-semibold leading-5 text-foreground">
-              Duration
-            </p>
-            <div
-              className="grid grid-cols-2 gap-2"
-              role="radiogroup"
-              aria-label="Temporary link duration"
-            >
-              {PUBLIC_LINK_DURATION_OPTIONS.map((option) => {
-                const selected = vm.publicLinkDurationHours === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => vm.setPublicLinkDurationHours(option.value)}
-                    className={cn(
-                      "h-11 rounded-[14px] border text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2",
-                      selected
-                        ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                        : "border-border bg-[color:var(--app-card-surface-compact)] text-foreground hover:bg-[color:var(--app-card-surface-compact)]/80",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
+          <>
+            <SettingsRow
+              density="compact"
+              leading={<LinkIdentityMark />}
+              title="Create a temporary link"
+              description="Anyone with this link can see your location until it expires."
+            />
+            <div className="space-y-4 px-4 pb-4 pt-2">
+              <DurationSelector
+                value={vm.publicLinkDurationHours}
+                onChange={vm.setPublicLinkDurationHours}
+                options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
+                label="Duration"
+                presentation="buttons"
+                maxWidthClassName={null}
+              />
+              {/* The label changes while it works. This press waits on a device fix
+                  before it can post anything, so on a cold start it can sit for
+                  several seconds -- and it used to sit as a bare spinner with the
+                  label hidden, which is why it read as "taking longer than
+                  expected" rather than as "still finding you". Naming the wait is
+                  the fix available here; the wait itself is a GPS acquisition. */}
+              <Button
+                onClick={vm.onCreatePublicInvite}
+                isLoading={vm.busy === "publicInvite"}
+                data-voice-control-id="one-location-action-temp-link"
+                className="h-12 min-h-12 w-full rounded-[15px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+              >
+                {vm.busy === "publicInvite"
+                  ? "Creating link…"
+                  : "Create link"}
+              </Button>
             </div>
-          </div>
-          {/* The label changes while it works. This press waits on a device fix
-              before it can post anything, so on a cold start it can sit for
-              several seconds -- and it used to sit as a bare spinner with the
-              label hidden, which is why it read as "taking longer than
-              expected" rather than as "still finding you". Naming the wait is
-              the fix available here; the wait itself is a GPS acquisition. */}
-          <Button
-            onClick={vm.onCreatePublicInvite}
-            isLoading={vm.busy === "publicInvite"}
-            data-voice-control-id="one-location-action-temp-link"
-            className="h-12 min-h-12 w-full rounded-[15px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-          >
-            {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
-          </Button>
-        </div>
-      )}
+          </>
+        )}
+      </SettingsGroup>
 
       {/* A Circle invite is a different object on a different table with a
           different ceiling, and it is not subject to the one-at-a-time rule
           above: it admits one named person to a Circle rather than showing the
           owner to anyone holding a URL. It keeps its row. */}
       {invite ? (
-        <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
+        <SettingsGroup
+          separatorInset
+          shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}
+          testId="one-location-links-invite-link"
+        >
           <ActiveLinkRow
-            first
-            tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
-            icon={
-              <ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />
-            }
+            tone="success"
             title="Invite link"
             subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
             onCopy={vm.onCopyCircleInvite}
           />
-        </div>
+        </SettingsGroup>
       ) : null}
     </div>
   );
@@ -4087,7 +4281,7 @@ function ShareFlow({
             ? `${selected ? "Deselect" : "Select"} ${label} for private sharing`
             : undefined
         }
-        leading={<Avatar initials={initialsFrom(label)} />}
+        leading={<Avatar initials={initialsFrom(label)} imageUrl={r.photoUrl} />}
         title={
           <span className="flex min-w-0 items-start gap-1.5">
             <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -4442,11 +4636,7 @@ function ShareFlow({
 }
 
 /**
- * The new-end-time editor that opens under the live share card.
- *
- * Inline rather than a sheet: the card it edits stays on screen above it, so
- * "27:03 left" and the time being picked are readable together, and there is
- * no overlay to trap focus in or size against a fresh set of widths.
+ * The new-end-time editor opened from the live share card.
  *
  * The wheel, not the four-option select the received-shares editor uses. This
  * one opens on what the share actually has left, and 32 minutes snapped to
@@ -4458,12 +4648,14 @@ function LiveShareDurationEditor({
   onCancel,
   onSave,
   saving,
+  surface = true,
 }: {
   value: string;
   onChange: (next: string) => void;
   onCancel: () => void;
   onSave: () => void;
   saving: boolean;
+  surface?: boolean;
 }) {
   // Same 30-second tick as the share confirm step: an editor left open must
   // not keep quoting an end time that has already gone past.
@@ -4475,21 +4667,40 @@ function LiveShareDurationEditor({
 
   return (
     <div
-      className={cn(SUBCARD_SURFACE, "space-y-4 p-4")}
+      className={cn(
+        surface ? SUBCARD_SURFACE : null,
+        "space-y-4",
+        surface ? "p-4" : null,
+      )}
       data-testid="one-location-live-share-duration-editor"
       data-ui-contract="control-group"
       data-ui-id="location-live-share-duration-editor"
     >
+      {/*
+        Presets, not the bare wheel this used to open on. Almost every change
+        to a running share is one of the same five lengths, and the wheel
+        charged ~200px plus two coordinated drags to reach any of them --
+        inside a card that already sits under the live-share status block. The
+        wheel is still here for anything in between, behind `Custom`, where it
+        costs nothing until somebody asks for it. Same control the Request
+        screen already uses, so the two duration screens stop disagreeing.
+
+        `until_stopped` stays available: this is a decision about your own
+        location, so open-ended is a real answer here (unlike the Request lane,
+        which turns the rung off).
+      */}
       <DurationSelector
         value={value}
         onChange={onChange}
-        presentation="wheel"
+        presentation="ladder"
+        rungs={FULL_DURATION_LADDER}
         untilStopValue="until_stopped"
         label="New time"
+        // Beside the label rather than on its own line under the control --
+        // "New time … Ends 6:50 PM" is one statement, and it is how every
+        // other ladder on these screens already reads.
+        hint={shareEndsAtLabel(value, nowMs)}
       />
-      <p className={MUTED_TEXT} aria-live="polite">
-        {shareEndsAtLabel(value, nowMs)}
-      </p>
       <div className="grid grid-cols-2 gap-2">
         <Button
           variant="ghost"
@@ -4586,6 +4797,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 
 function RequestRecipientListRow({
   name,
+  photoUrl,
   fromContacts,
   subtitle,
   tone,
@@ -4602,6 +4814,7 @@ function RequestRecipientListRow({
   expandedContent,
 }: {
   name: string;
+  photoUrl?: string | null;
   fromContacts?: boolean;
   subtitle?: string;
   tone: "ready" | "pending" | "neutral";
@@ -4632,7 +4845,7 @@ function RequestRecipientListRow({
       )}
     >
       <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
-        <ContactAvatar label={name} />
+        <ContactAvatar label={name} photoUrl={photoUrl} />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-start gap-1.5">
             <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
@@ -4976,7 +5189,7 @@ function AskFlow({
               label="How long"
               presentation="ladder"
               allowUntilStop={false}
-              rungs={REQUEST_DURATION_LADDER}
+              rungs={FULL_DURATION_LADDER}
             />
             <ReasonChips
               value={reason}
@@ -5132,6 +5345,7 @@ function AskFlow({
                 <RequestRecipientListRow
                   key={r.userId}
                   name={recipientLabel}
+                  photoUrl={r.photoUrl}
                   fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
@@ -5286,12 +5500,12 @@ function SelectedRecipientsRail({
             {recipients.slice(0, 3).map((recipient) => {
               const label = recipientLabel(recipient);
               return (
-                <span
+                <ContactAvatar
                   key={recipient.userId}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
-                >
-                  {initialsFrom(label)}
-                </span>
+                  label={label}
+                  photoUrl={recipient.photoUrl}
+                  className="h-9 w-9 border-2 border-[color:var(--app-card-surface-default-solid)] text-[13px]"
+                />
               );
             })}
             <span className="flex h-9 min-w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] px-2 text-[13px] font-semibold text-[color:var(--app-secondary-label)]">
@@ -5322,7 +5536,11 @@ function SelectedRecipientsRail({
                 role="listitem"
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
-                <ContactAvatar label={label} className="h-8 w-8 text-[13px]" />
+                <ContactAvatar
+                  label={label}
+                  photoUrl={recipient.photoUrl}
+                  className="h-8 w-8 text-[13px]"
+                />
                 <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
                   <span className="min-w-0 flex-1 truncate">{label}</span>
                   {recipient.connectedFromContacts ? (

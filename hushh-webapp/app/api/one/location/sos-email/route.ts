@@ -144,8 +144,8 @@ export function renderSosEmail(input: {
   const note = input.note?.trim() || "";
   const measuredAt = sosFixAgeLabel(input.capturedAt);
   const expiry = input.expiresAtLabel
-    ? `Their live location stays shared until ${input.expiresAtLabel}.`
-    : "Their live location is shared with you now.";
+    ? `Live location stays shared until ${input.expiresAtLabel}.`
+    : "Live location is shared with you now.";
   const emergency = input.emergencyNumber
     ? `If this is an emergency where you are, call ${input.emergencyNumber}.`
     : "If this is an emergency, call your local emergency number.";
@@ -174,7 +174,7 @@ export function renderSosEmail(input: {
     `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1d1d1f;">`,
     `<p style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#ff3b30;">Save my Soul</p>`,
     `<h1 style="margin:0 0 16px;font-size:24px;line-height:1.2;">${escapeHtml(owner)} needs help</h1>`,
-    `<p style="margin:0 0 20px;font-size:16px;line-height:1.5;">${escapeHtml(greeting.trim())} They triggered an emergency alert and shared their live location with you.</p>`,
+    `<p style="margin:0 0 20px;font-size:16px;line-height:1.5;">${escapeHtml(greeting.trim())} They triggered an emergency alert and shared live location with you.</p>`,
     noteHtml,
     `<p style="margin:0 0 8px;font-size:16px;line-height:1.5;"><strong>Location:</strong> ${escapeHtml(coords)}${escapeHtml(accuracy)}${escapeHtml(measuredAt)}</p>`,
     `<p style="margin:0 0 24px;"><a href="${escapeHtml(map)}" style="display:inline-block;padding:12px 20px;border-radius:9999px;background:#ff3b30;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;">Open in Google Maps</a></p>`,

@@ -18,7 +18,7 @@ import {
   CreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
-import { CircleSmsMark } from "@/components/one-location/redesign/circles/circle-sms-mark";
+import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
@@ -597,24 +597,21 @@ export function ConnectCirclesTab({
         <SettingsGroup title="Your circles" separatorInset>
           {system.map((circle) => {
             const kind = systemKindOf(circle);
+            const isSmsCircle = kind === "sms";
             return (
               <SettingsRow
                 key={circle.id}
-                // The SMS Circle keeps its own identity here, the one
-                // Location's People tab already gives it: a filled red disc
-                // reading "SMS". A `Siren` in the same indigo well as Trusted
-                // and every user-made Circle made the one row that behaves
-                // differently in an emergency read as another ordinary group,
-                // and made the two surfaces that list the same Circle disagree
-                // about what it is.
-                //
-                // `leading` wins over `icon` in `SettingsRow`, and both count
-                // as a leading visual for the inset hairline, so the two rows
-                // keep the same 58px separator start.
+                icon={kind === "trusted" ? ShieldCheck : undefined}
                 leading={
-                  kind === "sms" ? <CircleSmsMark size="sm" /> : undefined
+                  isSmsCircle ? (
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
+                    >
+                      <SmsTextIcon className="text-[8px]" />
+                    </span>
+                  ) : undefined
                 }
-                icon={kind === "sms" ? undefined : ShieldCheck}
                 iconTone="indigo"
                 // The product name only for the Circle that is yours. An SMS
                 // Circle shows up in the list of everyone on it, and the server

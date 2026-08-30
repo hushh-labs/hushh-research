@@ -13,20 +13,32 @@ describe("Connect canonical surface contract", () => {
     );
 
     expect(source).toContain("<AppPageShell");
-    expect(source).toContain('width="reading"');
+    expect(source).toContain('width="standard"');
     expect(source).toContain("<PageHeader");
+    expect(source).toContain('<PageHeader title="Connect" />');
+    expect(source).not.toContain("icon={BookUser}");
     expect(source).not.toContain('eyebrow="One"');
     expect(source).not.toContain("icon={Users}\n          accent");
     expect(source).toContain("<SettingsGroup");
     expect(source).toContain("<SettingsRow");
     expect(source).not.toContain("Private configuration");
     expect(source).not.toContain("icon={Sparkles}");
-    // A person is still UserRound; a verified adviser earns the verified mark
-    // and the tone this design system already spends on a verified state. The
-    // mark rides on the row rather than on the tab, so it still means something
-    // in a search that spans both halves of the directory.
-    expect(source).toContain("person.isRia ? BadgeCheck : UserRound");
-    expect(source).toContain('person.isRia ? "green" : "blue"');
+    // A person is their own face where we have one -- the directory payload
+    // has always carried `photoUrl`, and drawing everyone with the same glyph
+    // made the one screen that exists to tell people apart useless at it.
+    //
+    // The verified mark did NOT go away with the glyph. It still rides on the
+    // row rather than the tab, so it means something in a search spanning both
+    // halves of the directory -- it is now a badge ON the avatar, so the photo
+    // says who and the badge says what, instead of one replacing the other.
+    // Asserted as behaviour rather than an exact ternary so a later refactor
+    // of the avatar is not blocked by the shape of this line.
+    expect(source).toContain("<ConnectPersonAvatar");
+    expect(source).toContain("photoUrl={connection.photoUrl ?? null}");
+    expect(source).toContain("photoUrl={person.photoUrl}");
+    expect(source).toContain("verified={Boolean(person.isRia)}");
+    expect(source).toContain("BadgeCheck");
+    expect(source).toContain('aria-label="Verified advisor"');
     expect(source).toContain("separatorInset");
   });
 
@@ -66,28 +78,28 @@ describe("Connect canonical surface contract", () => {
     expect(source).not.toContain("offeredHandles: catalog.offerableItems");
   });
 
-  it("keeps the three-tab strip narrow enough that no tab title truncates", () => {
-    // Measured, not assumed. With the strip's stock 16px option padding, three
-    // tabs on a 375px screen left "Around you" 77px of the 80px it needs, and
-    // it rendered as "Around yo…". Tab titles are ours, not user content, so an
-    // ellipsis in one is a defect rather than graceful degradation.
-    //
-    // Chromium against the built stylesheet, after this override: 320/360/375/
-    // 390/430/768/1280px all clean, no horizontal overflow, strip height
-    // unchanged. jsdom cannot catch a regression here -- it does no layout --
-    // and Playwright is not in the blocking lane, so the override itself is
-    // what gets pinned. Removing it puts the ellipsis straight back.
+  it("keeps Connect navigation split into one primary strip and one compact directory menu", () => {
+    // The old four-option strip was readable only through width overrides and
+    // still competed with the page title. Connect now follows the Location hub
+    // rhythm: one primary route strip, then a compact directory selector inside
+    // the Connections surface.
     const source = readFileSync(
       join(process.cwd(), "app/connect/page-client.tsx"),
       "utf8",
     );
 
+    expect(source).toContain("const CONNECT_PRIMARY_TABS = [");
+    expect(source).toContain('{ value: "connections", label: "Connections" }');
+    expect(source).toContain('{ value: "circles", label: "Circles" }');
     expect(source).toContain(
-      '"[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"',
+      'const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(',
     );
-    // Three tabs is the reason the padding has to give; a fourth would need the
-    // measurement redone rather than this override stretched further.
-    expect(source).toContain('["people", "advisors", "nearby"] as const');
+    expect(source).toContain(
+      "aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}",
+    );
+    expect(source).not.toContain(
+      '["people", "advisors", "circles", "nearby"] as const',
+    );
   });
 
   it("renders a privacy-safe masked identity when duplicate names need disambiguation", () => {
@@ -121,11 +133,11 @@ describe("Connect canonical surface contract", () => {
 });
 
 describe("voice actions land on a surface that is actually showing", () => {
-  it("brings Connections forward before it touches the inner strip", () => {
-    // `setTab` moves a control that is not on screen while Circles is showing,
-    // so "open people" reported success and did nothing. A voice action that
-    // lies about what happened is worse than one that refuses: the person
-    // stops watching for a result that is never coming.
+  it("brings the directory surface forward before it touches the hub tab", () => {
+    // `setTab` moves a control that is not active while Circles is showing, so
+    // "open people" reported success and did nothing. A voice action that lies
+    // about what happened is worse than one that refuses: the person stops
+    // watching for a result that is never coming.
     const source = readFileSync(
       join(process.cwd(), "app/connect/page-client.tsx"),
       "utf8",
@@ -140,7 +152,7 @@ describe("voice actions land on a surface that is actually showing", () => {
       expect(start, action).toBeGreaterThan(-1);
       const body = source.slice(start, source.indexOf("useLocalOnboardingActionHandler", start + 10));
       expect(body, action).toContain('selectSurface("all")');
-      // And it does so before the inner strip, so the strip is mounted.
+      // And it does so before the hub tab changes, so the directory is active.
       expect(
         body.indexOf('selectSurface("all")'),
         action,

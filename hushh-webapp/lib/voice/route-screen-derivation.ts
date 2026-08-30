@@ -39,6 +39,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_HOME) {
     return { screen: "one_agents", subview: null };
   }
+  if (normalizedPath === "/people/[personRef]") {
+    return { screen: "one_person_profile", subview: null };
+  }
   if (normalizedPath === ROUTES.GETTING_STARTED) {
     return { screen: "getting_started", subview: null };
   }

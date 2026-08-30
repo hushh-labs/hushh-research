@@ -308,9 +308,38 @@ describe("SettingsSegmentedTabs", () => {
     );
 
     const inactive = screen.getByRole("button", { name: "My list" });
+    const active = screen.getByRole("button", { name: "Kai list" });
 
     expect(inactive.getAttribute("data-state")).toBe("inactive");
     expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.className).toContain(
+      "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+    );
+    expect(inactive.className).not.toContain("hover:text");
+    expect(active.className).not.toContain("press-scale");
+  });
+
+  it("uses the shared quiet segmented geometry", () => {
+    const { container } = render(
+      <SettingsSegmentedTabs
+        value="kai"
+        onValueChange={() => {}}
+        options={[
+          { value: "kai", label: "Kai list" },
+          { value: "my", label: "My list" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("button", { name: "Kai list" });
+
+    expect(root?.className).toContain("rounded-[14px]");
+    expect(root?.className).not.toContain("rounded-full");
+    expect(active.className).toContain("rounded-[12px]");
+    expect(active.className).toContain("font-normal");
+    expect(active.className).not.toContain("font-semibold");
+    expect(active.className).not.toContain("press-scale");
   });
 
   it("disables the whole segmented control while its selection is settling", () => {

@@ -123,7 +123,7 @@ describe("the requester's side of the same exchange", () => {
       }),
     );
     expect(presented.description).toBe(
-      "Shared their location with you for 4 hours",
+      "Shared location with you for 4 hours",
     );
   });
 
@@ -152,9 +152,7 @@ describe("the requester's side of the same exchange", () => {
       }),
     );
     // Read as a bare "declined", it looks like everything just stopped.
-    expect(presented.description).toBe(
-      "Declined the extra time — your current access is unchanged",
-    );
+    expect(presented.description).toBe("Extra time declined");
   });
 });
 
@@ -168,7 +166,7 @@ describe("rows written before any of this existed", () => {
     expect(
       presentFeedItem(item({ event_type: "location_access_approved" }))
         .description,
-    ).toBe("You approved. Now sharing.");
+    ).toBe("You approved sharing");
   });
 });
 
@@ -185,7 +183,7 @@ describe("shortening", () => {
           metadata: { counterpart_label: "Ankit", reason: "owner_shorten" },
         }),
       ).description,
-    ).toBe("You shortened their location access");
+    ).toBe("You shortened location access");
     expect(
       presentFeedItem(
         item({
@@ -193,6 +191,6 @@ describe("shortening", () => {
           metadata: { counterpart_label: "Ankit", reason: "recipient_shorten" },
         }),
       ).description,
-    ).toBe("Gave back their remaining time early");
+    ).toBe("Gave back remaining time early");
   });
 });

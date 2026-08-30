@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import {
   Check,
   Copy,
@@ -47,6 +48,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
 import {
   EmptyState,
@@ -56,7 +58,6 @@ import {
   CARD_SURFACE,
   MUTED_TEXT,
 } from "@/components/one-location/redesign/tokens";
-import { CircleSmsMark } from "@/components/one-location/redesign/circles/circle-sms-mark";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -174,9 +175,97 @@ function circleListPeopleLabel(memberCount: number | null | undefined): string {
   return `${others} ${others === 1 ? "person" : "people"}`;
 }
 
+type CircleListGroupKey = "created" | "joined" | "built-in";
+
+type CircleListGroup = {
+  key: CircleListGroupKey;
+  title: string;
+  circles: OneLocationCircleSummary[];
+};
+
+function circleListGroupKey(
+  circle: OneLocationCircleSummary,
+): CircleListGroupKey {
+  if (circle.systemKind || circle.isSystem) return "built-in";
+  return circle.role === "owner" ? "created" : "joined";
+}
+
+function groupCirclesForPeopleTab(
+  circles: readonly OneLocationCircleSummary[],
+): CircleListGroup[] {
+  const groups: CircleListGroup[] = [
+    { key: "created", title: "Created by you", circles: [] },
+    { key: "joined", title: "Joined circles", circles: [] },
+    { key: "built-in", title: "Built-in", circles: [] },
+  ];
+  const groupByKey = new Map(groups.map((group) => [group.key, group]));
+
+  for (const circle of circles) {
+    groupByKey.get(circleListGroupKey(circle))?.circles.push(circle);
+  }
+
+  return groups.filter((group) => group.circles.length > 0);
+}
+
 function circleDetailMemberCountLabel(count: number): string {
   if (count <= 1) return "Only you";
   return `${count} people`;
+}
+
+function CircleSummaryRow({
+  circle,
+  onOpen,
+}: {
+  circle: OneLocationCircleSummary;
+  onOpen: (circleId: string) => void;
+}) {
+  const isSmsCircle = circle.systemKind === "sms";
+  const initials = circleInitials(circle.name);
+  const showInitials =
+    !isSmsCircle && circle.systemKind !== "trusted" && initials;
+
+  return (
+    <SettingsRow
+      leading={
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center",
+            isSmsCircle
+              ? "rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
+              : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+          )}
+          data-testid={
+            isSmsCircle
+              ? "one-location-circle-sms-mark"
+              : "one-location-circle-neutral-mark"
+          }
+        >
+          {isSmsCircle ? (
+            <SmsTextIcon className="text-[11px] font-bold tracking-[-0.2px]" />
+          ) : showInitials ? (
+            initials
+          ) : (
+            <UsersRound className="h-[17px] w-[17px]" />
+          )}
+        </span>
+      }
+      title={circle.name}
+      description={
+        isSmsCircle
+          ? `Save My Soul · ${circleListPeopleLabel(circle.memberCount)}`
+          : circleListPeopleLabel(circle.memberCount)
+      }
+      chevron
+      onClick={() => onOpen(circle.id)}
+      className={cn(
+        "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
+        "[&>button]:min-h-[60px] sm:[&>button]:min-h-16",
+        "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
+        "[&_[data-slot=settings-row-description]]:!mt-0.5 [&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
+      )}
+      testId={`one-location-circle-${circle.id}`}
+    />
+  );
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -225,16 +314,10 @@ export function CirclesSection({
     ? (incomingInvites.find((invite) => invite.id === focusedInviteId) ?? null)
     : null;
 
-  const orderedCircles = useMemo(() => {
-    return [...circles].sort((left, right) => {
-      const isSystemLeft = Boolean(left.systemKind || left.isSystem);
-      const isSystemRight = Boolean(right.systemKind || right.isSystem);
-      if (isSystemLeft !== isSystemRight) {
-        return isSystemLeft ? 1 : -1;
-      }
-      return 0;
-    });
-  }, [circles]);
+  const circleGroups = useMemo(
+    () => groupCirclesForPeopleTab(circles),
+    [circles],
+  );
 
   useEffect(() => {
     if (
@@ -281,52 +364,70 @@ export function CirclesSection({
 
   return (
     <div className="space-y-3" data-testid="one-location-named-circles">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex w-full items-center justify-between gap-4">
         <h2 className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
           Circles
         </h2>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              aria-label="Add Circle"
-              className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+        <div
+          className={cn(
+            "relative flex-none overflow-visible",
+            "[&_[data-radix-popper-content-wrapper]]:!absolute",
+            "[&_[data-radix-popper-content-wrapper]]:!bottom-auto",
+            "[&_[data-radix-popper-content-wrapper]]:!left-auto",
+            "[&_[data-radix-popper-content-wrapper]]:!right-0",
+            "[&_[data-radix-popper-content-wrapper]]:!top-full",
+            "[&_[data-radix-popper-content-wrapper]]:!z-[212]",
+            "[&_[data-radix-popper-content-wrapper]]:!mt-2",
+            "[&_[data-radix-popper-content-wrapper]]:!transform-none",
+          )}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label="Add Circle"
+                className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+              >
+                <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuPrimitive.Content
+              data-slot="dropdown-menu-content"
+              side="bottom"
+              align="end"
+              alignOffset={0}
+              sideOffset={0}
+              collisionPadding={12}
+              className="z-[212] min-w-[12rem] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 text-[color:var(--app-primary-label)] shadow-[var(--app-card-shadow-standard)] outline-none dark:shadow-none"
             >
-              <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            sideOffset={8}
-            className="w-[186px] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
-          >
-            <DropdownMenuItem
-              onSelect={onCreate}
-              data-voice-control-id="one-location-action-create-circle"
-              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-            >
-              <Plus
-                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                aria-hidden="true"
-              />
-              Create Circle
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={onJoin}
-              data-voice-control-id="one-location-action-join-circle"
-              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-            >
-              <KeyRound
-                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                aria-hidden="true"
-              />
-              Join with code
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuItem
+                onSelect={onCreate}
+                data-voice-control-id="one-location-action-create-circle"
+                className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
+              >
+                <Plus
+                  className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                  aria-hidden="true"
+                />
+                Create Circle
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={onJoin}
+                data-voice-control-id="one-location-action-join-circle"
+                className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
+              >
+                <KeyRound
+                  className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                  aria-hidden="true"
+                />
+                Join with code
+              </DropdownMenuItem>
+            </DropdownMenuPrimitive.Content>
+          </DropdownMenu>
+        </div>
       </div>
 
       {incomingInvitesError ? (
@@ -449,59 +550,36 @@ export function CirclesSection({
         </div>
       ) : null}
 
-      {orderedCircles.length ? (
-        <SettingsGroup
-          separatorInset
-          shellClassName={CIRCLES_GROUP_SURFACE}
-          testId="one-location-circle-list"
-        >
-          {orderedCircles.map((circle) => {
-            const isSmsCircle = circle.systemKind === "sms";
-            const initials = circleInitials(circle.name);
-            const showInitials =
-              !isSmsCircle && circle.systemKind !== "trusted" && initials;
-            return (
-              <SettingsRow
-                key={circle.id}
-                leading={
-                  isSmsCircle ? (
-                    // Connect's Circles list renders this same component at
-                    // `size="sm"`. It used to draw a Siren glyph in the indigo
-                    // well it gives every other Circle, so the one row that
-                    // behaves differently in an emergency looked like the rest.
-                    <CircleSmsMark size="md" />
-                  ) : (
-                    <span
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]"
-                      data-testid="one-location-circle-neutral-mark"
-                    >
-                      {showInitials ? (
-                        initials
-                      ) : (
-                        <UsersRound className="h-[17px] w-[17px]" />
-                      )}
-                    </span>
-                  )
-                }
-                title={circle.name}
-                description={
-                  isSmsCircle
-                    ? `Save My Soul · ${circleListPeopleLabel(circle.memberCount)}`
-                    : circleListPeopleLabel(circle.memberCount)
-                }
-                chevron
-                onClick={() => onOpen(circle.id)}
-                className={cn(
-                  "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
-                  "[&>button]:min-h-[60px] sm:[&>button]:min-h-16",
-                  "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
-                  "[&_[data-slot=settings-row-description]]:!mt-0.5 [&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
-                )}
-                testId={`one-location-circle-${circle.id}`}
-              />
-            );
-          })}
-        </SettingsGroup>
+      {circleGroups.length ? (
+        <div className="space-y-4" data-testid="one-location-circle-list">
+          {circleGroups.map((group) => (
+            <section
+              key={group.key}
+              className="space-y-2"
+              data-testid={`one-location-circle-group-${group.key}`}
+            >
+              <SectionLabel
+                as="h3"
+                className="px-[6px] text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]"
+              >
+                {group.title}
+              </SectionLabel>
+              <SettingsGroup
+                separatorInset
+                shellClassName={CIRCLES_GROUP_SURFACE}
+                testId={`one-location-circle-group-list-${group.key}`}
+              >
+                {group.circles.map((circle) => (
+                  <CircleSummaryRow
+                    key={circle.id}
+                    circle={circle}
+                    onOpen={onOpen}
+                  />
+                ))}
+              </SettingsGroup>
+            </section>
+          ))}
+        </div>
       ) : (
         <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
           <EmptyState

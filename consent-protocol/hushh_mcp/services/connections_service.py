@@ -542,12 +542,12 @@ class ConnectionsService:
         domain: str = "",
         limit: int = 20,
     ) -> dict[str, Any]:
-        """Search a connected person's dynamically discoverable ``attr.*`` scopes.
+        """Search a person's dynamically discoverable ``attr.*`` scopes.
 
-        This is deliberately post-connection and metadata-only. A relationship
-        never grants access to values: callers must make a separate, consented
-        request that binds a requester-owned connector key before an encrypted
-        export can exist.
+        Scope metadata is discoverable independently from the social graph.
+        A relationship never grants access to values: callers must make a
+        separate, consented request bound to a requester-owned connector key
+        before an encrypted export can exist.
         """
         from hushh_mcp.consent.scope_generator import rank_scope_matches
 
@@ -557,31 +557,15 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
-        active_connection = self._execute_one(
-            """
-            SELECT id
-            FROM connections
-            WHERE status = 'active'
-              AND user_a_id = LEAST(:viewer, :counterpart)
-              AND user_b_id = GREATEST(:viewer, :counterpart)
-            LIMIT 1
-            """,
-            {"viewer": viewer, "counterpart": counterpart},
-        )
-        if not active_connection:
-            raise ConnectionsError(
-                "CONNECTION_INFORMATION_SCOPE_FORBIDDEN",
-                "Connect with this person before searching their available scopes.",
-                status_code=403,
-            )
-
         safe_entries = [
             {
                 "scope": str(entry.get("scope") or ""),
                 "label": str(entry.get("label") or "") or None,
+                "description": str(entry.get("description") or "") or None,
                 "domain": str(entry.get("domain") or "") or None,
                 "path": str(entry.get("path") or "") or None,
                 "wildcard": bool(entry.get("wildcard")),
+                "sensitivity": str(entry.get("sensitivity") or "") or None,
             }
             for entry in self._scope_entries_lookup(counterpart)
             if isinstance(entry, dict)
@@ -2633,6 +2617,25 @@ class ConnectionsService:
         )
         return {str(row.get("user_id") or "") for row in rows}
 
+    def _public_person_refs(self, user_ids: list[str]) -> dict[str, str]:
+        """Resolve public route addresses for one bounded page of people."""
+        candidates = [uid for uid in {*user_ids} if uid]
+        if not candidates:
+            return {}
+        rows = self._execute_many(
+            """
+            SELECT user_id, public_person_ref
+            FROM actor_profiles
+            WHERE user_id = ANY(CAST(:user_ids AS TEXT[]))
+            """,
+            {"user_ids": candidates},
+        )
+        return {
+            str(row.get("user_id") or ""): str(row.get("public_person_ref") or "")
+            for row in rows
+            if row.get("user_id") and row.get("public_person_ref")
+        }
+
     def search_directory(
         self,
         user_id: str,
@@ -2813,11 +2816,13 @@ class ConnectionsService:
         # name-resolution searches across everyone, and a row that only knew its
         # kind from its tab would go back to being unlabelled there.
         ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
+        public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
 
         return {
             "items": [
                 {
                     "userId": str(p.get("userId") or ""),
+                    "publicPersonRef": public_person_refs.get(str(p.get("userId") or "")),
                     "displayName": p.get("displayName"),
                     "photoUrl": p.get("photoUrl"),
                     "email": p.get("email"),
@@ -2970,10 +2975,12 @@ class ConnectionsService:
         # for the whole list, not one lookup per row; no statement at all when
         # you have no connections.
         ria_user_ids = self._verified_ria_user_ids([str(r.get("user_id") or "") for r in rows])
+        public_person_refs = self._public_person_refs([str(r.get("user_id") or "") for r in rows])
         return [
             {
                 "connectionId": str(r.get("connection_id") or ""),
                 "userId": str(r.get("user_id") or ""),
+                "publicPersonRef": public_person_refs.get(str(r.get("user_id") or "")),
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
                 "createdAt": _iso(r.get("created_at")),
@@ -3102,10 +3109,14 @@ class ConnectionsService:
         )
         total_count = int((rows[0] if rows else {}).get("total_count") or 0)
         page_rows = [row for row in rows if row.get("connection_id")]
+        public_person_refs = self._public_person_refs(
+            [str(row.get("user_id") or "") for row in page_rows]
+        )
         items = [
             {
                 "connectionId": str(row.get("connection_id") or ""),
                 "userId": str(row.get("user_id") or ""),
+                "publicPersonRef": public_person_refs.get(str(row.get("user_id") or "")),
                 "displayName": row.get("display_name"),
                 "photoUrl": row.get("photo_url"),
                 "createdAt": row.get("created_at"),
