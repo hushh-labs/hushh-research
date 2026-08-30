@@ -6420,12 +6420,12 @@ describe("OneLocationAgentPage", () => {
     }
   }, 15000);
 
-  it("offers the common lengths as one tap, with the wheel behind Custom", async () => {
-    // The report: Change time opened straight onto a two-column scroll wheel.
-    // Almost every change to a running share is one of five lengths, so those
-    // are now always visible and cost one tap each. The wheel is still
-    // reachable for anything in between -- removed from the default view, not
-    // removed.
+  it("offers four common lengths and the open-ended row, one tap each", async () => {
+    // The report (issue #6228): Change time showed too many near-identical
+    // choices -- 15 min / 1 hour / 2 hours / 4 hours / 8 hours / Custom /
+    // Until I stop -- wrapped and left-hugging under the live clock. It is
+    // trimmed to the four common lengths plus the open-ended row; `8 hours`
+    // and the `Custom` wheel are gone.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
     try {
@@ -6448,13 +6448,19 @@ describe("OneLocationAgentPage", () => {
         "1 hour",
         "2 hours",
         "4 hours",
-        "8 hours",
         "Until I stop",
       ]) {
         expect(
           within(editor).getByRole("button", { name: label }),
         ).toBeInTheDocument();
       }
+      // The two choices the issue asked to drop.
+      expect(
+        within(editor).queryByRole("button", { name: "8 hours" }),
+      ).toBeNull();
+      expect(
+        within(editor).queryByRole("button", { name: "Custom" }),
+      ).toBeNull();
 
       // One tap on a rung is the whole interaction -- no drag, no confirm
       // step of its own before Save.

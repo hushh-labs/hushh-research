@@ -155,7 +155,7 @@ import {
   type ReasonValue,
 } from "./selectors";
 import {
-  FULL_DURATION_LADDER,
+  CHANGE_TIME_DURATION_LADDER,
   REQUEST_DURATION_LADDER,
 } from "./duration-presets";
 import {
@@ -4641,9 +4641,11 @@ function ShareFlow({
 /**
  * The new-end-time editor opened from the live share card.
  *
- * The wheel, not the four-option select the received-shares editor uses. This
- * one opens on what the share actually has left, and 32 minutes snapped to
- * "1 hour" would silently offer to double a share the person meant to trim.
+ * A short preset ladder (15 min / 1 hour / 2 hours / 4 hours / Until I stop),
+ * not the received-shares editor's select and not the scroll wheel this used
+ * to open on. It still opens on what the share actually has left, so the
+ * "Ends …" read-back stays honest even when that value matches no rung; the
+ * person then picks the length they want in one tap.
  */
 function LiveShareDurationEditor({
   value,
@@ -4680,13 +4682,19 @@ function LiveShareDurationEditor({
       data-ui-id="location-live-share-duration-editor"
     >
       {/*
-        Presets, not the bare wheel this used to open on. Almost every change
-        to a running share is one of the same five lengths, and the wheel
-        charged ~200px plus two coordinated drags to reach any of them --
-        inside a card that already sits under the live-share status block. The
-        wheel is still here for anything in between, behind `Custom`, where it
-        costs nothing until somebody asks for it. Same control the Request
-        screen already uses, so the two duration screens stop disagreeing.
+        Four common lengths plus the open-ended row, one tap each — no `Custom`
+        wheel and no `8 hours` (issue #6228). Changing a share that is already
+        running is a quick decision, and the sixth near-identical choice plus a
+        two-drag scroll wheel made this panel read like a settings screen
+        stacked under the live clock. Anything in between is still reachable by
+        stopping the share and starting a new one.
+
+        `centered` + `maxWidthClassName={null}`: the rungs sit inside a card
+        far wider than they need. Freed of the 420px clamp they centre as one
+        row from `sm` up instead of wrapping and hugging the left edge; on the
+        phone grid the open-ended row spans both columns. The clamp existed to
+        stop a stretching grid printing 258px slabs — the ladder is a
+        wrapping row of content-width chips now, so there is nothing to stretch.
 
         `until_stopped` stays available: this is a decision about your own
         location, so open-ended is a real answer here (unlike the Request lane,
@@ -4696,8 +4704,11 @@ function LiveShareDurationEditor({
         value={value}
         onChange={onChange}
         presentation="ladder"
-        rungs={FULL_DURATION_LADDER}
+        rungs={CHANGE_TIME_DURATION_LADDER}
         untilStopValue="until_stopped"
+        allowCustom={false}
+        centered
+        maxWidthClassName={null}
         label="New time"
         // Beside the label rather than on its own line under the control --
         // "New time … Ends 6:50 PM" is one statement, and it is how every

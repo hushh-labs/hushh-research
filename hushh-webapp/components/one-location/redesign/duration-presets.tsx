@@ -47,11 +47,11 @@ export const SHARE_DURATION_LADDER: DurationRung[] = [
  * hours did not disappear: `Custom` reaches any value the backend accepts, and
  * a cell that is one deliberate tap away is not a feature removed.
  *
- * Deliberately NOT {@link FULL_DURATION_LADDER}, which those two lanes briefly
- * shared. Asking for somebody else's location and re-timing your own are not
- * the same decision on the same screen: the owner's "New time" editor sits in
- * a card of its own with room for five rungs, and shortening ITS ladder to
- * trim this one would take choices away from a lane nobody complained about.
+ * This is `FULL_DURATION_LADDER` renamed, not a second constant beside it.
+ * That name was already only half true -- issue #6228 moved the live-share
+ * editor onto {@link CHANGE_TIME_DURATION_LADDER}, leaving "full" describing
+ * one lane -- and once trimmed it would have been the SHORTEST ladder in the
+ * file while still calling itself the fullest.
  */
 export const REQUEST_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
@@ -60,16 +60,21 @@ export const REQUEST_DURATION_LADDER: DurationRung[] = [
 ];
 
 /**
- * The fuller ladder, used by the live-share "New time" editor. Named for its
- * shape rather than one lane: a person changing an active share reaches for
- * five lengths, and the wheel behind `Custom` still covers anything between.
+ * The "Change time" ladder — the live-share end-time editor that opens from
+ * the running-share card.
+ *
+ * Four common lengths plus the open-ended rung, and nothing else: no `8 hours`
+ * and no `Custom` wheel. Changing a share that is already running is a quick
+ * decision, and the sixth near-identical choice plus a two-drag scroll wheel
+ * made the panel read like a settings screen sitting under the live clock.
+ * Anything between these lengths is still reachable by stopping the share and
+ * starting a new one.
  */
-export const FULL_DURATION_LADDER: DurationRung[] = [
+export const CHANGE_TIME_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
   { value: "1", label: "1 hour" },
   { value: "2", label: "2 hours" },
   { value: "4", label: "4 hours" },
-  { value: "8", label: "8 hours" },
 ];
 
 export const SHARE_DURATION_UNTIL_STOP_VALUE = "until_stopped";
@@ -135,6 +140,8 @@ export function DurationPresetPicker({
   rungs = SHARE_DURATION_LADDER,
   untilStopValue = SHARE_DURATION_UNTIL_STOP_VALUE,
   allowUntilStop = true,
+  allowCustom = true,
+  centered = false,
   labelledBy,
 }: {
   value: string;
@@ -150,6 +157,20 @@ export function DurationPresetPicker({
    * non-numeric sentinel into it would send NaN to a `gt=0` field.
    */
   allowUntilStop?: boolean;
+  /**
+   * False drops the `Custom` cell and the scroll wheel behind it entirely, for
+   * lanes where the timed rungs plus the open-ended row are the whole choice
+   * (the live-share "New time" editor — see issue #6228). An off-grid incoming
+   * value simply leaves no rung pressed; the read-back hint still states it.
+   */
+  allowCustom?: boolean;
+  /**
+   * From `sm` up, centre the wrapping chip row inside its container rather than
+   * letting it start at the far left, and on the phone grid let the open-ended
+   * row span both columns so it does not sit alone in the left cell. Used by
+   * the "Change time" editor, whose container is much wider than the ladder.
+   */
+  centered?: boolean;
   labelledBy?: string;
 }) {
   const isUntilStop = allowUntilStop && value === untilStopValue;
@@ -157,8 +178,9 @@ export function DurationPresetPicker({
     !isUntilStop && !rungs.some((rung) => rung.value === value);
 
   // Seeded from the incoming value, so an edit that arrives on 2h47m opens
-  // showing 2h47m instead of a preset it never chose.
-  const [wheelOpen, setWheelOpen] = useState(isCustomValue);
+  // showing 2h47m instead of a preset it never chose. Never opens when the
+  // wheel is disabled — there is no cell to close it from.
+  const [wheelOpen, setWheelOpen] = useState(allowCustom && isCustomValue);
   // The wheel has no row for the open-ended value, so remember the last real
   // number to hand it if Custom is opened from that rung. State, not a ref:
   // a ref written during render is what `react-hooks/refs` forbids, and this
@@ -187,7 +209,9 @@ export function DurationPresetPicker({
 
   return (
     <div role="group" aria-labelledby={labelledBy} className="space-y-2">
-      <div className={DURATION_GRID_CLASS}>
+      <div
+        className={cn(DURATION_GRID_CLASS, centered && "sm:justify-center")}
+      >
         {rungs.map((rung) => {
           const active = !wheelOpen && value === rung.value;
           return (
@@ -205,18 +229,20 @@ export function DurationPresetPicker({
             </button>
           );
         })}
-        <button
-          type="button"
-          aria-pressed={customPressed}
-          aria-expanded={wheelOpen}
-          onClick={() => (wheelOpen ? setWheelOpen(false) : openCustom())}
-          className={cn(
-            DURATION_CELL_CLASS,
-            customPressed ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
-          )}
-        >
-          {isCustomValue ? compactDurationLabel(value) : "Custom"}
-        </button>
+        {allowCustom ? (
+          <button
+            type="button"
+            aria-pressed={customPressed}
+            aria-expanded={wheelOpen}
+            onClick={() => (wheelOpen ? setWheelOpen(false) : openCustom())}
+            className={cn(
+              DURATION_CELL_CLASS,
+              customPressed ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
+            )}
+          >
+            {isCustomValue ? compactDurationLabel(value) : "Custom"}
+          </button>
+        ) : null}
 
         {/* The open-ended rung. Same height, border and radius as every cell
             beside it: it is the longest duration on the ladder, not a switch
@@ -224,7 +250,11 @@ export function DurationPresetPicker({
 
             It sits INSIDE the ladder, not under it, and shares the same
             two-by-two mobile grid as the timed choices. From `sm` up the
-            ladder is a wrapping chip row, where it is simply the last chip. */}
+            ladder is a wrapping chip row, where it is simply the last chip.
+
+            `centered` gives it both columns of the phone grid, so with an even
+            number of timed rungs beside it, it is a full-width row rather than
+            a lone chip in the left cell. */}
         {allowUntilStop ? (
           <button
             type="button"
@@ -232,6 +262,7 @@ export function DurationPresetPicker({
             onClick={() => pickRung(untilStopValue)}
             className={cn(
               DURATION_CELL_CLASS,
+              centered && "col-span-2 sm:col-span-1",
               isUntilStop ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
             )}
           >
