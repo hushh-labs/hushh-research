@@ -193,9 +193,15 @@ import {
 } from "@/lib/one-location/notifications";
 import {
   formatLocationDurationLabel,
+  formatLocationRemaining,
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
+import {
+  resolveShareDurationHours,
+  shareReplacementsLosingTime,
+} from "@/lib/one-location/share-replacement";
+import { parseTimestamp } from "@/lib/one-location/share-countdown";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import {
@@ -1308,20 +1314,21 @@ function privateShareDurationPayload(value: string): {
   durationHours?: number;
   durationMode: "timed" | "until_stopped";
 } {
-  if (value === "until_stopped") {
-    return { durationMode: "until_stopped" };
-  }
   // No "today" branch: the token cannot reach here any more (the picker has
   // no such rung, and `Number("today")` is NaN so the wheel rewrote it to
   // "0.25" on sight). Anything else is clamped into the window the backend
   // accepts — `gt=0, le=24` — rather than posted and rejected.
-  const hours = Number(value);
-  return {
-    durationHours: Number.isFinite(hours)
-      ? Math.min(24, Math.max(0.25, hours))
-      : 0.25,
-    durationMode: "timed",
-  };
+  //
+  // The clamp itself lives in `resolveShareDurationHours` because the confirm
+  // step's "this replaces a live share" warning has to compare the duration
+  // that is actually POSTED. Two copies of the arithmetic would eventually
+  // disagree, and a warning that quotes a different number from the request is
+  // capable of promising a share the app does not create.
+  const hours = resolveShareDurationHours(value);
+  if (hours === null) {
+    return { durationMode: "until_stopped" };
+  }
+  return { durationHours: hours, durationMode: "timed" };
 }
 
 function privateShareDurationLabel(value: string): string {
@@ -3396,6 +3403,17 @@ export function OneLocationAgentPageContent({
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
+  /**
+   * The one hands-free ask that has already been told it would cut a live
+   * share short, as `recipientIds|duration`.
+   *
+   * The screen's confirm step asks this with a dialog. Voice has no dialog, so
+   * the ask itself is the affirmative: the first time it would take somebody's
+   * time away the handler refuses and says whose and how much, and saying the
+   * same thing again goes through. A ref rather than state because nothing on
+   * screen renders it and a re-render between the two turns must not forget it.
+   */
+  const shareReplacementAcknowledgedRef = useRef<string | null>(null);
 
   /* ------------------------------------------------------------------ *
    * Live share continuity
@@ -10387,7 +10405,57 @@ export function OneLocationAgentPageContent({
       .filter((candidate): candidate is OneLocationRecipient =>
         Boolean(candidate),
       );
+    // The same question the confirm step asks with a dialog, asked here with
+    // words. Sharing again REPLACES a live share rather than extending it, so
+    // a shorter duration ends time the person already gave -- and hands-free
+    // is the lane where nothing is on screen to notice it. Saying the ask
+    // again is the affirmative: the runtime's own confirmation is built from
+    // the slots and has no field in which to state a loss it was never told
+    // about, so the loss has to be spoken before the share, not after it.
+    const replacementKey = `${[...selectedRecipientIds].sort().join(",")}|${duration}`;
+    if (shareReplacementAcknowledgedRef.current !== replacementKey) {
+      const nowMs = Date.now();
+      const losing = shareReplacementsLosingTime({
+        recipientUserIds: shareRecipients.map((recipient) => recipient.userId),
+        activeOwnerGrants,
+        durationValue: duration,
+        nowMs,
+      });
+      if (losing.length) {
+        shareReplacementAcknowledgedRef.current = replacementKey;
+        const newLabel = formatLocationDurationLabel(
+          resolveShareDurationHours(duration),
+        );
+        const labelByUserId = new Map(
+          shareRecipients.map((recipient) => [
+            recipient.userId,
+            recipientLabel(recipient).trim(),
+          ]),
+        );
+        const named = losing
+          .map(({ recipientUserId, grant, untilStopped }) => {
+            const label =
+              labelByUserId.get(recipientUserId) || "Someone you picked";
+            if (untilStopped) return `${label} can see you until you stop`;
+            const remaining =
+              formatLocationRemaining(
+                parseTimestamp(grant.expiresAt) ?? nowMs,
+                nowMs,
+              ) ?? "less than a minute more";
+            return `${label} can see you for ${remaining}`;
+          })
+          .join(", and ");
+        return {
+          status: "blocked" as const,
+          summary: `${named}. Sharing for ${newLabel} now would end that early. Say it again to go ahead, or name a longer time.`,
+        };
+      }
+    }
     const result = await handleShare(duration, landOn);
+    // Spent. A later ask that would cut a live share short is a new decision
+    // and has to be told about the loss again rather than inheriting somebody
+    // else's "yes".
+    shareReplacementAcknowledgedRef.current = null;
     if (result.status !== "succeeded") return result;
     // Declared only once the completion effect will really navigate there.
     // `routeAfter` makes the runtime WAIT for that settlement -- on an action
