@@ -270,7 +270,7 @@ describe("OneLocationOnboardingFlow", () => {
         name: "Stuck waiting in line?",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("Check in on spot. Your Circle knows.")).toBeTruthy();
+    expect(screen.getByText("Check in on the spot and notify your circle")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
         name: "Need help but can’t talk?",
