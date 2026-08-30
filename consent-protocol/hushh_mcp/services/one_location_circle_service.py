@@ -331,6 +331,32 @@ def _clean_kind(value: str | None) -> str:
     return kind
 
 
+def _people_query_match_params(normalized_query: str) -> dict[str, object]:
+    """Bind values for the three-tier name match the paged people searches use.
+
+    The tiers mirror `filterPeopleByQuery` in
+    `hushh-webapp/lib/one-location/people-search.ts` exactly, because a paged
+    list and an unpaged one must not disagree about what a query means. Both
+    sheets used a bare substring match ordered A-Z, so with connections named
+    "Ankit Kumar Singh" and "Neelesh Meena", typing `n` matched BOTH -- "Ankit"
+    and "Singh" each carry an "n" -- and then sorted the wrong one first. The
+    client already fixed this for its own path and is covered by the protected
+    behaviour `location-people-search-finds-a-person-from-one-letter`; the
+    server-paged path never got it.
+
+    A word boundary is anything that is not a letter or a digit, which keeps
+    "Jean-Luc", "O'Brien" and "R. Meena" splitting the way a reader splits
+    them. The query is regex-escaped, so a name containing `.` or `*` cannot
+    turn a search into a pattern.
+    """
+    escaped = re.escape(normalized_query)
+    return {
+        "query_prefix_re": f"^{escaped}" if normalized_query else "$^",
+        "query_word_re": (f"(^|[^[:alnum:]]){escaped}" if normalized_query else "$^"),
+        "query_is_single_char": len(normalized_query) == 1,
+    }
+
+
 class OneLocationCircleService:
     """Owns named Circle state and atomic membership transitions."""
 
@@ -1031,6 +1057,7 @@ class OneLocationCircleService:
         normalized_page = max(1, int(page or 1))
         normalized_limit = max(1, min(int(limit or 50), 100))
         normalized_query = str(query or "").strip().lower()
+        query_match = _people_query_match_params(normalized_query)
         offset = (normalized_page - 1) * normalized_limit
         try:
             result = self._db.execute_raw(
@@ -1075,16 +1102,46 @@ class OneLocationCircleService:
                    AND membership.status = 'active'
                   LEFT JOIN actor_identity_cache identity
                     ON identity.user_id = membership.user_id
-                ), filtered AS (
-                  SELECT * FROM candidates
+                ), matched AS (
+                  -- How well the query matches, in the same three tiers the
+                  -- client picker uses (lib/one-location/people-search.ts):
+                  --   0  the name itself begins with it
+                  --   1  a word inside the name begins with it
+                  --   2  it only appears mid-word
+                  -- People read a name from the start of its words, so `n`
+                  -- means Neelesh, not the "n" inside "Ankit".
+                  SELECT *,
+                    CASE
+                      WHEN :query = '' THEN 0
+                      WHEN normalized_name ~ :query_prefix_re THEN 0
+                      WHEN normalized_name ~ :query_word_re THEN 1
+                      ELSE 2
+                    END AS match_rank
+                  FROM candidates
                   WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                ), filtered AS (
+                  -- A single character is only meaningful as a BEGINNING:
+                  -- mid-word it matches most names in any list, which is
+                  -- exactly why one-letter search read as broken. So one
+                  -- character keeps just the word-beginning matches -- unless
+                  -- nothing begins with it, in which case the loose matches
+                  -- stand rather than emptying a list that has a match.
+                  -- Two characters and up drop nothing, so "ingh" still finds
+                  -- Singh. Same rule as the client, so a paged list and an
+                  -- unpaged one never disagree about what a query means.
+                  SELECT * FROM matched
+                  WHERE NOT :query_is_single_char
+                     OR match_rank < 2
+                     OR NOT EXISTS (
+                          SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                        )
                 ), total AS (
                   SELECT COUNT(*)::BIGINT AS total_count,
                          EXISTS (SELECT 1 FROM authorized_circle) AS authorized
                   FROM filtered
                 ), page_rows AS (
                   SELECT * FROM filtered
-                  ORDER BY normalized_name, user_id
+                  ORDER BY match_rank, normalized_name, user_id
                   OFFSET :offset LIMIT :limit
                 )
                 SELECT page_rows.*,
@@ -1130,12 +1187,14 @@ class OneLocationCircleService:
                   WHERE key.user_id = page_rows.user_id AND key.status = 'active'
                   ORDER BY key.created_at DESC LIMIT 1
                 ) recipient_key ON TRUE
-                ORDER BY page_rows.normalized_name, page_rows.user_id
+                ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                         page_rows.user_id
                 """,
                 {
                     "circle_id": cleaned_circle_id,
                     "viewer_user_id": user_id,
                     "query": normalized_query,
+                    **query_match,
                     "offset": offset,
                     "limit": normalized_limit,
                 },
@@ -2821,6 +2880,7 @@ class OneLocationCircleService:
         normalized_page = max(1, int(page or 1))
         normalized_limit = max(1, min(int(limit or 50), 100))
         normalized_query = str(query or "").strip().lower()
+        query_match = _people_query_match_params(normalized_query)
         offset = (normalized_page - 1) * normalized_limit
         try:
             result = self._db.execute_raw(
@@ -2893,16 +2953,46 @@ class OneLocationCircleService:
                                                        ELSE connection.user_a_id END
                       AND invite.status = 'pending' AND invite.expires_at > NOW()
                   )
-                ), filtered AS (
-                  SELECT * FROM candidates
+                ), matched AS (
+                  -- How well the query matches, in the same three tiers the
+                  -- client picker uses (lib/one-location/people-search.ts):
+                  --   0  the name itself begins with it
+                  --   1  a word inside the name begins with it
+                  --   2  it only appears mid-word
+                  -- People read a name from the start of its words, so `n`
+                  -- means Neelesh, not the "n" inside "Ankit".
+                  SELECT *,
+                    CASE
+                      WHEN :query = '' THEN 0
+                      WHEN normalized_name ~ :query_prefix_re THEN 0
+                      WHEN normalized_name ~ :query_word_re THEN 1
+                      ELSE 2
+                    END AS match_rank
+                  FROM candidates
                   WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                ), filtered AS (
+                  -- A single character is only meaningful as a BEGINNING:
+                  -- mid-word it matches most names in any list, which is
+                  -- exactly why one-letter search read as broken. So one
+                  -- character keeps just the word-beginning matches -- unless
+                  -- nothing begins with it, in which case the loose matches
+                  -- stand rather than emptying a list that has a match.
+                  -- Two characters and up drop nothing, so "ingh" still finds
+                  -- Singh. Same rule as the client, so a paged list and an
+                  -- unpaged one never disagree about what a query means.
+                  SELECT * FROM matched
+                  WHERE NOT :query_is_single_char
+                     OR match_rank < 2
+                     OR NOT EXISTS (
+                          SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                        )
                 ), total AS (
                   SELECT COUNT(*)::BIGINT AS total_count,
                          EXISTS (SELECT 1 FROM authorized_circle) AS authorized
                   FROM filtered
                 ), page_rows AS (
                   SELECT * FROM filtered
-                  ORDER BY normalized_name, user_id, connection_id
+                  ORDER BY match_rank, normalized_name, user_id, connection_id
                   OFFSET :offset LIMIT :limit
                 )
                 SELECT page_rows.*, total.total_count, total.authorized,
@@ -2914,12 +3004,14 @@ class OneLocationCircleService:
                            AND contact_origin.source_ref = :actor_user_id
                        ) END AS connected_from_contacts
                 FROM total LEFT JOIN page_rows ON TRUE
-                ORDER BY page_rows.normalized_name, page_rows.user_id, page_rows.connection_id
+                ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                         page_rows.user_id, page_rows.connection_id
                 """,
                 {
                     "circle_id": cleaned_circle_id,
                     "actor_user_id": actor_user_id,
                     "query": normalized_query,
+                    **query_match,
                     "offset": offset,
                     "limit": normalized_limit,
                 },
