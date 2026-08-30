@@ -19,6 +19,7 @@ import type {
   OneLocationAutoApprovePreference,
   OneLocationCircleInvite,
   OneLocationCircleDetail,
+  OneLocationCircleEligibleConnection,
   OneLocationCircleEligibleConnections,
   OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleInviteCode,
@@ -52,6 +53,29 @@ import type {
   DriveDestination,
   RouteEta,
 } from "@/lib/one-location/types";
+
+type OneLocationCircleEligibleConnectionApiRow = Omit<
+  OneLocationCircleEligibleConnection,
+  "isRia"
+> & {
+  isRia?: boolean | null;
+};
+
+type OneLocationCircleEligibleConnectionsApiResponse = {
+  eligibleConnections?: OneLocationCircleEligibleConnectionApiRow[];
+  connections?: OneLocationCircleEligibleConnectionApiRow[];
+  pendingInvites?: OneLocationCircleMemberInvite[];
+  remainingCapacity?: number;
+};
+
+function normalizeEligibleConnection(
+  connection: OneLocationCircleEligibleConnectionApiRow,
+): OneLocationCircleEligibleConnection {
+  return {
+    ...connection,
+    isRia: Boolean(connection.isRia),
+  };
+}
 
 function authHeaders(vaultOwnerToken: string): Record<string, string> {
   return { Authorization: `Bearer ${vaultOwnerToken}` };
@@ -849,24 +873,23 @@ export class OneLocationService {
     vaultOwnerToken: string;
     circleId: string;
   }): Promise<OneLocationCircleEligibleConnections> {
-    const response = await apiJson<{
-      eligibleConnections?: OneLocationCircleEligibleConnections["eligibleConnections"];
-      connections?: OneLocationCircleEligibleConnections["eligibleConnections"];
-      pendingInvites?: OneLocationCircleMemberInvite[];
-      remainingCapacity?: number;
-    }>(
+    const response = await apiJson<OneLocationCircleEligibleConnectionsApiResponse>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}/eligible-connections`,
       { headers: authHeaders(params.vaultOwnerToken) },
     );
+    const eligibleConnections = (
+      response.eligibleConnections ??
+      response.connections ??
+      []
+    ).map(normalizeEligibleConnection);
     return {
-      eligibleConnections:
-        response.eligibleConnections ?? response.connections ?? [],
+      eligibleConnections,
       pendingInvites: response.pendingInvites ?? [],
       remainingCapacity: Math.max(
         0,
         Number.isFinite(response.remainingCapacity)
           ? Number(response.remainingCapacity)
-          : (response.eligibleConnections ?? response.connections ?? []).length,
+          : eligibleConnections.length,
       ),
     };
   }
@@ -883,20 +906,21 @@ export class OneLocationService {
       limit: String(params.limit ?? 50),
     });
     if (params.query?.trim()) search.set("query", params.query.trim());
-    const response = await apiJson<{
-      eligibleConnections?: OneLocationCircleEligibleConnections["eligibleConnections"];
-      connections?: OneLocationCircleEligibleConnections["eligibleConnections"];
-      pendingInvites?: OneLocationCircleMemberInvite[];
-      remainingCapacity?: number;
+    const response = await apiJson<
+      OneLocationCircleEligibleConnectionsApiResponse & {
       page?: number;
       hasMore?: boolean;
       totalCount?: number;
-    }>(
+      }
+    >(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}/eligible-connections?${search.toString()}`,
       { headers: authHeaders(params.vaultOwnerToken) },
     );
-    const eligibleConnections =
-      response.eligibleConnections ?? response.connections ?? [];
+    const eligibleConnections = (
+      response.eligibleConnections ??
+      response.connections ??
+      []
+    ).map(normalizeEligibleConnection);
     return {
       eligibleConnections,
       pendingInvites: response.pendingInvites ?? [],

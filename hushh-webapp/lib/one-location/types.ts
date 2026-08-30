@@ -456,6 +456,7 @@ export type OneLocationCircleEligibleConnection = {
   photoUrl?: string | null;
   connectedAt?: string | null;
   connectedFromContacts?: boolean;
+  isRia: boolean;
 };
 
 export type OneLocationCircleMemberInviteStatus =
