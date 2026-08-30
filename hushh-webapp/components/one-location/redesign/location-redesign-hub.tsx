@@ -158,6 +158,7 @@ import {
   CHANGE_TIME_DURATION_LADDER,
   REQUEST_DURATION_LADDER,
 } from "./duration-presets";
+import { approveShorterDurationOptions } from "@/lib/one-location/approve-duration-options";
 import {
   AskForMoreTime,
   type RequestMoreTimeHours,
@@ -2655,17 +2656,23 @@ function LocationDetailFlow({
                   reason={request.message ?? undefined}
                   approveLabel={locationApproveActionLabel(request, vm.nowMs)}
                   onApprove={() => vm.onApprove(request)}
-                  oneHourApproveLabel={
-                    canApproveForOneHour(request) ? "Allow 1 hour" : undefined
-                  }
-                  onApproveOneHour={
-                    canApproveForOneHour(request)
-                      ? () =>
-                          vm.onApprove(request, {
-                            durationHoursOverride: 1,
-                            durationModeOverride: "timed",
-                          })
-                      : undefined
+                  // Every amount below what was asked, rather than the single
+                  // hard-coded "Allow 1 hour" this replaced -- which was not a
+                  // choice, and which disappeared entirely for anything asked
+                  // at an hour or less. Reported as "if i want to edit the
+                  // time, and want to approve req for shorter duration i am
+                  // not allowed to do so".
+                  //
+                  // `durationModeOverride: "timed"` on every one of them, and
+                  // that matters most on an `until_stopped` ask: naming an
+                  // amount is exactly how an owner answers "forever?" with
+                  // "two hours".
+                  shorterApprovals={approveShorterDurationOptions(request)}
+                  onApproveShorter={(hours) =>
+                    vm.onApprove(request, {
+                      durationHoursOverride: hours,
+                      durationModeOverride: "timed",
+                    })
                   }
                   onDecline={() => vm.onDeny(request.id)}
                 />
@@ -3268,14 +3275,6 @@ function requestDurationLabel(request: OneLocationAccessRequest): string {
     return "Until stopped";
   }
   return formatLocationDurationLabel(request.requestedDurationHours);
-}
-
-function canApproveForOneHour(request: OneLocationAccessRequest): boolean {
-  if (request.requestedDurationMode === "until_stopped") {
-    return true;
-  }
-  const requestedHours = Number(request.requestedDurationHours);
-  return Number.isFinite(requestedHours) && requestedHours > 1;
 }
 
 function sentRequestStatusLine(
