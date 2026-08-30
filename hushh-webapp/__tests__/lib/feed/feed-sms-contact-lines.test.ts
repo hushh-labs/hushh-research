@@ -46,7 +46,7 @@ describe("SMS Circle membership reaches both people", () => {
   it("tells the contact they were added", () => {
     // The whole point: this row is the only way they find out.
     expect(presentFeedItem(item({ metadata: contact })).description).toBe(
-      "Added you to their SMS",
+      "Added you to SMS Circle",
     );
   });
 
@@ -65,7 +65,7 @@ describe("SMS Circle membership reaches both people", () => {
       presentFeedItem(
         item({ event_type: "location_sms_contact_removed", metadata: contact }),
       ).description,
-    ).toBe("Removed you from their SMS");
+    ).toBe("Removed you from SMS Circle");
   });
 
   it("names the other person as the row's title, on both sides", () => {
@@ -81,6 +81,21 @@ describe("SMS Circle membership reaches both people", () => {
       const a = presentFeedItem(item({ event_type, metadata: owner }));
       const b = presentFeedItem(item({ event_type, metadata: contact }));
       expect(a.description).not.toBe(b.description);
+    }
+  });
+
+  it("never puts a possessive pronoun next to the name on the row", () => {
+    // The row's title is already the other person, so "added you to THEIR SMS"
+    // reads as a name followed immediately by a pronoun for that same name.
+    // Dropping the pronoun is shorter and says exactly as much.
+    for (const event_type of [
+      "location_sms_contact_added",
+      "location_sms_contact_removed",
+    ] as const) {
+      for (const metadata of [owner, contact]) {
+        const line = presentFeedItem(item({ event_type, metadata })).description;
+        expect(line).not.toMatch(/their/i);
+      }
     }
   });
 

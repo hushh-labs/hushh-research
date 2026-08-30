@@ -120,7 +120,7 @@ const WORKFLOW_COPY: Record<
   },
   location_circle_member_invite: {
     title: "Circle invitation",
-    fallbackDescription: "A connection invited you to join their Circle.",
+    fallbackDescription: "A connection invited you to join a Circle.",
   },
   location_circle_member_invite_accepted: {
     title: "Circle invitation accepted",
@@ -131,7 +131,7 @@ const WORKFLOW_COPY: Record<
     // moment the person learns about it. The fallback still says a human did
     // it -- "You were added to a Circle" reads as an intrusion by nobody.
     title: "Added to a Circle",
-    fallbackDescription: "A connection added you to their Circle.",
+    fallbackDescription: "A connection added you to a Circle.",
   },
   location_circle_code_joined: {
     title: "Someone joined your Circle",
@@ -816,7 +816,7 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: circleName
           ? `${networkLabel} added you to ${circleName}.`
-          : `${networkLabel} added you to their Circle.`,
+          : `${networkLabel} added you to a Circle.`,
       };
     }
     case "location_circle_code_joined":

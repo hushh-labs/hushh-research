@@ -280,7 +280,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Location",
         person: counterpartPerson(item.metadata, who),
         description: sharedWithMe
-          ? "Added you to their SMS"
+          ? "Added you to SMS Circle"
           : "Added to your SMS Circle",
         href: ROUTES.ONE_LOCATION,
       };
@@ -293,7 +293,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Location",
         person: counterpartPerson(item.metadata, who),
         description: sharedWithMe
-          ? "Removed you from their SMS"
+          ? "Removed you from SMS Circle"
           : "Removed from your SMS",
         href: ROUTES.ONE_LOCATION,
       };
@@ -523,7 +523,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: who !== "Someone" ? who : "One Network",
         person: counterpartPerson(item.metadata, who),
         description: sharedWithMe
-          ? "You joined their One Network"
+          ? "You joined the One Network"
           : "Joined your One Network",
         href: buildOneLocationWorkflowHref({ section: "people" }),
       };
@@ -590,7 +590,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: addedBy
           ? circleName
             ? `${addedBy} added you to ${circleName}.`
-            : `${addedBy} added you to their Circle.`
+            : `${addedBy} added you to a Circle.`
           : circleName
             ? `You were added to ${circleName}.`
             : "You were added to a Circle.",

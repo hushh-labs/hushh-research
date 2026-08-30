@@ -162,7 +162,12 @@ export function ActionMenu({
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    // Deliberately UNCONTROLLED, with only a callback for the freeze above.
+    // Passing `open` puts a React state round-trip between the keypress and
+    // the menu appearing; Radix otherwise opens inside the same event. A test
+    // that presses Enter and reads the menu on the next line then fails under
+    // load while passing in isolation -- which is exactly what it did.
+    <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
