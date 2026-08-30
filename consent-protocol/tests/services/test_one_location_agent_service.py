@@ -2632,22 +2632,6 @@ class FourUserMemoryService(OneLocationAgentService):
                 invite["updated_at"] = datetime.now(timezone.utc)
                 return invite
             return None
-        if (
-            "UPDATE one_location_public_invites" in sql
-            and "SET duration_hours = :duration_hours" in sql
-        ):
-            # Reuse restarts the window for the duration that was just asked
-            # for, refreshes the snapshot, and rewrites the owner label.
-            invite = self.public_invites.get(params["invite_id"])
-            if not invite or invite["status"] != "active":
-                return None
-            invite["duration_hours"] = params["duration_hours"]
-            invite["expires_at"] = datetime.now(timezone.utc) + timedelta(
-                hours=float(params["duration_hours"])
-            )
-            invite["metadata"] = json.loads(params.get("metadata_json") or "{}")
-            invite["updated_at"] = datetime.now(timezone.utc)
-            return invite
         if "FROM one_location_public_invites i" in sql:
             for invite in self.public_invites.values():
                 if invite["public_code_hash"] == params["public_code_hash"]:
@@ -2663,9 +2647,9 @@ class FourUserMemoryService(OneLocationAgentService):
             and "status = 'expired'" in sql
             and "owner_user_id" in params
         ):
-            # Settling lazily-expired rows before the reuse lookup. Expiry is
-            # written only when something reads a row, so a link past its time
-            # can still be sitting at 'active'.
+            # Settling lazily-expired rows before the active-count check.
+            # Expiry is written only when something reads a row, so a link
+            # past its time can still be sitting at 'active'.
             now = datetime.now(timezone.utc)
             for invite in self.public_invites.values():
                 if (
@@ -2686,22 +2670,19 @@ class FourUserMemoryService(OneLocationAgentService):
                 invite["revoked_at"] = datetime.now(timezone.utc)
                 return invite
             return None
-        if (
-            "FROM one_location_public_invites" in sql
-            and "expires_at > NOW()" in sql
-            and "owner_user_id" in params
-        ):
-            # The reuse lookup: one live public link per person.
+        if "COUNT(*)::int AS active_count" in sql:
+            # The simultaneous-link cap: a count, not a lookup. Multiple
+            # links stay independently live for one owner; this only bounds
+            # how many.
             now = datetime.now(timezone.utc)
-            live = [
-                invite
+            active_count = sum(
+                1
                 for invite in self.public_invites.values()
                 if invite["owner_user_id"] == params["owner_user_id"]
                 and invite["status"] == "active"
                 and invite["expires_at"] > now
-            ]
-            live.sort(key=lambda invite: invite["created_at"], reverse=True)
-            return live[0] if live else None
+            )
+            return {"active_count": active_count}
         if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
             # `AND expires_at <= NOW()` is part of the statement now, so the
             # double has to answer the same question the database would:
@@ -4521,98 +4502,100 @@ def test_public_invite_label_rejects_a_uid_sitting_in_the_name_column() -> None:
     assert resolved["invite"]["ownerLabel"] == "A trusted person"
 
 
-def test_public_invite_reuse_honours_the_duration_that_was_just_asked_for() -> None:
-    """A link created for an hour is live for an hour, not for what is left.
+def test_a_second_link_never_touches_the_durations_or_expiry_of_the_first() -> None:
+    """Link A's window belongs to Link A, no matter what Link B asks for.
 
-    One live public link per owner, and the second call reused the first row
-    verbatim -- so picking "1 hour" 56 minutes into an existing link handed
-    back four minutes, and the countdown afterwards agreed with it because it
-    reads the same row. The window restarts from now, for exactly what was
-    asked.
+    create_public_invite used to look an owner's existing link up and rewrite
+    it in place, so picking "1 hour" for a second link silently restarted the
+    first link's window too -- and both people watching it agreed with the
+    wrong answer, because the countdown each of them saw read the same row.
+    Two links now own two rows; creating the second must leave the first's
+    duration and expiry exactly where they were.
     """
 
     service = FourUserMemoryService()
-    first = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
-    first_row = next(iter(service.public_invites.values()))
-    # Wind the existing link down to its last four minutes.
-    first_row["expires_at"] = datetime.now(timezone.utc) + timedelta(minutes=4)
+    link_a = service.create_public_invite(owner_user_id="user_a", duration_hours=0.25)
+    row_a = service.public_invites[link_a["invite"]["id"]]
+    expires_at_a_before = row_a["expires_at"]
 
-    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    link_b = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    row_b = service.public_invites[link_b["invite"]["id"]]
 
-    assert second.get("reused") is True
-    # Same link -- the one-at-a-time invariant still holds.
-    assert second["publicToken"] == first["publicToken"]
-    assert len(service.public_invites) == 1
-
-    remaining = datetime.fromisoformat(second["invite"]["expiresAt"]) - datetime.now(timezone.utc)
-    assert remaining > timedelta(minutes=55)
-    assert remaining <= timedelta(hours=1)
-    assert second["invite"]["durationHours"] == 1
+    assert link_a["publicToken"] != link_b["publicToken"]
+    assert link_a["invite"]["id"] != link_b["invite"]["id"]
+    assert row_a["expires_at"] == expires_at_a_before
+    assert row_a["duration_hours"] == 0.25
+    assert row_b["duration_hours"] == 1
+    assert row_a["status"] == "active"
+    assert row_b["status"] == "active"
 
 
-def test_public_invite_reuse_shows_where_the_owner_is_now() -> None:
-    # Reuse used to keep the snapshot the first call attached, so a link handed
-    # back 50 minutes later opened on where the owner had been, presented as
-    # where they are.
+def test_each_link_keeps_its_own_location_snapshot() -> None:
+    # A second link used to rewrite the first row's snapshot along with
+    # everything else, so a person already holding Link A would suddenly see
+    # wherever the owner was when they made Link B.
     service = FourUserMemoryService()
-    first_point = {
+    point_a = {
         "latitude": 28.6139,
         "longitude": 77.209,
         "accuracyM": 12,
         "capturedAt": "2026-08-23T02:06:00.000Z",
         "sourcePlatform": "web",
     }
-    second_point = {
+    point_b = {
         "latitude": 25.1441,
         "longitude": 75.8446,
         "accuracyM": 9,
         "capturedAt": "2026-08-23T02:56:00.000Z",
         "sourcePlatform": "web",
     }
-    service.create_public_invite(
-        owner_user_id="user_a", duration_hours=1, location_snapshot=first_point
+    link_a = service.create_public_invite(
+        owner_user_id="user_a", duration_hours=0.25, location_snapshot=point_a
     )
-    second = service.create_public_invite(
-        owner_user_id="user_a", duration_hours=1, location_snapshot=second_point
+    link_b = service.create_public_invite(
+        owner_user_id="user_a", duration_hours=1, location_snapshot=point_b
     )
 
-    resolved = service.resolve_public_invite(public_token=second["publicToken"])
-    assert resolved["publicLocation"]["latitude"] == 25.1441
-    assert resolved["publicLocation"]["longitude"] == 75.8446
+    resolved_a = service.resolve_public_invite(public_token=link_a["publicToken"])
+    resolved_b = service.resolve_public_invite(public_token=link_b["publicToken"])
+    assert resolved_a["publicLocation"]["latitude"] == 28.6139
+    assert resolved_a["publicLocation"]["longitude"] == 77.209
+    assert resolved_b["publicLocation"]["latitude"] == 25.1441
+    assert resolved_b["publicLocation"]["longitude"] == 75.8446
 
 
-def test_public_invite_reuse_mints_a_new_link_when_the_old_one_was_just_revoked() -> None:
-    """The reuse UPDATE is guarded on `status = 'active'`, so it can write nothing.
-
-    A second device -- or the `revoke_public_link` agent tool -- can revoke the
-    invite between the SELECT that finds it and the UPDATE that refreshes it.
-    Falling back to the row the SELECT read would hand the owner a link whose
-    stored status still says 'active', which means `_public_invite_payload`
-    attaches a `publicUrl`: a link they can copy and share that 410s the first
-    time anyone opens it. Minting instead gives them one that works.
-    """
-
+def test_revoking_one_link_leaves_a_second_link_resolvable() -> None:
+    # Revoking used to be the only way to make a second link, because create
+    # would otherwise hand the first one back. Now it is just an independent
+    # action on Link A that must have no effect on Link B.
     service = FourUserMemoryService()
-    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
-    first_row = next(iter(service.public_invites.values()))
+    link_a = service.create_public_invite(owner_user_id="user_a", duration_hours=0.25)
+    link_b = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
 
-    original_execute_one = service._execute_one
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=link_a["invite"]["id"])
 
-    def revoke_between_select_and_update(sql, params=None):
-        if "UPDATE one_location_public_invites" in sql and "SET duration_hours" in sql:
-            first_row["status"] = "revoked"
-        return original_execute_one(sql, params)
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.resolve_public_invite(public_token=link_a["publicToken"])
+    assert excinfo.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
 
-    service._execute_one = revoke_between_select_and_update
-    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
-    service._execute_one = original_execute_one
+    resolved_b = service.resolve_public_invite(public_token=link_b["publicToken"])
+    assert resolved_b["invite"]["status"] == "active"
 
-    assert second.get("reused") is not True
-    assert second["publicToken"] != first["publicToken"]
-    assert second["invite"]["status"] == "active"
-    # And the link handed back really does resolve.
-    resolved = service.resolve_public_invite(public_token=second["publicToken"])
-    assert resolved["invite"]["status"] == "active"
+
+def test_expiring_one_link_leaves_a_second_link_valid() -> None:
+    service = FourUserMemoryService()
+    link_a = service.create_public_invite(owner_user_id="user_a", duration_hours=0.25)
+    link_b = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service.public_invites[link_a["invite"]["id"]]["expires_at"] = datetime.now(
+        timezone.utc
+    ) - timedelta(minutes=1)
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.resolve_public_invite(public_token=link_a["publicToken"])
+    assert excinfo.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+    resolved_b = service.resolve_public_invite(public_token=link_b["publicToken"])
+    assert resolved_b["invite"]["status"] == "active"
 
 
 def test_public_invite_resolve_names_the_sharer_on_a_link_minted_before_the_write() -> None:
@@ -4674,8 +4657,8 @@ def test_public_invite_expiry_is_decided_by_the_database_clock() -> None:
     assert "_utcnow()" not in expire_source
 
     create_source = inspect.getsource(module.OneLocationAgentService.create_public_invite)
-    # ...and so does the stamp, on both the mint and the reuse path.
-    assert create_source.count("INTERVAL '1 hour'") == 2
+    # ...and so does the stamp, on the one path every link is minted through.
+    assert create_source.count("INTERVAL '1 hour'") == 1
     assert "_utcnow() + timedelta" not in create_source
 
     # Behaviourally: a link inside its window survives a read.
@@ -6824,11 +6807,17 @@ def test_the_recipient_payload_never_carries_the_token(_public_invite_key) -> No
 
 
 # ---------------------------------------------------------------------------
-# One live public location link per person.
+# Multiple public location links, live at the same time, for the same owner.
 #
-# Nothing used to stop a second: no unique index, no lookup, just an INSERT. A
-# reload, a second device or a double tap left two links resolvable while the
-# screen showed one, and revoking the visible one left the other watching.
+# create_public_invite used to look an owner's live link up and hand it back
+# rewritten -- "reused": True -- rather than mint a second: one live public
+# link per person, enforced server-side. That meant Link A to one person for
+# 15 minutes and Link B to another for an hour could never both exist; making
+# B silently rewrote A's token, duration, expiry and snapshot out from under
+# whoever already had it. Every call here now mints its own row. The only
+# thing still bounded is how many rows one owner can have active at once
+# (`PUBLIC_INVITE_MAX_ACTIVE_PER_OWNER`), which is an abuse guard, not a
+# product limit.
 # ---------------------------------------------------------------------------
 
 
@@ -6836,31 +6825,30 @@ def _active_public_invites(service) -> list[dict]:
     return [invite for invite in service.public_invites.values() if invite["status"] == "active"]
 
 
-def test_creating_a_second_public_link_hands_back_the_first() -> None:
+def test_two_links_of_different_durations_stay_independently_active() -> None:
+    """Link A -> 15 min, Link B -> 1 hour. Both live, independently, at once."""
+
     service = FourUserMemoryService()
 
-    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
-    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    link_a = service.create_public_invite(owner_user_id="user_a", duration_hours=0.25)
+    link_b = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
 
-    # Same link, not a second one: this call is what the person makes when they
-    # mean "give me my link", so it answers rather than refusing.
-    assert second["publicToken"] == first["publicToken"]
-    assert second["invite"]["id"] == first["invite"]["id"]
-    assert second["reused"] is True
-    assert first.get("reused") is not True
-    assert len(_active_public_invites(service)) == 1
+    # Distinct tokens, distinct rows.
+    assert link_a["publicToken"] != link_b["publicToken"]
+    assert link_a["invite"]["id"] != link_b["invite"]["id"]
 
+    # Both rows remain active, and each keeps the duration it was given.
+    active = _active_public_invites(service)
+    assert len(active) == 2
+    assert link_a["invite"]["durationHours"] == 0.25
+    assert link_b["invite"]["durationHours"] == 1
 
-def test_the_reused_link_still_resolves() -> None:
-    # The point of reuse is that whoever already holds the link keeps seeing
-    # the owner. A token handed back that no longer resolved would be worse
-    # than a second link.
-    service = FourUserMemoryService()
-    service.create_public_invite(owner_user_id="user_a", duration_hours=1)
-    reused = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
-
-    resolved = service.resolve_public_invite(public_token=reused["publicToken"])
-    assert resolved["invite"]["status"] == "active"
+    # Revoking A must not touch B.
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=link_a["invite"]["id"])
+    assert service.public_invites[link_a["invite"]["id"]]["status"] == "revoked"
+    assert service.public_invites[link_b["invite"]["id"]]["status"] == "active"
+    resolved_b = service.resolve_public_invite(public_token=link_b["publicToken"])
+    assert resolved_b["invite"]["status"] == "active"
 
 
 def test_one_persons_link_does_not_block_another_persons() -> None:
@@ -6873,7 +6861,7 @@ def test_one_persons_link_does_not_block_another_persons() -> None:
     assert len(_active_public_invites(service)) == 2
 
 
-def test_revoking_frees_the_person_to_create_another() -> None:
+def test_revoking_one_link_does_not_stop_another_from_being_created() -> None:
     service = FourUserMemoryService()
 
     first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
@@ -6881,15 +6869,14 @@ def test_revoking_frees_the_person_to_create_another() -> None:
     second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
 
     assert second["publicToken"] != first["publicToken"]
-    assert second.get("reused") is not True
     assert len(_active_public_invites(service)) == 1
 
 
-def test_an_expired_link_does_not_block_a_new_one() -> None:
+def test_a_stale_expired_link_does_not_count_against_the_active_cap() -> None:
     # Expiry is written lazily -- only when something reads the row -- so a
-    # link past its time can still be sitting at status 'active'. If create did
-    # not settle that first, the reuse lookup would hand back a dead link and
-    # the person could never make another.
+    # link past its time can still be sitting at status 'active'. create must
+    # settle that first, or a stale row would eat into the simultaneous-link
+    # cap forever.
     service = FourUserMemoryService()
 
     first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
@@ -6900,27 +6887,36 @@ def test_an_expired_link_does_not_block_a_new_one() -> None:
     second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
 
     assert second["publicToken"] != first["publicToken"]
-    assert second.get("reused") is not True
     assert stale["status"] == "expired"
     assert len(_active_public_invites(service)) == 1
 
 
-def test_a_link_whose_token_cannot_be_recovered_is_replaced() -> None:
-    # A row minted before tokens were derived from the id. Its token is gone
-    # for good, so leaving it active would strand the owner behind a link
-    # nothing can show and no create button.
+def test_a_tenth_link_succeeds_and_an_eleventh_is_rejected() -> None:
+    # The cap is an abuse guard, not a product limit: nine calls in, a tenth
+    # must still mint a fresh, independent link exactly like the first did.
     service = FourUserMemoryService()
 
-    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
-    legacy = service.public_invites[first["invite"]["id"]]
-    legacy["metadata"] = {}
+    created = [
+        service.create_public_invite(owner_user_id="user_a", duration_hours=1) for _ in range(10)
+    ]
+    assert len({invite["publicToken"] for invite in created}) == 10
+    assert len(_active_public_invites(service)) == 10
 
-    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert excinfo.value.code == "LOCATION_PUBLIC_INVITE_LIMIT"
+    assert excinfo.value.status_code == 429
+    # Rejected consistently, not as a one-time fluke: calling again while still
+    # at the cap must not somehow squeeze a row in.
+    with pytest.raises(OneLocationAgentError):
+        service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert len(_active_public_invites(service)) == 10
 
-    assert second["publicToken"] != first["publicToken"]
-    assert second.get("reused") is not True
-    assert legacy["status"] == "revoked"
-    assert len(_active_public_invites(service)) == 1
+    # Revoking one frees exactly one slot.
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=created[0]["invite"]["id"])
+    eleventh = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert eleventh["publicToken"] not in {invite["publicToken"] for invite in created}
+    assert len(_active_public_invites(service)) == 10
 
 
 def test_the_owners_state_carries_the_link_back() -> None:
@@ -6981,14 +6977,18 @@ def test_a_public_link_cannot_be_asked_to_live_longer_than_an_hour() -> None:
 
 
 def test_the_durations_the_screen_offers_are_accepted() -> None:
+    # 15 min, 30 min and 1 hour, all live at once -- picking a shorter or
+    # longer duration for a new link is independent of whatever else is live.
     service = FourUserMemoryService()
 
+    quarter = service.create_public_invite(owner_user_id="user_a", duration_hours=0.25)
     half = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
-    assert half["invite"]["durationHours"] == 0.5
-
-    service.revoke_public_invite(owner_user_id="user_a", invite_id=half["invite"]["id"])
     whole = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert quarter["invite"]["durationHours"] == 0.25
+    assert half["invite"]["durationHours"] == 0.5
     assert whole["invite"]["durationHours"] == 1
+    assert len(_active_public_invites(service)) == 3
 
 
 def test_sos_reaches_someone_added_through_the_emergency_circle() -> None:

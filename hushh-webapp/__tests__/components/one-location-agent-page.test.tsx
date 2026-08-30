@@ -53,6 +53,7 @@ const {
   mockApproveRequest,
   mockUpdateAutoApprovePreference,
   mockCreatePublicInvite,
+  mockRevokePublicInvite,
   mockCreateCircleInvite,
   mockListCircles,
   mockGetCircle,
@@ -110,6 +111,7 @@ const {
   mockApproveRequest: vi.fn(),
   mockUpdateAutoApprovePreference: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
+  mockRevokePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
   mockListCircles: vi.fn(),
   mockGetCircle: vi.fn(),
@@ -343,7 +345,7 @@ vi.mock("@/lib/one-location/service", () => ({
     referRecipient: vi.fn(),
     createPublicInvite: mockCreatePublicInvite,
     createCircleInvite: mockCreateCircleInvite,
-    revokePublicInvite: vi.fn(),
+    revokePublicInvite: mockRevokePublicInvite,
     revokeCircleInvite: vi.fn(),
     // Named-circle surface: the mandatory onboarding invite screen
     // find-or-creates the user's first owned Circle and issues its
@@ -1176,6 +1178,7 @@ describe("OneLocationAgentPage", () => {
     mockCreatePublicInvite.mockResolvedValue({
       publicUrl: "/one/location/view/invite_1",
     });
+    mockRevokePublicInvite.mockResolvedValue({});
     mockListCircles.mockResolvedValue([]);
     mockGetCircle.mockResolvedValue(undefined);
     mockListCircleMembersPage.mockResolvedValue({
@@ -3772,6 +3775,7 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText("Duration")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "15 min" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "30 min" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "1 hour" })).toBeTruthy();
     expect(screen.queryByText("Active links")).toBeNull();
@@ -4232,9 +4236,13 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("button", { name: /Revoking|Revoke link/i }),
     ).toBeTruthy();
-    // And no way to make a second while this one is live.
-    expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
-    expect(screen.queryByText("Duration")).toBeNull();
+    // Multiple links can be live at once, so the create control -- and the
+    // duration picker beside it -- stays on screen rather than disappearing
+    // once one link exists.
+    expect(
+      screen.getByRole("button", { name: /^Create link$/i }),
+    ).toBeTruthy();
+    expect(screen.getByText("Duration")).toBeTruthy();
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
     );
@@ -6661,10 +6669,9 @@ describe("OneLocationAgentPage", () => {
     expect(copied).not.toContain("/one/location/request/");
   });
 
-  it("offers no way to make a second link while one is live", async () => {
-    // Two are independently resolvable, revoking the visible one leaves the
-    // other watching, and the tab can only ever show the newest. Ending this
-    // one is the way to a different one.
+  it("keeps the create control on screen while a link is live", async () => {
+    // Multiple links can be live at once -- a second one is not something the
+    // create control ever needs to get out of the way for.
     mockGetState.mockResolvedValue({
       ...locationState(),
       publicInvites: [activePublicInvite()],
@@ -6676,10 +6683,51 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
     expect(await screen.findByText("Temporary link")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
-    expect(screen.queryByText("Duration")).toBeNull();
-    // Ending it stays reachable -- that is the only exit.
+    expect(
+      screen.getByRole("button", { name: /^Create link$/i }),
+    ).toBeTruthy();
+    expect(screen.getByText("Duration")).toBeTruthy();
+    // Ending it stays reachable too.
     expect(screen.getByRole("button", { name: /Revoke link/i })).toBeTruthy();
+  });
+
+  it("renders one card per active link, each independently revocable", async () => {
+    // Link A -> 15 min, Link B -> 1 hour, both live. Neither card's Stop
+    // button may be confused with the other's.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [
+        activePublicInvite({
+          id: "public-invite-a",
+          durationHours: 0.25,
+          publicUrl: "/one/location/view/token-a",
+        }),
+        activePublicInvite({
+          id: "public-invite-b",
+          durationHours: 1,
+          publicUrl: "/one/location/view/token-b",
+        }),
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+
+    expect(await screen.findByText("15 min link")).toBeTruthy();
+    expect(screen.getByText("1 hour link")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Revoke link/i })).toHaveLength(
+      2,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Revoke link/i })[0]);
+    await waitFor(() =>
+      expect(mockRevokePublicInvite).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        inviteId: "public-invite-a",
+      }),
+    );
   });
 
   it("lets a link whose URL cannot be recovered be stopped", async () => {
@@ -6700,7 +6748,9 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: /Stop link/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Copy link$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Share$/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /^Create link$/i }),
+    ).toBeTruthy();
   });
 
   it("brings a bookmarked temp-link URL to the Links tab", async () => {
@@ -6725,12 +6775,11 @@ describe("OneLocationAgentPage", () => {
     expect(replaced).not.toContain("action=temp-link");
   });
 
-  it("brings the create form back when the link runs out", async () => {
-    // The tab hides its create control whenever a link is live, and expiry is
-    // written server-side only when a row is READ -- nothing here refetches on
-    // a timer. Without a clock check the state this session already holds says
-    // "active" forever, so a link that ran out five minutes ago left the person
-    // looking at a dead card with no way past it until they reloaded.
+  it("drops a link's card once it runs out, without touching the create control", async () => {
+    // Expiry is written server-side only when a row is READ -- nothing here
+    // refetches on a timer. Without a clock check the state this session
+    // already holds says "active" forever, so a link that ran out five
+    // minutes ago left its card on screen with no way past it until reload.
     mockGetState.mockResolvedValue({
       ...locationState(),
       publicInvites: [
@@ -6745,7 +6794,12 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(await screen.findByText("Temporary link")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
+    // The create control was never hidden by the live link in the first
+    // place.
+    expect(
+      screen.getByRole("button", { name: /^Create link$/i }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Revoke link/i })).toBeTruthy();
 
     // Real time, not fake. This suite's setup awaits real promises, and fake
     // timers -- even advancing ones -- leave `waitFor` running on a clock the
@@ -6763,11 +6817,14 @@ describe("OneLocationAgentPage", () => {
 
     expect(screen.getByText("Duration")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Create link$/i })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Revoke link/i }),
+    ).toBeNull();
   });
 
   it("does not expire a link the server sent without an expiry", async () => {
     // A missing timestamp is not evidence the link has run out. Treating it as
-    // expired would hide a working link and offer to make a second.
+    // expired would drop a working link's card from the list.
     mockGetState.mockResolvedValue({
       ...locationState(),
       publicInvites: [activePublicInvite({ expiresAt: undefined })],
@@ -6779,7 +6836,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
     expect(await screen.findByText("Temporary link")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Revoke link/i })).toBeTruthy();
   });
 
   it("treats a link that expired before the tab opened as gone", async () => {
@@ -6800,5 +6857,9 @@ describe("OneLocationAgentPage", () => {
 
     expect(await screen.findByText("Temporary link")).toBeTruthy();
     expect(screen.getByText("Duration")).toBeTruthy();
+    // No card for an invite the clock already disqualifies.
+    expect(
+      screen.queryByRole("button", { name: /Revoke link/i }),
+    ).toBeNull();
   });
 });
