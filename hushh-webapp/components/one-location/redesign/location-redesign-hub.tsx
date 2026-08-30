@@ -57,6 +57,7 @@ import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
   formatLocationDurationLabel,
+  formatLocationRemaining,
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
@@ -65,10 +66,7 @@ import {
   groupGrantsByCounterpart,
   type OneLocationGrantLaneGroup,
 } from "@/lib/one-location/grant-lanes";
-import {
-  describeShareRemaining,
-  parseTimestamp,
-} from "@/lib/one-location/share-countdown";
+import { parseTimestamp } from "@/lib/one-location/share-countdown";
 import {
   resolveShareDurationHours,
   shareReplacementsLosingTime,
@@ -4202,9 +4200,17 @@ function ShareFlow({
 }) {
   // Ticks the "access ends" line so a screen left open for a while does not
   // quote a time that has already slipped past.
+  //
+  // Resynced on ENTERING the step, not only every 30 seconds after it. The
+  // clock started at flow mount, so somebody who spent ten minutes choosing
+  // people on step 1 arrived here with a ten-minute-old "now" for up to
+  // another thirty seconds -- long enough to read a wrong end time, and long
+  // enough for the replacement warning below to compare against a share that
+  // has less left than it thinks.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (step !== "details") return;
+    setNowMs(Date.now());
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 30_000);
     return () => window.clearInterval(intervalId);
   }, [step]);
@@ -4359,14 +4365,19 @@ function ShareFlow({
     return {
       recipientUserId,
       label: recipient ? vm.recipientLabel(recipient) : "This person",
-      // The same two vocabularies every other surface uses for the two kinds
-      // of live share, so the warning cannot describe one of them in words
-      // the Active shares screen never says.
+      untilStopped,
+      // The two vocabularies this app already owns for the two kinds of live
+      // share: "Until you stop" is what every surface that lists a share calls
+      // an open-ended one, and `formatLocationRemaining` is what the approvals
+      // card, the feed and the Consent Manager call the time left on a timed
+      // one. A warning about a share must not be the one place that words it
+      // differently.
       remainingLabel: untilStopped
         ? "Until you stop"
-        : describeShareRemaining(
-            (parseTimestamp(grant.expiresAt) ?? nowMs) - nowMs,
-          ),
+        : (formatLocationRemaining(
+            parseTimestamp(grant.expiresAt) ?? nowMs,
+            nowMs,
+          ) ?? "less than a minute more"),
     };
   });
   const shareReplacementDurationLabel = formatLocationDurationLabel(

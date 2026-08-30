@@ -39,9 +39,30 @@ export type ShareReplacementRow = {
   recipientUserId: string;
   /** The person, named exactly as the rest of the flow names them. */
   label: string;
-  /** "1 hour 47 minutes left", or "Until you stop" for an open-ended share. */
+  /**
+   * Whether their live share runs until it is stopped.
+   *
+   * The sentence branches on this rather than the noun. "Aarti has Until you
+   * stop." is not a sentence, and this copy sits on the screen whose whole job
+   * is being understood before a button is pressed.
+   */
+  untilStopped: boolean;
+  /**
+   * What is left, standalone: "1h 47m more", or "Until you stop".
+   *
+   * `formatLocationRemaining` supplies the timed form -- the same words the
+   * approvals card, the feed and the Consent Manager use for "what is actually
+   * left", so this screen does not invent a fifth vocabulary for one fact.
+   */
   remainingLabel: string;
 };
+
+/** "Aarti can see you for 1h 47m more" / "Aarti can see you until you stop". */
+function canSeeYouClause(row: ShareReplacementRow): string {
+  return row.untilStopped
+    ? `${row.label} can see you until you stop`
+    : `${row.label} can see you for ${row.remainingLabel}`;
+}
 
 /**
  * The heading both surfaces use, so the inline notice and the dialog that
@@ -76,11 +97,11 @@ export function ShareReplacementNotice({
       <WarningCard
         title={replacementTitle(rows.length)}
         description={
-          single
+          single && rows[0]
             ? // Names the person here rather than in the list below: with one
               // row a list is a bullet on its own, and the sentence reads
               // better carrying the name than pointing at it.
-              `${rows[0]?.label} has ${rows[0]?.remainingLabel}. Sharing again ends that and starts ${newDurationLabel} instead.`
+              `${canSeeYouClause(rows[0])}. Sharing again ends that and starts ${newDurationLabel} instead.`
             : `Sharing again ends the time these people already have and starts ${newDurationLabel} instead.`
         }
       />
@@ -137,8 +158,8 @@ export function ShareReplacementConfirmDialog({
             {single ? "End the share you have?" : "End the shares you have?"}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {single
-              ? `${rows[0]?.label} can already see you for ${rows[0]?.remainingLabel}. Starting a new share replaces that with ${newDurationLabel}.`
+            {single && rows[0]
+              ? `${canSeeYouClause(rows[0])}. Starting a new share replaces that with ${newDurationLabel}.`
               : `These people can already see you. Starting a new share replaces the time they have with ${newDurationLabel}.`}
           </AlertDialogDescription>
         </AlertDialogHeader>

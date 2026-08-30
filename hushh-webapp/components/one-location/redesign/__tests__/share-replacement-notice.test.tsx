@@ -22,7 +22,8 @@ function row(overrides: Partial<ShareReplacementRow> = {}): ShareReplacementRow 
   return {
     recipientUserId: "user_b",
     label: "Aarti",
-    remainingLabel: "1 hour 47 minutes left",
+    untilStopped: false,
+    remainingLabel: "1h 47m more",
     ...overrides,
   };
 }
@@ -48,8 +49,7 @@ describe("ShareReplacementNotice", () => {
     const text = screen.getByTestId(
       "one-location-share-replacement-notice",
     ).textContent;
-    expect(text).toContain("Aarti");
-    expect(text).toContain("1 hour 47 minutes left");
+    expect(text).toContain("Aarti can see you for 1h 47m more");
     expect(text).toContain("15 min");
   });
 
@@ -60,8 +60,8 @@ describe("ShareReplacementNotice", () => {
       <ShareReplacementNotice
         rows={[
           row(),
-          row({ recipientUserId: "user_c", label: "Ravi", remainingLabel: "40 minutes left" }),
-          row({ recipientUserId: "user_d", label: "Meera", remainingLabel: "3 hours left" }),
+          row({ recipientUserId: "user_c", label: "Ravi", remainingLabel: "40 more min" }),
+          row({ recipientUserId: "user_d", label: "Meera", remainingLabel: "3 more hours" }),
         ]}
         newDurationLabel="15 min"
       />,
@@ -73,12 +73,14 @@ describe("ShareReplacementNotice", () => {
     }
   });
 
-  it("says 'Until you stop' for an open-ended share rather than a number", () => {
+  it("writes an open-ended share into the sentence, not into a noun slot", () => {
     // The worst case: an end time imposed on a share that had none. It has no
-    // remaining figure, and inventing one would be a lie about the clock.
+    // remaining figure, and dropping the standalone label into the sentence
+    // produced "Aarti has Until you stop." -- broken prose on the one screen
+    // whose job is being understood before a button is pressed.
     render(
       <ShareReplacementNotice
-        rows={[row({ remainingLabel: "Until you stop" })]}
+        rows={[row({ untilStopped: true, remainingLabel: "Until you stop" })]}
         newDurationLabel="15 min"
       />,
     );
@@ -86,7 +88,8 @@ describe("ShareReplacementNotice", () => {
     const text = screen.getByTestId(
       "one-location-share-replacement-notice",
     ).textContent;
-    expect(text).toContain("Until you stop");
+    expect(text).toContain("Aarti can see you until you stop.");
+    expect(text).not.toContain("has Until you stop");
     expect(text).not.toContain("NaN");
     expect(text).not.toContain("Invalid Date");
   });
@@ -129,7 +132,7 @@ describe("ShareReplacementConfirmDialog", () => {
     renderDialog([row()]);
 
     expect(screen.getByRole("alertdialog").textContent).toContain(
-      "1 hour 47 minutes left",
+      "Aarti can see you for 1h 47m more",
     );
     expect(screen.getByRole("alertdialog").textContent).toContain("15 min");
   });
@@ -157,15 +160,15 @@ describe("ShareReplacementConfirmDialog", () => {
   it("shows each person's before and after when several are affected", () => {
     renderDialog([
       row(),
-      row({ recipientUserId: "user_c", label: "Ravi", remainingLabel: "40 minutes left" }),
+      row({ recipientUserId: "user_c", label: "Ravi", remainingLabel: "40 more min" }),
     ]);
 
     const list = screen.getByTestId(
       "one-location-share-replacement-confirm-list",
     );
     expect(list.textContent).toContain("Aarti");
-    expect(list.textContent).toContain("1 hour 47 minutes left");
+    expect(list.textContent).toContain("1h 47m more");
     expect(list.textContent).toContain("Ravi");
-    expect(list.textContent).toContain("40 minutes left");
+    expect(list.textContent).toContain("40 more min");
   });
 });
