@@ -305,6 +305,56 @@ describe("NearbyCheckInSheet", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("puts the three visible-for lengths on one row, abbreviated to match", async () => {
+    /**
+     * Reported: "Visible for ke jo times hain inko one row mai dikhao ...
+     * looking scattered."
+     *
+     * They were. The shared `DURATION_GRID_CLASS` is two columns because the
+     * ladders that use it carry FOUR cells and land as an even 2x2. This
+     * control has three, so the same class stranded one on a row of its own,
+     * under a heading that reads as a single choice.
+     *
+     * The labels are abbreviated for consistency rather than for width --
+     * "30 min" beside "1 hour" and "2 hours" mixes two registers in one row.
+     */
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    const panel = screen.getByTestId("nearby-presence-setup");
+    const heading = within(panel).getByRole("heading", { name: "Visible for" });
+    const ladder = heading.nextElementSibling as HTMLElement;
+
+    expect(
+      within(ladder)
+        .getAllByRole("button")
+        .map((button) => button.textContent?.trim()),
+    ).toEqual(["30 min", "1 hr", "2 hr"]);
+
+    // Three across on a phone, so nothing wraps to a half-empty second row.
+    // Asserted on the class because JSDOM lays nothing out -- the browser
+    // layout spec is where geometry is proved.
+    expect(ladder.className).toContain("grid-cols-3");
+    expect(ladder.className).not.toContain("grid-cols-2");
+
+    // Still a working ladder, not just a tidier one.
+    fireEvent.click(within(ladder).getByRole("button", { name: "2 hr" }));
+    expect(
+      within(ladder).getByRole("button", { name: "2 hr" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(ladder).getByRole("button", { name: "1 hr" }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("keeps the required consent visible and drops the optional preference a level", async () => {
     render(
       <NearbyCheckInSheet

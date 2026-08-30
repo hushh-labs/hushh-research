@@ -26,7 +26,6 @@ import {
   DURATION_CELL_CLASS,
   DURATION_CELL_OFF_CLASS,
   DURATION_CELL_ON_CLASS,
-  DURATION_GRID_CLASS,
 } from "@/components/one-location/redesign/duration-presets";
 import {
   CHECK_IN_CATEGORY_ROW_CLASSNAME,
@@ -89,11 +88,38 @@ import { cn } from "@/lib/utils";
 
 const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
 
+/**
+ * Three lengths, and they have to fit one row.
+ *
+ * Reported: "Visible for ke jo times hain inko one row mai dikhao ... looking
+ * scattered". They were, and the cause was the shared `DURATION_GRID_CLASS`:
+ * two columns on a phone, which lays three cells out as 2 + 1 and leaves a
+ * half-empty second row under a heading that reads as a single choice.
+ *
+ * Abbreviated so the set is consistent rather than to buy width -- "30 min"
+ * beside "1 hour" and "2 hours" mixes two registers in one row, and at three
+ * across the long forms fit anyway. See CHECK_IN_DURATION_GRID_CLASS for why
+ * the grid is local rather than a change to the shared one.
+ */
 const DURATIONS = [
   { value: 30 as const, label: "30 min" },
-  { value: 60 as const, label: "1 hour" },
-  { value: 120 as const, label: "2 hours" },
+  { value: 60 as const, label: "1 hr" },
+  { value: 120 as const, label: "2 hr" },
 ];
+
+/**
+ * Three across on a phone, not the shared ladder's two.
+ *
+ * `DURATION_GRID_CLASS` is two columns because the ladders that use it carry
+ * four cells and land as an even 2x2. This control has three, so the same
+ * class strands one on a row of its own. Local rather than a fourth variant in
+ * `duration-presets`: the cells themselves stay identical, which is the part
+ * that has to agree across the product.
+ *
+ * At 320px this is ~90px a cell against a widest label of ~64px, so nothing
+ * truncates on the narrowest phone the app supports.
+ */
+const CHECK_IN_DURATION_GRID_CLASS = "grid grid-cols-3 gap-2 sm:flex sm:flex-wrap";
 
 /**
  * Chip labels only. The `value` on each row is the backend category and is
@@ -2739,7 +2765,7 @@ export function NearbyCheckInSheet({
                     duration ladder uses for the identical role (44px, 15px),
                     so the two duration controls in this product can no longer
                     disagree about how big a duration choice is. */}
-                <div className={cn("mt-3", DURATION_GRID_CLASS)}>
+                <div className={cn("mt-3", CHECK_IN_DURATION_GRID_CLASS)}>
                   {DURATIONS.map((duration) => (
                     <button
                       key={duration.value}
