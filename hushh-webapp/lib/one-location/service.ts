@@ -1670,6 +1670,22 @@ export class OneLocationService {
     );
   }
 
+  static async extendNearbyPresence(params: {
+    vaultOwnerToken: string;
+    incrementMinutes: 30 | 60;
+  }): Promise<OneLocationNearbyPresenceState> {
+    return apiJson<OneLocationNearbyPresenceState>(
+      "/api/one/location/nearby-presence",
+      {
+        method: "PATCH",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          incrementMinutes: params.incrementMinutes,
+        }),
+      },
+    );
+  }
+
   static async requestNearbyConnection(params: {
     vaultOwnerToken: string;
     participantAlias: string;

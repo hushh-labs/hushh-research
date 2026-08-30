@@ -393,6 +393,12 @@ class NearbyPresenceCheckInRequest(_CamelModel):
     allow_connection_requests: bool = Field(default=False, alias="allowConnectionRequests")
 
 
+class NearbyPresenceExtendRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    increment_minutes: Literal[30, 60] = Field(alias="incrementMinutes")
+
+
 class NearbyConnectionRequest(_CamelModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -1669,6 +1675,25 @@ def checkout_nearby(
     _set_private_no_store(response)
     try:
         return _nearby_presence_service().checkout(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/nearby-presence")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_WRITE)
+def extend_nearby_presence(
+    request: Request,
+    response: Response,
+    payload: NearbyPresenceExtendRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return _nearby_presence_service().extend(
+            user_id=_user_id(token_data),
+            increment_minutes=payload.increment_minutes,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 

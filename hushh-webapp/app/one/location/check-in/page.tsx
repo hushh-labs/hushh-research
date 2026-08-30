@@ -48,10 +48,10 @@ export default function OneLocationCheckInPage() {
     nearbyAvailable && !auth.loading && auth.isAuthenticated
       ? {
           screenId: "one_location_check_in",
-          title: "Check in",
+          title: "Check in nearby",
           purpose:
-            "Shows nearby places to check into and confirms a check-in once one is picked.",
-          spokenSubject: "Location, Check in",
+            "Shows nearby places and confirms an arrival once one is picked.",
+          spokenSubject: "Location, Check in nearby",
           actions: LOCATION_CHECK_IN_VOICE_ACTIONS,
           availableActions: LOCATION_CHECK_IN_VOICE_ACTIONS.map(
             (action) => action.label,

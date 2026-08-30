@@ -16,10 +16,8 @@ import {
   LocateFixed,
   MapPin,
   Search,
-  ShieldCheck,
   Star,
   UsersRound,
-  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -145,6 +143,12 @@ type PresenceLoadResult = OneLocationNearbyPresenceState | "error" | null;
  * the backend still runs the authoritative plausibility check at check-in.
  */
 type PointOrigin = "fresh" | "last-known";
+type NearbyCheckInViewState = "loading" | "setup" | "active" | "completed";
+type CompletedCheckIn = {
+  placeLabel: string | null;
+  saved: boolean;
+  saveError: string | null;
+};
 
 /**
  * A fix reused after a failed refresh is only honest for as long as the owner
@@ -378,6 +382,11 @@ function timeLeftLabel(expiresAt: string): string {
   return remainder ? `${hours}h ${remainder}m left` : `${hours}h left`;
 }
 
+function peopleNearbyLabel(count: number): string | null {
+  if (count <= 0) return null;
+  return `${count} ${count === 1 ? "person" : "people"} nearby`;
+}
+
 function initials(label: string): string {
   return (
     label
@@ -560,6 +569,8 @@ export function NearbyCheckInSheet({
   const [searching, setSearching] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [loadingPresence, setLoadingPresence] = useState(false);
+  const [viewState, setViewState] =
+    useState<NearbyCheckInViewState>("loading");
   const [state, setState] =
     useState<OneLocationNearbyPresenceState>(EMPTY_NEARBY_STATE);
   const [durationMinutes, setDurationMinutes] = useState<30 | 60 | 120>(60);
@@ -567,9 +578,13 @@ export function NearbyCheckInSheet({
   const [allowConnectionRequests, setAllowConnectionRequests] = useState(false);
   /** Whether the secondary preference row is revealed. Presentation only. */
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [addTimeOpen, setAddTimeOpen] = useState(false);
+  const [addTimeBusy, setAddTimeBusy] = useState<30 | 60 | null>(null);
   const [busy, setBusy] = useState<"check-in" | "checkout" | string | null>(
     null,
   );
+  const [completedCheckIn, setCompletedCheckIn] =
+    useState<CompletedCheckIn | null>(null);
   /**
    * The post-checkout Saved Places offer. Null whenever there is nothing to
    * offer — no anchor, vault locked, or the place is already saved — so the
@@ -1018,12 +1033,17 @@ export function NearbyCheckInSheet({
     setSearching(false);
     setCapturing(false);
     setLoadingPresence(false);
+    setViewState("loading");
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
     setOptionsOpen(false);
+    setAddTimeOpen(false);
+    setAddTimeBusy(null);
     setDurationMinutes(60);
     setVisiblePlacesCount(3);
     setBusy(null);
+    setCompletedCheckIn(null);
+    setSavePlaceCandidateState(null);
     setLocationError(null);
     setLocationRecovery(null);
     setPresenceLoadError(null);
@@ -1056,21 +1076,30 @@ export function NearbyCheckInSheet({
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
     setOptionsOpen(false);
+    setAddTimeOpen(false);
+    setAddTimeBusy(null);
     setDurationMinutes(60);
     setVisiblePlacesCount(3);
+    setCompletedCheckIn(null);
+    setSavePlaceCandidateState(null);
     setLocationError(null);
     setLocationRecovery(null);
     setPresenceLoadError(null);
     setPlacesError(null);
+    if (open) setViewState("loading");
     void loadPresence(!open, expectedOwnerEpoch).then((next) => {
       if (
-        !open ||
         next === "error" ||
-        next?.presence ||
         ownerEpochRef.current !== expectedOwnerEpoch
       ) {
         return;
       }
+      if (next?.presence) {
+        setViewState("active");
+        return;
+      }
+      if (!open) return;
+      setViewState("setup");
       void captureAndLoadPlaces("all");
     });
     return () => {
@@ -1087,8 +1116,10 @@ export function NearbyCheckInSheet({
   ]);
 
   useEffect(() => {
-    onSearchAreaChange?.(open && !state.presence ? point : null);
-  }, [onSearchAreaChange, open, point, state.presence]);
+    onSearchAreaChange?.(
+      open && viewState === "setup" && !state.presence ? point : null,
+    );
+  }, [onSearchAreaChange, open, point, state.presence, viewState]);
 
   useEffect(() => {
     return () => onSearchAreaChange?.(null);
@@ -1116,6 +1147,9 @@ export function NearbyCheckInSheet({
           !next.presence &&
           ownerEpochRef.current === expectedOwnerEpoch
         ) {
+          setViewState((current) =>
+            current === "completed" ? current : "setup",
+          );
           void captureAndLoadPlaces();
         }
       } finally {
@@ -1467,6 +1501,10 @@ export function NearbyCheckInSheet({
         return;
       }
       publishState(next);
+      setViewState("active");
+      setCompletedCheckIn(null);
+      setAddTimeOpen(false);
+      setAddTimeBusy(null);
       // The confirmation point is kept, not cleared: once checked in it is what
       // tells the owner how far they have drifted from the place they anchored
       // to. It is not republished as a search area -- presence suppresses that.
@@ -1741,6 +1779,10 @@ export function NearbyCheckInSheet({
           allowConnectionRequests: allowConnectionRequestsDefault,
         });
         publishState(next);
+        setViewState("active");
+        setCompletedCheckIn(null);
+        setAddTimeOpen(false);
+        setAddTimeBusy(null);
         setAutomaticPlaces([]);
         setSearchResults([]);
         setSelectedPlaceId("");
@@ -1820,19 +1862,82 @@ export function NearbyCheckInSheet({
           longitude: candidate.longitude,
         },
       });
-      toast.success(`Saved ${candidate.label} to your places.`);
+      toast.success("Saved.");
+      setCompletedCheckIn((current) =>
+        current ? { ...current, saved: true, saveError: null } : current,
+      );
       setSavePlaceCandidateState(null);
     } catch (error) {
       if (error instanceof DuplicateSavedLocationError) {
         // Saved from somewhere else between the offer and the tap. The intent
         // is satisfied either way, so retire the banner without an error.
+        setCompletedCheckIn((current) =>
+          current ? { ...current, saved: true, saveError: null } : current,
+        );
         setSavePlaceCandidateState(null);
         return;
       }
-      toast.error("Couldn't save that place. Try again from Saved Places.");
+      setCompletedCheckIn((current) =>
+        current
+          ? { ...current, saveError: "Couldn't save this place." }
+          : current,
+      );
+      toast.error("Couldn't save this place.");
     } finally {
       setSavingPlace(false);
     }
+  };
+
+  const addTime = async (incrementMinutes: 30 | 60) => {
+    if (!ownerId || !vaultOwnerToken || mutationInFlightRef.current) return;
+    const ownerToken = vaultOwnerToken;
+    const expectedOwnerEpoch = ownerEpochRef.current;
+    const generation = ++presenceMutationGenerationRef.current;
+    presenceReadGenerationRef.current += 1;
+    mutationInFlightRef.current = true;
+    setAddTimeBusy(incrementMinutes);
+    setBusy(`add-time:${incrementMinutes}`);
+    try {
+      const next = await OneLocationService.extendNearbyPresence({
+        vaultOwnerToken: ownerToken,
+        incrementMinutes,
+      });
+      if (
+        ownerEpochRef.current !== expectedOwnerEpoch ||
+        presenceMutationGenerationRef.current !== generation
+      ) {
+        return;
+      }
+      publishState(next);
+      setViewState(next.presence ? "active" : "setup");
+      setAddTimeOpen(false);
+      toast.success(
+        incrementMinutes === 60 ? "1 hour added." : "30 minutes added.",
+      );
+    } catch {
+      if (
+        ownerEpochRef.current === expectedOwnerEpoch &&
+        presenceMutationGenerationRef.current === generation
+      ) {
+        toast.error("Couldn't add time.");
+      }
+    } finally {
+      if (
+        ownerEpochRef.current === expectedOwnerEpoch &&
+        presenceMutationGenerationRef.current === generation
+      ) {
+        mutationInFlightRef.current = false;
+        setAddTimeBusy(null);
+        setBusy(null);
+      }
+    }
+  };
+
+  const finishCompletedCheckIn = () => {
+    setCompletedCheckIn(null);
+    setSavePlaceCandidateState(null);
+    setViewState("setup");
+    onOpenChange(false);
   };
 
   const checkout = async () => {
@@ -1856,19 +1961,26 @@ export function NearbyCheckInSheet({
         return;
       }
       publishState(next);
+      setViewState("completed");
+      setCompletedCheckIn({
+        placeLabel: savedPlaceOffer?.label ?? state.presence?.placeLabel ?? null,
+        saved: false,
+        saveError: null,
+      });
       setConsentAccepted(false);
       setAllowConnectionRequests(false);
       setOptionsOpen(false);
-      toast.success("You checked out.");
+      setAddTimeOpen(false);
+      setAddTimeBusy(null);
+      toast.success("Check-in ended.");
       void offerSavePlace(savedPlaceOffer);
-      void captureAndLoadPlaces();
     } catch {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
         presenceMutationGenerationRef.current === generation
       ) {
         toast.error(
-          "Checkout didn't complete. You may still be visible—please try again.",
+          "Couldn't end the check-in. You may still be visible nearby.",
         );
       }
     } finally {
@@ -2037,7 +2149,9 @@ export function NearbyCheckInSheet({
             reaches this sheet who was not meant to. */}
         <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
           <div className="flex min-h-9 items-center gap-2 pr-10">
-            <SheetTitle className="text-[17px] leading-6">Check in</SheetTitle>
+            <SheetTitle className="text-[17px] leading-6">
+              Check in nearby
+            </SheetTitle>
           </div>
         </SheetHeader>
 
@@ -2078,76 +2192,82 @@ export function NearbyCheckInSheet({
             </div>
           ) : null}
 
-          {/* Post-checkout Saved Places offer. Deliberately rendered ABOVE the
-              branch below: checkout flips this sheet from the active view to
-              the setup view, so a banner living inside either branch would be
-              unmounted by the very action that creates it. Non-blocking — the
-              setup view stays fully usable behind it, and it carries its own
-              dismiss. */}
-          {savePlaceCandidateState ? (
-            <div
-              className="mb-4 rounded-2xl border border-border/60 bg-muted/60 p-3"
-              data-testid="nearby-save-place-prompt"
-            >
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
-                  <Star className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground">
-                    Checked out from {savePlaceCandidateState.label}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Save this to your Saved Places?
-                  </p>
+          {viewState === "completed" ? (
+            <div className="space-y-4" data-testid="nearby-presence-completed">
+              <section className="rounded-[18px] border border-border/60 bg-card p-4">
+                <div className="flex items-start gap-3">
+                  <span
+                    className={cn(
+                      "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full",
+                      SUCCESS_ROLE.tile,
+                      SUCCESS_ROLE.glyph,
+                    )}
+                    aria-hidden="true"
+                  >
+                    <Check className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">Check-in ended</p>
+                    {completedCheckIn?.placeLabel ? (
+                      <p className="mt-0.5 truncate text-sm font-medium">
+                        {completedCheckIn.placeLabel}
+                      </p>
+                    ) : null}
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      You're no longer visible nearby.
+                    </p>
+                    {completedCheckIn?.saved ? (
+                      <p className="mt-2 text-xs font-medium text-muted-foreground">
+                        Saved for next time.
+                      </p>
+                    ) : null}
+                    {completedCheckIn?.saveError ? (
+                      <p
+                        className="mt-2 text-xs font-medium text-destructive"
+                        role="alert"
+                      >
+                        {completedCheckIn.saveError}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="-mr-1 -mt-1 shrink-0 text-muted-foreground"
-                  onClick={() => setSavePlaceCandidateState(null)}
-                  aria-label="Dismiss saved place suggestion"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+              </section>
               <Button
                 type="button"
-                size="sm"
-                className="mt-3 w-full"
-                isLoading={savingPlace}
-                onClick={() => void saveCheckedOutPlace()}
+                className="h-[52px] min-h-[52px] w-full rounded-2xl"
+                onClick={finishCompletedCheckIn}
               >
-                <Star />
-                Save to Places
+                Done
               </Button>
+              {savePlaceCandidateState && !completedCheckIn?.saved ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-11 min-h-11 w-full text-muted-foreground"
+                  isLoading={savingPlace}
+                  onClick={() => void saveCheckedOutPlace()}
+                >
+                  <Star className="h-4 w-4" />
+                  Save for faster check-ins
+                </Button>
+              ) : null}
             </div>
-          ) : null}
-
-          {loadingPresence && !state.presence ? null : state.presence ? (
+          ) : viewState === "loading" ||
+            (loadingPresence && !state.presence) ? null : state.presence ? (
             <div className="space-y-4" data-testid="nearby-presence-active">
-              {/* Only rendered while a check-in is actually live, so the green
-                  is reporting state, not labelling the category. The wash and
-                  the hairline carry it; the shield keeps the foreground tone,
-                  because --app-success on --app-success-tint measures ~1.9:1
-                  and a glyph has to clear 3:1. */}
-              <section
-                className={cn(
-                  "rounded-2xl border p-4",
-                  SUCCESS_ROLE.border,
-                  SUCCESS_ROLE.tile,
-                )}
-              >
+              <section className="rounded-[18px] border border-border/60 bg-card p-4">
                 <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+                  <span
+                    className={cn(
+                      "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full",
+                      SUCCESS_ROLE.tile,
+                      SUCCESS_ROLE.glyph,
+                    )}
+                    aria-hidden="true"
+                  >
+                    <Check className="h-4 w-4" />
+                  </span>
                   <div className="min-w-0 flex-1">
-                    {/* Three facts, one per line: that it worked, where, and
-                        how long is left. The radius and the full address were
-                        dropped — the radius is drawn on the map behind this
-                        card, and the place name is what the person picked, so
-                        repeating its postal address adds a line of reading and
-                        no decision. */}
                     <p className="font-semibold">Checked in</p>
                     <p
                       className="mt-0.5 truncate text-sm font-medium"
@@ -2156,16 +2276,13 @@ export function NearbyCheckInSheet({
                       {state.presence.placeLabel || "Your place"}
                     </p>
                     <p className="mt-0.5 text-sm text-muted-foreground">
-                      {timeLeftLabel(state.presence.expiresAt)}
+                      {[
+                        timeLeftLabel(state.presence.expiresAt),
+                        peopleNearbyLabel(state.attendees.length),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
-                    {/*
-                      Only the case that changes what someone would do.
-                      Under the nudge distance the gap is receiver noise and a
-                      building footprint, and saying "you are 37 m from it" is
-                      a fact nobody acts on. Past it, the person is somewhere
-                      else while still discoverable here, which is a privacy
-                      statement and earns its line.
-                    */}
                     {activeDriftMeters !== null &&
                     activeDriftMeters > NEARBY_DRIFT_NUDGE_METERS ? (
                       <p
@@ -2241,31 +2358,63 @@ export function NearbyCheckInSheet({
                 )}
               </section>
 
-              {/*
-                Neutral, not destructive.
-                `variant="destructive"` paints --app-destructive solid with
-                white on it, which is the treatment this product reserves for
-                SOS, delete, revoke and stop-sharing. Checking out ends a
-                presence that was always going to end on its own timer, keeps
-                the row (it only flips status and destroys the anchor key), and
-                can be redone in three taps. Red on a reversible lifecycle step
-                spends the one colour that is supposed to mean consequence, and
-                makes the calm state read as an alarm. `secondary` is the
-                neutral fill from the same button contract, so size, radius,
-                focus ring and loading behaviour are unchanged.
-              */}
-              <Button
-                type="button"
-                variant={CHECK_OUT_BUTTON_VARIANT}
-                className="w-full"
-                disabled={busy !== null}
-                onClick={() => void checkout()}
-              >
-                {busy === "checkout" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                Check out
-              </Button>
+              {addTimeOpen ? (
+                <section
+                  className="rounded-[18px] border border-border/60 bg-card p-3"
+                  aria-label="Add time"
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    {([30, 60] as const).map((increment) => (
+                      <Button
+                        key={increment}
+                        type="button"
+                        variant="secondary"
+                        className="h-11 min-h-11"
+                        disabled={busy !== null}
+                        onClick={() => void addTime(increment)}
+                      >
+                        {addTimeBusy === increment ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : null}
+                        {increment === 60 ? "1 hour more" : "30 min more"}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="mt-2 h-10 min-h-10 w-full text-muted-foreground"
+                    disabled={busy !== null}
+                    onClick={() => setAddTimeOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                </section>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-12 min-h-12"
+                  disabled={busy !== null}
+                  onClick={() => setAddTimeOpen((current) => !current)}
+                >
+                  Add time
+                </Button>
+                <Button
+                  type="button"
+                  variant={CHECK_OUT_BUTTON_VARIANT}
+                  className="h-12 min-h-12"
+                  disabled={busy !== null}
+                  onClick={() => void checkout()}
+                >
+                  {busy === "checkout" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  {busy === "checkout" ? "Leaving..." : "I'm leaving"}
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="space-y-5" data-testid="nearby-presence-setup">
@@ -2396,7 +2545,7 @@ export function NearbyCheckInSheet({
                           }
                         }}
                         disabled={!point || capturing}
-                        placeholder="Search"
+                        placeholder="Search places"
                         className="h-11 rounded-full pl-9"
                       />
                       {searching ? (
