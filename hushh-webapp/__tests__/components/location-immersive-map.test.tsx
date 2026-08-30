@@ -1504,9 +1504,17 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-close")).toHaveAccessibleName(
       "Back to Location",
     );
+    // Check-in's own route opens the sheet on arrival, and while it is open
+    // the pill is the one control on screen with nothing to do -- its whole
+    // job is getting back INTO the sheet. Dismiss first, then it is here.
+    expect(
+      screen.queryByTestId("one-location-map-nearby-check-in"),
+    ).toBeNull();
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
     expect(
       screen.getByTestId("one-location-map-nearby-check-in"),
     ).toHaveAccessibleName("Check in nearby");
+
     expect(screen.getByTestId("one-location-map-locate")).toHaveAccessibleName(
       "Show my location",
     );
@@ -2386,10 +2394,22 @@ describe("LocationImmersiveMap reported map defects", () => {
     ).toBe(true);
   });
 
-  it("keeps Check in in the header on check-in's own route", async () => {
-    // That surface renders no tray at all, and this pill is the only way back
-    // into the sheet after dismissing it. Removing it everywhere strands the
-    // person on a map with nothing to do.
+  it("hides the Check in pill while the sheet is up, and brings it back on dismiss", async () => {
+    /**
+     * Reported from the check-in drawer: "Check in ka icon and text, Sharing
+     * with 1 ka text, You are here wala block ... yeh sb ek sath dikh rha,
+     * bahut hi bheed bhaad jesa lag rha hai." On a phone the sheet takes about
+     * three quarters of the screen, and five floating controls were competing
+     * for the strip left above it.
+     *
+     * The pill is the clearest thing to drop: while the sheet is open it is
+     * the one control on screen that does nothing, because its only job is
+     * getting back IN after a dismiss.
+     *
+     * Which is why the second half of this matters as much as the first. That
+     * surface renders no tray at all, so removing the pill outright would
+     * strand somebody on a map with no way back into the sheet.
+     */
     serviceHarness.getState.mockResolvedValue({
       recipients: [],
       ownerGrants: [],
@@ -2400,9 +2420,37 @@ describe("LocationImmersiveMap reported map defects", () => {
     const header = screen.getByRole("banner", {
       name: "Check in map controls",
     });
+
+    // The sheet opens with the route.
+    expect(
+      screen.getByTestId("nearby-check-in-sheet-mock"),
+    ).toHaveAttribute("data-open", "true");
+    expect(
+      header.querySelector('[data-testid="one-location-map-nearby-check-in"]'),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+
     expect(
       header.querySelector('[data-testid="one-location-map-nearby-check-in"]'),
     ).not.toBeNull();
+  });
+
+  it("keeps the way out and the search-area legend while the sheet is up", async () => {
+    // Decluttering must not take the two things up there that are still doing
+    // a job. Close is the way out. The legend is the only explanation of what
+    // the blue dot is and how far "nearby" reaches -- the sheet states
+    // neither, so cutting it would have tidied the screen by removing the part
+    // that was answering a question.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+    });
+
+    await renderReadyMap({ surface: "check-in" });
+
+    expect(screen.getByTestId("one-location-map-close")).toBeInTheDocument();
+    expect(screen.getByTestId("one-location-map-locate")).toBeInTheDocument();
   });
 
   it("answers Everyone instead of sitting disabled when no one shares with you", async () => {

@@ -49,6 +49,7 @@ import {
   type NearbyCheckInPlaceFocus,
 } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import {
@@ -2762,7 +2763,31 @@ export function LocationImmersiveMap({
             <X className="h-5 w-5 stroke-[2.25]" />
           </ShellActionSurface>
         </div>
-        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1">
+        {/*
+          Hidden on a phone while the check-in sheet is open.
+
+          Reported from the check-in drawer: "Check in ka icon and text,
+          Sharing with 1 ka text, You are here wala block ... yeh sb ek sath
+          dikh rha, bahut hi bheed bhaad jesa lag rha hai." On a phone that
+          sheet takes roughly three quarters of the screen, so five floating
+          controls compete for the ~250px strip left above it.
+
+          This one goes because it is about a DIFFERENT audience. "Sharing
+          with 1" counts people watching your live location; check-in is a
+          separate one-time share to whoever is nearby. It answers a question
+          nobody is asking mid-check-in, and its popover opens over the sheet.
+
+          `max-md:hidden` rather than an unmount: `display:none` takes it out
+          of the accessibility tree and out of tab order too, and it costs no
+          state to bring back when the sheet closes. From `md` up the sheet is
+          a side panel with the map beside it, so there is nothing to declutter.
+        */}
+        <div
+          className={cn(
+            "col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1",
+            nearbyCheckInOpen && "max-md:hidden",
+          )}
+        >
           {!demoMode && (activeShareCount ?? 0) > 0 ? (
             <Popover
               open={sharingPopoverOpen}
@@ -2871,10 +2896,20 @@ export function LocationImmersiveMap({
               tray (see the `!isCheckInSurface` gate on the tray section), and
               this pill is the only way back into the sheet after dismissing it.
             */}
+            {/*
+              `!nearbyCheckInOpen`: while the sheet is open this pill is the
+              one control on screen that does nothing. Its whole reason for
+              being here is stated below -- a way back INTO the sheet after
+              dismissing it -- so it has no job while the sheet is up, and on a
+              phone it was taking a third of the only strip of map still
+              visible. Hidden at every width, because it is redundant at every
+              width; the crowding is just where it was noticed.
+            */}
             {rendererReady &&
             nearbyCheckInAvailable &&
             !demoMode &&
-            isCheckInSurface ? (
+            isCheckInSurface &&
+            !nearbyCheckInOpen ? (
               <ShellActionSurface
                 variant="pill"
                 // ShellActionSurface's own wrapper is shrink-0 by default (a
@@ -2934,6 +2969,12 @@ export function LocationImmersiveMap({
         Two pins on one map need naming, or the owner cannot tell which is
         "me" and which is "the place I'm checking in to" -- and those are
         routinely a street apart.
+
+        This one STAYS when the sheet is open, and it is the only thing up
+        there that does. It is the sole explanation of what the blue dot is
+        and how far "nearby" reaches -- 500 m -- and the sheet below states
+        neither. Cutting it with the other two would have tidied the screen by
+        removing the only part of it that was answering a question.
       */}
       {rendererReady &&
       (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
