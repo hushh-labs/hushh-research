@@ -254,6 +254,24 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     // get a row: the owner sees what they changed, the contact learns what
     // changed about them. The row's title is already the other person, so
     // neither line needs to name a subject twice.
+    // "Did they actually look?" is the question a person asks after sharing,
+    // and until now the Feed could not answer it: `location_share_viewed` has
+    // been written on every envelope read since the feature shipped and was
+    // never projected. Only the owner gets this row -- "you viewed their
+    // location" is not news to the person who did the viewing -- and the
+    // projection collapses a whole afternoon of polling into one row per
+    // viewer per day, so watching a live share cannot bury everything else.
+    case "location_share_viewed": {
+      const hasWho = who !== "Someone";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
+        description: "Saw your location",
+        href: ROUTES.ONE_LOCATION,
+      };
+    }
     case "location_sms_contact_added": {
       const hasWho = who !== "Someone";
       return {

@@ -7475,3 +7475,67 @@ def test_sms_contact_events_are_allowed_and_projected_to_both_audiences() -> Non
     ).read_text(encoding="utf-8")
     assert "DROP TRIGGER IF EXISTS one_location_sms_contact_events_feed_fanout" in rollback
     assert "location_sms_contact_added" not in rollback.split("ADD CONSTRAINT")[1]
+
+
+# ---------------------------------------------------------------------------
+# "Did they actually look?"
+# ---------------------------------------------------------------------------
+#
+# `location_share_viewed` has been written on every envelope read since the
+# feature shipped and was never projected into Feed. The reason it could not
+# simply be projected is volume: a viewer watching a live share polls, so one
+# afternoon writes hundreds of these events.
+
+
+def test_the_viewed_projection_tells_only_the_owner() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+
+    assert "location_share_viewed" in sql
+    # Exactly one row, and it belongs to the owner. "You viewed their location"
+    # is not news to the viewer, and would put their own polling in their Feed.
+    assert sql.count("INSERT INTO feed_events") == 1
+    assert "NEW.owner_user_id," in sql
+    assert "NEW.actor_user_id = NEW.owner_user_id" in sql
+    assert "feed_audience" not in sql
+
+
+def test_the_viewed_projection_collapses_polling_to_one_row_a_day() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+
+    # One row per grant, per viewer, per day, leaning on the unique index
+    # migration 179 added over (user_id, source_domain, event_type,
+    # source_row_id). Without this a single afternoon of watching a live share
+    # would bury every other kind of activity.
+    assert "':viewer:'" in sql
+    assert "'YYYY-MM-DD'" in sql
+    assert "ON CONFLICT DO NOTHING" in sql
+
+
+def test_the_viewer_name_is_resolved_in_the_trigger_not_the_read_path() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+    # The emitting path is a hot read a recipient hits on a timer; it must not
+    # pay for an identity lookup it does not use.
+    assert "FROM actor_identity_cache" in sql
+    viewed_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index('event_type="location_share_viewed"') - 600 :
+    ][:900]
+    assert "counterpart_label" not in viewed_block
+
+    # And the label is sanitised the same way every other projection does it:
+    # never a raw id, a `ria:` handle, a bare UUID, or a 20+ character token.
+    assert "!~* '^ria:'" in sql
+    assert "LENGTH(BTRIM(display_name)) >= 20" in sql
+
+
+def test_the_viewed_projection_can_be_rolled_back() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    rollback = (
+        migrations / "rollback" / "188_feed_location_viewed_projection.rollback.sql"
+    ).read_text(encoding="utf-8")
+    assert "DROP TRIGGER IF EXISTS one_location_viewed_events_feed_fanout" in rollback
+    # Rows already written stay: they are the only record an owner has of who
+    # looked.
+    assert "DELETE FROM feed_events" not in rollback
