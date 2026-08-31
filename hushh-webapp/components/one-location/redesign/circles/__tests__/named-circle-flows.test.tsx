@@ -107,6 +107,8 @@ describe("named Circle flows", () => {
           secureLocationReady: true,
           relationship: "connected" as const,
           connectedFromContacts: true,
+          photoUrl: "https://cdn.example.test/asha-contact.jpg",
+          isRia: true,
         },
       ],
     }));
@@ -114,7 +116,16 @@ describe("named Circle flows", () => {
     render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
 
     expect(await screen.findByText("Asha Contact")).toBeTruthy();
-    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    const roster = screen.getByTestId("one-location-circle-members");
+    expect(
+      roster.querySelector(
+        '[data-photo-url="https://cdn.example.test/asha-contact.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(within(roster).getByLabelText("Verified advisor")).toBeTruthy();
+    expect(
+      within(roster).getByLabelText("Connected from your contacts"),
+    ).toBeTruthy();
   });
 
   it("uses bounded member pages and keeps duplicate names addressable by user id", async () => {

@@ -97,6 +97,43 @@ function vm(overrides: Partial<LocationHubViewModel> = {}): LocationHubViewModel
 }
 
 describe("PeopleHub requests sent manage surface", () => {
+  it("uses the Connect avatar renderer for Location people rows", () => {
+    render(
+      <PeopleHub
+        vm={vm({
+          requestedByMe: [],
+          receivedGrants: [],
+          editingGrantId: null,
+          visibleRecipients: [
+            {
+              ...recipient,
+              photoUrl: "https://cdn.example.test/roopmann-location.jpg",
+              isRia: true,
+            },
+          ],
+        })}
+        onAddConnections={vi.fn()}
+        onInvite={vi.fn()}
+        onCreateCircle={vi.fn()}
+        onJoinCircle={vi.fn()}
+        onOpenCircle={vi.fn()}
+        focusedInviteId={null}
+        onDismissFocusedInvite={vi.fn()}
+        onStartShare={vi.fn()}
+      />,
+    );
+
+    const peopleList = screen.getByTestId("one-location-people-list");
+    expect(
+      peopleList.querySelector(
+        '[data-photo-url="https://cdn.example.test/roopmann-location.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      within(peopleList).getByLabelText("Verified advisor"),
+    ).toBeInTheDocument();
+  });
+
   it("uses quick extension actions instead of the old duration editor", () => {
     render(
       <PeopleHub

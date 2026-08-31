@@ -85,6 +85,7 @@ export type OneLocationRecipient = {
   verificationBadge?: string | null;
   lastInteractionAt?: string | null;
   connectedFromContacts?: boolean;
+  isRia?: boolean;
 };
 
 export type OneLocationRecipientPage = {
@@ -402,6 +403,7 @@ export type OneLocationCircleMember = {
   /** False when there is nothing to request: self, connected, or already pending. */
   canConnect?: boolean;
   connectedFromContacts?: boolean;
+  isRia?: boolean;
 };
 
 export type OneLocationCircleMemberRelationship =

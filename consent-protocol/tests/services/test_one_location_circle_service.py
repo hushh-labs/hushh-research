@@ -139,6 +139,30 @@ def test_eligible_connection_payload_marks_verified_ria_status() -> None:
     )
 
 
+def test_circle_member_payload_marks_verified_ria_status() -> None:
+    assert (
+        OneLocationCircleService._member_payload(
+            {
+                "user_id": "advisor-user",
+                "display_name": "Ada Advisor",
+                "phone_verified": True,
+                "is_ria": True,
+            }
+        )["isRia"]
+        is True
+    )
+    assert (
+        OneLocationCircleService._member_payload(
+            {
+                "user_id": "person-user",
+                "display_name": "Pat Person",
+                "phone_verified": True,
+            }
+        )["isRia"]
+        is False
+    )
+
+
 def test_the_roster_and_picker_queries_read_the_email_the_ladder_needs() -> None:
     """A ladder with no rung to stand on resolves nothing.
 
@@ -156,6 +180,24 @@ def test_the_roster_and_picker_queries_read_the_email_the_ladder_needs() -> None
 
     source = inspect.getsource(OneLocationCircleService.list_eligible_direct_connections)
     assert "identity.email" in source
+
+
+def test_circle_member_queries_use_the_shared_verified_ria_gate() -> None:
+    import inspect
+
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+    from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
+
+    for status in RIAIAMService._RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in RIA_VERIFIED_STATUS_SQL
+
+    source = inspect.getsource(OneLocationCircleService.get_circle)
+    assert "RIA_VERIFIED_STATUS_SQL" in source
+    assert "ria_profiles ria_annotation" in source
+
+    source = inspect.getsource(OneLocationCircleService.list_circle_members_page)
+    assert "RIA_VERIFIED_STATUS_SQL" in source
+    assert "ria_profiles ria_annotation" in source
 
 
 def test_eligible_connection_queries_use_the_shared_verified_ria_gate() -> None:
