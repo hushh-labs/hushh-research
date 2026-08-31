@@ -1229,7 +1229,7 @@
       "id": "trusted_device_registry",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService."
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, advisory remote-revoke seal telemetry, and advisory liveness heartbeats through TrustedDeviceService."
     },
     {
       "data_class": "workflow_state",
@@ -4251,6 +4251,29 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/puppy/page.tsx",
+      "pathname": "/one/puppy",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.puppy"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
       "native_surface_id": "native-route-one-setup",
       "page_file": "app/one/setup/page.tsx",
       "pathname": "/one/setup",
@@ -5241,13 +5264,13 @@
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "ad1c14d11ad34a758103eb32781f0ee09d5fc4f21070f9d90faabef025b58703",
     "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
-    "cache_manifest": "a46b2b991274b6b0e6ed0264ad83504622599f3c34bbe55ffa902cc940b04097",
-    "data_plane": "98d0c1fe2d78f7eb75b176dc067dafb45c6c0a68d2f27b91359740f318e539fb",
+    "cache_manifest": "adfddbcbcfd2d0ff07275642e1e165bc671d7bd057a6840619cfb8407c8f0c5f",
+    "data_plane": "423c5c3c6daeb92c0a3469d22a80d6b700884387a9a35883d963f0f0eebbf0b1",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "376cf3193426e923607c74d060cdfe4678e6661dc22042b25f34a36c89e5bbfa",
-    "route_index": "b9210b4d9dbb7b668cb349e4039a730aa9a3af2dda33468b6debf79c54c8fd08",
-    "route_layout": "298b995aa9e33959391ffe2bbce29bc223a4c14dacd54894dc7a93a7df6e95a9",
-    "surface_map": "9ef9c1d2eb91b109fc9bedce84febde5d72730e22229108482bf90ffd7e2c64a",
+    "route_index": "93bea51ad478ab3a7ae03decc2e2bf46995d49808d40cb095d5271a419d2ab05",
+    "route_layout": "f563799530787882c7dca52aeba78fa65ef15371b30b7191067c12b703618c6c",
+    "surface_map": "022af07f9368380d65caf23bb562feb87a1f30a79527b20501c4aecec8fe47e6",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5259,7 +5282,7 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 135,
+    "physical_routes": 136,
     "semantic_routes": 14,
     "table_families": 54
   }
