@@ -50,7 +50,7 @@ export default function OneLocationCheckInPage() {
           screenId: "one_location_check_in",
           title: "Check in nearby",
           purpose:
-            "Shows nearby places and confirms an arrival once one is picked.",
+            "Temporarily shows you to people checked in at the same public place.",
           spokenSubject: "Location, Check in nearby",
           actions: LOCATION_CHECK_IN_VOICE_ACTIONS,
           availableActions: LOCATION_CHECK_IN_VOICE_ACTIONS.map(

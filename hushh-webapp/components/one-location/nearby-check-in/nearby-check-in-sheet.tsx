@@ -10,7 +10,7 @@ import {
 } from "react";
 import {
   Check,
-  ChevronDown,
+  ChevronRight,
   Compass,
   Loader2,
   LocateFixed,
@@ -103,8 +103,8 @@ const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
  */
 const DURATIONS = [
   { value: 30 as const, label: "30 min" },
-  { value: 60 as const, label: "1 hr" },
-  { value: 120 as const, label: "2 hr" },
+  { value: 60 as const, label: "1 hour" },
+  { value: 120 as const, label: "2 hours" },
 ];
 
 /**
@@ -119,7 +119,8 @@ const DURATIONS = [
  * At 320px this is ~90px a cell against a widest label of ~64px, so nothing
  * truncates on the narrowest phone the app supports.
  */
-const CHECK_IN_DURATION_GRID_CLASS = "grid grid-cols-3 gap-2 sm:flex sm:flex-wrap";
+const CHECK_IN_DURATION_GRID_CLASS =
+  "grid grid-cols-3 gap-2 sm:flex sm:flex-wrap";
 
 /**
  * Chip labels only. The `value` on each row is the backend category and is
@@ -170,8 +171,10 @@ type PresenceLoadResult = OneLocationNearbyPresenceState | "error" | null;
  */
 type PointOrigin = "fresh" | "last-known";
 type NearbyCheckInViewState = "loading" | "setup" | "active" | "completed";
+type NearbyCheckInCompletionReason = "left" | "expired" | "ended";
 type CompletedCheckIn = {
   placeLabel: string | null;
+  reason: NearbyCheckInCompletionReason;
   saved: boolean;
   saveError: string | null;
 };
@@ -261,7 +264,8 @@ function normalizeAutomaticPlaces(
       return true;
     })
     .sort((left, right) => {
-      const distance = Number(left.distanceMeters) - Number(right.distanceMeters);
+      const distance =
+        Number(left.distanceMeters) - Number(right.distanceMeters);
       if (distance !== 0) return distance;
       return (left.name || left.text).localeCompare(right.name || right.text);
     });
@@ -413,6 +417,12 @@ function peopleNearbyLabel(count: number): string | null {
   return `${count} ${count === 1 ? "person" : "people"} nearby`;
 }
 
+function completionCopy(reason: NearbyCheckInCompletionReason | undefined) {
+  if (reason === "expired") return "Your time ran out.";
+  if (reason === "ended") return "This check-in has ended.";
+  return "You're no longer visible nearby.";
+}
+
 function initials(label: string): string {
   return (
     label
@@ -444,10 +454,9 @@ function NearbyPersonRow({
   const buttonLabel = connectionUnavailable
     ? "Not accepting requests"
     : cta.label;
-  const accessibleLabel =
-    connectionUnavailable
-      ? `${attendee.displayName} is not accepting connection requests`
-      : cta.action === "respond"
+  const accessibleLabel = connectionUnavailable
+    ? `${attendee.displayName} is not accepting connection requests`
+    : cta.action === "respond"
       ? `Respond to ${attendee.displayName}'s connection request`
       : `${cta.label} with ${attendee.displayName}`;
   return (
@@ -463,7 +472,7 @@ function NearbyPersonRow({
           {attendee.displayName}
         </span>
         <span className="block text-xs text-muted-foreground">
-          Checked in nearby
+          At this place
         </span>
       </span>
       <Button
@@ -472,11 +481,7 @@ function NearbyPersonRow({
         className="shrink-0"
         variant={cta.action === "connect" ? "default" : "secondary"}
         aria-label={accessibleLabel}
-        disabled={
-          interactionDisabled ||
-          cta.disabled ||
-          connectionUnavailable
-        }
+        disabled={interactionDisabled || cta.disabled || connectionUnavailable}
         onClick={cta.action === "respond" ? onRespond : onConnect}
       >
         {busy ? (
@@ -595,15 +600,13 @@ export function NearbyCheckInSheet({
   const [searching, setSearching] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [loadingPresence, setLoadingPresence] = useState(false);
-  const [viewState, setViewState] =
-    useState<NearbyCheckInViewState>("loading");
+  const [viewState, setViewState] = useState<NearbyCheckInViewState>("loading");
   const [state, setState] =
     useState<OneLocationNearbyPresenceState>(EMPTY_NEARBY_STATE);
   const [durationMinutes, setDurationMinutes] = useState<30 | 60 | 120>(60);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [allowConnectionRequests, setAllowConnectionRequests] = useState(false);
-  /** Whether the secondary preference row is revealed. Presentation only. */
-  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [showAllPlaces, setShowAllPlaces] = useState(false);
   const [addTimeOpen, setAddTimeOpen] = useState(false);
   const [addTimeBusy, setAddTimeBusy] = useState<30 | 60 | null>(null);
   const [busy, setBusy] = useState<"check-in" | "checkout" | string | null>(
@@ -627,9 +630,8 @@ export function NearbyCheckInSheet({
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [accuracyNotice, setAccuracyNotice] = useState<string | null>(null);
-  const [visiblePlacesCount, setVisiblePlacesCount] = useState(3);
-
   const typedSearchActive = search.trim().length >= 2;
+  const fullPlaceChooserOpen = showAllPlaces || typedSearchActive;
 
   /**
    * The rows on screen. Derived rather than stored: the merged nearby sweep is
@@ -639,7 +641,9 @@ export function NearbyCheckInSheet({
   const places = useMemo(() => {
     const visible = typedSearchActive
       ? searchResults
-      : placesInCategory(automaticPlaces, category);
+      : fullPlaceChooserOpen
+        ? placesInCategory(automaticPlaces, category)
+        : automaticPlaces;
     // Coordinates resolved on demand for searched places, which arrive without
     // them, so the map can pin whatever the owner is looking at.
     return visible.map((place) => {
@@ -650,6 +654,7 @@ export function NearbyCheckInSheet({
   }, [
     automaticPlaces,
     category,
+    fullPlaceChooserOpen,
     resolvedPlacePoints,
     searchResults,
     typedSearchActive,
@@ -772,7 +777,9 @@ export function NearbyCheckInSheet({
         const boundedSuggestions = normalizeAutomaticPlaces(suggestions);
         setAutomaticPlaces(boundedSuggestions);
         if (boundedSuggestions.length === 0) {
-          setPlacesError("No places found within 500 m.");
+          setPlacesError(
+            "No places found. Search another place or update your location.",
+          );
         }
       } catch (error) {
         if (
@@ -809,7 +816,10 @@ export function NearbyCheckInSheet({
    * no longer owns the screen.
    */
   const adoptLastKnownPoint = useCallback(
-    async (generation: number, expectedOwnerEpoch: number): Promise<boolean> => {
+    async (
+      generation: number,
+      expectedOwnerEpoch: number,
+    ): Promise<boolean> => {
       const superseded = () =>
         ownerEpochRef.current !== expectedOwnerEpoch ||
         requestGenerationRef.current !== generation;
@@ -847,13 +857,17 @@ export function NearbyCheckInSheet({
   );
 
   const captureAndLoadPlaces = useCallback(
-    async (nextCategory: OneLocationNearbyPlaceCategory = "all") => {
+    async (
+      nextCategory: OneLocationNearbyPlaceCategory = "all",
+      options: { preserveChooser?: boolean } = {},
+    ) => {
       if (!ownerId || !vaultOwnerToken) return;
       const expectedOwnerEpoch = ownerEpochRef.current;
       const generation = ++requestGenerationRef.current;
       searchGenerationRef.current += 1;
       setCapturing(true);
       setCategory(nextCategory);
+      if (!options.preserveChooser) setShowAllPlaces(false);
       setSearch("");
       setSearchResults([]);
       setSearching(false);
@@ -1029,11 +1043,11 @@ export function NearbyCheckInSheet({
   const selectCategory = useCallback(
     (nextCategory: OneLocationNearbyPlaceCategory) => {
       setCategory(nextCategory);
+      setShowAllPlaces(true);
       setSearch("");
       setSearchResults([]);
       setSearching(false);
       setPlacesError(null);
-      setVisiblePlacesCount(5);
       searchGenerationRef.current += 1;
     },
     [],
@@ -1062,11 +1076,10 @@ export function NearbyCheckInSheet({
     setViewState("loading");
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
-    setOptionsOpen(false);
+    setShowAllPlaces(false);
     setAddTimeOpen(false);
     setAddTimeBusy(null);
     setDurationMinutes(60);
-    setVisiblePlacesCount(3);
     setBusy(null);
     setCompletedCheckIn(null);
     setSavePlaceCandidateState(null);
@@ -1101,11 +1114,10 @@ export function NearbyCheckInSheet({
     setSearching(false);
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
-    setOptionsOpen(false);
+    setShowAllPlaces(false);
     setAddTimeOpen(false);
     setAddTimeBusy(null);
     setDurationMinutes(60);
-    setVisiblePlacesCount(3);
     setCompletedCheckIn(null);
     setSavePlaceCandidateState(null);
     setLocationError(null);
@@ -1114,10 +1126,7 @@ export function NearbyCheckInSheet({
     setPlacesError(null);
     if (open) setViewState("loading");
     void loadPresence(!open, expectedOwnerEpoch).then((next) => {
-      if (
-        next === "error" ||
-        ownerEpochRef.current !== expectedOwnerEpoch
-      ) {
+      if (next === "error" || ownerEpochRef.current !== expectedOwnerEpoch) {
         return;
       }
       if (next?.presence) {
@@ -1133,13 +1142,7 @@ export function NearbyCheckInSheet({
       presenceReadGenerationRef.current += 1;
       searchGenerationRef.current += 1;
     };
-  }, [
-    captureAndLoadPlaces,
-    loadPresence,
-    open,
-    ownerId,
-    vaultOwnerToken,
-  ]);
+  }, [captureAndLoadPlaces, loadPresence, open, ownerId, vaultOwnerToken]);
 
   useEffect(() => {
     onSearchAreaChange?.(
@@ -1164,6 +1167,7 @@ export function NearbyCheckInSheet({
         return;
       }
       inFlight = true;
+      const previousPresence = state.presence;
       try {
         const next = await loadPresence(true, expectedOwnerEpoch);
         if (
@@ -1173,10 +1177,24 @@ export function NearbyCheckInSheet({
           !next.presence &&
           ownerEpochRef.current === expectedOwnerEpoch
         ) {
-          setViewState((current) =>
-            current === "completed" ? current : "setup",
-          );
-          void captureAndLoadPlaces();
+          setViewState((current) => {
+            if (current === "completed") return current;
+            return previousPresence ? "completed" : "setup";
+          });
+          if (previousPresence) {
+            const expiresMs = Date.parse(previousPresence.expiresAt);
+            setCompletedCheckIn({
+              placeLabel: previousPresence.placeLabel ?? null,
+              reason:
+                Number.isFinite(expiresMs) && expiresMs <= Date.now()
+                  ? "expired"
+                  : "ended",
+              saved: false,
+              saveError: null,
+            });
+          } else {
+            void captureAndLoadPlaces();
+          }
         }
       } finally {
         inFlight = false;
@@ -1212,9 +1230,7 @@ export function NearbyCheckInSheet({
     // — the tab becoming visible and the app returning to the foreground —
     // which is where a stale presence would otherwise be noticed. Nothing is
     // lost except requests nobody was waiting for.
-    const timer = open
-      ? window.setInterval(() => void poll(), 15_000)
-      : null;
+    const timer = open ? window.setInterval(() => void poll(), 15_000) : null;
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       if (timer !== null) window.clearInterval(timer);
@@ -1233,9 +1249,7 @@ export function NearbyCheckInSheet({
   useEffect(() => {
     if (!open || state.presence || !locationRecovery) return;
     return appInteractionCoordinator.subscribeLifecycle(() => {
-      if (
-        appInteractionCoordinator.getLifecycleSnapshot().state === "active"
-      ) {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
         void captureAndLoadPlaces();
       }
     });
@@ -1302,9 +1316,7 @@ export function NearbyCheckInSheet({
   // owner must intentionally choose another place before checking in.
   useEffect(() => {
     setSelectedPlaceId((current) =>
-      places.some((place) => place.placeId === current)
-        ? current
-        : "",
+      places.some((place) => place.placeId === current) ? current : "",
     );
   }, [places]);
 
@@ -1388,7 +1400,10 @@ export function NearbyCheckInSheet({
    * resurface a decision the person already walked away from.
    */
   useEffect(() => {
-    if (!open) setSavePlaceCandidateState(null);
+    if (!open) {
+      setAddTimeOpen(false);
+      setSavePlaceCandidateState(null);
+    }
   }, [open]);
 
   useEffect(() => {
@@ -1578,11 +1593,11 @@ export function NearbyCheckInSheet({
             }
           });
         } else {
-          void captureAndLoadPlaces(category);
+          void captureAndLoadPlaces(category, {
+            preserveChooser: fullPlaceChooserOpen,
+          });
         }
-      } else if (
-        details.message.toLowerCase().includes("closer place")
-      ) {
+      } else if (details.message.toLowerCase().includes("closer place")) {
         setPlacesError(details.message);
       }
       toast.error(details.message);
@@ -1635,8 +1650,9 @@ export function NearbyCheckInSheet({
       }
       const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
       if (ambiguous && ambiguous.kind === "ambiguous") {
-        const names = ambiguousMatchNames(ambiguous.matches, (place) =>
-          place.name ?? place.text,
+        const names = ambiguousMatchNames(
+          ambiguous.matches,
+          (place) => place.name ?? place.text,
         );
         return {
           status: "blocked" as const,
@@ -1711,8 +1727,9 @@ export function NearbyCheckInSheet({
           (entry) => entry.kind === "ambiguous",
         );
         if (ambiguous && ambiguous.kind === "ambiguous") {
-          const names = ambiguousMatchNames(ambiguous.matches, (place) =>
-            place.name ?? place.text,
+          const names = ambiguousMatchNames(
+            ambiguous.matches,
+            (place) => place.name ?? place.text,
           );
           return {
             status: "blocked" as const,
@@ -1753,9 +1770,7 @@ export function NearbyCheckInSheet({
       let allowConnectionRequestsDefault: boolean;
       try {
         const preferences =
-          await OneLocationService.getNearbyCheckInPreferences(
-            vaultOwnerToken,
-          );
+          await OneLocationService.getNearbyCheckInPreferences(vaultOwnerToken);
         visibilityDefault = preferences.visible;
         allowConnectionRequestsDefault = preferences.allowConnectionRequests;
       } catch {
@@ -1793,7 +1808,9 @@ export function NearbyCheckInSheet({
           };
         }
         setAccuracyNotice(
-          isCoarseAccuracy(freshPoint) ? coarseAccuracyNotice(freshPoint) : null,
+          isCoarseAccuracy(freshPoint)
+            ? coarseAccuracyNotice(freshPoint)
+            : null,
         );
         setPoint(freshPoint);
         const next = await OneLocationService.checkInNearby({
@@ -1935,7 +1952,17 @@ export function NearbyCheckInSheet({
         return;
       }
       publishState(next);
-      setViewState(next.presence ? "active" : "setup");
+      if (next.presence) {
+        setViewState("active");
+      } else {
+        setViewState("completed");
+        setCompletedCheckIn({
+          placeLabel: state.presence?.placeLabel ?? null,
+          reason: "ended",
+          saved: false,
+          saveError: null,
+        });
+      }
       setAddTimeOpen(false);
       toast.success(
         incrementMinutes === 60 ? "1 hour added." : "30 minutes added.",
@@ -1989,13 +2016,15 @@ export function NearbyCheckInSheet({
       publishState(next);
       setViewState("completed");
       setCompletedCheckIn({
-        placeLabel: savedPlaceOffer?.label ?? state.presence?.placeLabel ?? null,
+        placeLabel:
+          savedPlaceOffer?.label ?? state.presence?.placeLabel ?? null,
+        reason: "left",
         saved: false,
         saveError: null,
       });
       setConsentAccepted(false);
       setAllowConnectionRequests(false);
-      setOptionsOpen(false);
+      setShowAllPlaces(false);
       setAddTimeOpen(false);
       setAddTimeBusy(null);
       toast.success("Check-in ended.");
@@ -2123,213 +2152,251 @@ export function NearbyCheckInSheet({
   // close X the dismissal, which is why it needed a real 44px target (see
   // SheetContent).
   return (
-    <Sheet modal={false} open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        // Handle-only, not the whole body.
-        //
-        // This sheet owns an inner scroll container (see below), so its own
-        // `scrollTop` never leaves 0 — and the body-drag rule engages on
-        // exactly that condition. Enabled for the body, every downward swipe
-        // over the place list would have dismissed the sheet instead of
-        // scrolling it. `contentDragDismiss={false}` leaves the handle as the
-        // only drag surface: the phone gets the native grab-and-pull it
-        // expects, the list scrolls, and dismissal still leaves the map
-        // standing with its "Check in" pill to re-open.
-        //
-        // The panel used to pass `dragDismiss={false}`, which switched the
-        // gesture off AND took the grab handle with it — a phone bottom sheet
-        // with no affordance to put it away.
-        contentDragDismiss={false}
-        showOverlay={false}
-        onInteractOutside={(event) => event.preventDefault()}
-        // The map is a native view below the WebView, so a tap that lands on it
-        // never reaches Radix as a normal outside-pointer event on some
-        // platforms and does on others. Refusing both keeps dismissal identical
-        // on web and on device instead of platform-dependent.
-        onPointerDownOutside={(event) => event.preventDefault()}
-        // Stop short of the map header instead of the default 85dvh. With the
-        // scrim gone the controls behind are live again, so the sheet must not
-        // be the thing covering them: 8.5rem clears the header's real stack
-        // (56px control row + 8px gap + the Sharing row + its 16px padding)
-        // plus the top safe area, and leaves a visible strip of map between the
-        // two. Phone-only; the md rail is a side sheet and sets max-h-none.
-        //
-        // The desktop rail width comes from the shared constant so the browser
-        // contract that asserts the map keeps the majority of the viewport is
-        // measuring the number that actually ships.
-        style={
-          {
-            "--check-in-rail-width": `${CHECK_IN_PANEL_DESKTOP_WIDTH_REM}rem`,
-          } as CSSProperties
-        }
-        className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[var(--check-in-rail-width)] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
-        data-testid="one-location-nearby-check-in-sheet"
-        data-one-location-nearby-check-in-sheet=""
-      >
-        {/* No build-stage badge. "Preview" reported how finished the FEATURE
+    <>
+      <Sheet modal={false} open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="bottom"
+          // Handle-only, not the whole body.
+          //
+          // This sheet owns an inner scroll container (see below), so its own
+          // `scrollTop` never leaves 0 — and the body-drag rule engages on
+          // exactly that condition. Enabled for the body, every downward swipe
+          // over the place list would have dismissed the sheet instead of
+          // scrolling it. `contentDragDismiss={false}` leaves the handle as the
+          // only drag surface: the phone gets the native grab-and-pull it
+          // expects, the list scrolls, and dismissal still leaves the map
+          // standing with its "Check in" pill to re-open.
+          //
+          // The panel used to pass `dragDismiss={false}`, which switched the
+          // gesture off AND took the grab handle with it — a phone bottom sheet
+          // with no affordance to put it away.
+          contentDragDismiss={false}
+          showOverlay={false}
+          onInteractOutside={(event) => event.preventDefault()}
+          // The map is a native view below the WebView, so a tap that lands on it
+          // never reaches Radix as a normal outside-pointer event on some
+          // platforms and does on others. Refusing both keeps dismissal identical
+          // on web and on device instead of platform-dependent.
+          onPointerDownOutside={(event) => event.preventDefault()}
+          // Stop short of the map header instead of the default 85dvh. With the
+          // scrim gone the controls behind are live again, so the sheet must not
+          // be the thing covering them: 8.5rem clears the header's real stack
+          // (56px control row + 8px gap + the Sharing row + its 16px padding)
+          // plus the top safe area, and leaves a visible strip of map between the
+          // two. Phone-only; the md rail is a side sheet and sets max-h-none.
+          //
+          // The desktop rail width comes from the shared constant so the browser
+          // contract that asserts the map keeps the majority of the viewport is
+          // measuring the number that actually ships.
+          style={
+            {
+              "--check-in-rail-width": `${CHECK_IN_PANEL_DESKTOP_WIDTH_REM}rem`,
+            } as CSSProperties
+          }
+          className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[var(--check-in-rail-width)] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
+          data-testid="one-location-nearby-check-in-sheet"
+          data-one-location-nearby-check-in-sheet=""
+        >
+          {/* No build-stage badge. "Preview" reported how finished the FEATURE
             is, which is a fact about our roadmap, not about the person or the
             decision in front of them — and it sat in the highest-priority slot
             on the screen, beside the title. Admission to nearby check-in is
             already gated by a build flag and a server cohort, so nobody
             reaches this sheet who was not meant to. */}
-        <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
-          <div className="flex min-h-9 items-center gap-2 pr-10">
-            <SheetTitle className="text-[17px] leading-6">
-              Check in nearby
-            </SheetTitle>
-          </div>
-        </SheetHeader>
-
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-          <p className="sr-only" aria-live="polite" aria-atomic="true">
-            {state.presence
-              ? `Nearby check-in active. ${state.attendees.length} ${
-                  state.attendees.length === 1 ? "person" : "people"
-                } nearby.`
-              : "Nearby check-in is not active."}
-          </p>
-          {loadingPresence && !state.presence ? (
-            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Checking your current status…
-            </div>
-          ) : null}
-
-          {presenceLoadError && !state.presence ? (
-            <div
-              className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-3"
-              role="alert"
-            >
-              <p className="text-sm text-destructive">{presenceLoadError}</p>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                className="mt-2"
-                disabled={loadingPresence}
-                onClick={() => void retryPresenceLoad()}
-              >
-                {loadingPresence ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                Retry status
-              </Button>
-            </div>
-          ) : null}
-
-          {viewState === "completed" ? (
-            <div className="space-y-4" data-testid="nearby-presence-completed">
-              <section className="rounded-[18px] border border-border/60 bg-card p-4">
-                <div className="flex items-start gap-3">
-                  <span
-                    className={cn(
-                      "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full",
-                      SUCCESS_ROLE.tile,
-                      SUCCESS_ROLE.glyph,
-                    )}
-                    aria-hidden="true"
-                  >
-                    <Check className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold">Check-in ended</p>
-                    {completedCheckIn?.placeLabel ? (
-                      <p className="mt-0.5 truncate text-sm font-medium">
-                        {completedCheckIn.placeLabel}
-                      </p>
-                    ) : null}
-                    <p className="mt-0.5 text-sm text-muted-foreground">
-                      You're no longer visible nearby.
-                    </p>
-                    {completedCheckIn?.saved ? (
-                      <p className="mt-2 text-xs font-medium text-muted-foreground">
-                        Saved for next time.
-                      </p>
-                    ) : null}
-                    {completedCheckIn?.saveError ? (
-                      <p
-                        className="mt-2 text-xs font-medium text-destructive"
-                        role="alert"
-                      >
-                        {completedCheckIn.saveError}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              </section>
-              <Button
-                type="button"
-                className="h-[52px] min-h-[52px] w-full rounded-2xl"
-                onClick={finishCompletedCheckIn}
-              >
-                Done
-              </Button>
-              {savePlaceCandidateState && !completedCheckIn?.saved ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-11 min-h-11 w-full text-muted-foreground"
-                  isLoading={savingPlace}
-                  onClick={() => void saveCheckedOutPlace()}
-                >
-                  <Star className="h-4 w-4" />
-                  Save for faster check-ins
-                </Button>
+          <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
+            <div className="flex min-h-9 flex-col justify-center gap-1 pr-10">
+              <SheetTitle className="text-[17px] leading-6">
+                Check in nearby
+              </SheetTitle>
+              {!state.presence && viewState !== "completed" ? (
+                <p className="text-sm leading-5 text-muted-foreground">
+                  Let people at the same place know you&apos;re there.
+                </p>
               ) : null}
             </div>
-          ) : viewState === "loading" ||
-            (loadingPresence && !state.presence) ? null : state.presence ? (
-            <div className="space-y-4" data-testid="nearby-presence-active">
-              <section className="rounded-[18px] border border-border/60 bg-card p-4">
-                <div className="flex items-start gap-3">
-                  <span
-                    className={cn(
-                      "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full",
-                      SUCCESS_ROLE.tile,
-                      SUCCESS_ROLE.glyph,
-                    )}
-                    aria-hidden="true"
-                  >
-                    <Check className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold">Checked in</p>
-                    <p
-                      className="mt-0.5 truncate text-sm font-medium"
-                      title={state.presence.placeLabel || undefined}
-                    >
-                      {state.presence.placeLabel || "Your place"}
-                    </p>
-                    <p className="mt-0.5 text-sm text-muted-foreground">
-                      {[
-                        timeLeftLabel(state.presence.expiresAt),
-                        peopleNearbyLabel(state.attendees.length),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    {activeDriftMeters !== null &&
-                    activeDriftMeters > NEARBY_DRIFT_NUDGE_METERS ? (
-                      <p
-                        className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
-                        data-testid="nearby-active-drift"
-                      >
-                        <LocateFixed
-                          className="mt-px h-3.5 w-3.5 shrink-0"
-                          aria-hidden="true"
-                        />
-                        <span>
-                          You’ve moved away. People still see you here.
-                        </span>
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              </section>
+          </SheetHeader>
 
-              <section aria-labelledby="nearby-people-title">
-                {/* The privacy mechanism used to be spelled out here in two
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+            <p className="sr-only" aria-live="polite" aria-atomic="true">
+              {state.presence
+                ? `Checked in. ${state.attendees.length} ${
+                    state.attendees.length === 1 ? "person" : "people"
+                  } nearby.`
+                : "Not checked in nearby."}
+            </p>
+            {loadingPresence && !state.presence ? (
+              <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Checking your current status…
+              </div>
+            ) : null}
+
+            {presenceLoadError && !state.presence ? (
+              <div
+                className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-3"
+                role="alert"
+              >
+                <p className="text-sm text-destructive">{presenceLoadError}</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2"
+                  disabled={loadingPresence}
+                  onClick={() => void retryPresenceLoad()}
+                >
+                  {loadingPresence ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  Retry status
+                </Button>
+              </div>
+            ) : null}
+
+            {viewState === "completed" ? (
+              <div
+                className="space-y-4"
+                data-testid="nearby-presence-completed"
+              >
+                <section className="rounded-[18px] border border-border/60 bg-card p-4">
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={cn(
+                        "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full",
+                        SUCCESS_ROLE.tile,
+                        SUCCESS_ROLE.glyph,
+                      )}
+                      aria-hidden="true"
+                    >
+                      <Check className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">Check-in ended</p>
+                      {completedCheckIn?.placeLabel ? (
+                        <p className="mt-0.5 truncate text-sm font-medium">
+                          {completedCheckIn.placeLabel}
+                        </p>
+                      ) : null}
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        {completionCopy(completedCheckIn?.reason)}
+                      </p>
+                      {completedCheckIn?.saved ? (
+                        <p className="mt-2 text-xs font-medium text-muted-foreground">
+                          Saved for next time.
+                        </p>
+                      ) : null}
+                      {completedCheckIn?.saveError ? (
+                        <p
+                          className="mt-2 text-xs font-medium text-destructive"
+                          role="alert"
+                        >
+                          {completedCheckIn.saveError}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+                <Button
+                  type="button"
+                  className="h-[52px] min-h-[52px] w-full rounded-2xl"
+                  onClick={finishCompletedCheckIn}
+                >
+                  Done
+                </Button>
+                {savePlaceCandidateState && !completedCheckIn?.saved ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-11 min-h-11 w-full text-muted-foreground"
+                    isLoading={savingPlace}
+                    onClick={() => void saveCheckedOutPlace()}
+                  >
+                    <Star className="h-4 w-4" />
+                    Save for faster check-ins
+                  </Button>
+                ) : null}
+              </div>
+            ) : viewState === "loading" ||
+              (loadingPresence && !state.presence) ? null : state.presence ? (
+              <div className="space-y-4" data-testid="nearby-presence-active">
+                <section className="rounded-[18px] border border-border/60 bg-card p-4">
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={cn(
+                        "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full",
+                        SUCCESS_ROLE.tile,
+                        SUCCESS_ROLE.glyph,
+                      )}
+                      aria-hidden="true"
+                    >
+                      <Check className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">Checked in</p>
+                      <p
+                        className="mt-0.5 truncate text-sm font-medium"
+                        title={state.presence.placeLabel || undefined}
+                      >
+                        {state.presence.placeLabel || "Your place"}
+                      </p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        {[
+                          timeLeftLabel(state.presence.expiresAt),
+                          peopleNearbyLabel(state.attendees.length),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {state.presence.allowConnectionRequests
+                          ? "Name shown · Requests allowed"
+                          : "Name shown · Requests off"}
+                      </p>
+                      {activeDriftMeters !== null &&
+                      activeDriftMeters > NEARBY_DRIFT_NUDGE_METERS ? (
+                        <p
+                          className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
+                          data-testid="nearby-active-drift"
+                        >
+                          <LocateFixed
+                            className="mt-px h-3.5 w-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                          <span>
+                            You’ve moved away. People still see you here.
+                          </span>
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-12 min-h-12"
+                    disabled={busy !== null}
+                    onClick={() => setAddTimeOpen(true)}
+                  >
+                    Add time
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={CHECK_OUT_BUTTON_VARIANT}
+                    className="h-12 min-h-12"
+                    disabled={busy !== null}
+                    onClick={() => void checkout()}
+                  >
+                    {busy === "checkout" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    {busy === "checkout" ? "Leaving..." : "I'm leaving"}
+                  </Button>
+                </div>
+
+                <section aria-labelledby="nearby-people-title">
+                  {/* The privacy mechanism used to be spelled out here in two
                     sentences, every time. The behaviour is unchanged — an
                     attendee object carries a name and nothing else, never a
                     coordinate — but a person reading a roster of names is not
@@ -2337,427 +2404,402 @@ export function NearbyCheckInSheet({
                     only once there is a count worth reading; beside an empty
                     state that already says "nobody", a "0" is the same word
                     twice. */}
-                <div className="flex items-center justify-between gap-3">
-                  <h2 id="nearby-people-title" className="font-semibold">
-                    People nearby
-                  </h2>
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 id="nearby-people-title" className="font-semibold">
+                      People nearby
+                    </h2>
+                    {state.attendees.length ? (
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
+                        {state.attendees.length}
+                      </span>
+                    ) : null}
+                  </div>
                   {state.attendees.length ? (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
-                      {state.attendees.length}
-                    </span>
-                  ) : null}
-                </div>
-                {state.attendees.length ? (
-                  <ul className="mt-2" data-testid="nearby-attendee-roster">
-                    {state.attendees.map((attendee) => (
-                      <NearbyPersonRow
-                        key={attendee.participantAlias}
-                        attendee={attendee}
-                        busy={busy === `connect:${attendee.participantAlias}`}
-                        interactionDisabled={busy !== null}
-                        onConnect={() => void connect(attendee)}
-                        onRespond={() =>
-                          // Back from Consent Center returns to the screen this
-                          // was opened from -- check-in's own route. Naming Your
-                          // Map here sent the person to a screen that withholds
-                          // the check-in sheet, which then redirected on to the
-                          // same place: the flow they had left visibly rebuilt
-                          // itself twice before reappearing.
-                          router.push(
-                            buildConsentCenterHref("pending", {
-                              from: ROUTES.ONE_LOCATION_CHECK_IN,
-                            }),
-                          )
-                        }
-                      />
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="mt-3 rounded-2xl bg-muted/70 px-4 py-5 text-center">
-                    <UsersRound className="mx-auto h-5 w-5 text-muted-foreground" />
-                    {/* The auto-refresh line is gone. The list refreshes on a
+                    <ul className="mt-2" data-testid="nearby-attendee-roster">
+                      {state.attendees.map((attendee) => (
+                        <NearbyPersonRow
+                          key={attendee.participantAlias}
+                          attendee={attendee}
+                          busy={busy === `connect:${attendee.participantAlias}`}
+                          interactionDisabled={busy !== null}
+                          onConnect={() => void connect(attendee)}
+                          onRespond={() =>
+                            // Back from Consent Center returns to the screen this
+                            // was opened from -- check-in's own route. Naming Your
+                            // Map here sent the person to a screen that withholds
+                            // the check-in sheet, which then redirected on to the
+                            // same place: the flow they had left visibly rebuilt
+                            // itself twice before reappearing.
+                            router.push(
+                              buildConsentCenterHref("pending", {
+                                from: ROUTES.ONE_LOCATION_CHECK_IN,
+                              }),
+                            )
+                          }
+                        />
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="mt-3 rounded-2xl bg-muted/70 px-4 py-5 text-center">
+                      <UsersRound className="mx-auto h-5 w-5 text-muted-foreground" />
+                      {/* The auto-refresh line is gone. The list refreshes on a
                         timer whether or not it is advertised, and telling
                         someone their empty list will keep checking itself is
                         an implementation detail dressed as reassurance. */}
-                    <p className="mt-2 text-sm font-medium">Nobody nearby yet</p>
-                  </div>
-                )}
-              </section>
-
-              {addTimeOpen ? (
-                <section
-                  className="rounded-[18px] border border-border/60 bg-card p-3"
-                  aria-label="Add time"
-                >
-                  <div className="grid grid-cols-2 gap-2">
-                    {([30, 60] as const).map((increment) => (
-                      <Button
-                        key={increment}
-                        type="button"
-                        variant="secondary"
-                        className="h-11 min-h-11"
-                        disabled={busy !== null}
-                        onClick={() => void addTime(increment)}
-                      >
-                        {addTimeBusy === increment ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : null}
-                        {increment === 60 ? "1 hour more" : "30 min more"}
-                      </Button>
-                    ))}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="mt-2 h-10 min-h-10 w-full text-muted-foreground"
-                    disabled={busy !== null}
-                    onClick={() => setAddTimeOpen(false)}
-                  >
-                    Cancel
-                  </Button>
+                      <p className="mt-2 text-sm font-medium">
+                        Nobody nearby yet
+                      </p>
+                    </div>
+                  )}
                 </section>
-              ) : null}
-
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="h-12 min-h-12"
-                  disabled={busy !== null}
-                  onClick={() => setAddTimeOpen((current) => !current)}
-                >
-                  Add time
-                </Button>
-                <Button
-                  type="button"
-                  variant={CHECK_OUT_BUTTON_VARIANT}
-                  className="h-12 min-h-12"
-                  disabled={busy !== null}
-                  onClick={() => void checkout()}
-                >
-                  {busy === "checkout" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  {busy === "checkout" ? "Leaving..." : "I'm leaving"}
-                </Button>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-5" data-testid="nearby-presence-setup">
-              <section>
-                {/* "Places within 500 m" restated the circle the map is
+            ) : (
+              <div className="space-y-5" data-testid="nearby-presence-setup">
+                <section>
+                  {/* "Places within 500 m" restated the circle the map is
                     already drawing directly behind this panel, in the units
                     the backend happens to use. The radius is unchanged and
                     still named on the map's own legend; the heading only has
                     to say what the list is. */}
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="font-semibold">Nearby places</h2>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="font-semibold">
+                        {fullPlaceChooserOpen
+                          ? "All nearby places"
+                          : "Nearby places"}
+                      </h2>
+                    </div>
+                    {capturing ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    ) : null}
                   </div>
-                  {capturing ? (
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  ) : null}
-                </div>
 
-                {/*
+                  {/*
                   A location problem is a state to work through, not a failure
                   to alarm about: the owner has done nothing wrong and can
                   usually resolve it in one tap. It is therefore rendered in the
                   neutral surface style with the recovery actions attached,
                   never as a destructive alert.
                 */}
-                {locationError ? (
-                  <div
-                    className="mt-3 rounded-2xl border border-border/60 bg-muted/50 p-4"
-                    role="status"
-                    data-testid="nearby-location-fallback"
-                  >
-                    <div className="flex items-start gap-3">
-                      <span
-                        className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-background text-muted-foreground"
-                        aria-hidden="true"
-                      >
-                        <Compass className="h-4 w-4" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold">
-                          Still finding you
-                        </p>
-                        <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
-                          {locationError}
-                        </p>
+                  {locationError ? (
+                    <div
+                      className="mt-3 rounded-2xl border border-border/60 bg-muted/50 p-4"
+                      role="status"
+                      data-testid="nearby-location-fallback"
+                    >
+                      <div className="flex items-start gap-3">
+                        <span
+                          className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-background text-muted-foreground"
+                          aria-hidden="true"
+                        >
+                          <Compass className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold">
+                            Still finding you
+                          </p>
+                          <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+                            {locationError}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={capturing || busy === "settings"}
-                        onClick={() => void captureAndLoadPlaces(category)}
-                      >
-                        {capturing ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : null}
-                        Try again
-                      </Button>
-                      {locationRecovery && isNative() ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
                         <Button
                           type="button"
                           size="sm"
-                          variant="secondary"
-                          disabled={busy === "settings"}
-                          onClick={() => void openRecoverySettings()}
+                          disabled={capturing || busy === "settings"}
+                          onClick={() =>
+                            void captureAndLoadPlaces(category, {
+                              preserveChooser: fullPlaceChooserOpen,
+                            })
+                          }
                         >
-                          {busy === "settings" ? (
+                          {capturing ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : null}
-                          Open settings
+                          Try again
                         </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {pointOrigin === "last-known" && point ? (
-                      <p
-                        className="mt-3 flex items-start gap-2 rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs leading-4 text-muted-foreground"
-                        role="status"
-                        data-testid="nearby-last-known-notice"
-                      >
-                        <LocateFixed
-                          className="mt-px h-3.5 w-3.5 shrink-0"
-                          aria-hidden="true"
-                        />
-                        <span>
-                          Showing places around your last known position
-                          {restoredPointAgeLabel(point.capturedAt)} — we
-                          couldn’t refresh it just now. Pick where you actually
-                          are, or{" "}
-                          <button
-                            type="button"
-                            className="font-semibold underline underline-offset-2"
-                            disabled={capturing}
-                            onClick={() => void captureAndLoadPlaces(category)}
-                          >
-                            update your location
-                          </button>
-                          .
-                        </span>
-                      </p>
-                    ) : null}
-                    {accuracyNotice ? (
-                      <p
-                        className="mt-3 rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground"
-                        role="status"
-                      >
-                        {accuracyNotice}
-                      </p>
-                    ) : null}
-                    <label className="relative mt-3 block">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <span className="sr-only">Search</span>
-                      <Input
-                        value={search}
-                        onChange={(event) => {
-                          const nextSearch = event.target.value;
-                          searchGenerationRef.current += 1;
-                          setSearch(nextSearch);
-                          setPlacesError(null);
-                          if (nextSearch.trim().length >= 2) {
-                            setSearching(true);
-                            setSearchResults([]);
-                          } else {
-                            setSearching(false);
-                          }
-                        }}
-                        disabled={!point || capturing}
-                        placeholder="Search places"
-                        className="h-11 rounded-full pl-9"
-                      />
-                      {searching ? (
-                        <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-                      ) : null}
-                    </label>
-
-                    <div
-                      className={CHECK_IN_CATEGORY_ROW_CLASSNAME}
-                      aria-label="Nearby place categories"
-                    >
-                      {typedSearchActive ? (
-                        <span className="inline-flex h-9 shrink-0 items-center rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground">
-                          Search results
-                        </span>
-                      ) : null}
-                      {PLACE_CATEGORIES.map((option) => (
-                        <Button
-                          key={option.value}
-                          type="button"
-                          size="sm"
-                          variant={
-                            !typedSearchActive && category === option.value
-                              ? "default"
-                              : "secondary"
-                          }
-                          className="shrink-0 rounded-full"
-                          aria-pressed={
-                            !typedSearchActive && category === option.value
-                          }
-                          disabled={!point || capturing || typedSearchActive}
-                          onClick={() => selectCategory(option.value)}
-                        >
-                          {option.label}
-                        </Button>
-                      ))}
-                    </div>
-
-                    <div
-                      className={cn(
-                        "mt-3 space-y-2",
-                        visiblePlacesCount > 3 && "max-h-[35vh] overflow-y-auto pr-2"
-                      )}
-                      role="radiogroup"
-                      aria-label="Nearby places"
-                    >
-                      {places.slice(0, visiblePlacesCount).map((place) => {
-                        const selected = place.placeId === selectedPlaceId;
-                        const name = place.name?.trim() || place.text;
-                        // One supporting line, not two joined by a middot.
-                        //
-                        // The row is a choice between venues the person can
-                        // see out of the window, so the useful cue is what
-                        // kind of place it is. A postal address is longer than
-                        // the row, always truncates, and the tail that gets
-                        // cut is the part that would have disambiguated it —
-                        // so it cost a line and answered nothing. The address
-                        // still shows when there is no category to show
-                        // instead, and the full pair stays in the title
-                        // attribute for a pointer and for assistive tech.
-                        const category = place.category?.trim() || "";
-                        const address = place.address?.trim() || "";
-                        const metadataLabel = category || address;
-                        const metadataTitle = Array.from(
-                          new Set([category, address].filter(Boolean)),
-                        ).join(" · ");
-                        return (
-                          <button
-                            key={place.placeId}
-                            type="button"
-                            role="radio"
-                            aria-checked={selected}
-                            className={cn(
-                              CHECK_IN_PLACE_ROW_CLASSNAME,
-                              selected
-                                ? CHECK_IN_PLACE_ROW_ON_CLASSNAME
-                                : CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
-                            )}
-                            onClick={() => setSelectedPlaceId(place.placeId)}
-                          >
-                            <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-                            <span className="min-w-0 flex-1">
-                              <span
-                                title={name}
-                                className={CHECK_IN_PLACE_NAME_CLASSNAME}
-                              >
-                                {name}
-                              </span>
-                              {metadataLabel ? (
-                                <span
-                                  title={metadataTitle}
-                                  className={CHECK_IN_PLACE_META_CLASSNAME}
-                                >
-                                  {metadataLabel}
-                                </span>
-                              ) : null}
-                            </span>
-                            <span className={CHECK_IN_PLACE_DISTANCE_CLASSNAME}>
-                              {compactDistanceLabel(place.distanceMeters)}
-                            </span>
-                            {selected ? (
-                              <Check className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                      {places.length > visiblePlacesCount ? (
-                        <div className="pt-1 pb-2">
+                        {locationRecovery && isNative() ? (
                           <Button
                             type="button"
-                            variant="ghost"
                             size="sm"
-                            className="w-full text-muted-foreground"
-                            onClick={() => setVisiblePlacesCount(places.length)}
+                            variant="secondary"
+                            disabled={busy === "settings"}
+                            onClick={() => void openRecoverySettings()}
                           >
-                            See all {places.length}
+                            {busy === "settings" ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : null}
+                            Open settings
                           </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {pointOrigin === "last-known" && point ? (
+                        <p
+                          className="mt-3 flex items-start gap-2 rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs leading-4 text-muted-foreground"
+                          role="status"
+                          data-testid="nearby-last-known-notice"
+                        >
+                          <LocateFixed
+                            className="mt-px h-3.5 w-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                          <span>
+                            Showing places around your last known position
+                            {restoredPointAgeLabel(point.capturedAt)} — we
+                            couldn’t refresh it just now. Pick where you
+                            actually are, or{" "}
+                            <button
+                              type="button"
+                              className="font-semibold underline underline-offset-2"
+                              disabled={capturing}
+                              onClick={() =>
+                                void captureAndLoadPlaces(category, {
+                                  preserveChooser: fullPlaceChooserOpen,
+                                })
+                              }
+                            >
+                              update your location
+                            </button>
+                            .
+                          </span>
+                        </p>
+                      ) : null}
+                      {accuracyNotice ? (
+                        <p
+                          className="mt-3 rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground"
+                          role="status"
+                        >
+                          {accuracyNotice}
+                        </p>
+                      ) : null}
+                      <label className="relative mt-3 block">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <span className="sr-only">Search</span>
+                        <Input
+                          value={search}
+                          onChange={(event) => {
+                            const nextSearch = event.target.value;
+                            searchGenerationRef.current += 1;
+                            setSearch(nextSearch);
+                            setPlacesError(null);
+                            if (nextSearch.trim().length >= 2) {
+                              setSearching(true);
+                              setSearchResults([]);
+                            } else {
+                              setSearching(false);
+                            }
+                          }}
+                          disabled={!point || capturing}
+                          placeholder="Search places"
+                          className="h-11 rounded-full pl-9"
+                        />
+                        {searching ? (
+                          <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                        ) : null}
+                      </label>
+
+                      {fullPlaceChooserOpen ? (
+                        <div
+                          className={CHECK_IN_CATEGORY_ROW_CLASSNAME}
+                          aria-label="Nearby place categories"
+                        >
+                          {typedSearchActive ? (
+                            <span className="inline-flex h-9 shrink-0 items-center rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground">
+                              Search results
+                            </span>
+                          ) : null}
+                          {PLACE_CATEGORIES.map((option) => (
+                            <Button
+                              key={option.value}
+                              type="button"
+                              size="sm"
+                              variant={
+                                !typedSearchActive && category === option.value
+                                  ? "default"
+                                  : "secondary"
+                              }
+                              className="shrink-0 rounded-full"
+                              aria-pressed={
+                                !typedSearchActive && category === option.value
+                              }
+                              disabled={
+                                !point || capturing || typedSearchActive
+                              }
+                              onClick={() => selectCategory(option.value)}
+                            >
+                              {option.label}
+                            </Button>
+                          ))}
                         </div>
                       ) : null}
-                    </div>
-                    {/*
+
+                      <div
+                        className={cn(
+                          "mt-3 space-y-2",
+                          fullPlaceChooserOpen &&
+                            "max-h-[35vh] overflow-y-auto pr-2",
+                        )}
+                        role="radiogroup"
+                        aria-label="Nearby places"
+                      >
+                        {places
+                          .slice(0, fullPlaceChooserOpen ? places.length : 3)
+                          .map((place) => {
+                            const selected = place.placeId === selectedPlaceId;
+                            const name = place.name?.trim() || place.text;
+                            // One supporting line, not two joined by a middot.
+                            //
+                            // The row is a choice between venues the person can
+                            // see out of the window, so the useful cue is what
+                            // kind of place it is. A postal address is longer than
+                            // the row, always truncates, and the tail that gets
+                            // cut is the part that would have disambiguated it —
+                            // so it cost a line and answered nothing. The address
+                            // still shows when there is no category to show
+                            // instead, and the full pair stays in the title
+                            // attribute for a pointer and for assistive tech.
+                            const category = place.category?.trim() || "";
+                            const address = place.address?.trim() || "";
+                            const metadataLabel = category || address;
+                            const metadataTitle = Array.from(
+                              new Set([category, address].filter(Boolean)),
+                            ).join(" · ");
+                            return (
+                              <button
+                                key={place.placeId}
+                                type="button"
+                                role="radio"
+                                aria-checked={selected}
+                                className={cn(
+                                  CHECK_IN_PLACE_ROW_CLASSNAME,
+                                  selected
+                                    ? CHECK_IN_PLACE_ROW_ON_CLASSNAME
+                                    : CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
+                                )}
+                                onClick={() =>
+                                  setSelectedPlaceId(place.placeId)
+                                }
+                              >
+                                <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+                                <span className="min-w-0 flex-1">
+                                  <span
+                                    title={name}
+                                    className={CHECK_IN_PLACE_NAME_CLASSNAME}
+                                  >
+                                    {name}
+                                  </span>
+                                  {metadataLabel ? (
+                                    <span
+                                      title={metadataTitle}
+                                      className={CHECK_IN_PLACE_META_CLASSNAME}
+                                    >
+                                      {metadataLabel}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span
+                                  className={CHECK_IN_PLACE_DISTANCE_CLASSNAME}
+                                >
+                                  {compactDistanceLabel(place.distanceMeters)}
+                                </span>
+                                {selected ? (
+                                  <Check className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                      {!fullPlaceChooserOpen && automaticPlaces.length > 0 ? (
+                          <div className="pt-1 pb-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="flex w-full items-center justify-between text-muted-foreground"
+                              onClick={() => setShowAllPlaces(true)}
+                            >
+                              <span>See all places</span>
+                              <ChevronRight
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              />
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                      {/*
                       The owner's point and their venue are two different places
                       and can be a street apart. Naming the gap is what lets
                       them tell the hotel they are in from the one behind it.
                     */}
-                    {selectedPlace && offsetNotice(selectedPlaceOffsetMeters) ? (
-                      <p
-                        className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
-                        data-testid="nearby-selected-place-offset"
-                      >
-                        <LocateFixed
-                          className="mt-px h-3.5 w-3.5 shrink-0"
-                          aria-hidden="true"
-                        />
-                        <span>{offsetNotice(selectedPlaceOffsetMeters)}</span>
-                      </p>
-                    ) : null}
-                    {!places.length &&
-                    !capturing &&
-                    !searching &&
-                    !typedSearchActive &&
-                    automaticPlaces.length ? (
-                      <div
-                        className="mt-3 rounded-2xl bg-muted/60 px-4 py-5 text-center"
-                        data-testid="nearby-category-empty"
-                      >
-                        <p className="text-sm font-medium">Nothing here</p>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          className="mt-3"
-                          onClick={() => selectCategory("all")}
+                      {selectedPlace &&
+                      offsetNotice(selectedPlaceOffsetMeters) ? (
+                        <p
+                          className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
+                          data-testid="nearby-selected-place-offset"
                         >
-                          See all {automaticPlaces.length}
-                        </Button>
-                      </div>
-                    ) : null}
-                    {/* Attribution only. The count that used to lead this line
+                          <LocateFixed
+                            className="mt-px h-3.5 w-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                          <span>{offsetNotice(selectedPlaceOffsetMeters)}</span>
+                        </p>
+                      ) : null}
+                      {!places.length &&
+                      !capturing &&
+                      !searching &&
+                      !typedSearchActive &&
+                      automaticPlaces.length ? (
+                        <div
+                          className="mt-3 rounded-2xl bg-muted/60 px-4 py-5 text-center"
+                          data-testid="nearby-category-empty"
+                        >
+                          <p className="text-sm font-medium">Nothing here</p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="mt-3"
+                            onClick={() => selectCategory("all")}
+                          >
+                            See all {automaticPlaces.length}
+                          </Button>
+                        </div>
+                      ) : null}
+                      {/* Attribution only. The count that used to lead this line
                         is already on the "See all N" control and in the list
                         itself, and "N places · Google Maps" read as one fact
                         when it was two. The provider name stays because the
                         Places terms require it wherever their data is shown. */}
-                    {places.length ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        <span translate="no" className="whitespace-nowrap font-normal">
-                          Google Maps
-                        </span>
-                      </p>
-                    ) : null}
-                    {placesError ? (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {placesError}
-                      </p>
-                    ) : null}
-                  </>
-                )}
-              </section>
+                      {places.length ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          <span
+                            translate="no"
+                            className="whitespace-nowrap font-normal"
+                          >
+                            Google Maps
+                          </span>
+                        </p>
+                      ) : null}
+                      {placesError ? (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {placesError}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </section>
 
-              <section>
-                {/* Matches the "Nearby places" heading above it: a plain word
+                <section>
+                  {/* Matches the "Nearby places" heading above it: a plain word
                     pair, no leading glyph. One of the two section headings
                     carrying an icon and the other not was the only reason
                     they did not read as a pair. */}
-                <h2 className="font-semibold">Visible for</h2>
-                {/* Raw <button>, not the morphy <Button>: at `size="default"`
+                  <h2 className="font-semibold">Visible for</h2>
+                  {/* Raw <button>, not the morphy <Button>: at `size="default"`
                     that component carries min-h-[50px] in a different
                     tailwind-merge group from h-*, and `.ui-text-button-label`
                     forces 17px !important — so it cannot be made compact from
@@ -2765,119 +2807,126 @@ export function NearbyCheckInSheet({
                     duration ladder uses for the identical role (44px, 15px),
                     so the two duration controls in this product can no longer
                     disagree about how big a duration choice is. */}
-                <div className={cn("mt-3", CHECK_IN_DURATION_GRID_CLASS)}>
-                  {DURATIONS.map((duration) => (
-                    <button
-                      key={duration.value}
-                      type="button"
-                      aria-pressed={durationMinutes === duration.value}
-                      onClick={() => setDurationMinutes(duration.value)}
-                      className={cn(
-                        DURATION_CELL_CLASS,
-                        durationMinutes === duration.value
-                          ? DURATION_CELL_ON_CLASS
-                          : DURATION_CELL_OFF_CLASS,
-                      )}
-                    >
-                      {duration.label}
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              {/*
-                Two preferences, one of them load-bearing.
-
-                "Appear nearby" stays in the open because it is the consent the
-                server requires and the condition the Check in button is
-                disabled on. Hiding the only reason a primary action is greyed
-                out behind a disclosure would make the button look broken.
-
-                "Connection requests" is genuinely a preference: it defaults
-                off, changes nothing about who can see the person, and only
-                decides whether someone already looking at their name may ask
-                to connect. It does not need answering before every check-in,
-                so it drops one level. Same state, same default, same value
-                sent — only its prominence changes.
-              */}
-              <section className="rounded-2xl border border-border/60">
-                <label className="flex cursor-pointer items-start gap-3 p-4">
-                  <Checkbox
-                    className="mt-0.5"
-                    checked={consentAccepted}
-                    onCheckedChange={(checked) =>
-                      setConsentAccepted(checked === true)
-                    }
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">
-                      Appear nearby
-                    </span>
-                    <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                      Your name only
-                    </span>
-                  </span>
-                </label>
-
-                <button
-                  type="button"
-                  className="flex min-h-11 w-full items-center justify-between gap-4 border-t border-border/60 px-4 py-2.5 text-left"
-                  aria-expanded={optionsOpen}
-                  aria-controls="nearby-check-in-options"
-                  onClick={() => setOptionsOpen((current) => !current)}
-                >
-                  <span className="text-sm font-semibold">Options</span>
-                  <ChevronDown
-                    className={cn(
-                      "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-                      optionsOpen && "rotate-180",
-                    )}
-                    aria-hidden="true"
-                  />
-                </button>
-                <div
-                  id="nearby-check-in-options"
-                  hidden={!optionsOpen}
-                  className="px-4 pb-4"
-                >
-                  <div className="flex min-h-11 items-center justify-between gap-4">
-                    <p className="text-sm">Connection requests</p>
-                    <Switch
-                      checked={allowConnectionRequests}
-                      onCheckedChange={setAllowConnectionRequests}
-                      aria-label="Allow nearby connection requests"
-                    />
+                  <div className={cn("mt-3", CHECK_IN_DURATION_GRID_CLASS)}>
+                    {DURATIONS.map((duration) => (
+                      <button
+                        key={duration.value}
+                        type="button"
+                        aria-pressed={durationMinutes === duration.value}
+                        onClick={() => setDurationMinutes(duration.value)}
+                        className={cn(
+                          DURATION_CELL_CLASS,
+                          durationMinutes === duration.value
+                            ? DURATION_CELL_ON_CLASS
+                            : DURATION_CELL_OFF_CLASS,
+                        )}
+                      >
+                        {duration.label}
+                      </button>
+                    ))}
                   </div>
-                </div>
-              </section>
+                </section>
 
+                <section>
+                  <h2 className="font-semibold">Visibility</h2>
+                  <div className="mt-3 rounded-2xl border border-border/60">
+                    <label className="flex cursor-pointer items-start gap-3 p-4">
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={consentAccepted}
+                        onCheckedChange={(checked) =>
+                          setConsentAccepted(checked === true)
+                        }
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">
+                          Show my name here
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                          Only people checked in at this place can see it.
+                        </span>
+                      </span>
+                    </label>
+
+                    <div className="flex min-h-14 items-center justify-between gap-4 border-t border-border/60 p-4">
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">
+                          Allow connection requests
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                          People here can ask to connect.
+                        </span>
+                      </span>
+                      <Switch
+                        checked={allowConnectionRequests}
+                        onCheckedChange={setAllowConnectionRequests}
+                        aria-label="Allow nearby connection requests"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <Button
+                  type="button"
+                  // Both halves, or neither lands: `h-12` alone loses to the
+                  // size variant's own min-h-[50px], which is why this button has
+                  // been 50px the whole time its class said 48.
+                  className="h-12 min-h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
+                  disabled={
+                    busy !== null ||
+                    capturing ||
+                    searching ||
+                    !point ||
+                    !selectedPlace ||
+                    !consentAccepted
+                  }
+                  onClick={() => void checkIn()}
+                >
+                  {busy === "check-in" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <UsersRound className="h-4 w-4" />
+                  )}
+                  Check in
+                </Button>
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+      <Sheet
+        open={addTimeOpen}
+        onOpenChange={(nextOpen) => {
+          if (busy === null) setAddTimeOpen(nextOpen);
+        }}
+      >
+      <SheetContent
+        side="bottom"
+        className="mx-auto w-full gap-0 rounded-t-[var(--app-card-radius-feature)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:max-w-md md:left-auto md:right-6 md:max-w-sm md:rounded-[var(--app-card-radius-feature)]"
+        aria-describedby={undefined}
+      >
+          <SheetHeader className="px-0 pb-3 text-left">
+            <SheetTitle className="text-[17px] leading-6">Add time</SheetTitle>
+          </SheetHeader>
+          <div className="grid grid-cols-2 gap-2">
+            {([30, 60] as const).map((increment) => (
               <Button
+                key={increment}
                 type="button"
-                // Both halves, or neither lands: `h-12` alone loses to the
-                // size variant's own min-h-[50px], which is why this button has
-                // been 50px the whole time its class said 48.
-                className="h-12 min-h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
-                disabled={
-                  busy !== null ||
-                  capturing ||
-                  searching ||
-                  !point ||
-                  !selectedPlace ||
-                  !consentAccepted
-                }
-                onClick={() => void checkIn()}
+                variant="secondary"
+                className="h-11 min-h-11"
+                disabled={busy !== null}
+                onClick={() => void addTime(increment)}
               >
-                {busy === "check-in" ? (
+                {addTimeBusy === increment ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <UsersRound className="h-4 w-4" />
-                )}
-                Check in
+                ) : null}
+                {increment === 60 ? "1 hour more" : "30 min more"}
               </Button>
-            </div>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
