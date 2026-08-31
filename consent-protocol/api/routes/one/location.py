@@ -823,7 +823,16 @@ def purge_location_retention(request: Request, older_than_hours: float = 12):
         )
         # Visits carry their own seven-day window, so this deliberately ignores
         # `older_than_hours` and purges on the row's own `expires_at`.
-        result["place_rating_visits"] = _place_rating_service().purge_expired_visits()
+        #
+        # Best-effort, like every other rating call reached from a check-in
+        # path. Retention is the job that keeps the rest of Location tidy, and
+        # a rating ledger that cannot be reached -- an environment without the
+        # table, a transient database fault -- must not turn the whole purge
+        # into a 503 and leave everything else uncollected.
+        try:
+            result["place_rating_visits"] = _place_rating_service().purge_expired_visits()
+        except Exception:  # noqa: BLE001 - see comment above
+            logger.warning("one_location.place_rating_visit_purge_failed", exc_info=True)
         return result
     except Exception as exc:
         raise _handle_error(exc) from exc

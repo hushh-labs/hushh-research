@@ -131,8 +131,13 @@ export const CHECK_IN_STAR_GLYPH_OFF_CLASSNAME = "h-7 w-7 text-muted-foreground/
  * `map.setPadding()` on every height change, so a pane that grows as you
  * interact settles the camera three times for one interaction. Reserving the
  * height settles it once, on arrival, exactly as the pane does today.
+ *
+ * `flex h-[76px]`, not `min-h-[76px]`. A textarea is inline-block, so a plain
+ * block wrapper adds the line box's descender space underneath it and the slot
+ * measured 82px with the field and 76px without -- a 6px camera nudge on the
+ * first tap. The layout spec caught it, which is what it is for.
  */
-export const CHECK_IN_RATING_COMPOSER_CLASSNAME = "min-h-[76px]";
+export const CHECK_IN_RATING_COMPOSER_CLASSNAME = "flex h-[76px] flex-col";
 
 /**
  * `field-sizing-fixed` is the single most load-bearing class in the rating
@@ -142,7 +147,7 @@ export const CHECK_IN_RATING_COMPOSER_CLASSNAME = "min-h-[76px]";
  * viewport on focus.
  */
 export const CHECK_IN_NOTE_TEXTAREA_CLASSNAME =
-  "h-[76px] resize-none field-sizing-fixed text-base md:text-base";
+  "h-full min-h-0 w-full resize-none field-sizing-fixed text-base md:text-base";
 
 export const CHECK_IN_NOTE_MAX_LENGTH = 280;
 

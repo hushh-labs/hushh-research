@@ -673,7 +673,7 @@ test.describe("the rating step does not move the map", () => {
 
   async function composerHeight(page: Page, withNote: boolean) {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.setContent(
+    await page.goto(
       await buildFixture(
         `check-in-rating-${withNote ? "note" : "empty"}`,
         ratingBody(withNote),
@@ -710,7 +710,7 @@ test.describe("the rating step does not move the map", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 320, height: 844 });
-    await page.setContent(
+    await page.goto(
       await buildFixture("check-in-rating-320", ratingBody(false), CANDIDATES),
     );
     await awaitProductFont(page);
