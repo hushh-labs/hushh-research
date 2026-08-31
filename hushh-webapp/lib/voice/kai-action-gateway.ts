@@ -4,6 +4,7 @@ import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AppRuntimeState, VoiceToolCall } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy =
@@ -692,7 +693,21 @@ function validateGateway(value: unknown): KaiActionGateway {
 }
 
 export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
-export const KAI_ACTION_GATEWAY_ACTIONS = KAI_ACTION_GATEWAY.actions;
+function isCrmProductAction(action: KaiActionDefinition): boolean {
+  const searchable = [
+    action.action_id,
+    action.label,
+    action.meaning,
+    ...action.reachability.routes,
+    ...action.reachability.screens,
+    ...(action.delegate_agent_id ? [action.delegate_agent_id] : []),
+  ].join(" ").toLowerCase();
+  return searchable.includes("crm") || searchable.includes("connected_system") || searchable.includes("connected-system");
+}
+
+export const KAI_ACTION_GATEWAY_ACTIONS = isLocalCrmBuildEnabled()
+  ? KAI_ACTION_GATEWAY.actions
+  : KAI_ACTION_GATEWAY.actions.filter((action) => !isCrmProductAction(action));
 
 const KAI_ACTION_BY_ID = new Map(
   KAI_ACTION_GATEWAY_ACTIONS.map(
