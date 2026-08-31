@@ -440,9 +440,7 @@ function radiusBounds(
   radiusMeters: number,
 ) {
   const latitudeDelta = radiusMeters / 111_320;
-  const longitudeScale = Math.abs(
-    Math.cos((point.latitude * Math.PI) / 180),
-  );
+  const longitudeScale = Math.abs(Math.cos((point.latitude * Math.PI) / 180));
   const longitudeDelta = Math.min(
     180,
     radiusMeters / (111_320 * Math.max(longitudeScale, 0.000001)),
@@ -941,7 +939,9 @@ export function LocationImmersiveMap({
         },
       );
       return request;
-    }, []);
+    },
+    [],
+  );
 
   // Forwards `options` deliberately. Declared with no parameters, this silently
   // dropped a caller's `maxAgeMs: 0` — TypeScript accepts the narrower arity, so
@@ -1076,7 +1076,10 @@ export function LocationImmersiveMap({
         (item): item is RenderMarker => item !== null,
       );
       setPreferences(state.preferences);
-      if (Number.isFinite(state.freshnessSeconds) && state.freshnessSeconds > 0) {
+      if (
+        Number.isFinite(state.freshnessSeconds) &&
+        state.freshnessSeconds > 0
+      ) {
         setFreshnessSeconds(state.freshnessSeconds);
       }
       const nextSignature = markerSignature(nextMarkers);
@@ -1262,8 +1265,7 @@ export function LocationImmersiveMap({
     const cachedPoint = rendererReady
       ? readLocationWorkspaceMemory(auth.userId).myLocationPoint
       : null;
-    const superseded = () =>
-      cancelled || isNativeMapSuperseded(MAP_ID, claim);
+    const superseded = () => cancelled || isNativeMapSuperseded(MAP_ID, claim);
 
     void withNativeMapLock(MAP_ID, async () => {
       // Never touch the bridge on behalf of a mount that is already gone: the
@@ -1646,7 +1648,10 @@ export function LocationImmersiveMap({
           )
         : null;
       const mobileSheetInset = checkInSheet
-        ? Math.max(0, window.innerHeight - checkInSheet.getBoundingClientRect().top)
+        ? Math.max(
+            0,
+            window.innerHeight - checkInSheet.getBoundingClientRect().top,
+          )
         : 0;
       const padding = {
         top: Math.ceil(top + 12),
@@ -1737,8 +1742,7 @@ export function LocationImmersiveMap({
           )
         : null;
       const desktopCheckInOpen =
-        nearbyCheckInOpen &&
-        window.matchMedia("(min-width: 768px)").matches;
+        nearbyCheckInOpen && window.matchMedia("(min-width: 768px)").matches;
       const mobileSheetInset =
         checkInSheet && !desktopCheckInOpen
           ? Math.max(0, rect.bottom - checkInSheet.getBoundingClientRect().top)
@@ -1996,7 +2000,9 @@ export function LocationImmersiveMap({
     const generation = ++markerGenerationRef.current;
     let cancelled = false;
     const enqueue = (command: () => Promise<void>): Promise<void> => {
-      const next = markerCommandRef.current.catch(() => undefined).then(command);
+      const next = markerCommandRef.current
+        .catch(() => undefined)
+        .then(command);
       markerCommandRef.current = next.catch(() => undefined);
       return next;
     };
@@ -2045,11 +2051,14 @@ export function LocationImmersiveMap({
           // per-pin styling this bridge exposes -- `title` cannot carry it,
           // because the web renderer paints titles across the map as a glyph
           // (see above) -- so the colour is where staleness has to be said.
-          tintColor: isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)
+          tintColor: isStaleAt(
+            marker.capturedAt,
+            freshnessSeconds,
+            staleClockMs,
+          )
             ? STALE_TINT
             : marker.tint,
-          zIndex:
-            marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
+          zIndex: marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
         };
       });
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
@@ -2338,10 +2347,10 @@ export function LocationImmersiveMap({
     }
     return markers.length > 0
       ? `${markers.length} on your map`
-      // "No one sharing yet" beside a subtitle reading "Sharing with 1" was
-      // the reported contradiction. Naming the audience resolves it without
-      // making the row any longer.
-      : "No one sharing with you yet";
+      : // "No one sharing yet" beside a subtitle reading "Sharing with 1" was
+        // the reported contradiction. Naming the audience resolves it without
+        // making the row any longer.
+        "No one sharing with you yet";
   }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
   // Only when it adds something the title cannot. Restating the title in
@@ -2755,7 +2764,10 @@ export function LocationImmersiveMap({
             disabled={closing}
             onClick={closeMap}
             onPointerUp={(event) => {
-              if (event.pointerType === "touch" || event.pointerType === "pen") {
+              if (
+                event.pointerType === "touch" ||
+                event.pointerType === "pen"
+              ) {
                 closeMap();
               }
             }}
@@ -2827,7 +2839,10 @@ export function LocationImmersiveMap({
                 <p className="px-2 py-1 text-[13px] font-semibold leading-[18px] text-muted-foreground">
                   Sharing with
                 </p>
-                <ul className="grid gap-1" aria-label="People you are sharing with">
+                <ul
+                  className="grid gap-1"
+                  aria-label="People you are sharing with"
+                >
                   {activeShareNames.map((name, index) => {
                     const pin = markerForSharedPerson(name);
                     return (
@@ -2927,7 +2942,11 @@ export function LocationImmersiveMap({
                 }`}
                 aria-label={
                   nearbyPresenceState.presence
-                    ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
+                    ? `Checked in${
+                        nearbyPresenceState.attendees.length > 0
+                          ? `, ${nearbyPresenceState.attendees.length} nearby`
+                          : ""
+                      }`
                     : "Check in nearby"
                 }
                 data-testid="one-location-map-nearby-check-in"
@@ -2936,8 +2955,8 @@ export function LocationImmersiveMap({
                 <UsersRound className="h-4 w-4 shrink-0" />
                 <span className="truncate">
                   {nearbyPresenceState.presence
-                    ? `Nearby ${nearbyPresenceState.attendees.length}`
-                    : "Check in"}
+                    ? "Checked in"
+                    : "Check in nearby"}
                 </span>
               </ShellActionSurface>
             ) : null}
@@ -2945,7 +2964,9 @@ export function LocationImmersiveMap({
               <ShellActionSurface
                 className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
                 aria-label={
-                  busy === "locate" ? "Finding your location" : "Show my location"
+                  busy === "locate"
+                    ? "Finding your location"
+                    : "Show my location"
                 }
                 aria-busy={busy === "locate"}
                 data-testid="one-location-map-locate"
@@ -3059,7 +3080,11 @@ export function LocationImmersiveMap({
             className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
           />
           <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent)] shadow-lg">
-            <Loader2 className="h-7 w-7 animate-spin" strokeWidth={2} aria-hidden />
+            <Loader2
+              className="h-7 w-7 animate-spin"
+              strokeWidth={2}
+              aria-hidden
+            />
           </span>
           <p className="relative text-sm font-medium text-muted-foreground">
             Loading your map…
@@ -3357,232 +3382,237 @@ export function LocationImmersiveMap({
                   so its offsetHeight is the content's true natural size,
                   padding included since that padding lives here now. */}
               <div ref={trayContentRef} className="px-3 pb-3 pt-1">
-              <label className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <span className="sr-only">Find a person</span>
-                <Input
-                  className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
-                  data-testid="one-location-map-search"
-                  inputMode="search"
-                  placeholder="Search"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                />
-              </label>
+                <label className="relative block">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <span className="sr-only">Find a person</span>
+                  <Input
+                    className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
+                    data-testid="one-location-map-search"
+                    inputMode="search"
+                    placeholder="Search"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                  />
+                </label>
 
-              {nearbyPresenceState.presence ? (
-                <section
-                  className="mt-2"
-                  data-testid="one-location-map-nearby-people"
-                  aria-label="People checked in nearby"
-                >
-                  {filteredNearbyAttendees.length > 0 ? (
-                    <div className="space-y-1">
-                      {filteredNearbyAttendees.map((attendee) => {
-                        const connectionBusy =
-                          nearbyConnectionBusyAlias ===
-                          attendee.participantAlias;
-                        return (
-                          <div
-                            key={attendee.participantAlias}
-                            className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
-                            data-testid="one-location-map-nearby-person"
-                          >
-                            <button
-                              type="button"
-                              className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
-                              aria-label={`Open nearby actions for ${attendee.displayName}`}
-                              onClick={openNearbyCheckIn}
+                {nearbyPresenceState.presence ? (
+                  <section
+                    className="mt-2"
+                    data-testid="one-location-map-nearby-people"
+                    aria-label="People checked in nearby"
+                  >
+                    {filteredNearbyAttendees.length > 0 ? (
+                      <div className="space-y-1">
+                        {filteredNearbyAttendees.map((attendee) => {
+                          const connectionBusy =
+                            nearbyConnectionBusyAlias ===
+                            attendee.participantAlias;
+                          return (
+                            <div
+                              key={attendee.participantAlias}
+                              className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
+                              data-testid="one-location-map-nearby-person"
                             >
-                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[11px] font-semibold text-[var(--app-accent-fg)]">
-                                {personInitials(attendee.displayName)}
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium">
-                                  {attendee.displayName}
-                                </span>
-                                <span className="block truncate text-xs text-muted-foreground">
-                                  {nearbyRelationshipLabel(attendee)}
-                                </span>
-                              </span>
-                            </button>
-                            {attendee.canConnect &&
-                            attendee.relationship === "none" ? (
-                              <Button
+                              <button
                                 type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-8 shrink-0 rounded-full px-3"
-                                aria-label={`Connect with ${attendee.displayName}`}
-                                disabled={nearbyConnectionBusyAlias !== null}
-                                onClick={() =>
-                                  void connectNearbyAttendee(attendee)
-                                }
-                              >
-                                {connectionBusy ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  "Connect"
-                                )}
-                              </Button>
-                            ) : attendee.relationship === "pending_outgoing" ? (
-                              <span className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
-                                Requested
-                              </span>
-                            ) : attendee.relationship === "pending_incoming" ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-8 shrink-0 rounded-full px-3"
-                                aria-label={`Respond to ${attendee.displayName}`}
+                                className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                                aria-label={`Open nearby actions for ${attendee.displayName}`}
                                 onClick={openNearbyCheckIn}
                               >
-                                Respond
-                              </Button>
-                            ) : (
-                              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="px-1 py-2 text-sm text-muted-foreground">
-                      {nearbyAttendees.length > 0
-                        ? "No matches."
-                        : "No one else here yet."}
-                    </p>
-                  )}
-                </section>
-              ) : null}
+                                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[11px] font-semibold text-[var(--app-accent-fg)]">
+                                  {personInitials(attendee.displayName)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-medium">
+                                    {attendee.displayName}
+                                  </span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {nearbyRelationshipLabel(attendee)}
+                                  </span>
+                                </span>
+                              </button>
+                              {attendee.canConnect &&
+                              attendee.relationship === "none" ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-8 shrink-0 rounded-full px-3"
+                                  aria-label={`Connect with ${attendee.displayName}`}
+                                  disabled={nearbyConnectionBusyAlias !== null}
+                                  onClick={() =>
+                                    void connectNearbyAttendee(attendee)
+                                  }
+                                >
+                                  {connectionBusy ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    "Connect"
+                                  )}
+                                </Button>
+                              ) : attendee.relationship ===
+                                "pending_outgoing" ? (
+                                <span className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
+                                  Requested
+                                </span>
+                              ) : attendee.relationship ===
+                                "pending_incoming" ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-8 shrink-0 rounded-full px-3"
+                                  aria-label={`Respond to ${attendee.displayName}`}
+                                  onClick={openNearbyCheckIn}
+                                >
+                                  Respond
+                                </Button>
+                              ) : (
+                                <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="px-1 py-2 text-sm text-muted-foreground">
+                        {nearbyAttendees.length > 0
+                          ? "No matches."
+                          : "No one else here yet."}
+                      </p>
+                    )}
+                  </section>
+                ) : null}
 
-              {/* The heading, the count badge and the two-sentence pin rule
+                {/* The heading, the count badge and the two-sentence pin rule
                   all used to sit here, and all three said what the row above
                   already says: how many people are on this map. What survives
                   is the list itself, plus the pin rule in the one state where
                   it answers a real question -- "why is this list empty when
                   people are checked in nearby?" -- phrased once, in a line. */}
-              <section className="mt-3" aria-label="Live locations shared with you">
-                <div
-                  className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                  data-testid="one-location-map-people"
+                <section
+                  className="mt-3"
+                  aria-label="Live locations shared with you"
                 >
-                  {filteredPeople.map((person) => {
-                    const selectedPerson = selected?.key === person.key;
-                    // The tray is where identity lives, because it is the only
-                    // part of this screen that is real DOM. Map pins come from
-                    // the Capacitor bridge, which offers a tint and nothing
-                    // else -- no avatar, no badge, and no hover at all on a
-                    // touch device.
-                    const personStale = isStaleAt(
-                      person.capturedAt,
-                      freshnessSeconds,
-                      staleClockMs,
-                    );
-                    const lastSeen = personStale
-                      ? lastSeenLabel(person.capturedAt, staleClockMs)
-                      : null;
-                    return (
-                      <button
-                        key={person.key}
-                        type="button"
-                        className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
-                          selectedPerson
-                            ? MAP_ACCENT_ACTIVE_CLASSNAME
-                            : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
-                        }`}
-                        // The live case keeps its original name exactly. Only a
-                        // person who has gone quiet has anything extra worth
-                        // announcing, and saying "sharing live" on every other
-                        // row would be noise in a screen reader.
-                        aria-label={
-                          lastSeen
-                            ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
-                            : `Show ${person.label} on the map`
-                        }
-                        title={
-                          lastSeen
-                            ? `${person.label} — last seen ${lastSeen}`
-                            : `${person.label} — live now`
-                        }
-                        data-testid="one-location-map-person"
-                        data-stale={personStale ? "true" : "false"}
-                        onClick={() => void focusMarker(person)}
-                      >
-                        <span className="relative shrink-0">
-                          <span
-                            className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
-                              personStale ? "opacity-70 grayscale" : ""
-                            }`}
-                            style={{
-                              backgroundColor: person.tint
-                                ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                                : "var(--app-accent)",
-                            }}
-                          >
-                            {personInitials(person.label)}
-                          </span>
-                          {/* Bottom-right, over the avatar's own edge. Shape as
+                  <div
+                    className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    data-testid="one-location-map-people"
+                  >
+                    {filteredPeople.map((person) => {
+                      const selectedPerson = selected?.key === person.key;
+                      // The tray is where identity lives, because it is the only
+                      // part of this screen that is real DOM. Map pins come from
+                      // the Capacitor bridge, which offers a tint and nothing
+                      // else -- no avatar, no badge, and no hover at all on a
+                      // touch device.
+                      const personStale = isStaleAt(
+                        person.capturedAt,
+                        freshnessSeconds,
+                        staleClockMs,
+                      );
+                      const lastSeen = personStale
+                        ? lastSeenLabel(person.capturedAt, staleClockMs)
+                        : null;
+                      return (
+                        <button
+                          key={person.key}
+                          type="button"
+                          className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
+                            selectedPerson
+                              ? MAP_ACCENT_ACTIVE_CLASSNAME
+                              : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
+                          }`}
+                          // The live case keeps its original name exactly. Only a
+                          // person who has gone quiet has anything extra worth
+                          // announcing, and saying "sharing live" on every other
+                          // row would be noise in a screen reader.
+                          aria-label={
+                            lastSeen
+                              ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
+                              : `Show ${person.label} on the map`
+                          }
+                          title={
+                            lastSeen
+                              ? `${person.label} — last seen ${lastSeen}`
+                              : `${person.label} — live now`
+                          }
+                          data-testid="one-location-map-person"
+                          data-stale={personStale ? "true" : "false"}
+                          onClick={() => void focusMarker(person)}
+                        >
+                          <span className="relative shrink-0">
+                            <span
+                              className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
+                                personStale ? "opacity-70 grayscale" : ""
+                              }`}
+                              style={{
+                                backgroundColor: person.tint
+                                  ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
+                                  : "var(--app-accent)",
+                              }}
+                            >
+                              {personInitials(person.label)}
+                            </span>
+                            {/* Bottom-right, over the avatar's own edge. Shape as
                               well as colour, so it survives being read on a
                               greyscale avatar by someone who cannot rely on
                               the grey itself. */}
-                          {personStale ? (
-                            <span
-                              className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
-                              aria-hidden="true"
-                            >
-                              <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="flex min-w-0 flex-col leading-tight">
-                          <span className="max-w-28 truncate font-medium">
-                            {person.label}
+                            {personStale ? (
+                              <span
+                                className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
+                                aria-hidden="true"
+                              >
+                                <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
+                              </span>
+                            ) : null}
                           </span>
-                          {lastSeen ? (
-                            <span className="max-w-28 truncate text-[11px] text-muted-foreground">
-                              {lastSeen}
+                          <span className="flex min-w-0 flex-col leading-tight">
+                            <span className="max-w-28 truncate font-medium">
+                              {person.label}
                             </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {filteredPeople.length === 0 ? (
-                    <p className="py-2 pl-1 text-sm text-muted-foreground">
-                      {markers.length > 0
-                        ? "No matches."
-                        : // The header already says no one is sharing. This
-                          // line spends itself on the part the header cannot:
-                          // what it takes to appear here.
-                          "Pins appear once they share with maps on."}
-                    </p>
-                  ) : null}
-                </div>
-              </section>
-
-              {selected ? (
-                <div
-                  className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-muted/80 px-3"
-                  data-testid="one-location-map-selection"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {selected.label}
-                    </p>
-                    {/* The self marker is already labelled "You"; captioning it
-                        "Your current location" was the same fact twice. */}
-                    {selected.kind === "self" ? null : (
-                      <p className="text-xs text-muted-foreground">
-                        Sharing now
+                            {lastSeen ? (
+                              <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+                                {lastSeen}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {filteredPeople.length === 0 ? (
+                      <p className="py-2 pl-1 text-sm text-muted-foreground">
+                        {markers.length > 0
+                          ? "No matches."
+                          : // The header already says no one is sharing. This
+                            // line spends itself on the part the header cannot:
+                            // what it takes to appear here.
+                            "Pins appear once they share with maps on."}
                       </p>
-                    )}
+                    ) : null}
                   </div>
-                </div>
-              ) : null}
+                </section>
 
-              {/*
+                {selected ? (
+                  <div
+                    className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-muted/80 px-3"
+                    data-testid="one-location-map-selection"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {selected.label}
+                      </p>
+                      {/* The self marker is already labelled "You"; captioning it
+                        "Your current location" was the same fact twice. */}
+                      {selected.kind === "self" ? null : (
+                        <p className="text-xs text-muted-foreground">
+                          Sharing now
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/*
                 Three audiences, three rows, in the order a person asks about
                 them. Reported as "this interface gives an illusion of a
                 check-in page and creates a little bit of confusion", and it
@@ -3618,159 +3648,163 @@ export function LocationImmersiveMap({
                 `list_map_state` and in this file's `locateMe`, and is gone
                 from both.
               */}
-              <section
-                className="mt-3 space-y-2"
-                aria-label="Who can see you, and who you can see"
-                data-testid="one-location-map-visibility"
-              >
-                {/* Incoming. Keeps the `show-everyone` id: this IS the old
-                    Everyone control, finally saying what it frames. */}
-                <button
-                  type="button"
-                  className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
-                  data-testid="one-location-map-show-everyone"
-                  aria-label={
-                    markers.length > 0
-                      ? `${incomingShareLabel}. Fit them all on the map.`
-                      : incomingShareLabel
-                  }
-                  onClick={() => void showEveryone()}
+                <section
+                  className="mt-3 space-y-2"
+                  aria-label="Who can see you, and who you can see"
+                  data-testid="one-location-map-visibility"
                 >
-                  <span
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
-                    aria-hidden="true"
+                  {/* Incoming. Keeps the `show-everyone` id: this IS the old
+                    Everyone control, finally saying what it frames. */}
+                  <button
+                    type="button"
+                    className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                    data-testid="one-location-map-show-everyone"
+                    aria-label={
+                      markers.length > 0
+                        ? `${incomingShareLabel}. Fit them all on the map.`
+                        : incomingShareLabel
+                    }
+                    onClick={() => void showEveryone()}
                   >
-                    <UsersRound className="h-[18px] w-[18px]" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">
-                      {incomingShareLabel}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {markers.length > 0
-                        ? "Tap to fit everyone on the map"
-                        : "Ghost Mode never hides them from you"}
-                    </span>
-                  </span>
-                  <ChevronDown
-                    className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                </button>
-
-                {/* Outgoing. Hidden in demo, where the count is never fetched
-                    and a number would be fiction. */}
-                {!demoMode ? (
-                  <div className="rounded-2xl bg-muted/70">
-                    <button
-                      type="button"
-                      className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 disabled:cursor-default disabled:hover:bg-transparent"
-                      data-testid="one-location-map-private-shares"
-                      aria-expanded={privateSharesExpanded}
-                      disabled={privateShareCount === 0}
-                      aria-label={privateShareLabel}
-                      onClick={() => setPrivateSharesExpanded((open) => !open)}
+                    <span
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                      aria-hidden="true"
                     >
-                      <span
-                        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
-                        aria-hidden="true"
+                      <UsersRound className="h-[18px] w-[18px]" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">
+                        {incomingShareLabel}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {markers.length > 0
+                          ? "Tap to fit everyone on the map"
+                          : "Ghost Mode never hides them from you"}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  </button>
+
+                  {/* Outgoing. Hidden in demo, where the count is never fetched
+                    and a number would be fiction. */}
+                  {!demoMode ? (
+                    <div className="rounded-2xl bg-muted/70">
+                      <button
+                        type="button"
+                        className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 disabled:cursor-default disabled:hover:bg-transparent"
+                        data-testid="one-location-map-private-shares"
+                        aria-expanded={privateSharesExpanded}
+                        disabled={privateShareCount === 0}
+                        aria-label={privateShareLabel}
+                        onClick={() =>
+                          setPrivateSharesExpanded((open) => !open)
+                        }
                       >
-                        <LocateFixed className="h-[18px] w-[18px]" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">
-                          {privateShareLabel}
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {privateShareHint}
-                        </span>
-                      </span>
-                      {privateShareCount > 0 ? (
-                        <ChevronDown
-                          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
-                            privateSharesExpanded ? "" : "-rotate-90"
-                          }`}
+                        <span
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
                           aria-hidden="true"
-                        />
-                      ) : null}
-                    </button>
-                    {privateSharesExpanded && privateShareCount > 0 ? (
-                      <ul
-                        className="grid gap-0.5 px-2 pb-2"
-                        aria-label="People you are sharing with privately"
-                      >
-                        {activeShareNames.map((name, index) => {
-                          const pin = markerForSharedPerson(name);
-                          return (
-                            <li key={`${name}-${index}`}>
-                              {/* Same two destinations as the header popover,
+                        >
+                          <LocateFixed className="h-[18px] w-[18px]" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">
+                            {privateShareLabel}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {privateShareHint}
+                          </span>
+                        </span>
+                        {privateShareCount > 0 ? (
+                          <ChevronDown
+                            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                              privateSharesExpanded ? "" : "-rotate-90"
+                            }`}
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                      </button>
+                      {privateSharesExpanded && privateShareCount > 0 ? (
+                        <ul
+                          className="grid gap-0.5 px-2 pb-2"
+                          aria-label="People you are sharing with privately"
+                        >
+                          {activeShareNames.map((name, index) => {
+                            const pin = markerForSharedPerson(name);
+                            return (
+                              <li key={`${name}-${index}`}>
+                                {/* Same two destinations as the header popover,
                                   for the same reason: a row that names a person
                                   has to go to that person. */}
-                              <button
-                                type="button"
-                                data-testid="one-location-map-private-share-person"
-                                data-has-pin={pin ? "true" : "false"}
-                                aria-label={
-                                  pin
-                                    ? `Show ${name} on your map`
-                                    : `Manage your location share with ${name}`
-                                }
-                                className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
-                                onClick={() => void openSharedPerson(name)}
-                              >
-                                <span
-                                  className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
-                                  aria-hidden="true"
-                                />
-                                <span className="min-w-0 flex-1 truncate">
-                                  {name}
-                                </span>
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    ) : null}
-                  </div>
-                ) : null}
+                                <button
+                                  type="button"
+                                  data-testid="one-location-map-private-share-person"
+                                  data-has-pin={pin ? "true" : "false"}
+                                  aria-label={
+                                    pin
+                                      ? `Show ${name} on your map`
+                                      : `Manage your location share with ${name}`
+                                  }
+                                  className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                                  onClick={() => void openSharedPerson(name)}
+                                >
+                                  <span
+                                    className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
+                                    aria-hidden="true"
+                                  />
+                                  <span className="min-w-0 flex-1 truncate">
+                                    {name}
+                                  </span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
 
-                {/* General visibility. A switch, not a pill in a pair: it is a
+                  {/* General visibility. A switch, not a pill in a pair: it is a
                     standing setting with an on and an off, and it is the only
                     control here that changes what anyone else sees. */}
-                <div
-                  className="flex min-h-[52px] items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2"
-                  data-testid="one-location-map-ghost"
-                >
-                  <span
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
-                    aria-hidden="true"
+                  <div
+                    className="flex min-h-[52px] items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2"
+                    data-testid="one-location-map-ghost"
                   >
-                    {isGhostMode ? (
-                      <EyeOff className="h-[18px] w-[18px]" />
-                    ) : (
-                      <Eye className="h-[18px] w-[18px]" />
-                    )}
-                  </span>
-                  <label
-                    className="min-w-0 flex-1 cursor-pointer"
-                    htmlFor="one-location-map-ghost-toggle"
-                  >
-                    <span className="block text-sm font-medium">Ghost Mode</span>
-                    <span className="block text-xs text-muted-foreground">
-                      {ghostModeExplainer}
+                    <span
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                      aria-hidden="true"
+                    >
+                      {isGhostMode ? (
+                        <EyeOff className="h-[18px] w-[18px]" />
+                      ) : (
+                        <Eye className="h-[18px] w-[18px]" />
+                      )}
                     </span>
-                  </label>
-                  <Switch
-                    id="one-location-map-ghost-toggle"
-                    data-testid="one-location-map-ghost-toggle"
-                    checked={isGhostMode}
-                    disabled={busy === "presence"}
-                    onCheckedChange={() => void setPresence()}
-                  />
-                </div>
-              </section>
+                    <label
+                      className="min-w-0 flex-1 cursor-pointer"
+                      htmlFor="one-location-map-ghost-toggle"
+                    >
+                      <span className="block text-sm font-medium">
+                        Ghost Mode
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {ghostModeExplainer}
+                      </span>
+                    </label>
+                    <Switch
+                      id="one-location-map-ghost-toggle"
+                      data-testid="one-location-map-ghost-toggle"
+                      checked={isGhostMode}
+                      disabled={busy === "presence"}
+                      onCheckedChange={() => void setPresence()}
+                    />
+                  </div>
+                </section>
 
-              {/*
+                {/*
                 Check in and Demo: occasional actions, not map state.
 
                 Check-in used to be the filled full-width button at the bottom
@@ -3780,57 +3814,61 @@ export function LocationImmersiveMap({
                 Mode -- so it sits with Demo as a secondary action, and the
                 sheet above it is now the part that answers "who can see me".
               */}
-              {checkInActionAvailable || demoAvailable ? (
-                <div
-                  className={`mt-2 grid gap-2 ${
-                    checkInActionAvailable && demoAvailable
-                      ? "grid-cols-2"
-                      : "grid-cols-1"
-                  }`}
-                >
-                  {demoAvailable ? (
-                    <Button
-                      className={`h-11 min-w-0 rounded-2xl px-2 ${
-                        demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
-                      }`}
-                      variant="secondary"
-                      aria-pressed={demoMode}
-                      data-testid="one-location-map-demo-toggle"
-                      onClick={toggleDemoPeople}
-                    >
-                      <UsersRound className="h-4 w-4 shrink-0" />
-                      {/* Pressed state is already carried by the accent fill and
+                {checkInActionAvailable || demoAvailable ? (
+                  <div
+                    className={`mt-2 grid gap-2 ${
+                      checkInActionAvailable && demoAvailable
+                        ? "grid-cols-2"
+                        : "grid-cols-1"
+                    }`}
+                  >
+                    {demoAvailable ? (
+                      <Button
+                        className={`h-11 min-w-0 rounded-2xl px-2 ${
+                          demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
+                        }`}
+                        variant="secondary"
+                        aria-pressed={demoMode}
+                        data-testid="one-location-map-demo-toggle"
+                        onClick={toggleDemoPeople}
+                      >
+                        <UsersRound className="h-4 w-4 shrink-0" />
+                        {/* Pressed state is already carried by the accent fill and
                           aria-pressed; the label need not say it too. */}
-                      <span className="truncate">Demo</span>
-                    </Button>
-                  ) : null}
-                  {checkInActionAvailable ? (
-                    <Button
-                      className="h-11 min-w-0 rounded-2xl px-2"
-                      variant="secondary"
-                      aria-label={
-                        nearbyPresenceState.presence
-                          ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
-                          : "Check in nearby"
-                      }
-                      data-testid="one-location-map-nearby-check-in"
-                      onClick={openNearbyCheckIn}
-                    >
-                      <UsersRound className="h-4 w-4 shrink-0" />
-                      <span className="truncate">
-                        {nearbyPresenceState.presence
-                          ? `Nearby ${nearbyPresenceState.attendees.length}`
-                          : "Check in"}
-                      </span>
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-              {status === "error" ? (
-                <p className="mt-2 text-center text-xs text-destructive">
-                  Some locations didn&apos;t refresh.
-                </p>
-              ) : null}
+                        <span className="truncate">Demo</span>
+                      </Button>
+                    ) : null}
+                    {checkInActionAvailable ? (
+                      <Button
+                        className="h-11 min-w-0 rounded-2xl px-2"
+                        variant="secondary"
+                        aria-label={
+                          nearbyPresenceState.presence
+                            ? `Checked in${
+                                nearbyPresenceState.attendees.length > 0
+                                  ? `, ${nearbyPresenceState.attendees.length} nearby`
+                                  : ""
+                              }`
+                            : "Check in nearby"
+                        }
+                        data-testid="one-location-map-nearby-check-in"
+                        onClick={openNearbyCheckIn}
+                      >
+                        <UsersRound className="h-4 w-4 shrink-0" />
+                        <span className="truncate">
+                          {nearbyPresenceState.presence
+                            ? "Checked in"
+                            : "Check in nearby"}
+                        </span>
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {status === "error" ? (
+                  <p className="mt-2 text-center text-xs text-destructive">
+                    Some locations didn&apos;t refresh.
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
