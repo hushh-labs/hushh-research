@@ -108,6 +108,13 @@ tests/test_contact_match_correctness.py
 # live access alone -- plus the ones added with #6256, which is the defect
 # an unrun suite let through (approving "30 min more" REPLACED the 1h50m it
 # was meant to add to).
+# The nearby-place taxonomy behind the check-in drawer. None of these ran in any
+# lane, which is how "Hotels" came to list a lounge and a construction firm while
+# temples, mosques and police stations matched no category at all: ruff, mypy and
+# bandit were the only things reading this code.
+tests/test_place_taxonomy.py
+tests/services/test_google_maps_service.py
+tests/test_places_directory.py
 tests/services/test_one_location_extra_time_requests.py
 tests/services/test_one_location_circle_service.py
 tests/services/test_people_search_sql.py

@@ -6,6 +6,9 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
@@ -759,7 +762,9 @@ describe("NearbyCheckInSheet", () => {
     expect(completed).toHaveTextContent("Check-in ended");
     expect(completed).toHaveTextContent("Stanford University");
     expect(completed).toHaveTextContent("This check-in has ended.");
-    expect(screen.queryByTestId("nearby-presence-setup")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("nearby-presence-setup"),
+    ).not.toBeInTheDocument();
     expect(capture).not.toHaveBeenCalled();
     expect(service.nearbyPlaces).not.toHaveBeenCalled();
     expect(
@@ -2390,5 +2395,81 @@ describe("NearbyCheckInSheet", () => {
       // neither — you can check back in.
       expect(checkOut.className).not.toContain("app-destructive");
     });
+  });
+});
+
+/**
+ * The chip row, and the two ways it can quietly stop being true.
+ *
+ * Reported from Prayagraj: tapping "Hotels" listed a lounge, a construction firm
+ * and two lodges. Most of that fix is server-side, but two client properties
+ * decide whether it is visible at all.
+ */
+describe("the nearby place chips", () => {
+  const sheetSource = readFileSync(
+    path.resolve(__dirname, "..", "nearby-check-in-sheet.tsx"),
+    "utf8",
+  );
+  const layoutSpecSource = readFileSync(
+    path.resolve(
+      __dirname,
+      "../../../..",
+      "e2e/one-location-check-in-panel.layout.spec.ts",
+    ),
+    "utf8",
+  );
+
+  /** The labels the component actually ships, read out of its own table. */
+  function shippedLabels(): string[] {
+    const table = sheetSource.slice(
+      sheetSource.indexOf("const PLACE_CATEGORIES"),
+      sheetSource.indexOf("const NEARBY_RADIUS_METERS"),
+    );
+    return [...table.matchAll(/label:\s*"([^"]+)"/g)].map((match) => match[1]);
+  }
+
+  it("offers a chip for every category the backend can return", () => {
+    // The backend classifies exhaustively over Google's Table A and can answer
+    // with any of these. A category with no chip is a set of places that shows
+    // under "All" and is unreachable the moment anything is tapped — which is
+    // how temples, mosques and police stations were invisible.
+    const table = sheetSource.slice(
+      sheetSource.indexOf("const PLACE_CATEGORIES"),
+      sheetSource.indexOf("const NEARBY_RADIUS_METERS"),
+    );
+    const values = [...table.matchAll(/value:\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect(values).toEqual([
+      "all",
+      "food_drink",
+      "health",
+      "shopping_services",
+      "hotels_stays",
+      "education",
+      "outdoors_landmarks",
+      "transit",
+      "worship",
+      "civic",
+      "other",
+    ]);
+  });
+
+  it("keeps the layout spec's replica of the labels honest", () => {
+    // `one-location-check-in-panel.layout.spec.ts` cannot import a React module,
+    // so it hand-copies these labels to measure the row. A copy that falls
+    // behind does not fail — it passes, having measured a row the app no longer
+    // ships. This is the only thing that notices.
+    const replica = layoutSpecSource.slice(
+      layoutSpecSource.indexOf("const CATEGORY_LABELS"),
+      layoutSpecSource.indexOf("const LONGEST_PLACE"),
+    );
+    const replicated = [...replica.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(replicated).toEqual(shippedLabels());
+  });
+
+  it("never says 'Outdoors' about a cinema", () => {
+    // The chip owns entertainment, culture, sport and nature. Half of that is
+    // indoors, so the label says what the chip is for rather than where it is.
+    expect(shippedLabels()).toContain("Leisure");
+    expect(shippedLabels()).not.toContain("Outdoors");
   });
 });

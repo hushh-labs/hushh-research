@@ -191,6 +191,9 @@ follow_imports = "skip"
 module = [
     "hushh_mcp.services.one_location_agent_service",
     "hushh_mcp.services.connections_service",
+    # A pure table plus one classifier. Cheap to check, and its return types are
+    # what `google_maps_service` builds a response contract on.
+    "hushh_mcp.services.place_taxonomy",
 ]
 follow_imports = "normal"
 
