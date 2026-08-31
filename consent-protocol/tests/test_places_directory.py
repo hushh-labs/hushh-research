@@ -1,10 +1,15 @@
 """The places directory: its taxonomy, its streaming, and what it must not cost.
 
 The sharpest risk in this feature is not the new surface, it is the old one.
-`nearby_places` builds its "All" sweep by iterating `_NEARBY_PLACE_CATEGORY_TYPES`,
-so a category added to that table becomes another concurrent provider call on
-every check-in drawer open — a cost increase on a shipped feature that no test
-would otherwise notice. The first test here pins that table's size.
+`nearby_places` builds its "All" sweep by iterating `_NEARBY_SWEEP_TYPES`, so a
+bucket added to that table becomes another concurrent provider call on every
+check-in drawer open — a cost increase on a shipped feature that no test would
+otherwise notice. The first test here pins that table's size.
+
+Note what that does NOT cover any more: the drawer's CHIPS are no longer that
+table. Classification moved to `place_taxonomy`, which is exhaustive over
+Google's Table A, so a chip can be added for nothing. Only this table is a cost
+argument.
 """
 
 from __future__ import annotations
@@ -27,8 +32,8 @@ def test_the_check_in_sweep_still_costs_what_it_did() -> None:
     """One request per bucket, plus one unfiltered. Adding a bucket adds a call."""
 
     # Seven buckets was the shipped cost of opening the check-in drawer on "All".
-    assert len(maps._NEARBY_PLACE_CATEGORY_TYPES) == 7
-    assert set(maps._NEARBY_PLACE_CATEGORY_TYPES) == {
+    assert len(maps._NEARBY_SWEEP_TYPES) == 7
+    assert set(maps._NEARBY_SWEEP_TYPES) == {
         "food_drink",
         "health",
         "shopping_services",
@@ -42,7 +47,7 @@ def test_the_check_in_sweep_still_costs_what_it_did() -> None:
 def test_the_two_taxonomies_are_separate_objects() -> None:
     """Aliasing them would silently couple the picker's cost to the directory."""
 
-    assert maps._DIRECTORY_CATEGORY_TYPES is not maps._NEARBY_PLACE_CATEGORY_TYPES
+    assert maps._DIRECTORY_CATEGORY_TYPES is not maps._NEARBY_SWEEP_TYPES
 
 
 def test_the_directory_offers_exactly_ten_categories() -> None:
@@ -69,12 +74,11 @@ def test_every_directory_place_type_is_one_the_picker_already_used() -> None:
     nothing in production.
     """
 
-    known = {
-        place_type for types in maps._NEARBY_PLACE_CATEGORY_TYPES.values() for place_type in types
-    }
-    # The one deliberate addition: EV charging had no picker equivalent.
-    known.add("electric_vehicle_charging_station")
-    known.add("spa")
+    # Checked against the picker's full taxonomy rather than the handful of
+    # types its sweep happens to request. That table is exhaustive over Google's
+    # Table A now, so the two hardcoded exceptions this test used to carry
+    # (`spa`, `electric_vehicle_charging_station`) are simply members of it.
+    known = set(maps._taxonomy.CHIP_BY_PLACE_TYPE)
 
     for slug, types in maps._DIRECTORY_CATEGORY_TYPES.items():
         for place_type in types:

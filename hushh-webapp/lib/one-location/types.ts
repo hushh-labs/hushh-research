@@ -608,7 +608,13 @@ export type OneLocationNearbyPlaceCategory =
   | "hotels_stays"
   | "education"
   | "outdoors_landmarks"
-  | "transit";
+  | "transit"
+  | "worship"
+  | "civic"
+  // The catch-all. A real venue that belongs to none of the above, plus every
+  // venue Google names but does not describe -- so a row is never reachable
+  // from "All" alone.
+  | "other";
 
 export type OneLocationNearbyPlaceSuggestion = {
   placeId: string;

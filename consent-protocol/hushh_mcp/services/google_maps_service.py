@@ -20,6 +20,7 @@ from cachetools import TTLCache
 from redis import asyncio as redis_asyncio
 
 from hushh_mcp.config import GOOGLE_MAPS_API_KEY
+from hushh_mcp.services import place_taxonomy as _taxonomy
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,11 @@ _NEARBY_CHECK_IN_MERGED_LIMIT = 80
 _PLACES_CACHE_TTL_SECONDS = 600.0
 _PLACES_CACHE_CELL_DECIMALS = 3
 _PLACES_CACHE_MAX_ENTRIES = 2_000
-_PLACES_CACHE_KEY_PREFIX = "places-cache:v1:"
+# v2: the taxonomy rewrite changed both `categories` and the row subtitle, and a
+# cached row carries the fully shaped result. Without a new namespace the old
+# revision keeps writing old-taxonomy rows into the same keys through a rolling
+# deploy, and the fix reads as half-applied for the TTL.
+_PLACES_CACHE_KEY_PREFIX = "places-cache:v2:"
 _REDIS_OP_TIMEOUT_SECONDS = 0.5
 
 # A module-level indirection so a test can freeze/advance time deterministically
@@ -215,8 +220,25 @@ NearbyPlaceCategory = Literal[
     "education",
     "outdoors_landmarks",
     "transit",
+    "worship",
+    "civic",
+    "other",
 ]
 
+# THE REQUEST SIDE. Recall only -- this table decides what we ASK Google for,
+# never what a place is shown as. Classification lives in
+# `hushh_mcp.services.place_taxonomy`, and the two are deliberately separate:
+# a chip used to BE a request, so adding one cost a provider call on every
+# drawer open, and the taxonomy stayed at 52 hand-picked types out of Table A's
+# 478. Splitting them makes chips free and let the classifier become
+# exhaustive, which is what "no place is silently skipped" needs.
+#
+# Bucket COUNT is the cost -- one request per bucket, so keep it at seven. The
+# types inside a bucket are free up to Google's cap of 50 per request, which is
+# why worship and government venues are swept alongside landmarks rather than
+# earning buckets of their own. They are still classified into their own chips
+# on the way out.
+#
 # "All" issues one request per bucket here, concurrently, and merges the
 # results. That costs more provider calls per drawer open than the single
 # unfiltered request it replaced, and buys the only thing that makes the picker
@@ -226,7 +248,7 @@ NearbyPlaceCategory = Literal[
 # These are broad Table A types from Places API (New): Google includes matching
 # specialized subtypes (for example an Indian restaurant when `restaurant` is
 # requested).
-_NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
+_NEARBY_SWEEP_TYPES: dict[str, tuple[str, ...]] = {
     "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
     "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
     "shopping_services": (
@@ -250,14 +272,10 @@ _NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
         "post_office",
         "gym",
     ),
-    "hotels_stays": (
-        "hotel",
-        "lodging",
-        "motel",
-        "hostel",
-        "bed_and_breakfast",
-        "campground",
-    ),
+    # Every lodging leaf, not just the six we happened to name. A guest house,
+    # an inn or a resort is exactly what somebody standing outside one expects
+    # the Hotels chip to have found.
+    "hotels_stays": _taxonomy.FAMILY_LODGING,
     "education": (
         "school",
         "university",
@@ -265,6 +283,11 @@ _NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
         "library",
         "educational_institution",
     ),
+    # Landmarks, plus the two families that had no way of being fetched at all:
+    # a temple, a mosque, a police station and a government office appeared in
+    # no bucket, so they surfaced only when Google happened to return them
+    # unfiltered -- and then matched no chip and vanished behind the first tap.
+    # Swept here, chipped as Worship and Civic.
     "outdoors_landmarks": (
         "park",
         "tourist_attraction",
@@ -274,6 +297,14 @@ _NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
         "beach",
         "garden",
         "plaza",
+        "stadium",
+        "movie_theater",
+        "night_club",
+        "event_venue",
+        "community_center",
+        "zoo",
+        *_taxonomy.FAMILY_WORSHIP,
+        *_taxonomy.FAMILY_GOVERNMENT,
     ),
     "transit": (
         "transit_station",
@@ -321,7 +352,7 @@ _NON_CHECK_IN_PRIMARY_TYPE_PREFIXES = (
 _GENERIC_ESTABLISHMENT_TYPES = frozenset({"establishment", "point_of_interest"})
 
 
-# Deliberately a SEPARATE table from `_NEARBY_PLACE_CATEGORY_TYPES`, not an
+# Deliberately a SEPARATE table from `_NEARBY_SWEEP_TYPES`, not an
 # extension of it. `nearby_places` builds its "All" sweep by iterating that dict,
 # so every key added there becomes another concurrent provider call on every
 # check-in drawer open. The directory needs finer buckets than the picker wants
@@ -416,21 +447,10 @@ _DIRECTORY_DETAIL_FIELD_MASK = (
 )
 
 
-def _build_category_index() -> dict[str, tuple[str, ...]]:
-    """Reverse index from a Places type to the drawer's category chips.
-
-    Built from the same table the requests use, so a place surfaced by the
-    unfiltered sweep still lands under the right chip without a second call.
-    """
-
-    index: dict[str, tuple[str, ...]] = {}
-    for category, place_types in _NEARBY_PLACE_CATEGORY_TYPES.items():
-        for place_type in place_types:
-            index[place_type] = (*index.get(place_type, ()), category)
-    return index
-
-
-_CATEGORY_BY_PLACE_TYPE = _build_category_index()
+# Kept as a module-level name because the classifier used to live here. The
+# mapping itself is `place_taxonomy.CHIP_BY_PLACE_TYPE`, which is exhaustive over
+# Table A rather than derived from whatever the sweep happens to request.
+_CATEGORY_BY_PLACE_TYPE = _taxonomy.CHIP_BY_PLACE_TYPE
 
 
 def _place_types(place: dict[str, Any]) -> list[str]:
@@ -456,14 +476,9 @@ def _is_non_check_in_type(place_type: str) -> bool:
 
 
 def _place_categories(place_types: list[str]) -> list[str]:
-    """Category chips this place belongs to, in the table's declared order."""
+    """Category chips this place belongs to. Never empty -- see `place_taxonomy`."""
 
-    matched = {
-        category
-        for place_type in place_types
-        for category in _CATEGORY_BY_PLACE_TYPE.get(place_type, ())
-    }
-    return [category for category in _NEARBY_PLACE_CATEGORY_TYPES if category in matched]
+    return _taxonomy.place_categories(place_types)
 
 
 class GoogleMapsError(RuntimeError):
@@ -954,9 +969,11 @@ class GoogleMapsService:
         primary_type_display = place.get("primaryTypeDisplayName") or {}
         if not isinstance(primary_type_display, dict):
             primary_type_display = {}
-        category_label = str(primary_type_display.get("text") or "").strip()[:80]
-        if not category_label and primary_type:
-            category_label = primary_type.replace("_", " ").title()
+        # Our wording where Google's reads as a classification rather than a
+        # description. "Lodging" under a place named "... Lounge" is what the
+        # report was actually looking at: a true label, in a vocabulary nobody
+        # outside the Places API speaks.
+        category_label = _taxonomy.display_label(primary_type, primary_type_display.get("text"))
         return {
             "placeId": place_id,
             "name": display,
@@ -969,7 +986,7 @@ class GoogleMapsService:
             "latitude": place_lat,
             "longitude": place_lng,
             "primaryType": primary_type or None,
-            "category": category_label or "Place",
+            "category": category_label,
             "categories": _place_categories(place_types),
         }
 
@@ -1010,10 +1027,10 @@ class GoogleMapsService:
         if category == "all":
             requests = [
                 (None, None),
-                *((chip, types) for chip, types in _NEARBY_PLACE_CATEGORY_TYPES.items()),
+                *((chip, types) for chip, types in _NEARBY_SWEEP_TYPES.items()),
             ]
         else:
-            requests = [(category, _NEARBY_PLACE_CATEGORY_TYPES.get(category))]
+            requests = [(category, _NEARBY_SWEEP_TYPES.get(category))]
 
         async with _async_client() as client:
             batches = await asyncio.gather(
@@ -1032,10 +1049,8 @@ class GoogleMapsService:
 
         merged: dict[str, dict[str, Any]] = {}
         order: dict[str, int] = {}
-        chips: dict[str, set[str]] = {}
-        fallback_chips: dict[str, set[str]] = {}
         failures = 0
-        for (request_chip, _types), batch in zip(requests, batches, strict=True):
+        for (_request_chip, _types), batch in zip(requests, batches, strict=True):
             if isinstance(batch, BaseException):
                 # One bucket failing must not empty the whole picker; the rest
                 # of the sweep is still a better list than no list.
@@ -1046,25 +1061,22 @@ class GoogleMapsService:
                 if normalized is None:
                     continue
                 place_id = str(normalized["placeId"])
-                chips.setdefault(place_id, set()).update(normalized["categories"])
-                if request_chip:
-                    # Remember which filters surfaced this place. Used only as a
-                    # fallback below, so a precisely-typed venue keeps precise
-                    # chips and is never filed under a category it is not in.
-                    fallback_chips.setdefault(place_id, set()).add(request_chip)
                 if place_id not in merged:
                     merged[place_id] = normalized
                     order[place_id] = source_index
                 else:
                     order[place_id] = min(order[place_id], source_index)
 
-        for place_id, place in merged.items():
-            # A venue Google reports with only `establishment` maps to no chip
-            # of its own, yet a category filter still surfaced it -- an
-            # independent hotel is the common case. File it under the filters
-            # that found it so tapping "Hotels" cannot hide it.
-            matched = chips.get(place_id) or fallback_chips.get(place_id, set())
-            place["categories"] = [chip for chip in _NEARBY_PLACE_CATEGORY_TYPES if chip in matched]
+        # A place is classified by WHAT IT IS, never by which request surfaced it.
+        #
+        # It used to be filed under whichever bucket's sweep returned it when its
+        # own types matched no chip -- written so an independent hotel Google
+        # knows only as `establishment` would not vanish behind the Hotels chip.
+        # The same rule filed a lounge under Hotels, because the hotels sweep is
+        # what happened to find it. `place_taxonomy` answers both halves now: it
+        # is exhaustive, so almost nothing is unclassifiable, and what remains
+        # lands in `other` -- a real chip, so the venue is still reachable
+        # rather than hidden.
 
         if not merged and failures == len(batches):
             raise GoogleMapsError("Nearby places lookup failed.", status_code=502)

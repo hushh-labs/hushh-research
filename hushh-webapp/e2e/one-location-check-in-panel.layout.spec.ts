@@ -72,13 +72,20 @@ const MIN_TAP_TARGET_PX = 44;
 const MIN_CHIP_HEIGHT_PX = 36;
 
 /**
- * How wide the whole eight-chip set is allowed to be, in CSS px.
+ * How wide the whole chip set is allowed to be, in CSS px.
  *
  * Viewport-independent on purpose: the set's width is a property of the
- * labels, not of the screen. The shipped one-word labels measure 632px; the
- * two multi-word ones they replaced measured 765px.
+ * labels, not of the screen.
+ *
+ * Measured: eleven chips are 847px. Eight were 632px, and the two multi-word
+ * labels they replaced were 765px. The set grew because Worship, Civic and More
+ * were added -- three categories that previously matched no chip at all, so the
+ * places in them were unreachable the moment any chip was tapped. A wider
+ * scroller is the price of that, and it is only a scroller: `MIN_VISIBLE_CHIPS`
+ * below is what actually guards reachability, and it is unchanged because the
+ * three are appended after the leading ones.
  */
-const MAX_CATEGORY_SCROLL_EXTENT_PX = 660;
+const MAX_CATEGORY_SCROLL_EXTENT_PX = 880;
 
 /**
  * How many chips must be reachable at each width without scrolling at all.
@@ -211,6 +218,14 @@ const HARNESS_CLASSES = [
   "h-4 w-4 border relative",
 ].join(" ");
 
+/**
+ * A replica of `PLACE_CATEGORIES` in the sheet, because this fixture is CSS-only
+ * and cannot import a React module.
+ *
+ * It goes stale SILENTLY -- a spec measuring eight chips while the app ships
+ * eleven still passes -- so `nearby-check-in-sheet.test.tsx` asserts the two
+ * lists match. Change one, change the other.
+ */
 const CATEGORY_LABELS = [
   "All",
   "Food",
@@ -218,8 +233,11 @@ const CATEGORY_LABELS = [
   "Shops",
   "Hotels",
   "Education",
-  "Outdoors",
+  "Leisure",
   "Transit",
+  "Worship",
+  "Civic",
+  "More",
 ];
 
 /** The longest realistic venue name plus the longest realistic category. */
