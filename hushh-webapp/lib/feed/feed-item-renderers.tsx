@@ -60,7 +60,10 @@ function isSosShare(metadata: Record<string, unknown>): boolean {
   return metadataString(metadata, "share_kind").toLowerCase() === "sos";
 }
 
-function metadataString(metadata: Record<string, unknown>, key: string): string {
+function metadataString(
+  metadata: Record<string, unknown>,
+  key: string,
+): string {
   const value = metadata[key];
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
@@ -139,7 +142,9 @@ function counterpartPerson(
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
-  const scope = metadataString(item.metadata, "scope_description") || metadataString(item.metadata, "scope");
+  const scope =
+    metadataString(item.metadata, "scope_description") ||
+    metadataString(item.metadata, "scope");
   // Best-available name for the other party (label → display → first →
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
@@ -173,7 +178,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Consent granted",
-        description: scope ? `You granted ${scope}.` : "You granted a consent request.",
+        description: scope
+          ? `You granted ${scope}.`
+          : "You granted a consent request.",
         href: buildConsentCenterHref("active"),
       };
     case "consent_revoked":
@@ -226,7 +233,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "location_share_revoked": {
       const hasWho = who !== "Someone";
-      const ownerRevoked = metadataString(item.metadata, "reason") === "owner_revoke";
+      const ownerRevoked =
+        metadataString(item.metadata, "reason") === "owner_revoke";
       return {
         icon,
         domainLabel,
@@ -364,27 +372,48 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const hasWho = who !== "Someone";
       const isExtension = metadataBool(item.metadata, "is_extension");
       const amount = metadataDurationLabel(item.metadata, "duration");
+      // The word "more" needs the INCREMENT, not the new total. Approving
+      // "30 min more" on a two-hour share now leaves two and a half hours
+      // running (#6256), and `duration_hours` is that total -- rendering it
+      // here would report a thirty-minute top-up as "gave you 2 hours 30 min
+      // more". Rows written before the fix carry no `added_duration_hours`,
+      // and for those the total WAS what the approval granted, so the
+      // fallback keeps their line true rather than blanking it.
+      const addedAmount =
+        metadataDurationLabel(item.metadata, "added_duration") || amount;
+      // Approving an extension of a share that never ends adds nothing and
+      // takes nothing: the share stays open-ended. Without this branch the
+      // fallback above resolves `amount` to the phrase "as long as they need"
+      // and the row reads "You gave them as long as they need more" -- the
+      // exact sentence the push and the bell each grew a branch to stop
+      // saying.
+      const openEndedExtension =
+        isExtension && item.metadata.duration_mode === "until_stopped";
       const asRequester = iAskedForThis;
-      const description = asRequester
-        ? isExtension
-          ? amount
-            ? `Gave you ${amount} more`
-            : "Gave you more location time"
-          : amount
-            ? `Shared location with you for ${amount}`
-            : "Approved your location request"
-        : isExtension
-          ? amount
-            ? `You gave them ${amount} more`
-            : "You gave them more location time"
-          : amount
-            // Migration 151 stopped forwarding the approval-born
-            // location_share_created row, so this line is now the only report
-            // of that whole tap. It has to say the share STARTED, not just
-            // that a request was answered -- main's wording, carrying the
-            // amount this branch adds.
-            ? `You approved sharing for ${amount}`
-            : "You approved sharing";
+      const description = openEndedExtension
+        ? asRequester
+          ? "They are still sharing until they stop"
+          : "You are still sharing until you stop"
+        : asRequester
+          ? isExtension
+            ? addedAmount
+              ? `Gave you ${addedAmount} more`
+              : "Gave you more location time"
+            : amount
+              ? `Shared location with you for ${amount}`
+              : "Approved your location request"
+          : isExtension
+            ? addedAmount
+              ? `You gave them ${addedAmount} more`
+              : "You gave them more location time"
+            : amount
+              ? // Migration 151 stopped forwarding the approval-born
+                // location_share_created row, so this line is now the only report
+                // of that whole tap. It has to say the share STARTED, not just
+                // that a request was answered -- main's wording, carrying the
+                // amount this branch adds.
+                `You approved sharing for ${amount}`
+              : "You approved sharing";
       return {
         icon,
         domainLabel,
@@ -605,7 +634,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Analysis ready",
-        description: ticker ? `One finished analyzing ${ticker}.` : "One finished an analysis.",
+        description: ticker
+          ? `One finished analyzing ${ticker}.`
+          : "One finished an analysis.",
         href: ticker
           ? buildKaiMarketRoute("analysis", { ticker })
           : buildKaiMarketRoute("analysis"),
@@ -613,7 +644,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "funding_transfer_status": {
       const status = metadataString(item.metadata, "user_facing_status");
-      const direction = metadataString(item.metadata, "direction").toUpperCase();
+      const direction = metadataString(
+        item.metadata,
+        "direction",
+      ).toUpperCase();
       const transferKind = direction === "OUTGOING" ? "withdrawal" : "deposit";
       const statusCopy =
         status === "completed"
@@ -634,7 +668,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     }
     case "kyc_status_changed": {
-      const status = metadataString(item.metadata, "new_status").replace(/_/g, " ");
+      const status = metadataString(item.metadata, "new_status").replace(
+        /_/g,
+        " ",
+      );
       return {
         icon,
         domainLabel,

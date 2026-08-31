@@ -2382,6 +2382,15 @@ class FourUserMemoryService(OneLocationAgentService):
             and "grant_id" not in params
         ):
             now = datetime.now(timezone.utc)
+            # Honour the lane predicate, exactly as the revoke fake above does.
+            # Without this the read returns the newest live grant of EITHER
+            # lane, so a test where an SOS share and an ordinary share are both
+            # running cannot tell the two apart -- and the production statement
+            # this stands in for is lane-scoped precisely because that
+            # distinction is the difference between extending a friend's share
+            # and reading an emergency one's hours.
+            lane_scoped = ":is_sos_lane" in sql
+            is_sos_lane = bool(params["is_sos_lane"]) if lane_scoped else None
             live = [
                 grant
                 for grant in self.grants.values()
@@ -2389,6 +2398,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 and grant["recipient_user_id"] == params["recipient_user_id"]
                 and grant["status"] == "active"
                 and (grant.get("expires_at") is None or grant["expires_at"] > now)
+                and (not lane_scoped or self._grant_is_sos_lane(grant) == is_sos_lane)
             ]
             live.sort(key=lambda item: item["created_at"], reverse=True)
             return live[0] if live else None
