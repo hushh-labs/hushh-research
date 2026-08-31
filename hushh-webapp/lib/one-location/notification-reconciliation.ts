@@ -54,6 +54,29 @@ function addAskValues(
   }
 }
 
+/**
+ * The hours an approval added to a share that was already running.
+ *
+ * `undefined` whenever the answer is not knowable from these two timestamps --
+ * an open-ended share on either end, an unparseable value, or a result that is
+ * not positive. Callers must render amount-free copy in that case; inventing a
+ * number here is the defect this exists to prevent.
+ */
+function extensionAddedHours(
+  extendedExpiresAt: string | null | undefined,
+  approvedExpiresAt: string | null | undefined,
+): number | undefined {
+  if (!extendedExpiresAt || !approvedExpiresAt) return undefined;
+  const before = Date.parse(extendedExpiresAt);
+  const after = Date.parse(approvedExpiresAt);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return undefined;
+  const hours = (after - before) / 3_600_000;
+  if (!(hours > 0)) return undefined;
+  // Two decimals, matching `normalize_duration_hours` server-side, so the two
+  // delivery paths cannot word the same approval differently.
+  return Math.round(hours * 100) / 100;
+}
+
 function recipientLabel(
   recipients: OneLocationRecipient[],
   userId: string,
@@ -200,6 +223,26 @@ export function buildOneLocationNotificationPayloads(
         addValue(payload, "duration_hours", approvedGrant.durationHours);
         addValue(payload, "duration_mode", approvedGrant.durationMode);
         addValue(payload, "expires_at", approvedGrant.expiresAt);
+        // How much an extension ADDED, which is a different number from the
+        // total above now that approving "30 min more" tops up the running
+        // share instead of replacing it (#6256). The push carries this from
+        // the server; this path rebuilds the notification from local state
+        // when the push never arrived, and without it the bell would put the
+        // new total next to the word "more" -- announcing a thirty-minute
+        // top-up of a two-hour share as "2 hours 30 min more".
+        //
+        // Measured as the distance between the two expiries the payload
+        // already carries, so no new server field is needed. Undefined when
+        // either end is open-ended or unreadable, and the copy then drops the
+        // amount rather than guessing one.
+        addValue(
+          payload,
+          "added_duration_hours",
+          extensionAddedHours(
+            request.extendsGrantExpiresAt,
+            approvedGrant.expiresAt,
+          ),
+        );
       }
       payloads.push(payload);
     } else if (request.status === "denied") {

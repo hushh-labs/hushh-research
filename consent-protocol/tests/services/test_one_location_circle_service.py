@@ -115,6 +115,30 @@ def test_a_person_with_no_profile_name_is_still_named_in_a_circle() -> None:
     )
 
 
+def test_eligible_connection_payload_marks_verified_ria_status() -> None:
+    assert (
+        OneLocationCircleService._eligible_connection_payload(
+            {
+                "connection_id": "connection-1",
+                "user_id": "advisor-user",
+                "display_name": "Ada Advisor",
+                "is_ria": True,
+            }
+        )["isRia"]
+        is True
+    )
+    assert (
+        OneLocationCircleService._eligible_connection_payload(
+            {
+                "connection_id": "connection-2",
+                "user_id": "person-user",
+                "display_name": "Pat Person",
+            }
+        )["isRia"]
+        is False
+    )
+
+
 def test_the_roster_and_picker_queries_read_the_email_the_ladder_needs() -> None:
     """A ladder with no rung to stand on resolves nothing.
 
@@ -132,6 +156,24 @@ def test_the_roster_and_picker_queries_read_the_email_the_ladder_needs() -> None
 
     source = inspect.getsource(OneLocationCircleService.list_eligible_direct_connections)
     assert "identity.email" in source
+
+
+def test_eligible_connection_queries_use_the_shared_verified_ria_gate() -> None:
+    import inspect
+
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+    from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
+
+    for status in RIAIAMService._RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in RIA_VERIFIED_STATUS_SQL
+
+    source = inspect.getsource(OneLocationCircleService.list_eligible_direct_connections)
+    assert "RIA_VERIFIED_STATUS_SQL" in source
+    assert "ria_profiles ria_annotation" in source
+
+    source = inspect.getsource(OneLocationCircleService.list_eligible_direct_connections_page)
+    assert "RIA_VERIFIED_STATUS_SQL" in source
+    assert "ria_profiles ria_annotation" in source
 
 
 def test_circle_summary_uses_canonical_owner_instead_of_membership_role() -> None:
@@ -2499,6 +2541,7 @@ def test_invitable_connections_are_not_narrowed_to_directly_requested_ones() -> 
                 "display_name": "Circle Only Peer",
                 "photo_url": None,
                 "custom_photo_url": None,
+                "is_ria": True,
             }
         ],
     )
@@ -2510,12 +2553,14 @@ def test_invitable_connections_are_not_narrowed_to_directly_requested_ones() -> 
     )
 
     assert [row["userId"] for row in eligible] == ["circle-only-peer"]
+    assert eligible[0]["isRia"] is True
     listing_sql = next(
         sql for sql in db.sql if "FROM connection_origins" in sql or "connection_origins" in sql
     )
     assert "origin.status = 'active'" in listing_sql
     # The guard: provenance must not be filtered down to direct requests.
     assert "origin_kind = 'direct_request'" not in listing_sql
+    assert "ria_profiles ria_annotation" in listing_sql
 
 
 def test_every_aggregating_circle_query_groups_by_the_owner_name_it_selects() -> None:

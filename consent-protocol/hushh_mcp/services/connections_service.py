@@ -32,6 +32,7 @@ from hushh_mcp.services.contact_sync_contract import (
 )
 from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.services.requester_identity import label_from_identity_row
+from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ def _iso(value: Any) -> str | None:
 #
 # Static text under our control, never user input -- it is interpolated, not
 # bound, because a bound array would erase those literals from the SQL text.
-_RIA_VERIFIED_STATUS_SQL = "verification_status IN ('active', 'verified', 'finra_verified')"
+_RIA_VERIFIED_STATUS_SQL = RIA_VERIFIED_STATUS_SQL
 
 # Who a directory search is asking about.
 #

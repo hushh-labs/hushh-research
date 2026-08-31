@@ -39,6 +39,13 @@ describe("OneLocationService Circle member invitations", () => {
           displayName: "Asha",
           photoUrl: null,
           connectedAt: "2026-07-24T00:00:00Z",
+          isRia: true,
+        },
+        {
+          connectionId: "connection-2",
+          userId: "friend-2",
+          displayName: "Neel",
+          photoUrl: null,
         },
       ],
       pendingInvites: [],
@@ -56,6 +63,8 @@ describe("OneLocationService Circle member invitations", () => {
       { headers: { Authorization: "Bearer vault-token" } },
     );
     expect(result.eligibleConnections[0]?.userId).toBe("friend-1");
+    expect(result.eligibleConnections[0]?.isRia).toBe(true);
+    expect(result.eligibleConnections[1]?.isRia).toBe(false);
     expect(result.remainingCapacity).toBe(3);
   });
 

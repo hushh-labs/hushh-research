@@ -95,6 +95,7 @@ import {
 import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { othersCountLabel } from "@/lib/one-location/circle-member-count";
@@ -2108,17 +2109,11 @@ export function CircleDetailFlow({
                               <SettingsRow
                                 key={connection.userId}
                                 leading={
-                                  <Avatar className="h-10 w-10 rounded-xl">
-                                    {connection.photoUrl ? (
-                                      <AvatarImage
-                                        src={connection.photoUrl}
-                                        alt=""
-                                      />
-                                    ) : null}
-                                    <AvatarFallback className="rounded-xl">
-                                      {circleInitials(connection.displayName)}
-                                    </AvatarFallback>
-                                  </Avatar>
+                                  <ConnectionPersonAvatar
+                                    photoUrl={connection.photoUrl ?? null}
+                                    label={connection.displayName}
+                                    verified={Boolean(connection.isRia)}
+                                  />
                                 }
                                 title={
                                   <span className="flex min-w-0 items-center gap-1.5">
