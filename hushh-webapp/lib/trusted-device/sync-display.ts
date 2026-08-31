@@ -8,7 +8,7 @@ export interface DeviceSyncFields {
   revoked_at?: number | null;
   last_synced_at?: number | null;
   sealed_at?: number | null;
-  /** Advisory liveness telemetry posted by the running device (migration 186). */
+  /** Advisory liveness telemetry posted by the running device (migration 189). */
   last_heartbeat_at?: number | null;
   heartbeat?: { current_model?: string; busy?: boolean } | null;
 }

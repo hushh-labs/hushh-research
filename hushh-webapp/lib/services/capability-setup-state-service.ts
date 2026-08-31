@@ -116,7 +116,7 @@ export interface CapabilitySetupInputs {
   exploredCapabilityIds?: ReadonlySet<string>;
   /**
    * Location readiness signal: whether the user has a location recipient key
-   * (their live location is set up). Only knowable post-unlock (it lives behind
+   * (live location is set up). Only knowable post-unlock (it lives behind
    * the vault). `true` → set up, `false` → not set up, `undefined` → not fetched
    * yet (or vault locked). Fed by a lightweight `getState` fetch when unlocked.
    */

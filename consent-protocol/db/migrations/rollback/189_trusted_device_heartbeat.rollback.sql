@@ -1,4 +1,4 @@
--- Rollback for migration 186: trusted-device liveness heartbeat.
+-- Rollback for migration 189: trusted-device liveness heartbeat.
 --
 -- Additive, advisory telemetry columns. Dropping them removes the ability to
 -- report live agent reachability; it does not affect trust, enrollment, sync,

@@ -7,6 +7,7 @@ import {
 } from "@/lib/one-location/location-bus";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 import type {
   ActionResult,
@@ -228,6 +229,22 @@ function pagedItems<T>(payload: { items?: T[] } | null, endpoint: string): T[] {
     );
   }
   return payload.items;
+}
+
+/**
+ * Tell every Feed surface that this device just wrote something worth showing.
+ *
+ * The Feed learns about OTHER people's activity from a push, and about its own
+ * from nothing at all -- so the row for an action you just took waited out the
+ * 45s poll on the very screen you opened to check it had worked. These calls
+ * are the only writes that produce a Feed row, so announcing here covers every
+ * caller (hub, agent, voice, deep link) instead of each one remembering to.
+ *
+ * Fire-and-forget and side-effect free: the Feed re-fetches, and a surface that
+ * is not mounted hears nothing.
+ */
+function announceFeedActivity(): void {
+  dispatchFeedStateChanged("arrived");
 }
 
 export class OneLocationService {
@@ -1301,6 +1318,7 @@ export class OneLocationService {
         }),
       },
     );
+    announceFeedActivity();
     return response.grant;
   }
 
@@ -1411,7 +1429,11 @@ export class OneLocationService {
     envelope: OneLocationEncryptedEnvelope;
     idempotentReplay: boolean;
   }> {
-    return apiJsonWithRetry(
+    const created = await apiJsonWithRetry<{
+      grant: OneLocationGrant;
+      envelope: OneLocationEncryptedEnvelope;
+      idempotentReplay: boolean;
+    }>(
       "/api/one/location/grants/with-envelope",
       {
         method: "POST",
@@ -1432,6 +1454,8 @@ export class OneLocationService {
       },
       1,
     );
+    announceFeedActivity();
+    return created;
   }
 
   static async storeEnvelope(params: {
@@ -1670,6 +1694,22 @@ export class OneLocationService {
     );
   }
 
+  static async extendNearbyPresence(params: {
+    vaultOwnerToken: string;
+    incrementMinutes: 30 | 60;
+  }): Promise<OneLocationNearbyPresenceState> {
+    return apiJson<OneLocationNearbyPresenceState>(
+      "/api/one/location/nearby-presence",
+      {
+        method: "PATCH",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          incrementMinutes: params.incrementMinutes,
+        }),
+      },
+    );
+  }
+
   static async requestNearbyConnection(params: {
     vaultOwnerToken: string;
     participantAlias: string;
@@ -1756,6 +1796,7 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
       },
     );
+    announceFeedActivity();
     return response.grant;
   }
 
@@ -1786,6 +1827,7 @@ export class OneLocationService {
         }),
       },
     );
+    announceFeedActivity();
     return response.grant;
   }
 
@@ -1837,6 +1879,7 @@ export class OneLocationService {
         }),
       },
     );
+    announceFeedActivity();
     return response.grant;
   }
 
@@ -1869,6 +1912,7 @@ export class OneLocationService {
       },
       1,
     );
+    announceFeedActivity();
     return response.request;
   }
 
@@ -1892,7 +1936,11 @@ export class OneLocationService {
     recipient?: OneLocationRecipient;
   }> {
     const durationHours = Number(params.durationHours);
-    return apiJson(
+    const approved = await apiJson<{
+      request: OneLocationAccessRequest;
+      grant: OneLocationGrant;
+      recipient?: OneLocationRecipient;
+    }>(
       `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve`,
       {
         method: "POST",
@@ -1911,6 +1959,8 @@ export class OneLocationService {
         }),
       },
     );
+    announceFeedActivity();
+    return approved;
   }
 
   static async denyRequest(params: {
@@ -1924,6 +1974,7 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
       },
     );
+    announceFeedActivity();
     return response.request;
   }
 
@@ -1945,6 +1996,7 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
       },
     );
+    announceFeedActivity();
     return response.request;
   }
 

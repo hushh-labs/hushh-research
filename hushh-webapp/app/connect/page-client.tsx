@@ -6,13 +6,13 @@ import { toast } from "sonner";
 import {
   BadgeCheck,
   BookUser,
+  Check,
+  ChevronDown,
   Loader2,
   Lock,
   RefreshCw,
   Search as SearchIcon,
   Share2,
-  UserRound,
-  Users,
   X,
 } from "lucide-react";
 
@@ -45,13 +45,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
@@ -81,10 +74,6 @@ import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 import {
   CONNECT_PAGER_BUTTON_CLASSNAME,
-  CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
-  CONNECT_PAGER_ROW_CLASSNAME,
-  CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME,
-  CONNECT_PAGE_STATUS_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
   CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
@@ -93,6 +82,7 @@ import {
 } from "./connect-search-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type ConnectTab = "people" | "advisors" | "nearby";
 
@@ -107,28 +97,12 @@ type ConnectTab = "people" | "advisors" | "nearby";
  * the people who hold these profiles use for themselves.
  */
 /**
- * The outer axis: people, or the groups they are in.
- *
- * Deliberately a SECOND strip rather than a fourth segment in the one below.
- * People / RIAs / Around you answers "which directory"; Connections / Circles
- * answers "people, or groupings of them". Two axes in one strip reads as four
- * peers, and the inner three are contract-pinned besides -- a fourth option
- * there would need the 320px width measurement redone.
+ * The route-level axis: the directory hub, or the groups people belong to.
  *
  * Carried in `?tab=` because a circle detail is a place you can be sent, and a
  * hub tab that only exists in `useState` cannot be linked to or returned to.
  */
 type ConnectSurface = "all" | "circles";
-
-const CONNECT_SURFACE_LABEL: Record<ConnectSurface, string> = {
-  all: "Connections",
-  circles: "Circles",
-};
-
-const CONNECT_SURFACES = (["all", "circles"] as const).map((value) => ({
-  value,
-  label: CONNECT_SURFACE_LABEL[value],
-}));
 
 const CONNECT_SURFACE_PARAM = "tab";
 
@@ -169,14 +143,7 @@ export function writeStoredConnectSearchQuery(query: string): void {
 }
 
 /**
- * The padding override the inner strip needs, reused here so both strips on
- * this surface share one rule rather than drifting apart.
- */
-const CONNECT_STRIP_COMPACT_PADDING =
-  "[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5";
-
-/**
- * The pinned header: both tab strips, and nothing else.
+ * The pinned header: the Connect hub strip, and nothing else.
  *
  * `--top-shell-live-height` rather than `top-0` -- the scroll root clears the
  * top bar with a spacer rather than padding, so `top-0` sticks a strip to the
@@ -221,8 +188,7 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
  * not filter. Pinned in place instead, it arrives exactly when its own results
  * do and stays for as long as they are on screen.
  *
- * The offset is the live top shell plus whatever the header above measured, so
- * a two-strip header and a one-strip header both land it in the right place.
+ * The offset is the live top shell plus whatever the header above measured.
  *
  * Opaque for the same reason the header above it is: at 85% the directory rows
  * this field filters read straight through it as they scroll past.
@@ -236,7 +202,14 @@ const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   nearby: "Around you",
 };
 
-const CONNECT_TABS = (["people", "advisors", "nearby"] as const).map(
+type ConnectPrimaryTab = "connections" | "circles";
+
+const CONNECT_PRIMARY_TABS = [
+  { value: "connections", label: "Connections" },
+  { value: "circles", label: "Circles" },
+] as const;
+
+const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(
   (value) => ({ value, label: CONNECT_TAB_LABEL[value] }),
 );
 
@@ -262,7 +235,7 @@ const CONNECT_TAB_AUDIENCE: Record<ConnectTab, DirectoryAudience> = {
 /**
  * How many directory reads or connection writes may be in flight at once.
  *
- * A bulk action of 8 people is 8 catalog reads and then up to 8 writes, and
+ * A bulk action of 10 people is 10 catalog reads and then up to 10 writes, and
  * each write holds a database connection for its whole transaction. The pool is
  * 5 connections with 10 overflow, and production runs a smaller instance than
  * UAT does, so an unbounded Promise.all is the shape that exhausts it. Three at
@@ -300,7 +273,7 @@ async function mapWithConcurrency<T, R>(
  * and knows nobody's exact name is not staring at an empty surface — not so
  * they can browse the register, which is the thing that stops scaling.
  */
-const SUGGESTED_PEOPLE_LIMIT = 8;
+const SUGGESTED_PEOPLE_LIMIT = 20;
 
 /**
  * How many people a page shows, and the sizes the reader can pick.
@@ -310,7 +283,6 @@ const SUGGESTED_PEOPLE_LIMIT = 8;
  * through the rest, so this replaces it with real paging: the default is still
  * a screenful, and someone who wants to scan more can say so.
  */
-const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 const CONNECT_ROW_ACTION_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
@@ -320,7 +292,7 @@ const CONNECT_REFRESH_BUTTON_CLASSNAME =
   "h-8 min-h-8 w-8 min-w-8 rounded-full p-0 text-muted-foreground hover:text-foreground disabled:opacity-70";
 
 /** Maximum number of connection requests the People bulk action can send. */
-const MAX_BULK_CONNECTION_REQUESTS = 8;
+const MAX_BULK_CONNECTION_REQUESTS = 10;
 
 /**
  * Bounds on resolving ONE spoken name against the directory.
@@ -496,13 +468,71 @@ async function resolveConnectionForVoice({
   return { matches: [], complete: false };
 }
 
+/**
+ * Two-letter fallback for someone with no Google photo. Mirrors the
+ * contact-sync sheet, which already draws people this way.
+ */
+function connectAvatarInitials(label: string): string {
+  const parts = label.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  const first = parts[0] ?? "";
+  if (parts.length === 1) return (first.slice(0, 2) || "?").toUpperCase();
+  const last = parts[parts.length - 1] ?? "";
+  return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase() || "?";
+}
+
+/**
+ * A person's real Google picture where we have one, initials otherwise.
+ *
+ * Connect used to draw everyone with the same static UserRound glyph even
+ * though the directory payload has carried `photoUrl` all along -- so the
+ * one screen that exists to tell people apart made them all look alike.
+ * The RIA check stays a badge on verified advisors rather than a photo,
+ * since that mark means something the picture cannot.
+ */
+function ConnectPersonAvatar({
+  photoUrl,
+  label,
+  verified,
+}: {
+  photoUrl: string | null;
+  label: string;
+  /** A capability-bearing RIA. Kept as a mark ON the avatar, never instead
+   *  of it: the photo says who, the badge says what, and swapping one for
+   *  the other loses whichever it replaced. */
+  verified: boolean;
+}) {
+  return (
+    <Avatar
+      className="relative h-[34px] w-[34px] shrink-0"
+      data-photo-url={photoUrl ?? undefined}
+    >
+      {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
+      <AvatarFallback className="text-xs">
+        {connectAvatarInitials(label)}
+      </AvatarFallback>
+      {verified ? (
+        <span
+          className="absolute -right-0.5 -bottom-0.5 z-10 inline-flex size-[15px] items-center justify-center rounded-full bg-background"
+          aria-label="Verified advisor"
+        >
+          <BadgeCheck
+            className="size-[13px] text-[color:var(--app-success,#16a34a)]"
+            aria-hidden="true"
+          />
+        </span>
+      ) : null}
+    </Avatar>
+  );
+}
+
 export default function ConnectPageClient() {
   const { user } = useRequireAuth();
   const router = useRouter();
 
   const searchParams = useSearchParams();
   /**
-   * The outer tab, from `?tab=`.
+   * The route-backed Connect surface, from `?tab=`.
    *
    * Anything unrecognised reads as "all" rather than throwing a 404 at
    * somebody who mistyped a link, and the default is not written to the URL on
@@ -527,6 +557,8 @@ export default function ConnectPageClient() {
   });
 
   const [tab, setTab] = useState<ConnectTab>("people");
+  const primaryTab: ConnectPrimaryTab =
+    surface === "circles" ? "circles" : "connections";
   /**
    * What the Circles tab is doing, reported up.
    *
@@ -548,6 +580,10 @@ export default function ConnectPageClient() {
   const connectStackRef = useRef<HTMLDivElement | null>(null);
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
   const stickyPinSentinelRef = useRef<HTMLDivElement | null>(null);
+  const directoryMenuRef = useRef<HTMLDivElement | null>(null);
+  const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const loadMoreDirectoryRef = useRef<HTMLDivElement | null>(null);
+  const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
   const [query, setQuery] = useState<string>(readStoredConnectSearchQuery);
   useEffect(() => {
     writeStoredConnectSearchQuery(query);
@@ -570,7 +606,7 @@ export default function ConnectPageClient() {
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const pageSize = DEFAULT_PAGE_SIZE;
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
@@ -584,9 +620,9 @@ export default function ConnectPageClient() {
   /**
    * Publish the pinned header's height so the search row can sit under it.
    *
-   * Measured rather than assumed: the header is one strip on Circles and two
-   * everywhere else, and a strip's own height moves with the type scale and the
-   * breakpoint. A hard-coded offset is right at exactly one width.
+   * Measured rather than assumed: the strip's own height moves with the type
+   * scale and the breakpoint. A hard-coded offset is right at exactly one
+   * width.
    *
    * Written to the page's own stack, not `documentElement`, so it inherits down
    * to the search row and to nothing else, and leaves with the page.
@@ -659,6 +695,26 @@ export default function ConnectPageClient() {
       observer?.disconnect();
     };
   }, [surface]);
+
+  useEffect(() => {
+    if (!directoryMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const menu = directoryMenuRef.current;
+      if (!menu || !(event.target instanceof Node)) return;
+      if (!menu.contains(event.target)) setDirectoryMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setDirectoryMenuOpen(false);
+      directoryMenuButtonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [directoryMenuOpen]);
   /**
    * The people picked for a bulk request, held whole rather than by id.
    *
@@ -925,6 +981,8 @@ export default function ConnectPageClient() {
   const inviteToOneShare = useMemo(() => buildInviteToOneShare(), []);
   const canInviteToOne = tab === "people" && inviteToOneShare !== null;
 
+  const isDirectoryRefreshing = loading && people.length > 0;
+
   // A share sheet is modal but not instant: on iOS it animates in, and the
   // promise does not settle until it is dismissed. Two taps in that window
   // asked the platform to present a second sheet over the first, which iOS
@@ -975,7 +1033,7 @@ export default function ConnectPageClient() {
     async function run() {
       if (!user) return;
       try {
-        setHasMore(false);
+        if (currentPage <= 1) setHasMore(false);
         setLoading(true);
         setError(null);
         const idToken = await user.getIdToken();
@@ -987,16 +1045,23 @@ export default function ConnectPageClient() {
           audience: directoryAudience,
         });
         if (!cancelled) {
-          // One page replaces the last. Appending was what made the directory
-          // an endless scroll with no sense of position in it.
-          setPeople(page.items);
+          setPeople((current) => {
+            if (page.page <= 1) return page.items;
+            const merged = new Map(
+              current.map((person) => [person.userId, person]),
+            );
+            for (const person of page.items) {
+              merged.set(person.userId, person);
+            }
+            return Array.from(merged.values());
+          });
           setHasMore(page.hasMore);
           // Selections deliberately survive this. They used to be pruned to
           // whoever the new page happened to show, on the reasoning that a
           // count the reader cannot see is a promise the surface can't account
           // for -- but the promise was real and the pruning silently broke it:
           // four picked on page one became zero on arriving at page two, and
-          // two more picked there read as "2 of 8". The count is now backed by
+          // two more picked there read as "2 selected". The count is now backed by
           // the rows themselves, and the sheet lists every one of them by name
           // before anything is sent, so nothing is promised unseen.
         }
@@ -1037,10 +1102,10 @@ export default function ConnectPageClient() {
       // navigation whose only change is that the whole query string
       // disappears -- measured on UAT and recorded in
       // `lib/navigation/top-shell-breadcrumbs.ts` -- so `?tab=all` is what
-      // makes "back to Connections" a control that actually moves.
+      // makes "back to People" a control that actually moves.
       params.set(CONNECT_SURFACE_PARAM, next);
       // A Circle you had open is not where "Circles" should take you next.
-      // These params outlived the surface switch, so leaving for Connections
+      // These params outlived the surface switch, so leaving for People
       // and tapping Circles again dropped you back inside the same roster
       // rather than at the list with New circle and Join with code on it.
       params.delete("action");
@@ -1060,16 +1125,51 @@ export default function ConnectPageClient() {
     [router, searchParams, surface],
   );
 
-  const goToPage = useCallback(
-    (next: number) => {
-      if (loading || next < 1) return;
-      // `hasMore` is the only forward signal the directory gives, so a next
-      // page is offered exactly when the server says one exists.
-      if (next > currentPage && !hasMore) return;
-      setCurrentPage(next);
+  const selectPrimaryTab = useCallback(
+    (next: ConnectPrimaryTab) => {
+      if (next === "circles") {
+        selectSurface("circles");
+        return;
+      }
+      if (surface !== "all") {
+        selectSurface("all");
+      }
     },
-    [currentPage, hasMore, loading],
+    [selectSurface, surface],
   );
+
+  const loadNextDirectoryBatch = useCallback(() => {
+    if (surface === "circles" || tab === "nearby" || loading || !hasMore)
+      return;
+    setCurrentPage((page) => page + 1);
+  }, [hasMore, loading, surface, tab]);
+
+  useEffect(() => {
+    const sentinel = loadMoreDirectoryRef.current;
+    if (
+      !sentinel ||
+      surface === "circles" ||
+      tab === "nearby" ||
+      !hasMore ||
+      loading ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+    const scrollRoot = document.querySelector<HTMLElement>(
+      '[data-app-scroll-root="true"]',
+    );
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadNextDirectoryBatch();
+        }
+      },
+      { root: scrollRoot, rootMargin: "240px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadNextDirectoryBatch, loading, surface, tab]);
 
   const sendConnectionRequest = useCallback(
     async (
@@ -1656,7 +1756,7 @@ export default function ConnectPageClient() {
           id: "circles",
           title: "Circles",
           purpose:
-            "See the groups you are in -- Trusted holds everyone you are connected to, the SMS Circle gets your SOS -- and open one to manage who is in it.",
+            "See the groups you are in -- Trusted holds everyone you are connected to, the SMS Circle gets your SMS -- and open one to manage who is in it.",
         },
         {
           id: "people",
@@ -1773,9 +1873,9 @@ export default function ConnectPageClient() {
   );
   usePublishVoiceSurfaceMetadata(connectVoiceSurfaceMetadata);
 
-  // Each of these brings the Connections surface forward before touching the
-  // inner strip. `setTab` alone moves a control that is not on screen while
-  // Circles is showing, so "open people" reported success and did nothing --
+  // Each of these brings the directory surface forward before touching the hub
+  // tab. `setTab` alone moves a control that is not active while Circles is
+  // showing, so "open people" reported success and did nothing --
   // and a voice action that lies about what happened is worse than one that
   // refuses, because the person stops watching for the result.
   useLocalOnboardingActionHandler("connect.open_people", () => {
@@ -1965,7 +2065,7 @@ export default function ConnectPageClient() {
       if (person.relationship === "pending_incoming") {
         return {
           status: "blocked",
-          summary: `${person.displayName} has already asked to connect with you. Open Connect and accept their request instead of sending one back.`,
+          summary: `${person.displayName} has already asked to connect with you. Open Connect and accept request instead of sending one back.`,
         };
       }
       if (person.relationship !== "none") {
@@ -2195,7 +2295,7 @@ export default function ConnectPageClient() {
     <AppPageShell
       as="main"
       fitContent
-      width="reading"
+      width="standard"
       className="relative isolate"
       nativeTest={{
         routeId: "/one/connect",
@@ -2228,11 +2328,11 @@ export default function ConnectPageClient() {
         errorMessage: surface === "circles" ? circlesState.error : error,
       }}
     >
-      <AppPageHeaderRegion>
-        <PageHeader title="Connect" accent="neutral" />
+      <AppPageHeaderRegion className="mx-auto w-full max-w-[720px]">
+        <PageHeader title="Connect" />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion>
+      <AppPageContentRegion className="mx-auto w-full max-w-[720px] pb-[var(--app-bottom-content-clearance)]">
         <SurfaceStack compact>
           <div
             ref={connectStackRef}
@@ -2251,9 +2351,6 @@ export default function ConnectPageClient() {
               aria-hidden
               className="pointer-events-none absolute inset-x-0 top-0 h-px"
             />
-            {/* Both axes travel together. Pinning the outer strip and letting
-                the inner one scroll would leave a header naming a surface above
-                a tab bar that has already left the screen. */}
             <div
               ref={stickyHeaderRef}
               data-testid="connect-sticky-header"
@@ -2263,37 +2360,108 @@ export default function ConnectPageClient() {
               data-pinned="false"
               className={CONNECT_STICKY_HEADER_CLASSNAME}
             >
-              {/* The outer axis. People, or the groups they are in. */}
               <SegmentedTabs
-                value={surface}
+                value={primaryTab}
                 onValueChange={(value) =>
-                  selectSurface(value as ConnectSurface)
+                  selectPrimaryTab(value as ConnectPrimaryTab)
                 }
-                options={CONNECT_SURFACES}
-                className={CONNECT_STRIP_COMPACT_PADDING}
+                options={[...CONNECT_PRIMARY_TABS]}
               />
-
-              {surface === "circles" ? null : (
-                <SegmentedTabs
-                  value={tab}
-                  onValueChange={(value) => setTab(value as ConnectTab)}
-                  options={CONNECT_TABS}
-                  // A third tab takes a third of the strip, and the option's own
-                  // 16px side padding then costs more than the widest label has
-                  // left: measured on a 375px screen, "Around you" rendered as
-                  // "Around yo…". Tab titles are ours, not user content, so
-                  // an ellipsis in one is a defect rather than a graceful
-                  // degradation.
-                  //
-                  // Padding is the thing that gives, which is the cheapest rung
-                  // on the ladder -- the strip keeps its height, its grid, its
-                  // type and its active pill, and nothing changes from 640px up,
-                  // where there was never any pressure. Scoped to this strip
-                  // rather than pushed into SegmentedTabs so no other surface's
-                  // spacing moves.
-                  className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
-                />
-              )}
+              {surface !== "circles" ? (
+                <div className="flex min-h-11 items-center justify-between gap-3">
+                  {isSelectionMode ? (
+                    <span
+                      className="type-callout font-semibold text-[color:var(--app-primary-label)]"
+                      aria-live="polite"
+                    >
+                      {selectedPeople.size} of {MAX_BULK_CONNECTION_REQUESTS}{" "}
+                      selected
+                    </span>
+                  ) : (
+                    <div ref={directoryMenuRef} className="relative">
+                      <button
+                        ref={directoryMenuButtonRef}
+                        type="button"
+                        aria-haspopup="menu"
+                        aria-expanded={directoryMenuOpen}
+                        aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+                        className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                        onClick={() =>
+                          setDirectoryMenuOpen((current) => !current)
+                        }
+                      >
+                        {CONNECT_TAB_LABEL[tab]}
+                        <ChevronDown
+                          className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                          aria-hidden
+                        />
+                      </button>
+                      {directoryMenuOpen ? (
+                        <div
+                          role="menu"
+                          className="absolute left-0 top-full z-30 mt-1 w-[184px] overflow-hidden rounded-[14px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] p-1 shadow-[0_10px_30px_rgba(0,0,0,0.10)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                        >
+                          {CONNECT_DIRECTORY_TABS.map((option) => {
+                            const active = tab === option.value;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={active}
+                                className={cn(
+                                  "flex min-h-11 w-full items-center justify-between rounded-[10px] px-3 text-left text-[15px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                                  active
+                                    ? "text-[color:var(--app-accent)]"
+                                    : "text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+                                )}
+                                onClick={() => {
+                                  setTab(option.value);
+                                  setDirectoryMenuOpen(false);
+                                  window.requestAnimationFrame(() =>
+                                    directoryMenuButtonRef.current?.focus(),
+                                  );
+                                }}
+                              >
+                                <span>{option.label}</span>
+                                {active ? (
+                                  <Check
+                                    className="h-4 w-4"
+                                    aria-hidden="true"
+                                  />
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                  {tab !== "nearby" ? (
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fill"
+                      size="sm"
+                      showRipple={false}
+                      className={CONNECT_SELECT_TOGGLE_CLASSNAME}
+                      disabled={loading || people.length === 0}
+                      aria-label={
+                        isSelectionMode
+                          ? "Cancel selecting people"
+                          : "Select people"
+                      }
+                      onClick={() => {
+                        setIsSelectionMode((current) => !current);
+                        setSelectedPeople(new Map());
+                        setShowLimitBanner(false);
+                      }}
+                    >
+                      {isSelectionMode ? "Cancel" : "Select"}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             {surface === "circles" ? (
@@ -2373,13 +2541,15 @@ export default function ConnectPageClient() {
                         sortedConnections.map((connection) => (
                           <SettingsRow
                             key={connection.connectionId}
-                            // Same mark, same tone, same meaning as the results list
-                            // below: verified is a state, and this screen already
-                            // spends green on it. Both lists are on screen together,
-                            // so a person cannot carry one icon in one and another in
-                            // the other.
-                            icon={connection.isRia ? BadgeCheck : Users}
-                            iconTone={connection.isRia ? "green" : "blue"}
+                            leading={
+                              <ConnectPersonAvatar
+                                photoUrl={connection.photoUrl ?? null}
+                                label={
+                                  connection.displayName || connection.userId
+                                }
+                                verified={Boolean(connection.isRia)}
+                              />
+                            }
                             // Deliberately NOT stackTrailingOnMobile. That prop drops
                             // the trailing control onto its own line below the name on
                             // every phone (`sm:` is 640px, so "mobile" here is every
@@ -2564,7 +2734,7 @@ export default function ConnectPageClient() {
                         // screen had said what it searched. It still pins under the
                         // tab strips on scroll; it just no longer arrives first.
                         toolbar={
-                        /* No `w-full` here any more, and it is load-bearing: this row
+                          /* No `w-full` here any more, and it is load-bearing: this row
                     bleeds to the page gutters with a negative inline margin, and
                     `width: 100%` resolves against the text column, so the margin
                     only slid the row 16px left instead of widening it. A block
@@ -2572,115 +2742,91 @@ export default function ConnectPageClient() {
                     `auto` the margins can do their job. `cn` is tailwind-merge, so
                     a later `w-full` would have beaten anything the constant said.
                     Held by e2e/connect-sticky-header.layout.spec.ts. */
-                        <div
-                          data-testid="connect-search-row"
-                          className={cn(
-                            CONNECT_STICKY_SEARCH_CLASSNAME,
-                            "flex items-center gap-2",
-                          )}
-                        >
-                          <div className="relative flex-1">
-                            <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
-                              <SearchIcon className="h-4.5 w-4.5" />
-                            </span>
-                            <Input
-                              ref={searchInputRef}
-                              type="text"
-                              value={query}
-                              onChange={(event) => setQuery(event.target.value)}
-                              placeholder={CONNECT_SEARCH_PLACEHOLDER}
-                              aria-label="Search people"
-                              data-voice-control-id="one-connect-search"
-                              className={cn(
-                                CONNECT_SEARCH_INPUT_CLASSNAME,
-                                query
-                                  ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
-                                  : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
-                              )}
-                              enterKeyHint="search"
-                              onKeyDown={(event) => {
-                                // iOS soft-keyboard "return" must dismiss the keyboard;
-                                // blurring the field is what actually closes it in the
-                                // Capacitor webview (there is no form submit here).
-                                if (event.key === "Enter") {
-                                  event.preventDefault();
-                                  event.currentTarget.blur();
-                                }
-                              }}
-                              onFocus={(event) => {
-                                // Keyboard-dismiss "on drag": the first scroll/drag while
-                                // the field is focused blurs it, so an open keyboard never
-                                // locks the results out of view. Scoped to this field's
-                                // focus lifecycle and cleaned up on blur.
-                                const field = event.currentTarget;
-                                // Scroll the field into view above the on-screen keyboard.
-                                // Tapping it otherwise leaves it hidden behind the keyboard
-                                // until the user manually scrolls up. The delay lets the
-                                // keyboard animate in so the shrunken viewport is measured.
-                                window.setTimeout(() => {
-                                  field.scrollIntoView({
-                                    block: "center",
-                                    behavior: "smooth",
-                                  });
-                                }, 300);
-                                const dismiss = () => field.blur();
-                                window.addEventListener("touchmove", dismiss, {
-                                  passive: true,
-                                  once: true,
-                                });
-                                field.addEventListener(
-                                  "blur",
-                                  () =>
-                                    window.removeEventListener(
-                                      "touchmove",
-                                      dismiss,
-                                    ),
-                                  { once: true },
-                                );
-                              }}
-                            />
-                            {query ? (
-                              <button
-                                type="button"
-                                aria-label="Clear search"
-                                onClick={() => {
-                                  setQuery("");
-                                  searchInputRef.current?.focus();
-                                }}
-                                className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
-                              >
-                                <X className="h-5 w-5" strokeWidth={2.4} />
-                              </button>
-                            ) : null}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fill"
-                            size="sm"
-                            className={CONNECT_SELECT_TOGGLE_CLASSNAME}
-                            disabled={loading || people.length === 0}
-                            aria-label={
-                              isSelectionMode
-                                ? "Cancel selecting people"
-                                : "Select many people"
-                            }
-                            onClick={() => {
-                              setIsSelectionMode((current) => !current);
-                              setSelectedPeople(new Map());
-                              setShowLimitBanner(false);
-                            }}
+                          <div
+                            data-testid="connect-search-row"
+                            className={cn(
+                              CONNECT_STICKY_SEARCH_CLASSNAME,
+                              "block",
+                            )}
                           >
-                            {/* "Select many", not "Select": this enters multi-select,
-                        and a lone "Select" reads as picking the one thing you are
-                        looking at. The visible label and the accessible name now
-                        say the same thing. */}
-                            {isSelectionMode ? "Cancel" : "Select many"}
-                          </Button>
-                        </div>
+                            <div className="relative">
+                              <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                                <SearchIcon className="h-4.5 w-4.5" />
+                              </span>
+                              <Input
+                                ref={searchInputRef}
+                                type="text"
+                                value={query}
+                              onChange={(event) => setQuery(event.target.value)}
+                                placeholder={CONNECT_SEARCH_PLACEHOLDER}
+                                aria-label="Search people"
+                                data-voice-control-id="one-connect-search"
+                                className={cn(
+                                  CONNECT_SEARCH_INPUT_CLASSNAME,
+                                  query
+                                    ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
+                                    : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+                                )}
+                                enterKeyHint="search"
+                                onKeyDown={(event) => {
+                                  // iOS soft-keyboard "return" must dismiss the keyboard;
+                                  // blurring the field is what actually closes it in the
+                                  // Capacitor webview (there is no form submit here).
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    event.currentTarget.blur();
+                                  }
+                                }}
+                                onFocus={(event) => {
+                                  // Keyboard-dismiss "on drag": the first scroll/drag while
+                                  // the field is focused blurs it, so an open keyboard never
+                                  // locks the results out of view. Scoped to this field's
+                                  // focus lifecycle and cleaned up on blur.
+                                  const field = event.currentTarget;
+                                  // Scroll the field into view above the on-screen keyboard.
+                                  // Tapping it otherwise leaves it hidden behind the keyboard
+                                  // until the user manually scrolls up. The delay lets the
+                                  // keyboard animate in so the shrunken viewport is measured.
+                                  window.setTimeout(() => {
+                                    field.scrollIntoView({
+                                      block: "center",
+                                      behavior: "smooth",
+                                    });
+                                  }, 300);
+                                  const dismiss = () => field.blur();
+                                window.addEventListener("touchmove", dismiss, {
+                                      passive: true,
+                                      once: true,
+                                });
+                                  field.addEventListener(
+                                    "blur",
+                                    () =>
+                                      window.removeEventListener(
+                                        "touchmove",
+                                        dismiss,
+                                      ),
+                                    { once: true },
+                                  );
+                                }}
+                              />
+                              {query ? (
+                                <button
+                                  type="button"
+                                  aria-label="Clear search"
+                                  onClick={() => {
+                                    setQuery("");
+                                    searchInputRef.current?.focus();
+                                  }}
+                                  className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
+                                >
+                                  <X className="h-5 w-5" strokeWidth={2.4} />
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
                         }
                       >
-                        {loading ? (
+                        {loading && people.length === 0 ? (
                           <SettingsRow
                             title="Finding people…"
                             density="compact"
@@ -2767,8 +2913,13 @@ export default function ConnectPageClient() {
                                 // system already spends on a verified one. It is on the
                                 // row rather than on the tab so the mark still means
                                 // something in a search that spans both.
-                                icon={person.isRia ? BadgeCheck : UserRound}
-                                iconTone={person.isRia ? "green" : "blue"}
+                                leading={
+                                  <ConnectPersonAvatar
+                                    photoUrl={person.photoUrl}
+                                    label={title}
+                                    verified={Boolean(person.isRia)}
+                                  />
+                                }
                                 title={
                                   <span className="block min-w-0 truncate">
                                     {title}
@@ -2833,7 +2984,7 @@ export default function ConnectPageClient() {
                                               MAX_BULK_CONNECTION_REQUESTS
                                           ) {
                                             toast.error(
-                                              `You can only select up to ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`,
+                                              `You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`,
                                             );
                                             setShowLimitBanner(true);
                                             return;
@@ -2924,93 +3075,38 @@ export default function ConnectPageClient() {
                             );
                           })
                         )}
-                        {people.length > 0 || currentPage > 1 ? (
-                          /* One row, not two stacked fragments. "Page 1", a
-                             dot, "Per page", a select, and then Prev/Next
-                             dropped onto a second line read as four unrelated
-                             things scattered at the bottom of the card. The
-                             control and the buttons that use it now share a
-                             line -- how much you are reading at on the left,
-                             the way through the list on the right -- and the
-                             page number drops under the control as the quiet
-                             status it is, rather than leading a row it does
-                             not act on. */
+                        {people.length > 0 && hasMore ? (
                           <div
-                            className={CONNECT_PAGER_ROW_CLASSNAME}
-                            data-testid="connect-pager-row"
+                            ref={loadMoreDirectoryRef}
+                            className="flex min-h-14 items-center justify-center border-t border-[color:var(--app-card-border-standard)] px-4 py-2"
+                            data-testid="connect-load-more-row"
+                            aria-live="polite"
                           >
-                            <div className="flex min-w-0 flex-col items-start gap-0.5">
-                              <div className="flex items-center gap-2">
-                                <span className="ui-text-helper-text whitespace-nowrap text-[color:var(--app-secondary-label)]">
-                                  Per page
-                                </span>
-                                <Select
-                                  value={String(pageSize)}
-                                  onValueChange={(value) =>
-                                    setPageSize(Number(value))
-                                  }
-                                >
-                                  <SelectTrigger
-                                    size="sm"
-                                    aria-label="People per page"
-                                    className={CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME}
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {PAGE_SIZE_OPTIONS.map((size) => (
-                                      <SelectItem
-                                        key={size}
-                                        value={String(size)}
-                                      >
-                                        {size}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              {/* Status, not a control: it sits under the thing
-                                  it describes, one step down in size and
-                                  colour, so the row above stays the only line
-                                  with anything to press. */}
-                              <span className={CONNECT_PAGE_STATUS_CLASSNAME}>
-                                Page {currentPage}
+                            {isDirectoryRefreshing ? (
+                              <span className="inline-flex items-center gap-2 text-[14px] font-medium leading-5 text-[color:var(--app-secondary-label)]">
+                                <Loader2
+                                  className="h-3.5 w-3.5 animate-spin"
+                                  aria-hidden="true"
+                                />
+                                Loading more…
                               </span>
-                            </div>
-                            <div
-                              className="flex shrink-0 items-center justify-end gap-2"
-                              aria-live="polite"
-                            >
+                            ) : (
                               <Button
                                 type="button"
                                 variant="none"
-                                effect="fill"
+                                effect="fade"
                                 size="sm"
-                                className={cn(
-                                  CONNECT_PAGER_BUTTON_CLASSNAME,
-                                  CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
-                                )}
-                                disabled={loading || currentPage <= 1}
-                                onClick={() => goToPage(currentPage - 1)}
+                                showRipple={false}
+                                aria-label={`Load ${DEFAULT_PAGE_SIZE} more people`}
+                                className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                                onClick={loadNextDirectoryBatch}
                               >
-                                Prev
+                                Load {DEFAULT_PAGE_SIZE} more
                               </Button>
-                              <Button
-                                type="button"
-                                variant="none"
-                                effect="fill"
-                                size="sm"
-                                className={cn(
-                                  CONNECT_PAGER_BUTTON_CLASSNAME,
-                                  CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME,
-                                )}
-                                disabled={loading || !hasMore}
-                                onClick={() => goToPage(currentPage + 1)}
-                              >
-                                Next
-                              </Button>
-                            </div>
+                            )}
                           </div>
+                        ) : people.length > 0 ? (
+                          <span className="sr-only">All people loaded</span>
                         ) : null}
                         {isSelectionMode &&
                           selectedPeople.size > 0 &&
@@ -3031,7 +3127,7 @@ export default function ConnectPageClient() {
                                   ]);
                                 }}
                               >
-                                {`Review ${selectedPeople.size} of ${MAX_BULK_CONNECTION_REQUESTS}`}
+                                {`Review ${selectedPeople.size}`}
                               </Button>
                             </div>
                           )}
@@ -3208,8 +3304,13 @@ export default function ConnectPageClient() {
                   return (
                     <SettingsRow
                       key={`batch-${person.userId}`}
-                      icon={person.isRia ? BadgeCheck : UserRound}
-                      iconTone={person.isRia ? "green" : "blue"}
+                      leading={
+                        <ConnectPersonAvatar
+                          photoUrl={person.photoUrl}
+                          label={title}
+                          verified={Boolean(person.isRia)}
+                        />
+                      }
                       title={
                         <span className="block min-w-0 truncate">{title}</span>
                       }

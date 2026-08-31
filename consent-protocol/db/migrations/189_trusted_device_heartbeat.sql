@@ -1,4 +1,4 @@
--- Migration 186: trusted-device liveness heartbeat.
+-- Migration 189: trusted-device liveness heartbeat.
 --
 -- The devices surface could not answer "is this agent reachable right now?".
 -- last_synced_at (migration 176) only advances when the device PULLS the sync

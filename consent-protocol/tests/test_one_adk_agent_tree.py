@@ -4056,6 +4056,54 @@ class TestListAppActions:
         if "email.chat.turn" in by_id:
             assert by_id["email.chat.turn"]["use_tool"] == "ask_email_agent"
 
+    @pytest.mark.asyncio
+    async def test_a_shared_alias_resolves_to_the_action_on_this_screen(self):
+        """Two actions can own the same alias if they live on different screens.
+
+        "people tab" is the honest name for the People tab on BOTH Connect and
+        Location, so neither should give it up -- taking it from one would just
+        break that phrase on that surface. The generator's collision guard
+        allows the pair for exactly this reason: their reachable screens do not
+        overlap.
+
+        What makes that safe is this ordering. Both score identically on an
+        exact alias match, and the tie is broken by _AVAILABILITY_ORDER, so
+        whichever one is reachable from the screen the person is actually on
+        wins. Pinned here because it is the only thing standing between a
+        deliberate shared alias and an arbitrary coin flip, and because the
+        obvious "fix" for such a pair -- deleting one of the aliases -- would
+        be a regression this test should make someone stop and reconsider.
+        """
+        location_state = {_STATE_SCREEN: "one_location"}
+        location_state["hussh:voice_context"] = {
+            "route_pattern": "/one/location",
+            "screen": "one_location",
+            "context_revision": "loc-1",
+            "available_action_ids": ["location.open_people"],
+        }
+        result = await list_app_actions("people tab", _tool_context(location_state))
+        ordered = [r["action_id"] for r in result["results"]]
+        assert "location.open_people" in ordered
+        if "connect.open_people" in ordered:
+            assert ordered.index("location.open_people") < ordered.index("connect.open_people"), (
+                "the on-screen action must outrank the identically-aliased one"
+            )
+
+        connect_state = {_STATE_SCREEN: "connect"}
+        connect_state["hussh:voice_context"] = {
+            "route_pattern": "/connect",
+            "screen": "connect",
+            "context_revision": "con-1",
+            "available_action_ids": ["connect.open_people"],
+        }
+        result = await list_app_actions("people tab", _tool_context(connect_state))
+        ordered = [r["action_id"] for r in result["results"]]
+        assert "connect.open_people" in ordered
+        if "location.open_people" in ordered:
+            assert ordered.index("connect.open_people") < ordered.index("location.open_people"), (
+                "the same phrase must resolve the other way on the other screen"
+            )
+
 
 class TestContractDrivenNavigationJourneys:
     """The navigate-then-execute journey must be authored, not hardcoded.

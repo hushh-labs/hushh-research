@@ -104,7 +104,7 @@ export interface FeedActionable {
   actions: FeedActionButton[];
   sortAt: number;
   /**
-   * Real-world instant to render as the row's "Today - 3:45 PM" label.
+   * Real-world instant to render as the row's local time label.
    * Distinct from `sortAt` (which falls back to when the row was first seen so
    * ordering never breaks) — null/absent exactly when there is no real
    * timestamp to show the user (a consent entry with no `issued_at`, or any
@@ -167,7 +167,7 @@ function consentSummary(entry: ConsentCenterEntry): string {
 
 /**
  * A pending location access request is actionable in the viewer's "Needs you"
- * feed only when the viewer OWNS the request (their location is being asked for)
+ * feed only when the viewer OWNS the request (location is being asked for)
  * and did NOT send it themselves. `state.requests` carries BOTH directions, so
  * without this guard a user's own OUTGOING request leaks back onto their feed as
  * an incoming "wants to see your location" card labelled with their own name.
@@ -576,12 +576,17 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `sms-emergency:${grant.id}`,
         icon: Siren,
         iconTone: "red",
-        // Only a still-live SOS gets the pinned "Live" emergency treatment.
+        // Only a still-live alert gets the pinned "Live" emergency treatment.
         // A revoked/expired one renders as a plain "Needs you" row (see
         // feed-page.tsx) — Siren icon + red icon-well tint are all that's
-        // left as the "this was an SOS" signal.
+        // left as the "this was an emergency" signal.
         emphasis: isRevoked ? undefined : "emergency",
-        title: `${label} triggered an SOS`,
+        // "sent an SMS", not "triggered an SOS". SMS is Save my Soul, this
+        // product's own name for the lane, and the rule that recipient-facing
+        // copy never says "SOS" is already enforced for the notification
+        // copy by one-location-sms-revoke-notification.test.ts. This row was
+        // saying both at once: an "SOS" title above an "Emergency SMS" body.
+        title: `${label} sent an SMS`,
         description: isRevoked
           ? "Emergency SMS - Revoked"
           : "Emergency SMS - Sent.",

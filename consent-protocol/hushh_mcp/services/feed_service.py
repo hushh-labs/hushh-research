@@ -74,6 +74,12 @@ _SAFE_METADATA_KEYS = frozenset(
         "user_facing_status",
         "new_status",
         "actor_is_self",
+        # Which lane a location share belongs to ("sos" vs everything else).
+        # Without it the Feed cannot tell an emergency apart from an ordinary
+        # share and narrates both as "shared location, then stopped" -- the
+        # one row where that distinction matters most. A short, bounded enum
+        # written by our own service, carrying nothing about the person.
+        "share_kind",
     }
 )
 

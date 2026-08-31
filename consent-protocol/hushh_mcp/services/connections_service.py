@@ -30,6 +30,7 @@ from hushh_mcp.services.connection_graph_service import (
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
 )
+from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.services.requester_identity import label_from_identity_row
 
 logger = logging.getLogger(__name__)
@@ -3065,13 +3066,32 @@ class ConnectionsService:
                   )
                 )
             ),
+            matched AS (
+              -- One rule for every people search; see people_search_sql.py.
+              SELECT *,
+                CASE
+                  WHEN :query = '' THEN 0
+                  WHEN normalized_name ~ :query_prefix_re THEN 0
+                  WHEN normalized_name ~ :query_word_re THEN 1
+                  ELSE 2
+                END AS match_rank
+              FROM filtered
+            ),
+            narrowed AS (
+              SELECT * FROM matched
+              WHERE NOT :query_is_single_char
+                 OR match_rank < 2
+                 OR NOT EXISTS (
+                      SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                    )
+            ),
             total AS (
-              SELECT COUNT(*)::BIGINT AS total_count FROM filtered
+              SELECT COUNT(*)::BIGINT AS total_count FROM narrowed
             ),
             page_rows AS (
               SELECT *
-              FROM filtered
-              ORDER BY normalized_name, user_id, connection_id
+              FROM narrowed
+              ORDER BY match_rank, normalized_name, user_id, connection_id
               OFFSET :offset
               LIMIT :limit
             )
@@ -3096,12 +3116,13 @@ class ConnectionsService:
               ) END AS is_ria
             FROM total
             LEFT JOIN page_rows ON TRUE
-            ORDER BY page_rows.normalized_name, page_rows.user_id,
-                     page_rows.connection_id
+            ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                     page_rows.user_id, page_rows.connection_id
             """,  # nosec B608 - the RIA predicate is a static module constant.
             {
                 "user_id": viewer_id,
                 "query": normalized_query,
+                **people_query_match_params(normalized_query),
                 "audience": normalized_audience,
                 "offset": offset,
                 "limit": normalized_limit,

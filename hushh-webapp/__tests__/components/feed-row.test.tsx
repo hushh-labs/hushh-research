@@ -9,9 +9,10 @@ vi.mock("@/lib/feed/feed-item-renderers", () => ({
   presentFeedItem: (item: FeedItem) => ({
     icon: MapPin,
     domainLabel: "Location",
-    label: "Someone shared their location",
+    label: "Someone shared location",
     description: "A routine location share.",
     href: item.metadata.hrefEnabled ? "/one/location" : null,
+    person: null,
   }),
 }));
 
@@ -38,12 +39,12 @@ describe("FeedRow", () => {
     vi.useRealTimers();
   });
 
-  it("shows the absolute day/time label next to the description", () => {
+  it("shows the local time label next to the description", () => {
     render(<FeedRow item={feedItem()} onOpen={() => {}} />);
 
-    expect(
-      screen.getByText(/^Today - \d{2}:\d{2}\s?[AP]M$/i),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText(/^\d{2}:\d{2}\s?[AP]M$/i).length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByText("A routine location share.")).toBeInTheDocument();
   });
 
@@ -51,6 +52,7 @@ describe("FeedRow", () => {
     render(<FeedRow item={feedItem()} onOpen={() => {}} />);
 
     expect(screen.queryByText(/^\d+[mhd]$/)).toBeNull();
+    expect(screen.queryByText(/^Today -/)).toBeNull();
     expect(screen.queryByText("now")).toBeNull();
   });
 
@@ -76,7 +78,7 @@ describe("FeedRow", () => {
     );
 
     screen
-      .getByText("Someone shared their location")
+      .getByText("Someone shared location")
       .closest("button")
       ?.click();
     expect(onOpen).toHaveBeenCalledOnce();

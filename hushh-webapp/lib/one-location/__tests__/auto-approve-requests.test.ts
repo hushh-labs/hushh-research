@@ -135,7 +135,7 @@ describe("scope boundaries", () => {
   });
 });
 
-describe("when the owner has paused their location", () => {
+describe("when the owner has paused location", () => {
   it("approves nothing, because pause outranks convenience", () => {
     // "Stop sending my location" cannot coexist with starting a new share.
     expect(select({ paused: true })).toEqual([]);

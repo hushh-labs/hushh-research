@@ -1,4 +1,4 @@
-"""Trusted-device liveness heartbeat (migration 186).
+"""Trusted-device liveness heartbeat (migration 189).
 
 The heartbeat exists because ``last_synced_at`` cannot answer "is this agent
 reachable right now?" -- it only advances when the device pulls the sync

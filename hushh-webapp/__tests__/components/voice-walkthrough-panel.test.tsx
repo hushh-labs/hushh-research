@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  collapseRepeatedSteps,
   currentTaskSteps,
   VoiceWalkthroughPanel,
 } from "@/components/agent/voice-walkthrough-panel";
@@ -63,6 +64,71 @@ describe("currentTaskSteps", () => {
       run({ id: "c", goalId: "goal.x", createdAtMs: 30_500, updatedAtMs: 30_500 }),
     ];
     expect(currentTaskSteps(runs).map((step) => step.id)).toEqual(["b", "c"]);
+  });
+});
+
+describe("collapseRepeatedSteps", () => {
+  it("keeps a single step untouched", () => {
+    const steps = [run({ id: "a" })];
+    expect(collapseRepeatedSteps(steps).map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("collapses two runs that would render the identical sentence", () => {
+    // The reported bug: asking twice for something that refuses drew the same
+    // refusal twice, reading as two separate failures.
+    const steps = [
+      run({
+        id: "first",
+        actionId: "location.trigger_sos",
+        phase: "blocked",
+        message: "Add at least one emergency contact before sending an SOS.",
+      }),
+      run({
+        id: "second",
+        actionId: "location.trigger_sos",
+        phase: "blocked",
+        message: "Add at least one emergency contact before sending an SOS.",
+      }),
+    ];
+    expect(collapseRepeatedSteps(steps).map((s) => s.id)).toEqual(["second"]);
+  });
+
+  it("keeps the newest of a repeat, so a retry that succeeds is what shows", () => {
+    const steps = [
+      run({ id: "failed", actionId: "location.refresh", phase: "failed", message: "Same text" }),
+      run({ id: "ok", actionId: "location.refresh", phase: "completed", message: "Same text" }),
+    ];
+    const kept = collapseRepeatedSteps(steps);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.phase).toBe("completed");
+  });
+
+  it("keeps the same action over different subjects -- those are real separate steps", () => {
+    // Guards the obvious over-collapse: deduping on actionId alone would hide
+    // one of these, and "add Alex and Sam" would silently look like one add.
+    const steps = [
+      run({
+        id: "alex",
+        actionId: "location.add_to_circle",
+        message: "Added to Family.",
+        subject: { name: "Alex" },
+      }),
+      run({
+        id: "sam",
+        actionId: "location.add_to_circle",
+        message: "Added to Family.",
+        subject: { name: "Sam" },
+      }),
+    ];
+    expect(collapseRepeatedSteps(steps).map((s) => s.id)).toEqual(["alex", "sam"]);
+  });
+
+  it("keeps genuinely different steps of one task", () => {
+    const steps = [
+      run({ id: "nav", actionId: "location.open_now", message: "Opening Location" }),
+      run({ id: "act", actionId: "location.share_selected", message: "Sharing" }),
+    ];
+    expect(collapseRepeatedSteps(steps).map((s) => s.id)).toEqual(["nav", "act"]);
   });
 });
 
@@ -209,6 +275,60 @@ describe("VoiceWalkthroughPanel", () => {
 
     expect(onCancel).not.toHaveBeenCalled();
     expect(screen.queryByTestId("voice-walkthrough-panel")).toBeNull();
+  });
+
+  it("shows a repeated refusal once, not stacked", () => {
+    // Two attempts at the same blocked action, close enough together that
+    // currentTaskSteps groups them. The card must not read as two failures.
+    const first = appInteractionCoordinator.startActionRun({
+      actionId: "location.trigger_sos",
+      label: "Send an SOS",
+      source: "voice",
+    });
+    appInteractionCoordinator.finishActionRunFromSettlement(first.id, {
+      status: "blocked",
+      summary: "Add at least one emergency contact before sending an SOS.",
+    });
+    const second = appInteractionCoordinator.startActionRun({
+      actionId: "location.trigger_sos",
+      label: "Send an SOS",
+      source: "voice",
+    });
+    appInteractionCoordinator.finishActionRunFromSettlement(second.id, {
+      status: "blocked",
+      summary: "Add at least one emergency contact before sending an SOS.",
+    });
+
+    render(<VoiceWalkthroughPanel enabled />);
+
+    expect(
+      screen.getAllByText("Add at least one emergency contact before sending an SOS."),
+    ).toHaveLength(1);
+  });
+
+  it("does not truncate a long message -- the whole line stays readable", () => {
+    // The instruction the person has to act on lives in this sentence; an
+    // ellipsis in the middle of it hides the actionable half.
+    const long =
+      "Add at least one emergency contact before sending an SOS, then try again.";
+    const solo = appInteractionCoordinator.startActionRun({
+      actionId: "location.trigger_sos",
+      label: "Send an SOS",
+      source: "voice",
+    });
+    appInteractionCoordinator.finishActionRunFromSettlement(solo.id, {
+      status: "blocked",
+      summary: long,
+    });
+
+    render(<VoiceWalkthroughPanel enabled />);
+
+    const line = screen.getByText(long);
+    // `truncate` is what clipped it: overflow-hidden + nowrap + ellipsis.
+    // Asserting on the class is what actually pins the regression, since
+    // jsdom has no layout to measure a visual clip with.
+    expect(line.className).not.toContain("truncate");
+    expect(line.className).toContain("break-words");
   });
 
   it("shows a live step list for a multi-step task when enabled", () => {

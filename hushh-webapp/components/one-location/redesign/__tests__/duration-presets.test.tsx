@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHANGE_TIME_DURATION_LADDER,
   DurationPresetPicker,
   compactDurationLabel,
 } from "@/components/one-location/redesign/duration-presets";
@@ -135,6 +136,44 @@ describe("DurationPresetPicker", () => {
       expect(cell.className).toContain("min-h-11");
       expect(cell.className).not.toContain("h-9");
     }
+  });
+
+  it("drops the Custom cell and its wheel when allowCustom is false", () => {
+    // The live-share "New time" editor (issue #6228): the timed rungs plus the
+    // open-ended row are the whole choice.
+    render(
+      <DurationPresetPicker
+        value="1"
+        onChange={vi.fn()}
+        rungs={CHANGE_TIME_DURATION_LADDER}
+        untilStopValue="until_stopped"
+        allowCustom={false}
+      />,
+    );
+
+    expect(
+      screen.getAllByRole("button").map((node) => node.textContent),
+    ).toEqual(["15 min", "1 hour", "2 hours", "4 hours", "Until I stop"]);
+    expect(screen.queryByRole("button", { name: "Custom" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "8 hours" })).toBeNull();
+  });
+
+  it("never opens the wheel for an off-grid value when allowCustom is false", () => {
+    // The editor seeds on whatever the share has left — e.g. 2h45m. With no
+    // Custom cell there is nothing to close a wheel from, so it must stay shut
+    // and simply leave no rung pressed.
+    render(
+      <DurationPresetPicker
+        value="2.75"
+        onChange={vi.fn()}
+        rungs={CHANGE_TIME_DURATION_LADDER}
+        untilStopValue="until_stopped"
+        allowCustom={false}
+      />,
+    );
+
+    expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
+    expect(pressedLabels()).toEqual([]);
   });
 
   it("keeps the whole ladder focused: two presets, custom, and the open-ended row", () => {

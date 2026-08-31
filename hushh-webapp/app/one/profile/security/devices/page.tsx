@@ -40,7 +40,7 @@ interface TrustedDevice {
   revoked_at?: number | null;
   last_synced_at?: number | null;
   sealed_at?: number | null;
-  // Added by migration 186; a fresh value is the only evidence the agent is
+  // Added by migration 189; a fresh value is the only evidence the agent is
   // actually running, which last_synced_at can never establish.
   last_heartbeat_at?: number | null;
   heartbeat?: { current_model?: string; busy?: boolean } | null;

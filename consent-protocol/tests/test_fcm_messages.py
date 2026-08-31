@@ -431,8 +431,140 @@ def test_build_push_message_without_alert_is_data_only():
         "apns-push-type": "background",
         "apns-priority": "5",
     }
+    assert message.apns.payload.aps.alert is None
+    assert message.apns.payload.aps.sound is None
+    assert message.apns.payload.aps.badge is None
     assert message.apns.payload.aps.content_available is True
     assert message.apns.payload.aps.thread_id == "consent-request:test"
+
+
+def test_one_location_feed_only_transport_gate_overrides_alert_callers() -> None:
+    """Feed-only Location events must stay data-only at the FCM/APNs boundary."""
+
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    feed_only_types = (
+        "location_share_revoked",
+        "location_share_shortened",
+        "location_access_request_withdrawn",
+        "location_share_duration_changed",
+        "location_share_expired",
+        "location_circle_code_joined",
+        "location_circle_member_invite_accepted",
+    )
+    delivery_target = "ios-device-id"
+
+    for notification_type in feed_only_types:
+        message = build_push_message(
+            messaging,
+            token=delivery_target,
+            platform="ios",
+            data={
+                "type": notification_type,
+                "share_kind": "standard",
+                "title": "This must not become an alert title",
+                "body": "This must not become an alert body",
+                "image": "https://example.test/alert.png",
+            },
+            title="Caller requested alert title",
+            body="Caller requested alert body",
+            request_url="/one/location",
+            notification_tag=f"one-location-test:{notification_type}",
+            show_alert=True,
+        )
+        encoded = _MessagingService.encode_message(message)
+
+        assert message.notification is None, notification_type
+        assert "notification" not in encoded, notification_type
+        assert encoded["data"]["notification_presentation"] == "silent"
+        assert "title" not in encoded["data"], notification_type
+        assert "body" not in encoded["data"], notification_type
+        assert "image" not in encoded["data"], notification_type
+        assert encoded["apns"]["headers"] == {
+            "apns-push-type": "background",
+            "apns-priority": "5",
+        }
+        aps = encoded["apns"]["payload"]["aps"]
+        assert aps["content-available"] == 1, notification_type
+        assert "alert" not in aps, notification_type
+        assert "sound" not in aps, notification_type
+        assert "badge" not in aps, notification_type
+        assert "title" not in encoded["apns"]["payload"], notification_type
+        assert "body" not in encoded["apns"]["payload"], notification_type
+        assert "image" not in encoded["apns"]["payload"], notification_type
+
+
+def test_one_location_sos_revoke_still_allows_ios_alert() -> None:
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "ios-device-id"
+    message = build_push_message(
+        messaging,
+        token=delivery_target,
+        platform="ios",
+        data={
+            "type": "location_share_revoked",
+            "share_kind": "sos",
+        },
+        title="SMS location sharing stopped",
+        body="Alex stopped sharing location with you over SMS.",
+        request_url="/one/location",
+        notification_tag="one-location-revoked:sos-grant",
+        show_alert=True,
+    )
+    encoded = _MessagingService.encode_message(message)
+
+    assert message.notification is not None
+    assert encoded["notification"] == {
+        "title": "SMS location sharing stopped",
+        "body": "Alex stopped sharing location with you over SMS.",
+    }
+    aps = encoded["apns"]["payload"]["aps"]
+    assert aps["alert"] == {
+        "title": "SMS location sharing stopped",
+        "body": "Alex stopped sharing location with you over SMS.",
+    }
+    assert aps["sound"] == "one_location_sms_alarm.wav"
+    assert aps["category"] == "ONE_LOCATION_SMS_EMERGENCY"
+
+
+def test_one_location_direct_circle_member_added_still_allows_ios_alert() -> None:
+    """Directly adding someone to a Circle remains interruptive."""
+
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "ios-device-id"
+    message = build_push_message(
+        messaging,
+        token=delivery_target,
+        platform="ios",
+        data={
+            "type": "location_circle_member_added",
+            "circle_id": "circle-1",
+        },
+        title="Added to a Circle",
+        body='Alex added you to "Family".',
+        request_url="/one/location?tab=people&circleId=circle-1",
+        notification_tag="location-circle-member-added:circle-1",
+        show_alert=True,
+    )
+    encoded = _MessagingService.encode_message(message)
+
+    assert message.notification is not None
+    assert encoded["notification"] == {
+        "title": "Added to a Circle",
+        "body": 'Alex added you to "Family".',
+    }
+    aps = encoded["apns"]["payload"]["aps"]
+    assert aps["alert"] == {
+        "title": "Added to a Circle",
+        "body": 'Alex added you to "Family".',
+    }
+    assert aps["sound"] == "default"
+    assert aps["badge"] == 1
 
 
 def test_real_firebase_encoder_keeps_presentation_and_apns_data_top_level():
@@ -457,10 +589,15 @@ def test_real_firebase_encoder_keeps_presentation_and_apns_data_top_level():
         )
         encoded = _MessagingService.encode_message(message)
         assert encoded["data"]["notification_presentation"] == "silent"
+        assert "title" not in encoded["data"]
+        assert "body" not in encoded["data"]
+        assert "image" not in encoded["data"]
         assert "notification" not in encoded
         if platform == "ios":
             payload = encoded["apns"]["payload"]
             assert payload["aps"]["content-available"] == 1
+            assert "alert" not in payload["aps"]
+            assert "sound" not in payload["aps"]
             assert payload["type"] == "consent_resolved"
             assert "custom_data" not in payload
         else:

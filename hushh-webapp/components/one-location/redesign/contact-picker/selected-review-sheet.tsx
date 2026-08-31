@@ -145,7 +145,7 @@ export function SelectedContactsSheet({
                 const busy = busyUserId === recipient.userId;
                 return (
                   <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
-                    <ContactAvatar label={label} />
+                    <ContactAvatar label={label} photoUrl={recipient.photoUrl} />
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-start gap-1.5">
                         <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">

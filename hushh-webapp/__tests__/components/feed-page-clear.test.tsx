@@ -41,6 +41,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush }),
+  // FeedPage publishes its voice surface, and the publisher reads the current
+  // pathname to scope its route lease. Without this the whole tree throws
+  // before any Clear behaviour runs.
+  usePathname: () => "/one/feed",
 }));
 
 vi.mock("sonner", () => ({
@@ -200,7 +204,7 @@ describe("Feed Clear transaction", () => {
     expect(mocks.feedRowRender).not.toHaveBeenCalled();
     expect(screen.queryByText("row-5")).toBeNull();
     await waitFor(() =>
-      expect(screen.getByText("No notifications yet.")).toBeInTheDocument(),
+      expect(screen.getByText("No activity yet")).toBeInTheDocument(),
     );
   });
 

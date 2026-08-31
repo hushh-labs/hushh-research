@@ -75,7 +75,8 @@ function formattingIcon(action: FormattingAction) {
 }
 
 const LINK_RE = /^\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)$/i;
-const INLINE_TOKEN_RE = /(\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)\s]+\)|\*\*[^*]+\*\*|\*[^*]+\*|\+\+[^+]+\+\+)/g;
+const INLINE_TOKEN_RE =
+  /(\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)\s]+\)|\*\*.+?\*\*|\+\+.+?\+\+|\b_[^_]+_\b|(?<!\*)\*(?!\*).+?(?<!\*)\*(?!\*))/g;
 
 // Inline styles are intentional: the delivery HTML is rendered by Gmail and
 // cannot rely on the application's Tailwind classes.
@@ -105,7 +106,7 @@ function isSafeHref(value: string): boolean {
 /** Normalizes model JSON that accidentally exposes escaped line breaks or un-broken inline bullet lists. */
 export function normalizeRichEmailText(value: string): string {
   let normalized = value.replaceAll("\\r\\n", "\n").replaceAll("\\n", "\n");
-  normalized = normalized.replace(/([^\n])\s+[-*]\s+/g, "$1\n- ");
+  normalized = normalized.replace(/([^\n])\s+(?:[\-•]|\*(?!\*))\s+/g, "$1\n- ");
   return normalized;
 }
 
@@ -146,7 +147,7 @@ function parseBlocks(value: string): EmailBlock[] {
       index += 1;
       continue;
     }
-    const bullet = line.match(/^[-*•]\s+(.+)$/);
+    const bullet = line.match(/^[*•\-]\s+(.+)$/);
     const numbered = line.match(/^\d+[.)]\s+(.+)$/);
     if (bullet || numbered) {
       const ordered = Boolean(numbered);
@@ -154,7 +155,7 @@ function parseBlocks(value: string): EmailBlock[] {
       while (index < lines.length) {
         const candidate = ordered
           ? (lines[index] ?? "").match(/^\d+[.)]\s+(.+)$/)
-          : (lines[index] ?? "").match(/^[-*•]\s+(.+)$/);
+          : (lines[index] ?? "").match(/^[*•\-]\s+(.+)$/);
         if (!candidate) break;
         const cleanText = (candidate[1] ?? "").trim();
         items.push(cleanText);
@@ -177,7 +178,7 @@ function parseBlocks(value: string): EmailBlock[] {
       const lineCandidate = lines[index] ?? "";
       if (
         paragraph.length > 0 &&
-        (/^[-*•]\s+/.test(lineCandidate) || /^\d+[.)]\s+/.test(lineCandidate))
+        (/^[*•\-]\s+/.test(lineCandidate) || /^\d+[.)]\s+/.test(lineCandidate))
       ) {
         break;
       }
@@ -284,6 +285,20 @@ export function EmailRichTextPreview({
   value: string;
   className?: string;
 }) {
+  const isHtml = value.trim().startsWith("<") && value.includes(">");
+  if (isHtml) {
+    const cleanHtml = typeof window !== "undefined" ? sanitizePastedHtml(value) : value;
+    return (
+      <div
+        className={cn(
+          "space-y-3 text-[15px] leading-7 text-foreground [&_p]:mb-4 [&_p:last-child]:mb-0 [&_ul]:mb-4 [&_ul]:pl-6 [&_ul]:list-disc [&_ol]:mb-4 [&_ol]:pl-6 [&_ol]:list-decimal [&_li]:mb-1 [&_blockquote]:mb-4 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/40 [&_blockquote]:pl-3 [&_blockquote]:italic [&_h1]:mb-3 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold",
+          className,
+        )}
+        dangerouslySetInnerHTML={{ __html: cleanHtml }}
+      />
+    );
+  }
+
   return (
     <div className={cn("space-y-3 text-[15px] leading-7 text-foreground", className)}>
       {parseBlocks(value).map((block, index) => {

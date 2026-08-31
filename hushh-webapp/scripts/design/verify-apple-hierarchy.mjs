@@ -112,9 +112,9 @@ for (const [token, value] of [
   ["--type-agent-tab-label-line", "20px"],
   ["--type-agent-tab-label-weight", "500"],
   ["--type-agent-tab-label-tracking", "normal"],
-  ["--app-card-radius-compact", "24px"],
-  ["--app-card-radius-standard", "24px"],
-  ["--app-card-radius-feature", "24px"],
+  ["--app-card-radius-compact", "16px"],
+  ["--app-card-radius-standard", "18px"],
+  ["--app-card-radius-feature", "20px"],
 ]) {
   if (!globals.includes(`${token}: ${value};`)) {
     failures.push(`app/globals.css: ${token} must stay ${value}`);

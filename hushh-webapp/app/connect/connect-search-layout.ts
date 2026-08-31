@@ -2,10 +2,10 @@
  * Geometry for Connect's search row, in one place both the screen and the
  * browser layout contract read from.
  *
- * The row is a search field and a selection toggle sharing one line. QA found
- * it clipped on a phone: the placeholder rendered as "Search people by nam".
- * Three separate things were spending the row's width, and only one of them
- * was the label:
+ * The row is now only the search field. QA found the older side-by-side
+ * search/select row clipped on a phone: the placeholder rendered as
+ * "Search people by nam". Three separate things were spending the row's width,
+ * and only one of them was the label:
  *
  *  1. The placeholder was five words where two carry the meaning.
  *  2. The toggle said "Select multiple" -- ~55px explaining a mode whose own
@@ -23,7 +23,7 @@
 export const CONNECT_SEARCH_PLACEHOLDER = "Search people";
 
 /** Left inset clears the search glyph; the right one is conditional. */
-export const CONNECT_SEARCH_INPUT_CLASSNAME = "h-10 pl-11";
+export const CONNECT_SEARCH_INPUT_CLASSNAME = "h-11 pl-11";
 
 /** Added only while the clear button is actually in the gutter. */
 export const CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME = "pr-11";
@@ -32,16 +32,14 @@ export const CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME = "pr-11";
 export const CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME = "pr-3.5";
 
 /**
- * The selection toggle, at a fixed width so switching between "Select many"
- * and "Cancel" cannot resize the search field beside it.
+ * The selection toggle, at a fixed width so switching between "Select"
+ * and "Cancel" cannot resize the directory header beside it.
  *
- * 104px, not 84px: the label has to say that it selects MORE THAN ONE person
- * before it is pressed. "Select" alone read as "select this one", which is the
- * opposite of what the control does. The width is measured against the widest
- * of the two labels at 320px in `connect-circle-cta.layout.spec.ts`.
+ * 72px clears the wider "Cancel" label while keeping the directory name as
+ * the dominant control in the header.
  */
 export const CONNECT_SELECT_TOGGLE_CLASSNAME =
-  "h-10 min-h-10 w-[104px] shrink-0 rounded-full px-0 text-[15px] font-semibold leading-5";
+  "h-10 min-h-10 w-[72px] shrink-0 rounded-full px-0 text-[15px] font-semibold leading-5";
 
 /** Gap between the field and the toggle (`gap-2`). */
 export const CONNECT_SEARCH_ROW_GAP_PX = 8;
@@ -53,12 +51,9 @@ export const CONNECT_SEARCH_ROW_GAP_PX = 8;
 /**
  * THE PAGER ROW.
  *
- * One line at every width. It used to be `flex-col ... sm:flex-row`, so on
- * every phone the app actually ships to it broke into "Page 1 - Per page [8]"
- * and, underneath, a right-aligned "Prev  Next" -- four fragments with three
- * different alignments stacked at the bottom of the card. The size control and
- * the buttons that walk the list belong on the same line: they are the two
- * halves of one decision.
+ * One quiet footer row inside the grouped list. Phone widths show only the
+ * visible range and icon buttons; larger widths add the compact page-size
+ * control only when it can help.
  *
  * `justify-between` rather than a spacer, and both clusters keep their
  * intrinsic width, so the row's total is measured rather than assumed. See
@@ -66,28 +61,23 @@ export const CONNECT_SEARCH_ROW_GAP_PX = 8;
  * shipped phone width.
  */
 export const CONNECT_PAGER_ROW_CLASSNAME =
-  "flex items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3";
+  "flex min-h-14 items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] px-4 py-1 shadow-none";
 
 /**
  * The per-page select.
  *
- * 68px, not 74px: the widest option is two digits, and the row now has to hold
- * Prev and Next beside it on a 320px screen. Every pixel this control does not
- * need is a pixel the row cannot afford to give it.
+ * The label is the value: "20 per page". It stays compact and disappears on
+ * phone widths where page size is fixed.
  */
 export const CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME =
-  "h-8 min-h-8 w-[68px] shrink-0 rounded-2xl text-[15px] font-medium leading-5";
+  "h-9 min-h-9 w-auto min-w-[108px] shrink-0 rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-3 text-[14px] font-medium leading-5 shadow-none hover:bg-[color:var(--app-tertiary-fill)]";
 
 /**
- * "Page 1", under the control rather than beside it.
- *
- * Deliberately smaller than `ui-text-helper-text` (13px) and a step quieter in
- * colour: it is the only thing in the row that is a READING of the list rather
- * than a way to change it, and at the same size it competed with the label of
- * the control it sits under.
+ * Visible range, not page chrome. Tabular numbers keep the footer steady while
+ * moving through the directory.
  */
 export const CONNECT_PAGE_STATUS_CLASSNAME =
-  "font-[family-name:var(--font-app-body)] text-[11px] font-normal leading-4 tracking-[0.01em] tabular-nums text-[color:var(--app-tertiary-label)]";
+  "font-[family-name:var(--font-app-body)] text-[14px] font-medium leading-5 tracking-normal tabular-nums text-[color:var(--app-secondary-label)]";
 
 /**
  * Prev, Next and "Load more connections". Lives here rather than in the screen
@@ -97,8 +87,8 @@ export const CONNECT_PAGER_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 
 /**
- * Prev and Next only. `px-2.5`, not `px-3`, for the same reason the select
- * shrank: the row is measured at 320px and the two buttons are the half of it
- * that cannot be dropped. `min-w-[44px]` keeps the touch target legal.
+ * Previous/next only. Icon buttons, never filled pills; the full 44px hit area
+ * remains visible even when disabled.
  */
-export const CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME = "min-w-[44px] px-2.5";
+export const CONNECT_PAGER_BUTTON_EXTRA_CLASSNAME =
+  "!h-11 !min-h-11 !w-11 !min-w-11 rounded-full bg-transparent !p-0 text-[color:var(--app-secondary-label)] shadow-none hover:bg-[color:var(--app-secondary-fill)] hover:text-[color:var(--app-label)] disabled:opacity-35";

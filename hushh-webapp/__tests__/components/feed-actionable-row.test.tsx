@@ -26,7 +26,7 @@ describe("FeedActionableRow", () => {
           icon: Siren,
           iconTone: "red",
           emphasis: "emergency",
-          title: "Mom triggered an SOS",
+          title: "Mom sent an SMS",
           description: "Emergency SMS — sharing live location with you now.",
           href: "/one/location?grantId=g1&open=1&section=shared",
           chevron: true,
@@ -37,7 +37,7 @@ describe("FeedActionableRow", () => {
     const frame = screen.getByTestId("feed-sms-emergency");
     expect(frame).toHaveAttribute("role", "alert");
     expect(frame).toHaveClass("border-destructive/45");
-    expect(screen.getByText("Mom triggered an SOS")).toBeInTheDocument();
+    expect(screen.getByText("Mom sent an SMS")).toBeInTheDocument();
   });
 
   it("shows a small green live dot before the description on a live SOS card only", () => {
@@ -47,7 +47,7 @@ describe("FeedActionableRow", () => {
           icon: Siren,
           iconTone: "red",
           emphasis: "emergency",
-          title: "Mom triggered an SOS",
+          title: "Mom sent an SMS",
           description: "Emergency SMS - Sent.",
         })}
       />,
@@ -59,7 +59,7 @@ describe("FeedActionableRow", () => {
         item={actionable({
           icon: Siren,
           iconTone: "red",
-          title: "Mom triggered an SOS",
+          title: "Mom sent an SMS",
           description: "Emergency SMS - Revoked",
         })}
       />,
@@ -199,7 +199,7 @@ describe("FeedActionableRow", () => {
         item={actionable({
           icon: Siren,
           iconTone: "red",
-          title: "Mom triggered an SOS",
+          title: "Mom sent an SMS",
           description: "Emergency SMS - Revoked",
           href: "/one/location?grantId=g1&open=1&section=shared",
           chevron: true,
@@ -209,7 +209,7 @@ describe("FeedActionableRow", () => {
     );
 
     expect(screen.queryByTestId("feed-sms-emergency")).toBeNull();
-    expect(screen.getByText("Mom triggered an SOS")).toBeInTheDocument();
+    expect(screen.getByText("Mom sent an SMS")).toBeInTheDocument();
     expect(container.querySelector('[data-icon-tone="red"]')).not.toBeNull();
   });
 
@@ -223,7 +223,7 @@ describe("FeedActionableRow", () => {
       vi.useRealTimers();
     });
 
-    it("shows the formatted day/time label when displayTimestamp is set", () => {
+    it("shows the formatted local time label when displayTimestamp is set", () => {
       render(
         <FeedActionableRow
           item={actionable({
@@ -233,7 +233,7 @@ describe("FeedActionableRow", () => {
         />,
       );
 
-      expect(screen.getByText(/^Today - 03:45\s?PM$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^03:45\s?PM$/i)).toBeInTheDocument();
     });
 
     it("shows no time label when displayTimestamp is null", () => {
@@ -265,7 +265,7 @@ describe("FeedActionableRow", () => {
         />,
       );
 
-      expect(screen.getByText(/^Today - 03:45\s?PM$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^03:45\s?PM$/i)).toBeInTheDocument();
       expect(screen.getByText("Row description")).toBeInTheDocument();
     });
   });

@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 
+import type { ApproveDurationOption } from "@/lib/one-location/approve-duration-options";
 import { cn } from "@/lib/utils";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -57,6 +58,7 @@ function initialsFrom(name: string): string {
 
 export function TrustedPersonCard({
   name,
+  photoUrl,
   subtitle,
   tone = "ready",
   statusLabel,
@@ -74,6 +76,7 @@ export function TrustedPersonCard({
   expandedContent,
 }: {
   name: string;
+  photoUrl?: string | null;
   subtitle?: string;
   tone?: "ready" | "pending" | "neutral";
   statusLabel?: string;
@@ -114,7 +117,7 @@ export function TrustedPersonCard({
       )}
     >
       <div className="flex items-center gap-3">
-        <Avatar initials={initialsFrom(name)} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} />
         <div className="min-w-0 flex-1">
           <MediumRowLabel
             as="p"
@@ -192,6 +195,7 @@ export function TrustedPersonCard({
 
 export function ActiveShareCard({
   name,
+  photoUrl,
   expiryLabel,
   metaLabel,
   onStop,
@@ -200,6 +204,7 @@ export function ActiveShareCard({
   extendBusy,
 }: {
   name: string;
+  photoUrl?: string | null;
   expiryLabel: string;
   metaLabel?: string;
   onStop: () => void;
@@ -210,7 +215,7 @@ export function ActiveShareCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
       <div className="flex items-center gap-3">
-        <Avatar initials={initialsFrom(name)} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} />
         <div className="min-w-0 flex-1">
           <MediumRowLabel as="p" className="truncate">
             Sharing with {name}
@@ -260,36 +265,80 @@ export function ActiveShareCard({
 
 export function RequestCard({
   name,
+  photoUrl,
   promptLine,
   reason,
   approveLabel = "Approve",
   onApprove,
+  shorterApprovals,
+  onApproveShorter,
   onDecline,
 }: {
   name: string;
+  photoUrl?: string | null;
   promptLine: string;
   reason?: string;
   approveLabel?: string;
-  onApprove: () => void;
-  onDecline: () => void;
+  onApprove: () => void | boolean | Promise<void | boolean>;
+  /**
+   * Amounts below what was asked, ascending. Empty or omitted when the ask is
+   * already at the floor, or carries no readable amount to be shorter than.
+   *
+   * This replaced a single hard-coded "Allow 1 hour". Reported: "i received
+   * access req for 4 hours ... if i want to edit the time, and want to approve
+   * req for shorter duration i am not allowed to do so". One fixed step is not
+   * a choice, and it disappeared entirely for anything asked at an hour or
+   * less -- so the card's real answer set was "all of it" or "nothing".
+   *
+   * The amounts come from `lib/one-location/approve-duration-options`, which
+   * is also what guarantees none of them is LONGER than the ask.
+   */
+  shorterApprovals?: readonly ApproveDurationOption[];
+  onApproveShorter?: (hours: number) => void | boolean | Promise<void | boolean>;
+  onDecline: () => void | boolean | Promise<void | boolean>;
 }) {
-  // Latch the decision on THIS card, the moment it is pressed.
+  // Latch the decision on THIS card once the pressed action settles.
   //
   // Two problems this solves. First, `approveBusy` is derived from one global
   // busy value, so approving a single request put a spinner on EVERY card in
-  // the list. Second, that spinner was held across three sequential server
-  // calls — approve, publish the encrypted point, reload state — none of which
-  // the person is waiting to see. They pressed Approve; the answer is "yes".
+  // the list. Second, a failed approval used to look approved because the card
+  // answered before the callback could report failure.
   //
-  // So the card answers immediately and the work continues behind it. The same
-  // latch blocks a second press, which is what makes the optimism safe.
+  // The per-card pending state blocks double taps without turning the whole
+  // needs-review list into one global spinner.
   const [decision, setDecision] = useState<"approved" | "declined" | null>(null);
-  const decided = decision !== null;
+  // `shorter:<hours>` so only the tapped amount spins, not the whole row.
+  const [pendingDecision, setPendingDecision] = useState<string | null>(null);
+  const decided = decision !== null || pendingDecision !== null;
+  const shorterOptions =
+    onApproveShorter && shorterApprovals?.length ? shorterApprovals : [];
+  const hasShorterApprovals = shorterOptions.length > 0;
+
+  const settleDecision = async (
+    nextDecision: "approved" | "declined",
+    // "approve" | "decline" | `shorter:<hours>` -- a string, because the
+    // shorter amounts are data now rather than one hard-coded rung.
+    pending: string,
+    action: () => void | boolean | Promise<void | boolean>,
+  ) => {
+    if (decided) return;
+    setPendingDecision(pending);
+    try {
+      const result = await action();
+      if (result === false) {
+        setPendingDecision(null);
+        return;
+      }
+      setDecision(nextDecision);
+    } catch {
+      setPendingDecision(null);
+    }
+  };
 
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} size={40} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
         <div className="min-w-0 flex-1">
           <MediumRowLabel as="p">
             {name}
@@ -324,28 +373,61 @@ export function RequestCard({
           {decision === "approved" ? "Approved" : "Declined"}
         </StatusText>
       ) : (
-        <div className="mt-3.5 grid grid-cols-1 gap-2.5 min-[430px]:grid-cols-[0.82fr_1.18fr]">
+        <div className="mt-3.5 space-y-2.5">
+          {/* The full ask stays the primary answer: it is what was actually
+              requested, and most of the time it is what gets granted. */}
           <Button
-            onClick={() => {
-              if (decided) return;
-              setDecision("approved");
-              onApprove();
-            }}
+            onClick={() => void settleDecision("approved", "approve", onApprove)}
             disabled={decided}
-            // Deliberately not `isLoading`: the card has already answered. A
-            // spinner here would reintroduce the wait it was pressed to remove.
-            className="ui-text-button-label order-1 h-11 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 min-[430px]:order-2"
+            isLoading={pendingDecision === "approve"}
+            className="ui-text-button-label h-11 w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             {approveLabel}
           </Button>
+
+          {hasShorterApprovals ? (
+            <div className="space-y-2">
+              {/* Named, because the complaint was not that the shorter answer
+                  was hard to reach -- it was that nothing on the card said it
+                  existed. Every amount here is less than what was asked. */}
+              <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                Or approve for less
+              </p>
+              <div
+                className="grid grid-cols-2 gap-2"
+                data-testid="one-location-approve-shorter"
+              >
+                {shorterOptions.map((option) => {
+                  const key = `shorter:${option.hours}`;
+                  return (
+                    <Button
+                      key={key}
+                      onClick={() =>
+                        void settleDecision("approved", key, () =>
+                          onApproveShorter?.(option.hours),
+                        )
+                      }
+                      disabled={decided}
+                      isLoading={pendingDecision === key}
+                      // The visible label is the amount; the spoken one says
+                      // what pressing it does, because four buttons reading
+                      // only "1 hour" tell a screen reader nothing.
+                      aria-label={`Approve for ${option.label} instead`}
+                      className="ui-text-button-label h-11 min-w-0 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80"
+                    >
+                      {option.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <Button
-            onClick={() => {
-              if (decided) return;
-              setDecision("declined");
-              onDecline();
-            }}
+            onClick={() => void settleDecision("declined", "decline", onDecline)}
             disabled={decided}
-            className="ui-text-button-label order-2 h-11 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80 min-[430px]:order-1"
+            isLoading={pendingDecision === "decline"}
+            className="ui-text-button-label h-11 w-full rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80"
           >
             Decline
           </Button>
@@ -379,6 +461,7 @@ export type GrantViewStatus = {
 
 export function SharedWithMeCard({
   name,
+  photoUrl,
   statusLine,
   onView,
   onDismiss,
@@ -399,6 +482,7 @@ export function SharedWithMeCard({
   shareLanes,
 }: {
   name: string;
+  photoUrl?: string | null;
   statusLine: ReactNode;
   onView: () => void;
   onDismiss?: () => void;
@@ -458,7 +542,7 @@ export function SharedWithMeCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 rounded-[18px] p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} size={40} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
         <div className="min-w-0 flex-1">
           <RowLabel as="p">
             {name}
@@ -627,7 +711,7 @@ export function SharedWithMeCard({
               rel="noopener noreferrer"
               aria-label="Open shared location in Google Maps"
             >
-              Open in Maps
+              Open in Google Maps
               <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
             </a>
           </Button>

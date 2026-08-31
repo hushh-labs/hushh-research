@@ -64,6 +64,7 @@ export type OneLocationRecommendationReason = {
 export type OneLocationRecipient = {
   userId: string;
   displayName: string;
+  photoUrl?: string | null;
   maskedPhone?: string | null;
   phoneVerified: boolean;
   keyId?: string | null;
@@ -179,8 +180,10 @@ export type OneLocationGrant = {
   ownerUserId: string;
   recipientUserId: string;
   ownerDisplayName?: string | null;
+  ownerPhotoUrl?: string | null;
   ownerMaskedPhone?: string | null;
   recipientDisplayName?: string | null;
+  recipientPhotoUrl?: string | null;
   recipientMaskedPhone?: string | null;
   recipientKeyId: string;
   status: "active" | "expired" | "revoked" | string;
@@ -213,7 +216,11 @@ export type OneLocationAccessRequest = {
   ownerUserId: string;
   requesterUserId: string;
   requesterDisplayName?: string | null;
+  requesterPhotoUrl?: string | null;
   requesterMaskedPhone?: string | null;
+  ownerDisplayName?: string | null;
+  ownerPhotoUrl?: string | null;
+  ownerMaskedPhone?: string | null;
   referredByUserId?: string | null;
   status: "pending" | "approved" | "denied" | "cancelled" | string;
   message?: string | null;
@@ -757,6 +764,17 @@ export type OneLocationStoredEnvelope = {
 };
 
 export type OneLocationMapPreferences = {
+  /**
+   * General map visibility. "ghost" hides this account from its connections at
+   * large; "foreground_private" does not.
+   *
+   * It is NOT a switch over private sharing. An active grant is delivered to
+   * the one person it names in either mode, because creating that grant was
+   * already the decision to be seen by them -- the server used to require both
+   * and, since this defaults to "ghost", that made private sharing silently
+   * inert by default. See `list_map_state` in
+   * `consent-protocol/hushh_mcp/services/one_location_agent_service.py`.
+   */
   presenceMode: "ghost" | "foreground_private";
   rendererConsentVersion?: string | null;
   updatedAt?: string | null;

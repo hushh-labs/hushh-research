@@ -332,7 +332,7 @@ describe("useLocationChat — action dispatcher", () => {
     mockChat
       .mockResolvedValueOnce({
         conversationId: "c2",
-        response: "I'll show you their location.",
+        response: "I'll show you location.",
         isComplete: true,
         stateChanged: false,
         clientAction: {
@@ -369,7 +369,7 @@ describe("useLocationChat — action dispatcher", () => {
     );
 
     await act(async () => {
-      await result.current.send("show me their location");
+      await result.current.send("show me location");
     });
     expect(result.current.pendingAction?.type).toBe("view_envelope");
 
@@ -396,7 +396,7 @@ describe("useLocationChat — action dispatcher", () => {
     mockChat
       .mockResolvedValueOnce({
         conversationId: "c-noid",
-        response: "I'll show you their location.",
+        response: "I'll show you location.",
         isComplete: true,
         stateChanged: false,
         clientAction: {
@@ -418,7 +418,7 @@ describe("useLocationChat — action dispatcher", () => {
     );
 
     await act(async () => {
-      await result.current.send("show me their location");
+      await result.current.send("show me location");
     });
     expect(result.current.pendingAction?.type).toBe("view_envelope");
 

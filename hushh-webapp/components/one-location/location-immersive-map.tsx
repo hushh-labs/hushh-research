@@ -32,6 +32,9 @@ import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import {
+  MAP_CONSENT_HEADING_ICON_CLASSNAME,
+  MAP_CONSENT_HEADING_ROW_CLASSNAME,
+  MAP_CONSENT_HEADING_TITLE_CLASSNAME,
   MAP_CONSENT_PANEL_BOTTOM_PADDING,
   MAP_CONSENT_PANEL_CLASSNAME,
   MAP_CONSENT_SUPPORTING_LINE,
@@ -46,6 +49,8 @@ import {
   type NearbyCheckInPlaceFocus,
 } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -435,9 +440,7 @@ function radiusBounds(
   radiusMeters: number,
 ) {
   const latitudeDelta = radiusMeters / 111_320;
-  const longitudeScale = Math.abs(
-    Math.cos((point.latitude * Math.PI) / 180),
-  );
+  const longitudeScale = Math.abs(Math.cos((point.latitude * Math.PI) / 180));
   const longitudeDelta = Math.min(
     180,
     radiusMeters / (111_320 * Math.max(longitudeScale, 0.000001)),
@@ -509,7 +512,7 @@ function pairBounds(
 /**
  * `surface` decides which product this screen is.
  *
- * "map" is Your Map: the people who already share their location with you,
+ * "map" is Your Map: the people who already share location with you,
  * pinned, plus your own position. "check-in" is the nearby flow: a place you
  * pick, the 500 m area around it, and a list of opted-in people there. They
  * were the same route with a drawer on top, so both read as one feature and QA
@@ -649,7 +652,27 @@ export function LocationImmersiveMap({
   // shares carry no coordinate to plot.
   const [activeShareCount, setActiveShareCount] = useState<number | null>(null);
   const [activeShareNames, setActiveShareNames] = useState<string[]>([]);
+  /**
+   * The same number, resolved and named for what it is to the reader.
+   *
+   * "Private sharing with 2 people" and "3 people sharing with you" are two
+   * different facts about two different audiences, and the sheet used to
+   * present neither: one was a floating chip over the map, the other was only
+   * inferable from how many pins happened to be drawn. They are two labelled
+   * rows now, above the Ghost control, because the whole point of the rule
+   * Ghost obeys is that these two audiences are not the same audience.
+   *
+   * Null means "not fetched yet", which is not the same as zero and must not
+   * be rendered as "sharing with 0".
+   */
+  const privateShareCount = activeShareCount ?? 0;
+  const privateShareCountKnown = activeShareCount !== null;
   const [sharingPopoverOpen, setSharingPopoverOpen] = useState(false);
+  /** The in-sheet twin of `sharingPopoverOpen`: the header chip's popover
+   *  opens over the map, which is the wrong place to answer a question asked
+   *  from a row at the bottom of the sheet. Collapsed by default so the sheet
+   *  keeps its height until somebody asks who the shares are with. */
+  const [privateSharesExpanded, setPrivateSharesExpanded] = useState(false);
   const [selected, setSelected] = useState<RenderMarker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
@@ -660,7 +683,7 @@ export function LocationImmersiveMap({
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
   // Why the map is unavailable. Both causes used to render the same card, which
-  // told the user "no location was captured or exposed" when their location was
+  // told the user "no location was captured or exposed" when location was
   // fine and the build simply had no Maps key — sending them to debug the wrong
   // thing entirely.
   const [unavailableReason, setUnavailableReason] = useState<
@@ -916,7 +939,9 @@ export function LocationImmersiveMap({
         },
       );
       return request;
-    }, []);
+    },
+    [],
+  );
 
   // Forwards `options` deliberately. Declared with no parameters, this silently
   // dropped a caller's `maxAgeMs: 0` — TypeScript accepts the narrower arity, so
@@ -1051,7 +1076,10 @@ export function LocationImmersiveMap({
         (item): item is RenderMarker => item !== null,
       );
       setPreferences(state.preferences);
-      if (Number.isFinite(state.freshnessSeconds) && state.freshnessSeconds > 0) {
+      if (
+        Number.isFinite(state.freshnessSeconds) &&
+        state.freshnessSeconds > 0
+      ) {
         setFreshnessSeconds(state.freshnessSeconds);
       }
       const nextSignature = markerSignature(nextMarkers);
@@ -1237,8 +1265,7 @@ export function LocationImmersiveMap({
     const cachedPoint = rendererReady
       ? readLocationWorkspaceMemory(auth.userId).myLocationPoint
       : null;
-    const superseded = () =>
-      cancelled || isNativeMapSuperseded(MAP_ID, claim);
+    const superseded = () => cancelled || isNativeMapSuperseded(MAP_ID, claim);
 
     void withNativeMapLock(MAP_ID, async () => {
       // Never touch the bridge on behalf of a mount that is already gone: the
@@ -1621,7 +1648,10 @@ export function LocationImmersiveMap({
           )
         : null;
       const mobileSheetInset = checkInSheet
-        ? Math.max(0, window.innerHeight - checkInSheet.getBoundingClientRect().top)
+        ? Math.max(
+            0,
+            window.innerHeight - checkInSheet.getBoundingClientRect().top,
+          )
         : 0;
       const padding = {
         top: Math.ceil(top + 12),
@@ -1712,8 +1742,7 @@ export function LocationImmersiveMap({
           )
         : null;
       const desktopCheckInOpen =
-        nearbyCheckInOpen &&
-        window.matchMedia("(min-width: 768px)").matches;
+        nearbyCheckInOpen && window.matchMedia("(min-width: 768px)").matches;
       const mobileSheetInset =
         checkInSheet && !desktopCheckInOpen
           ? Math.max(0, rect.bottom - checkInSheet.getBoundingClientRect().top)
@@ -1971,7 +2000,9 @@ export function LocationImmersiveMap({
     const generation = ++markerGenerationRef.current;
     let cancelled = false;
     const enqueue = (command: () => Promise<void>): Promise<void> => {
-      const next = markerCommandRef.current.catch(() => undefined).then(command);
+      const next = markerCommandRef.current
+        .catch(() => undefined)
+        .then(command);
       markerCommandRef.current = next.catch(() => undefined);
       return next;
     };
@@ -2020,11 +2051,14 @@ export function LocationImmersiveMap({
           // per-pin styling this bridge exposes -- `title` cannot carry it,
           // because the web renderer paints titles across the map as a glyph
           // (see above) -- so the colour is where staleness has to be said.
-          tintColor: isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)
+          tintColor: isStaleAt(
+            marker.capturedAt,
+            freshnessSeconds,
+            staleClockMs,
+          )
             ? STALE_TINT
             : marker.tint,
-          zIndex:
-            marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
+          zIndex: marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
         };
       });
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
@@ -2117,21 +2151,25 @@ export function LocationImmersiveMap({
         presenceMode: nextMode,
       });
       setPreferences(next);
+      // "Nobody sees you on their map" was the old copy, and it described the
+      // old bug rather than the feature: it was true only because Ghost Mode
+      // was silently cancelling private shares the person had deliberately
+      // started. It says what it actually does now, and names the audience it
+      // does NOT touch -- the toggle sits directly above that count on the
+      // sheet, so the two lines have to agree.
       toast.success(
         nextMode === "ghost"
-          ? "Ghost Mode is on. Nobody sees you on their map."
-          // "Tap Locate me to appear" was true while the locate button was the
-          // only thing that ever published a map-visible position. Sharing does
-          // it now, so telling somebody to go and tap something else would send
-          // them looking for a step that no longer exists.
-          : "You will appear on the map of anyone you share with.",
+          ? privateShareCount > 0
+            ? `Ghost Mode is on. The ${privateShareCount === 1 ? "person" : `${privateShareCount} people`} you share with privately can still see you.`
+            : "Ghost Mode is on. You are hidden from your connections."
+          : "You are visible to your connections again.",
       );
     } catch {
       toast.error("Map visibility could not be updated.");
     } finally {
       setBusy(null);
     }
-  }, [demoMode, preferences.presenceMode, vaultOwnerToken]);
+  }, [demoMode, preferences.presenceMode, privateShareCount, vaultOwnerToken]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
     setSelected(marker);
@@ -2175,12 +2213,20 @@ export function LocationImmersiveMap({
         toast.success("Centered on your device location.");
         return;
       }
-      if (preferences.presenceMode !== "foreground_private") {
-        toast.message(
-          "Ghost Mode is on. Only you can see this.",
-        );
-        return;
-      }
+      // Ghost Mode used to stop here, and that was the bug.
+      //
+      // Every envelope below is encrypted to ONE named recipient's key and
+      // exists only because this person created a grant for them, for a
+      // duration they chose. Withholding it did not protect anybody: it broke
+      // the share they had already agreed to, on the default setting
+      // (`presenceMode` defaults to "ghost"), while the recipient's Location
+      // screen went on saying "sharing with you". Reported from the other end
+      // as "Ankit is sharing his location privately with me but I can not see
+      // him on my map"; the server half of the same gate is gone from
+      // `list_map_state`.
+      //
+      // Ghost Mode is a control over the GENERAL audience -- people who were
+      // never handed a share -- and it does not reach in here.
       const state = await OneLocationService.getState(vaultOwnerToken);
       const recipientsByKey = new Map(
         state.recipients.map((recipient) => [
@@ -2196,6 +2242,18 @@ export function LocationImmersiveMap({
         const names = activeShareLabels(state.ownerGrants);
         setActiveShareCount(names.length);
         setActiveShareNames(names);
+      }
+      // Nothing to send is not a failure, and it must not be reported as one.
+      // It is also the one place Ghost Mode is worth mentioning on this path:
+      // with no grants the only thing keeping you off every map is the general
+      // audience, which is exactly what the toggle governs.
+      if (grants.length === 0) {
+        toast.message(
+          preferences.presenceMode === "ghost"
+            ? "Ghost Mode is on, and you aren't sharing with anyone yet."
+            : "You aren't sharing your location with anyone yet.",
+        );
+        return;
       }
       await Promise.all(
         grants.map(async (grant) => {
@@ -2289,16 +2347,94 @@ export function LocationImmersiveMap({
     }
     return markers.length > 0
       ? `${markers.length} on your map`
-      : "No one sharing yet";
+      : // "No one sharing yet" beside a subtitle reading "Sharing with 1" was
+        // the reported contradiction. Naming the audience resolves it without
+        // making the row any longer.
+        "No one sharing with you yet";
   }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
   // Only when it adds something the title cannot. Restating the title in
   // smaller grey type is the noise this tray had most of.
+  /**
+   * INCOMING: people whose live location is on this map.
+   *
+   * `markers` is exactly that -- it is built from grants where the viewer is
+   * the recipient -- so this number is never affected by the viewer's own
+   * Ghost Mode, and the empty-state line under it says so, because "I turned
+   * on Ghost and now my map is empty" is the confusion the old two-pill row
+   * invited.
+   */
+  const incomingShareLabel =
+    markers.length === 0
+      ? "No one sharing with you"
+      : markers.length === 1
+        ? "1 person sharing with you"
+        : `${markers.length} people sharing with you`;
+
+  /** OUTGOING: people this account is sharing with. A different audience from
+   *  the one above, and the reason the two get separate rows. */
+  const privateShareLabel = !privateShareCountKnown
+    ? "Private sharing"
+    : privateShareCount === 0
+      ? "Not sharing with anyone privately"
+      : privateShareCount === 1
+        ? "Private sharing with 1 person"
+        : `Private sharing with ${privateShareCount} people`;
+
+  /**
+   * Only when it adds something the title cannot -- and the outgoing count no
+   * longer qualifies.
+   *
+   * This line used to read "Sharing with 1" under a title reading "No one
+   * sharing yet": two true statements about two different audiences, stacked
+   * as though they were one, which reads as a contradiction and was reported
+   * as one. The fix is not to reword it here. The sheet below now states both
+   * audiences in full, in their own labelled rows -- and this header only
+   * renders while the sheet is expanded, so keeping the count here as well
+   * would print the same fact twice on the same screen.
+   *
+   * What stays is the nearby radius, which nothing else says.
+   */
   const peopleDrawerSubtitle = nearbyPresenceState.presence
     ? `Within ${nearbyPresenceState.presence.radiusMeters} m · exact spots stay private`
-    : (activeShareCount ?? 0) > 0
-      ? `Sharing with ${activeShareCount}`
-      : null;
+    : null;
+
+  const privateShareHint = !privateShareCountKnown
+    ? "Checking your active shares…"
+    : privateShareCount > 0
+      ? // The lifetime, because it is the thing a person actually wonders
+        // about a share they started days ago -- and because it is now true
+        // without an asterisk: Ghost Mode no longer ends it early.
+        "Runs until you stop it or it expires"
+      : "Start one from Location to appear on their map";
+
+  /** Anything other than an explicit "visible" is treated as hidden, so an
+   *  unrecognised value from an older server errs toward privacy. */
+  const isGhostMode = preferences.presenceMode !== "foreground_private";
+
+  /**
+   * The rule, stated where it is switched.
+   *
+   * The old control said "Ghost Mode is on. Nobody sees you on their map",
+   * which was true only because Ghost was silently cancelling private shares
+   * the person had deliberately started. With that gone, the sentence has to
+   * name the audience it does not touch -- and it sits directly under the
+   * count of that audience, so the two lines are read together.
+   */
+  const ghostModeExplainer = isGhostMode
+    ? privateShareCount > 0
+      ? `Hidden from general visibility. The ${
+          privateShareCount === 1 ? "person" : `${privateShareCount} people`
+        } you share with privately still see you.`
+      : "Hidden from general visibility."
+    : privateShareCount > 0
+      ? "Not hidden from anyone. Private sharing is separate either way."
+      : "Not hidden from anyone.";
+
+  /** Check-in is a separate one-time share, and this is the one place that
+   *  decides whether it has a control on this sheet at all. */
+  const checkInActionAvailable =
+    !isCheckInSurface && nearbyCheckInAvailable && !demoMode;
 
   const connectNearbyAttendee = useCallback(
     async (attendee: OneLocationNearbyAttendee) => {
@@ -2628,7 +2764,10 @@ export function LocationImmersiveMap({
             disabled={closing}
             onClick={closeMap}
             onPointerUp={(event) => {
-              if (event.pointerType === "touch" || event.pointerType === "pen") {
+              if (
+                event.pointerType === "touch" ||
+                event.pointerType === "pen"
+              ) {
                 closeMap();
               }
             }}
@@ -2636,7 +2775,31 @@ export function LocationImmersiveMap({
             <X className="h-5 w-5 stroke-[2.25]" />
           </ShellActionSurface>
         </div>
-        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1">
+        {/*
+          Hidden on a phone while the check-in sheet is open.
+
+          Reported from the check-in drawer: "Check in ka icon and text,
+          Sharing with 1 ka text, You are here wala block ... yeh sb ek sath
+          dikh rha, bahut hi bheed bhaad jesa lag rha hai." On a phone that
+          sheet takes roughly three quarters of the screen, so five floating
+          controls compete for the ~250px strip left above it.
+
+          This one goes because it is about a DIFFERENT audience. "Sharing
+          with 1" counts people watching your live location; check-in is a
+          separate one-time share to whoever is nearby. It answers a question
+          nobody is asking mid-check-in, and its popover opens over the sheet.
+
+          `max-md:hidden` rather than an unmount: `display:none` takes it out
+          of the accessibility tree and out of tab order too, and it costs no
+          state to bring back when the sheet closes. From `md` up the sheet is
+          a side panel with the map beside it, so there is nothing to declutter.
+        */}
+        <div
+          className={cn(
+            "col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1",
+            nearbyCheckInOpen && "max-md:hidden",
+          )}
+        >
           {!demoMode && (activeShareCount ?? 0) > 0 ? (
             <Popover
               open={sharingPopoverOpen}
@@ -2676,7 +2839,10 @@ export function LocationImmersiveMap({
                 <p className="px-2 py-1 text-[13px] font-semibold leading-[18px] text-muted-foreground">
                   Sharing with
                 </p>
-                <ul className="grid gap-1" aria-label="People you are sharing with">
+                <ul
+                  className="grid gap-1"
+                  aria-label="People you are sharing with"
+                >
                   {activeShareNames.map((name, index) => {
                     const pin = markerForSharedPerson(name);
                     return (
@@ -2745,10 +2911,20 @@ export function LocationImmersiveMap({
               tray (see the `!isCheckInSurface` gate on the tray section), and
               this pill is the only way back into the sheet after dismissing it.
             */}
+            {/*
+              `!nearbyCheckInOpen`: while the sheet is open this pill is the
+              one control on screen that does nothing. Its whole reason for
+              being here is stated below -- a way back INTO the sheet after
+              dismissing it -- so it has no job while the sheet is up, and on a
+              phone it was taking a third of the only strip of map still
+              visible. Hidden at every width, because it is redundant at every
+              width; the crowding is just where it was noticed.
+            */}
             {rendererReady &&
             nearbyCheckInAvailable &&
             !demoMode &&
-            isCheckInSurface ? (
+            isCheckInSurface &&
+            !nearbyCheckInOpen ? (
               <ShellActionSurface
                 variant="pill"
                 // ShellActionSurface's own wrapper is shrink-0 by default (a
@@ -2766,7 +2942,11 @@ export function LocationImmersiveMap({
                 }`}
                 aria-label={
                   nearbyPresenceState.presence
-                    ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
+                    ? `Checked in${
+                        nearbyPresenceState.attendees.length > 0
+                          ? `, ${nearbyPresenceState.attendees.length} nearby`
+                          : ""
+                      }`
                     : "Check in nearby"
                 }
                 data-testid="one-location-map-nearby-check-in"
@@ -2775,8 +2955,8 @@ export function LocationImmersiveMap({
                 <UsersRound className="h-4 w-4 shrink-0" />
                 <span className="truncate">
                   {nearbyPresenceState.presence
-                    ? `Nearby ${nearbyPresenceState.attendees.length}`
-                    : "Check in"}
+                    ? "Checked in"
+                    : "Check in nearby"}
                 </span>
               </ShellActionSurface>
             ) : null}
@@ -2784,7 +2964,9 @@ export function LocationImmersiveMap({
               <ShellActionSurface
                 className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
                 aria-label={
-                  busy === "locate" ? "Finding your location" : "Show my location"
+                  busy === "locate"
+                    ? "Finding your location"
+                    : "Show my location"
                 }
                 aria-busy={busy === "locate"}
                 data-testid="one-location-map-locate"
@@ -2808,6 +2990,12 @@ export function LocationImmersiveMap({
         Two pins on one map need naming, or the owner cannot tell which is
         "me" and which is "the place I'm checking in to" -- and those are
         routinely a street apart.
+
+        This one STAYS when the sheet is open, and it is the only thing up
+        there that does. It is the sole explanation of what the blue dot is
+        and how far "nearby" reaches -- 500 m -- and the sheet below states
+        neither. Cutting it with the other two would have tidied the screen by
+        removing the only part of it that was answering a question.
       */}
       {rendererReady &&
       (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
@@ -2892,7 +3080,11 @@ export function LocationImmersiveMap({
             className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
           />
           <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent)] shadow-lg">
-            <Loader2 className="h-7 w-7 animate-spin" strokeWidth={2} aria-hidden />
+            <Loader2
+              className="h-7 w-7 animate-spin"
+              strokeWidth={2}
+              aria-hidden
+            />
           </span>
           <p className="relative text-sm font-medium text-muted-foreground">
             Loading your map…
@@ -2912,8 +3104,16 @@ export function LocationImmersiveMap({
           data-testid="one-location-map-disclosure"
           style={{ paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING }}
         >
-          <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-          <h1 className="mt-3 text-xl font-semibold">{MAP_CONSENT_TITLE}</h1>
+          {/* The pin and the title on one line. Upstream landed the same
+              fix while this branch was in review -- geometry in
+              `map-consent-panel-layout.ts`, measured by
+              `e2e/one-location-map-consent-panel.layout.spec.ts`. */}
+          <div className={MAP_CONSENT_HEADING_ROW_CLASSNAME}>
+            <MapPin className={MAP_CONSENT_HEADING_ICON_CLASSNAME} />
+            <h1 className={MAP_CONSENT_HEADING_TITLE_CLASSNAME}>
+              {MAP_CONSENT_TITLE}
+            </h1>
+          </div>
           {/*
             This is the renderer-consent gate: accepting it writes
             GOOGLE_MAPS_RENDERER_CONSENT_VERSION. That record is unchanged —
@@ -2938,7 +3138,10 @@ export function LocationImmersiveMap({
             has to grow again, it belongs on Location Settings beside the other
             one, not back in this paragraph.
           */}
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          <p
+            className="mt-2 text-sm leading-6 text-muted-foreground"
+            data-testid="map-consent-support"
+          >
             {MAP_CONSENT_SUPPORTING_LINE}
           </p>
           <Button
@@ -3179,320 +3382,493 @@ export function LocationImmersiveMap({
                   so its offsetHeight is the content's true natural size,
                   padding included since that padding lives here now. */}
               <div ref={trayContentRef} className="px-3 pb-3 pt-1">
-              <label className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <span className="sr-only">Find a person</span>
-                <Input
-                  className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
-                  data-testid="one-location-map-search"
-                  inputMode="search"
-                  placeholder="Search"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                />
-              </label>
+                <label className="relative block">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <span className="sr-only">Find a person</span>
+                  <Input
+                    className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
+                    data-testid="one-location-map-search"
+                    inputMode="search"
+                    placeholder="Search"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                  />
+                </label>
 
-              {nearbyPresenceState.presence ? (
-                <section
-                  className="mt-2"
-                  data-testid="one-location-map-nearby-people"
-                  aria-label="People checked in nearby"
-                >
-                  {filteredNearbyAttendees.length > 0 ? (
-                    <div className="space-y-1">
-                      {filteredNearbyAttendees.map((attendee) => {
-                        const connectionBusy =
-                          nearbyConnectionBusyAlias ===
-                          attendee.participantAlias;
-                        return (
-                          <div
-                            key={attendee.participantAlias}
-                            className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
-                            data-testid="one-location-map-nearby-person"
-                          >
-                            <button
-                              type="button"
-                              className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
-                              aria-label={`Open nearby actions for ${attendee.displayName}`}
-                              onClick={openNearbyCheckIn}
+                {nearbyPresenceState.presence ? (
+                  <section
+                    className="mt-2"
+                    data-testid="one-location-map-nearby-people"
+                    aria-label="People checked in nearby"
+                  >
+                    {filteredNearbyAttendees.length > 0 ? (
+                      <div className="space-y-1">
+                        {filteredNearbyAttendees.map((attendee) => {
+                          const connectionBusy =
+                            nearbyConnectionBusyAlias ===
+                            attendee.participantAlias;
+                          return (
+                            <div
+                              key={attendee.participantAlias}
+                              className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
+                              data-testid="one-location-map-nearby-person"
                             >
-                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[11px] font-semibold text-[var(--app-accent-fg)]">
-                                {personInitials(attendee.displayName)}
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium">
-                                  {attendee.displayName}
-                                </span>
-                                <span className="block truncate text-xs text-muted-foreground">
-                                  {nearbyRelationshipLabel(attendee)}
-                                </span>
-                              </span>
-                            </button>
-                            {attendee.canConnect &&
-                            attendee.relationship === "none" ? (
-                              <Button
+                              <button
                                 type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-8 shrink-0 rounded-full px-3"
-                                aria-label={`Connect with ${attendee.displayName}`}
-                                disabled={nearbyConnectionBusyAlias !== null}
-                                onClick={() =>
-                                  void connectNearbyAttendee(attendee)
-                                }
-                              >
-                                {connectionBusy ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  "Connect"
-                                )}
-                              </Button>
-                            ) : attendee.relationship === "pending_outgoing" ? (
-                              <span className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
-                                Requested
-                              </span>
-                            ) : attendee.relationship === "pending_incoming" ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-8 shrink-0 rounded-full px-3"
-                                aria-label={`Respond to ${attendee.displayName}`}
+                                className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                                aria-label={`Open nearby actions for ${attendee.displayName}`}
                                 onClick={openNearbyCheckIn}
                               >
-                                Respond
-                              </Button>
-                            ) : (
-                              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="px-1 py-2 text-sm text-muted-foreground">
-                      {nearbyAttendees.length > 0
-                        ? "No matches."
-                        : "No one else here yet."}
-                    </p>
-                  )}
-                </section>
-              ) : null}
+                                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[11px] font-semibold text-[var(--app-accent-fg)]">
+                                  {personInitials(attendee.displayName)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-medium">
+                                    {attendee.displayName}
+                                  </span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {nearbyRelationshipLabel(attendee)}
+                                  </span>
+                                </span>
+                              </button>
+                              {attendee.canConnect &&
+                              attendee.relationship === "none" ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-8 shrink-0 rounded-full px-3"
+                                  aria-label={`Connect with ${attendee.displayName}`}
+                                  disabled={nearbyConnectionBusyAlias !== null}
+                                  onClick={() =>
+                                    void connectNearbyAttendee(attendee)
+                                  }
+                                >
+                                  {connectionBusy ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    "Connect"
+                                  )}
+                                </Button>
+                              ) : attendee.relationship ===
+                                "pending_outgoing" ? (
+                                <span className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
+                                  Requested
+                                </span>
+                              ) : attendee.relationship ===
+                                "pending_incoming" ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-8 shrink-0 rounded-full px-3"
+                                  aria-label={`Respond to ${attendee.displayName}`}
+                                  onClick={openNearbyCheckIn}
+                                >
+                                  Respond
+                                </Button>
+                              ) : (
+                                <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="px-1 py-2 text-sm text-muted-foreground">
+                        {nearbyAttendees.length > 0
+                          ? "No matches."
+                          : "No one else here yet."}
+                      </p>
+                    )}
+                  </section>
+                ) : null}
 
-              {/* The heading, the count badge and the two-sentence pin rule
+                {/* The heading, the count badge and the two-sentence pin rule
                   all used to sit here, and all three said what the row above
                   already says: how many people are on this map. What survives
                   is the list itself, plus the pin rule in the one state where
                   it answers a real question -- "why is this list empty when
                   people are checked in nearby?" -- phrased once, in a line. */}
-              <section className="mt-3" aria-label="Live locations shared with you">
-                <div
-                  className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                  data-testid="one-location-map-people"
+                <section
+                  className="mt-3"
+                  aria-label="Live locations shared with you"
                 >
-                  {filteredPeople.map((person) => {
-                    const selectedPerson = selected?.key === person.key;
-                    // The tray is where identity lives, because it is the only
-                    // part of this screen that is real DOM. Map pins come from
-                    // the Capacitor bridge, which offers a tint and nothing
-                    // else -- no avatar, no badge, and no hover at all on a
-                    // touch device.
-                    const personStale = isStaleAt(
-                      person.capturedAt,
-                      freshnessSeconds,
-                      staleClockMs,
-                    );
-                    const lastSeen = personStale
-                      ? lastSeenLabel(person.capturedAt, staleClockMs)
-                      : null;
-                    return (
-                      <button
-                        key={person.key}
-                        type="button"
-                        className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
-                          selectedPerson
-                            ? MAP_ACCENT_ACTIVE_CLASSNAME
-                            : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
-                        }`}
-                        // The live case keeps its original name exactly. Only a
-                        // person who has gone quiet has anything extra worth
-                        // announcing, and saying "sharing live" on every other
-                        // row would be noise in a screen reader.
-                        aria-label={
-                          lastSeen
-                            ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
-                            : `Show ${person.label} on the map`
-                        }
-                        title={
-                          lastSeen
-                            ? `${person.label} — last seen ${lastSeen}`
-                            : `${person.label} — live now`
-                        }
-                        data-testid="one-location-map-person"
-                        data-stale={personStale ? "true" : "false"}
-                        onClick={() => void focusMarker(person)}
-                      >
-                        <span className="relative shrink-0">
-                          <span
-                            className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
-                              personStale ? "opacity-70 grayscale" : ""
-                            }`}
-                            style={{
-                              backgroundColor: person.tint
-                                ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                                : "var(--app-accent)",
-                            }}
-                          >
-                            {personInitials(person.label)}
-                          </span>
-                          {/* Bottom-right, over the avatar's own edge. Shape as
+                  <div
+                    className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    data-testid="one-location-map-people"
+                  >
+                    {filteredPeople.map((person) => {
+                      const selectedPerson = selected?.key === person.key;
+                      // The tray is where identity lives, because it is the only
+                      // part of this screen that is real DOM. Map pins come from
+                      // the Capacitor bridge, which offers a tint and nothing
+                      // else -- no avatar, no badge, and no hover at all on a
+                      // touch device.
+                      const personStale = isStaleAt(
+                        person.capturedAt,
+                        freshnessSeconds,
+                        staleClockMs,
+                      );
+                      const lastSeen = personStale
+                        ? lastSeenLabel(person.capturedAt, staleClockMs)
+                        : null;
+                      return (
+                        <button
+                          key={person.key}
+                          type="button"
+                          className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
+                            selectedPerson
+                              ? MAP_ACCENT_ACTIVE_CLASSNAME
+                              : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
+                          }`}
+                          // The live case keeps its original name exactly. Only a
+                          // person who has gone quiet has anything extra worth
+                          // announcing, and saying "sharing live" on every other
+                          // row would be noise in a screen reader.
+                          aria-label={
+                            lastSeen
+                              ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
+                              : `Show ${person.label} on the map`
+                          }
+                          title={
+                            lastSeen
+                              ? `${person.label} — last seen ${lastSeen}`
+                              : `${person.label} — live now`
+                          }
+                          data-testid="one-location-map-person"
+                          data-stale={personStale ? "true" : "false"}
+                          onClick={() => void focusMarker(person)}
+                        >
+                          <span className="relative shrink-0">
+                            <span
+                              className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
+                                personStale ? "opacity-70 grayscale" : ""
+                              }`}
+                              style={{
+                                backgroundColor: person.tint
+                                  ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
+                                  : "var(--app-accent)",
+                              }}
+                            >
+                              {personInitials(person.label)}
+                            </span>
+                            {/* Bottom-right, over the avatar's own edge. Shape as
                               well as colour, so it survives being read on a
                               greyscale avatar by someone who cannot rely on
                               the grey itself. */}
-                          {personStale ? (
-                            <span
-                              className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
-                              aria-hidden="true"
-                            >
-                              <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="flex min-w-0 flex-col leading-tight">
-                          <span className="max-w-28 truncate font-medium">
-                            {person.label}
+                            {personStale ? (
+                              <span
+                                className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
+                                aria-hidden="true"
+                              >
+                                <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
+                              </span>
+                            ) : null}
                           </span>
-                          {lastSeen ? (
-                            <span className="max-w-28 truncate text-[11px] text-muted-foreground">
-                              {lastSeen}
+                          <span className="flex min-w-0 flex-col leading-tight">
+                            <span className="max-w-28 truncate font-medium">
+                              {person.label}
                             </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {filteredPeople.length === 0 ? (
-                    <p className="py-2 pl-1 text-sm text-muted-foreground">
-                      {markers.length > 0
-                        ? "No matches."
-                        : // The header already says no one is sharing. This
-                          // line spends itself on the part the header cannot:
-                          // what it takes to appear here.
-                          "Pins appear once they share with maps on."}
-                    </p>
-                  ) : null}
-                </div>
-              </section>
-
-              {selected ? (
-                <div
-                  className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-muted/80 px-3"
-                  data-testid="one-location-map-selection"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {selected.label}
-                    </p>
-                    {/* The self marker is already labelled "You"; captioning it
-                        "Your current location" was the same fact twice. */}
-                    {selected.kind === "self" ? null : (
-                      <p className="text-xs text-muted-foreground">
-                        Sharing now
+                            {lastSeen ? (
+                              <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+                                {lastSeen}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {filteredPeople.length === 0 ? (
+                      <p className="py-2 pl-1 text-sm text-muted-foreground">
+                        {markers.length > 0
+                          ? "No matches."
+                          : // The header already says no one is sharing. This
+                            // line spends itself on the part the header cannot:
+                            // what it takes to appear here.
+                            "Pins appear once they share with maps on."}
                       </p>
-                    )}
+                    ) : null}
                   </div>
-                </div>
-              ) : null}
+                </section>
 
-              <div
-                className={`mt-3 grid gap-2 ${
-                  demoAvailable ? "grid-cols-3" : "grid-cols-2"
-                }`}
-              >
-                {demoAvailable ? (
-                  <Button
-                    className={`h-11 min-w-0 rounded-2xl px-2 ${
-                      demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
-                    }`}
-                    variant="secondary"
-                    aria-pressed={demoMode}
-                    data-testid="one-location-map-demo-toggle"
-                    onClick={toggleDemoPeople}
+                {selected ? (
+                  <div
+                    className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-muted/80 px-3"
+                    data-testid="one-location-map-selection"
                   >
-                    <UsersRound className="h-4 w-4 shrink-0" />
-                    {/* Pressed state is already carried by the accent fill and
-                        aria-pressed; the label need not say it too. */}
-                    <span className="truncate">Demo</span>
-                  </Button>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {selected.label}
+                      </p>
+                      {/* The self marker is already labelled "You"; captioning it
+                        "Your current location" was the same fact twice. */}
+                      {selected.kind === "self" ? null : (
+                        <p className="text-xs text-muted-foreground">
+                          Sharing now
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 ) : null}
-                <Button
-                  className={`h-11 min-w-0 justify-between rounded-2xl px-2.5 ${
-                    preferences.presenceMode === "foreground_private"
-                      ? MAP_ACCENT_ACTIVE_CLASSNAME
-                      : ""
-                  }`}
-                  variant="secondary"
-                  aria-pressed={
-                    preferences.presenceMode === "foreground_private"
-                  }
-                  disabled={busy === "presence"}
-                  onClick={() => void setPresence()}
-                >
-                  <span className="truncate">
-                    {preferences.presenceMode === "ghost" ? "Ghost" : "Visible"}
-                  </span>
-                  {preferences.presenceMode === "ghost" ? (
-                    <EyeOff className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <Eye className="h-4 w-4 shrink-0" />
-                  )}
-                </Button>
-                <Button
-                  className="h-11 min-w-0 rounded-2xl px-2"
-                  variant="secondary"
-                  data-testid="one-location-map-show-everyone"
-                  onClick={() => void showEveryone()}
-                >
-                  Everyone
-                </Button>
-              </div>
-              {/*
-                Check in, moved down off the map.
 
-                It used to float in the top-right corner beside Locate, which
-                put two pills and a Sharing status over the top of the map on
-                every phone -- the reporter's "when i want to view my map".
-                Down here it is full width and under the thumb, sitting with
-                the people it is about rather than over the map it obscured.
+                {/*
+                Three audiences, three rows, in the order a person asks about
+                them. Reported as "this interface gives an illusion of a
+                check-in page and creates a little bit of confusion", and it
+                did, in two ways at once.
 
-                Last in the sheet on purpose: the row above it is toggles
-                (Demo / Visible / Everyone), and this is the one thing on the
-                screen a person actually goes somewhere to do.
+                It read as a check-in page because the only filled, full-width,
+                accent-coloured control on the sheet said "Check in" -- the
+                strongest thing on screen was the one thing on it that is not
+                about the map. Check-in is a separate, one-time share, so it is
+                a secondary action down here now, next to Demo where the other
+                occasional actions live.
+
+                And the row above it, "Ghost | Everyone", read as a two-state
+                segmented control -- pick one -- when the two are not even the
+                same KIND of thing: Ghost writes a stored visibility
+                preference, "Everyone" moves the camera. Two adjacent equal
+                pills is the shape UI uses for "these are alternatives", and
+                the reporter read it exactly that way ("ghost, everyone mode").
+
+                What replaces them is the answer to the question the sheet was
+                being asked: who can see me, and who can I see. Those are three
+                independent facts and they are three labelled rows --
+
+                  - N people sharing with you   (incoming; frames them)
+                  - Private sharing with N      (outgoing; expands to names)
+                  - Ghost Mode                  (general visibility; a switch)
+
+                -- because the rule they obey is that they are NOT the same
+                audience. Ghost Mode governs general visibility. It does not
+                touch a private share, and the line under the switch says so
+                where the switch is, directly under the count it does not
+                affect. The gate that used to make that false lived in
+                `list_map_state` and in this file's `locateMe`, and is gone
+                from both.
               */}
-              {!isCheckInSurface && nearbyCheckInAvailable && !demoMode ? (
-                <Button
-                  className="mt-3 h-12 w-full rounded-2xl"
-                  aria-label={
-                    nearbyPresenceState.presence
-                      ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
-                      : "Check in nearby"
-                  }
-                  data-testid="one-location-map-nearby-check-in"
-                  onClick={openNearbyCheckIn}
+                <section
+                  className="mt-3 space-y-2"
+                  aria-label="Who can see you, and who you can see"
+                  data-testid="one-location-map-visibility"
                 >
-                  <UsersRound className="h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    {nearbyPresenceState.presence
-                      ? `Nearby ${nearbyPresenceState.attendees.length}`
-                      : "Check in"}
-                  </span>
-                </Button>
-              ) : null}
-              {status === "error" ? (
-                <p className="mt-2 text-center text-xs text-destructive">
-                  Some locations didn&apos;t refresh.
-                </p>
-              ) : null}
+                  {/* Incoming. Keeps the `show-everyone` id: this IS the old
+                    Everyone control, finally saying what it frames. */}
+                  <button
+                    type="button"
+                    className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                    data-testid="one-location-map-show-everyone"
+                    aria-label={
+                      markers.length > 0
+                        ? `${incomingShareLabel}. Fit them all on the map.`
+                        : incomingShareLabel
+                    }
+                    onClick={() => void showEveryone()}
+                  >
+                    <span
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                      aria-hidden="true"
+                    >
+                      <UsersRound className="h-[18px] w-[18px]" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">
+                        {incomingShareLabel}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {markers.length > 0
+                          ? "Tap to fit everyone on the map"
+                          : "Ghost Mode never hides them from you"}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  </button>
+
+                  {/* Outgoing. Hidden in demo, where the count is never fetched
+                    and a number would be fiction. */}
+                  {!demoMode ? (
+                    <div className="rounded-2xl bg-muted/70">
+                      <button
+                        type="button"
+                        className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 disabled:cursor-default disabled:hover:bg-transparent"
+                        data-testid="one-location-map-private-shares"
+                        aria-expanded={privateSharesExpanded}
+                        disabled={privateShareCount === 0}
+                        aria-label={privateShareLabel}
+                        onClick={() =>
+                          setPrivateSharesExpanded((open) => !open)
+                        }
+                      >
+                        <span
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                          aria-hidden="true"
+                        >
+                          <LocateFixed className="h-[18px] w-[18px]" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">
+                            {privateShareLabel}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {privateShareHint}
+                          </span>
+                        </span>
+                        {privateShareCount > 0 ? (
+                          <ChevronDown
+                            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                              privateSharesExpanded ? "" : "-rotate-90"
+                            }`}
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                      </button>
+                      {privateSharesExpanded && privateShareCount > 0 ? (
+                        <ul
+                          className="grid gap-0.5 px-2 pb-2"
+                          aria-label="People you are sharing with privately"
+                        >
+                          {activeShareNames.map((name, index) => {
+                            const pin = markerForSharedPerson(name);
+                            return (
+                              <li key={`${name}-${index}`}>
+                                {/* Same two destinations as the header popover,
+                                  for the same reason: a row that names a person
+                                  has to go to that person. */}
+                                <button
+                                  type="button"
+                                  data-testid="one-location-map-private-share-person"
+                                  data-has-pin={pin ? "true" : "false"}
+                                  aria-label={
+                                    pin
+                                      ? `Show ${name} on your map`
+                                      : `Manage your location share with ${name}`
+                                  }
+                                  className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                                  onClick={() => void openSharedPerson(name)}
+                                >
+                                  <span
+                                    className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
+                                    aria-hidden="true"
+                                  />
+                                  <span className="min-w-0 flex-1 truncate">
+                                    {name}
+                                  </span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {/* General visibility. A switch, not a pill in a pair: it is a
+                    standing setting with an on and an off, and it is the only
+                    control here that changes what anyone else sees. */}
+                  <div
+                    className="flex min-h-[52px] items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2"
+                    data-testid="one-location-map-ghost"
+                  >
+                    <span
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                      aria-hidden="true"
+                    >
+                      {isGhostMode ? (
+                        <EyeOff className="h-[18px] w-[18px]" />
+                      ) : (
+                        <Eye className="h-[18px] w-[18px]" />
+                      )}
+                    </span>
+                    <label
+                      className="min-w-0 flex-1 cursor-pointer"
+                      htmlFor="one-location-map-ghost-toggle"
+                    >
+                      <span className="block text-sm font-medium">
+                        Ghost Mode
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {ghostModeExplainer}
+                      </span>
+                    </label>
+                    <Switch
+                      id="one-location-map-ghost-toggle"
+                      data-testid="one-location-map-ghost-toggle"
+                      checked={isGhostMode}
+                      disabled={busy === "presence"}
+                      onCheckedChange={() => void setPresence()}
+                    />
+                  </div>
+                </section>
+
+                {/*
+                Check in and Demo: occasional actions, not map state.
+
+                Check-in used to be the filled full-width button at the bottom
+                of this sheet, which made the whole sheet read as a check-in
+                page. It is a separate, one-time share -- it does not change
+                who can see your live location and it is not undone by Ghost
+                Mode -- so it sits with Demo as a secondary action, and the
+                sheet above it is now the part that answers "who can see me".
+              */}
+                {checkInActionAvailable || demoAvailable ? (
+                  <div
+                    className={`mt-2 grid gap-2 ${
+                      checkInActionAvailable && demoAvailable
+                        ? "grid-cols-2"
+                        : "grid-cols-1"
+                    }`}
+                  >
+                    {demoAvailable ? (
+                      <Button
+                        className={`h-11 min-w-0 rounded-2xl px-2 ${
+                          demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
+                        }`}
+                        variant="secondary"
+                        aria-pressed={demoMode}
+                        data-testid="one-location-map-demo-toggle"
+                        onClick={toggleDemoPeople}
+                      >
+                        <UsersRound className="h-4 w-4 shrink-0" />
+                        {/* Pressed state is already carried by the accent fill and
+                          aria-pressed; the label need not say it too. */}
+                        <span className="truncate">Demo</span>
+                      </Button>
+                    ) : null}
+                    {checkInActionAvailable ? (
+                      <Button
+                        className="h-11 min-w-0 rounded-2xl px-2"
+                        variant="secondary"
+                        aria-label={
+                          nearbyPresenceState.presence
+                            ? `Checked in${
+                                nearbyPresenceState.attendees.length > 0
+                                  ? `, ${nearbyPresenceState.attendees.length} nearby`
+                                  : ""
+                              }`
+                            : "Check in nearby"
+                        }
+                        data-testid="one-location-map-nearby-check-in"
+                        onClick={openNearbyCheckIn}
+                      >
+                        <UsersRound className="h-4 w-4 shrink-0" />
+                        <span className="truncate">
+                          {nearbyPresenceState.presence
+                            ? "Checked in"
+                            : "Check in nearby"}
+                        </span>
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {status === "error" ? (
+                  <p className="mt-2 text-center text-xs text-destructive">
+                    Some locations didn&apos;t refresh.
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
