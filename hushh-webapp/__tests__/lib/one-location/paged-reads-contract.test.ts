@@ -35,6 +35,7 @@ const RECIPIENT = {
   userId: "u-1",
   displayName: "Aman",
   email: "a***@example.com",
+  isRia: false,
 };
 
 describe("one-location paged reads", () => {
