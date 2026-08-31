@@ -76,10 +76,28 @@ merging — and sends them at a procedure that 404s on their token, since readin
 or writing `/branches/main/protection` needs `admin`. (404, not 403: GitHub hides
 the object rather than admitting the permission denial.)
 
-**Still unconfirmed:** the current value of `enforce_admins`. It does not change
-the non-admin path, but it decides whether an admin still needs the lift today or
-whether someone has since turned it off, leaving the fallback dead. One call, from
-an admin account, settles it:
+**Confirmed 2026-08-30**, read from an admin account (`kushaltrivedi5`):
+
+```json
+{"enforce_admins": true, "reviews": 1, "last_push": true,
+ "bypass_teams": ["allowed-maintainers-to-approve"]}
+```
+
+`enforce_admins` is **still on**, so the admin path above is live and the step-3
+lift is a real fallback rather than dead text.
+
+**But it was not needed.** On 2026-08-30, PR #6221 merged with plain
+`gh pr merge --admin --merge --match-head-commit <40-char SHA>` from an **admin**
+account, with `enforce_admins: true` the entire time and no lift at any point.
+Protection was captured before and compared after: **identical**. So the
+2026-08-21 finding ("try `--admin` first") now holds for admins too, not only for
+non-admins on the bypass team. Treat the lift as a fallback nobody has needed
+since this line was written, and add a dated line here before reinstating it.
+
+Re-read the value below rather than trusting this block; replace it with a fresh
+dated reading rather than adding another layer of caveat.
+
+The call that settles it:
 
 ```bash
 gh api repos/hushh-labs/hushh-research/branches/main/protection \
@@ -202,6 +220,20 @@ Retry once; it is non-deterministic and often clears, particularly after a serve
 `enforce_admins` flipping. If it is still refused, that is a genuine hard block: say so plainly and
 give one exact action. **Do not** re-route it through `gh api`, a shell script wrapper, an alias, or a
 child process — that is evading a stable denial, not solving it.
+
+**Measured 2026-08-30, and it refines "retry once".** The refusal was refused
+twice in a row on PR #6221 — once piped through `tail`, once as a bare discrete
+command — and then spread: it went on to block a `SKILL.md` edit and even a
+read-only `gh pr view`. That breadth is the tell. **When the block widens beyond
+the merge to unrelated reads, it is a transient posture, not a verdict on the
+merge**, and further retries in that window are wasted.
+
+Stopping and handing the operator one exact command was the correct move, and it
+cost nothing: the identical command succeeded unchanged on the next turn, once
+reads had started working again. So the practical rule is **retry once, then
+probe with a cheap read** (`gh pr view <N> --json state`). A working read means
+the window has cleared and the merge is worth one more attempt; a blocked read
+means stop and hand it over. Do not escalate to a wrapper either way.
 
 ---
 
