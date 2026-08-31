@@ -70,4 +70,54 @@ describe("AG-UI structured experience registry", () => {
       }),
     ).toBeNull();
   });
+
+  it("accepts only complete, versioned Morphy experience payloads", () => {
+    expect(parseAgentActivityExperience("one.information_request_review.v1", {
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "awaiting_review",
+      fields: [{ label: "Work authorization", domain: "Identity", sensitivity: "restricted" }],
+    })).toMatchObject({ type: "one.information_request_review.v1", status: "awaiting_review" });
+
+    expect(parseAgentActivityExperience("one.kyc_readiness.v1", {
+      subjectName: "Alex Morgan",
+      workflowName: "Payroll readiness",
+      summary: "Two items require review.",
+      legalReviewRequired: true,
+      items: [{ label: "Tax identifier", domain: "Identity", sensitivity: "high", status: "ask_first" }],
+    })).toMatchObject({ type: "one.kyc_readiness.v1", legalReviewRequired: true });
+
+    expect(parseAgentActivityExperience("one.memory_import_review.v1", {
+      sourceBlockCount: 12,
+      accountedBlockCount: 12,
+      groups: [{ domain: "Professional", candidates: [{ candidateRef: "candidate-1", label: "Role", preview: "Product lead", sensitivity: "standard", sharingPosture: "private" }] }],
+    })).toMatchObject({ type: "one.memory_import_review.v1", accountedBlockCount: 12 });
+
+    expect(parseAgentActivityExperience("one.evidence_brief.v1", {
+      title: "Verification summary",
+      summary: "The available evidence supports the primary claim.",
+      confidence: "high",
+      findings: [{ label: "Source alignment", detail: "Two independent records agree." }],
+      sources: [{ label: "Primary record", url: "https://example.com/evidence" }],
+      unresolved: [],
+    })).toMatchObject({ type: "one.evidence_brief.v1", confidence: "high" });
+  });
+
+  it("rejects unsafe evidence links and incomplete memory coverage shapes", () => {
+    const evidence = parseAgentActivityExperience("one.evidence_brief.v1", {
+      title: "Verification summary",
+      summary: "A bounded summary.",
+      confidence: "medium",
+      findings: [],
+      sources: [{ label: "Unsafe", url: "javascript:alert(1)" }],
+      unresolved: [],
+    });
+    expect(evidence).toMatchObject({ sources: [] });
+    expect(parseAgentActivityExperience("one.memory_import_review.v1", {
+      sourceBlockCount: 2,
+      accountedBlockCount: 3,
+      groups: [],
+    })).toBeNull();
+  });
 });
