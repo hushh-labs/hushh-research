@@ -434,6 +434,50 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("keeps Connect as the origin for a person profile opened from Connect", () => {
+    const fromConnect = new URLSearchParams();
+    fromConnect.set("from", "/one/connect");
+
+    expect(
+      resolveTopShellBreadcrumb("/people/person-ref-scoped", fromConnect),
+    ).toEqual({
+      backHref: "/one/connect",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Connect", href: "/one/connect" },
+        { label: "Profile" },
+      ],
+    });
+
+    const unsafeOrigin = new URLSearchParams();
+    unsafeOrigin.set("from", "//evil.example/one/connect");
+    expect(
+      resolveTopShellBreadcrumb("/people/person-ref-scoped", unsafeOrigin),
+    ).toBeNull();
+  });
+
+  it("keeps the Profile access connection detail route scoped to Access & sharing", () => {
+    const connectionParams = new URLSearchParams();
+    connectionParams.set("id", "c-scoped");
+
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/profile/access/connection",
+        connectionParams,
+      ),
+    ).toEqual({
+      backHref: "/one/profile/access",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Access & sharing", href: "/one/profile/access" },
+        { label: "Connection detail" },
+      ],
+    });
+  });
+
   it("owns profile nested and legacy panels from the shared top bar", () => {
     const panelParams = new URLSearchParams();
 

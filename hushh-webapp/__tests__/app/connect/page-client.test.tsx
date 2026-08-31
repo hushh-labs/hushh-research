@@ -258,6 +258,51 @@ describe("Connect — People", () => {
     expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
   });
 
+  it("opens a connection's person profile from My connections", async () => {
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-scoped",
+        userId: "u-scoped",
+        publicPersonRef: "person-ref-scoped",
+        displayName: "Scoped Friend",
+        photoUrl: null,
+        createdAt: null,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+
+    const myConnections = await screen.findByTestId(
+      "connect-my-connections-group",
+    );
+    const connectionName = await within(myConnections).findByText(
+      "Scoped Friend",
+    );
+    const connectionAction = connectionName.closest("button");
+    expect(connectionAction).toBeTruthy();
+
+    fireEvent.click(connectionAction!);
+
+    expect(mocks.routerPush).toHaveBeenCalledWith(
+      "/people/person-ref-scoped?from=%2Fone%2Fconnect",
+    );
+    expect(mocks.routerPush).not.toHaveBeenCalledWith(
+      expect.stringContaining("/one/profile/access/connection"),
+    );
+    expect(mocks.routerPush).not.toHaveBeenCalledWith(
+      expect.stringContaining("u-scoped"),
+    );
+
+    mocks.routerPush.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Remove connection with Scoped Friend",
+      }),
+    );
+
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
   it("loads page 2 in stable server order and keeps its contact badge", async () => {
     mocks.listConnectionsPage.mockImplementation(async (options) => ({
       items:

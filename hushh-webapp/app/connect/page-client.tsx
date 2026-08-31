@@ -2519,7 +2519,13 @@ export default function ConnectPageClient() {
                             density="compact"
                             onClick={
                               connection.publicPersonRef
-                                ? () => router.push(buildPersonProfileRoute(connection.publicPersonRef!))
+                                ? () =>
+                                    router.push(
+                                      buildPersonProfileRoute(
+                                        connection.publicPersonRef!,
+                                        { from: ROUTES.CONNECT },
+                                      ),
+                                    )
                                 : undefined
                             }
                             trailing={
@@ -2877,7 +2883,13 @@ export default function ConnectPageClient() {
                                 density="compact"
                                 onClick={
                                   !isSelectionMode && person.publicPersonRef
-                                    ? () => router.push(buildPersonProfileRoute(person.publicPersonRef!))
+                                    ? () =>
+                                        router.push(
+                                          buildPersonProfileRoute(
+                                            person.publicPersonRef!,
+                                            { from: ROUTES.CONNECT },
+                                          ),
+                                        )
                                     : undefined
                                 }
                                 trailing={

@@ -994,6 +994,22 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  if (pathname.startsWith("/people/")) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    if (!originHref) {
+      return null;
+    }
+    return {
+      backHref: originHref,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: profileOriginCrumbLabel(originHref), href: originHref },
+        { label: "Profile" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.MARKETPLACE) {
     return {
       backHref: ROUTES.ONE_HOME,

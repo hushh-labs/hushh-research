@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Copy, Eye, EyeOff, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,7 +32,10 @@ import {
   type PublicPersonProfile,
   type ViewerPersonProfile,
 } from "@/lib/services/person-profile-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  resolvePersonRefFromProfilePathname,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -49,11 +53,30 @@ function initials(name: string): string {
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const [profile, setProfile] = useState<PublicPersonProfile | null>(initialProfile);
+  const resolvedPersonRef = useMemo(() => {
+    const isNativeIOS =
+      Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+    if (!isNativeIOS) return personRef;
+    return resolvePersonRefFromProfilePathname(pathname) || personRef;
+  }, [pathname, personRef]);
+  const [profileState, setProfileState] = useState<{
+    personRef: string;
+    profile: PublicPersonProfile | null;
+  }>({ personRef: resolvedPersonRef, profile: initialProfile });
+  const profile =
+    profileState.personRef === resolvedPersonRef ? profileState.profile : null;
   const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
-  const [viewerProfile, setViewerProfile] = useState<ViewerPersonProfile | null>(null);
+  const [viewerProfileState, setViewerProfileState] = useState<{
+    personRef: string;
+    profile: ViewerPersonProfile | null;
+  }>({ personRef: resolvedPersonRef, profile: null });
+  const viewerProfile =
+    viewerProfileState.personRef === resolvedPersonRef
+      ? viewerProfileState.profile
+      : null;
   const [selectedScopeRefs, setSelectedScopeRefs] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const [purpose, setPurpose] = useState("");
@@ -67,9 +90,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   useEffect(() => {
     if (profile) return;
     let active = true;
-    void PersonProfileService.getPublic(personRef)
+    setPublicProfileUnavailable(false);
+    void PersonProfileService.getPublic(resolvedPersonRef)
       .then((value) => {
-        if (active) setProfile(value);
+        if (active) {
+          setProfileState({ personRef: resolvedPersonRef, profile: value });
+        }
       })
       .catch(() => {
         if (active) setPublicProfileUnavailable(true);
@@ -77,20 +103,35 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     return () => {
       active = false;
     };
-  }, [personRef, profile]);
+  }, [resolvedPersonRef, profile]);
 
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
     void user
       .getIdToken()
-      .then((token) => PersonProfileService.getViewer(personRef, token))
-      .then((value) => active && setViewerProfile(value))
+      .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token))
+      .then((value) => {
+        if (active) {
+          setViewerProfileState({
+            personRef: resolvedPersonRef,
+            profile: value,
+          });
+        }
+      })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [authLoading, personRef, user]);
+  }, [authLoading, resolvedPersonRef, user]);
+
+  useEffect(() => {
+    setSelectedScopeRefs(new Set());
+    setReviewOpen(false);
+    setPurpose("");
+    setDecryptedByRequest({});
+    setRevealedRequests(new Set());
+  }, [resolvedPersonRef]);
 
   useEffect(() => {
     if (isVaultUnlocked) return;
@@ -126,7 +167,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         vaultOwnerToken,
       });
       await PersonProfileService.createInformationRequest({
-        personRef,
+        personRef: resolvedPersonRef,
         scopeRefs: selectedScopes.map((scope) => scope.scopeRef),
         purpose: purpose.trim(),
         durationSeconds: 7 * 24 * 60 * 60,
@@ -138,7 +179,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       setSelectedScopeRefs(new Set());
       setPurpose("");
       const idToken = await user.getIdToken();
-      setViewerProfile(await PersonProfileService.getViewer(personRef, idToken));
+      setViewerProfileState({
+        personRef: resolvedPersonRef,
+        profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken),
+      });
       toast.success("Request sent for review");
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : "Request could not be sent.");
@@ -154,11 +198,24 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       const idToken = await user.getIdToken();
       const relationship =
         action === "connect"
-          ? await PersonProfileService.connect(personRef, idToken)
+          ? await PersonProfileService.connect(resolvedPersonRef, idToken)
           : action === "cancel"
-            ? await PersonProfileService.cancelConnectionRequest(personRef, idToken)
-            : await PersonProfileService.removeConnection(personRef, idToken);
-      setViewerProfile((current) => current ? { ...current, relationship } : current);
+            ? await PersonProfileService.cancelConnectionRequest(
+                resolvedPersonRef,
+                idToken,
+              )
+            : await PersonProfileService.removeConnection(
+                resolvedPersonRef,
+                idToken,
+              );
+      setViewerProfileState((current) =>
+        current.personRef === resolvedPersonRef && current.profile
+          ? {
+              personRef: resolvedPersonRef,
+              profile: { ...current.profile, relationship },
+            }
+          : current,
+      );
       toast.success(
         action === "connect"
           ? "Connection request sent"
@@ -229,7 +286,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     try {
       await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
       const idToken = await user.getIdToken();
-      setViewerProfile(await PersonProfileService.getViewer(personRef, idToken));
+      setViewerProfileState({
+        personRef: resolvedPersonRef,
+        profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken),
+      });
       toast.success("Information request cancelled");
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : "The information request could not be cancelled.");
