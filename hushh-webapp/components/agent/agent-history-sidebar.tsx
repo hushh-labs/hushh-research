@@ -329,8 +329,8 @@ export function AgentHistorySidebar({
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground transition-[width] duration-200 ease-out",
           isMobileMode
-            ? "chrome-glass-surface rounded-r-[28px] border-r border-border/60 bg-background/88 shadow-[18px_0_42px_rgba(15,23,42,0.18)] dark:border-white/10 dark:bg-background/88"
-            : "border-r border-border/70 bg-foreground/[0.025] backdrop-blur-xl dark:bg-white/[0.03]",
+            ? "chrome-glass-surface rounded-r-[28px] bg-background/92 shadow-[18px_0_42px_rgba(15,23,42,0.18)] dark:bg-background/92"
+            : "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:bg-white/[0.025]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}
@@ -372,7 +372,7 @@ export function AgentHistorySidebar({
             </ShellActionSurface>
           </div>
         ) : (
-          <div className="flex items-center gap-2 border-b border-black/10 p-3 dark:border-white/10">
+          <div className="flex items-center gap-2 p-3">
           {collapsed && !isMobileMode ? (
             <div className="flex w-full flex-col items-center gap-2">
               <Button
@@ -408,7 +408,7 @@ export function AgentHistorySidebar({
                   "h-11 min-w-0 flex-1 justify-start gap-2 px-3 text-sm font-medium text-[#1d1d1f] transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-100",
                   isMobileMode
                     ? "rounded-full bg-black/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_8px_26px_rgba(0,0,0,0.08)] hover:bg-black/[0.055] dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
-                    : "rounded-lg border border-black/10 bg-black/[0.035] shadow-sm shadow-black/[0.03] hover:bg-black/[0.06] dark:border-white/10 dark:bg-white/[0.04] dark:shadow-none dark:hover:bg-white/[0.08]"
+                    : "rounded-[14px] bg-foreground/[0.055] hover:bg-foreground/[0.085] dark:bg-white/[0.055] dark:hover:bg-white/[0.09]"
                 )}
                 onClick={onCreateNew}
                 disabled={disabled}
@@ -450,7 +450,7 @@ export function AgentHistorySidebar({
         )}
 
         {!collapsed ? (
-          <div className="border-b border-border/65 px-4 py-3 dark:border-white/10">
+          <div className="px-4 py-3">
             <div className="relative">
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -469,7 +469,7 @@ export function AgentHistorySidebar({
                   "h-10 rounded-xl pl-9 text-[15px] text-foreground placeholder:text-muted-foreground",
                   isMobileMode
                     ? "border-transparent bg-foreground/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:bg-white/[0.07]"
-                    : "border-black/10 bg-black/[0.025] dark:border-white/10 dark:bg-white/[0.04]"
+                    : "border-transparent bg-foreground/[0.045] shadow-none dark:bg-white/[0.05]"
                 )}
               />
             </div>

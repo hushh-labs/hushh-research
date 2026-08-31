@@ -72,7 +72,7 @@ export const AppStreamEventList = memo(function AppStreamEventList({
         return (
           <li key={item.id} className="ui-text-caption flex gap-2">
             {item.badge ? (
-              <span className="mt-0.5 shrink-0 rounded border border-border/50 px-1.5 py-0.5 font-medium text-muted-foreground">
+              <span className="mt-0.5 shrink-0 rounded-full bg-accent-surface px-2 py-0.5 font-semibold text-accent-strong">
                 {item.badge}
               </span>
             ) : (
@@ -120,7 +120,7 @@ export function AppStreamSection({
 }: AppStreamSectionProps) {
   return (
     <Collapsible open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
-      <div className={cn("rounded-xl border border-border/60 bg-muted/20", className)}>
+      <div className={cn("rounded-[16px] bg-foreground/[0.035] dark:bg-white/[0.045]", className)}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
@@ -144,7 +144,7 @@ export function AppStreamSection({
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className={cn("border-t border-border/50 px-3 py-2", bodyClassName)}>
+          <div className={cn("px-3 pb-3 pt-1", bodyClassName)}>
             {content ?? (
               <AppStreamEventList
                 items={items}
@@ -212,8 +212,8 @@ export function AppStreamPanel({
   return (
     <section
       className={cn(
-        "w-full max-w-none rounded-2xl border border-black/10 bg-white/70 p-3 shadow-sm shadow-black/[0.025] backdrop-blur-xl",
-        "dark:border-white/10 dark:bg-white/[0.035] dark:shadow-none",
+        "w-full max-w-none rounded-[24px] bg-[linear-gradient(145deg,color-mix(in_srgb,var(--app-accent-soft)_46%,transparent),color-mix(in_srgb,var(--background)_96%,var(--app-accent)))] p-3.5 shadow-[0_22px_60px_-46px_var(--app-accent-deep)] backdrop-blur-xl",
+        "dark:bg-white/[0.035] dark:shadow-none",
         className
       )}
       aria-label={title}
@@ -276,7 +276,7 @@ export function AppStreamPanel({
           <div
             role="status"
             aria-live="polite"
-            className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/55 px-3 py-2 text-sm text-muted-foreground"
+            className="inline-flex items-center gap-2 rounded-full bg-accent-surface px-3 py-2 text-sm text-muted-foreground"
           >
             <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
             <span>{responsePendingLabel}</span>
