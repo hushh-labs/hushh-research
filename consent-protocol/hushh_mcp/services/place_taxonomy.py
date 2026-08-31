@@ -630,6 +630,24 @@ _CHIP_HOTELS = tuple(
     if place_type not in {"campground", "camping_cabin", "rv_park", "mobile_home_park"}
 )
 
+#: Google's Automotive family splits across two chips by what you are there to
+#: do. Parking, fuelling and charging are part of getting somewhere, and both
+#: `parking` and `gas_station` were reachable from Transit before this taxonomy
+#: existed -- moving them would be a silent reclassification of a place somebody
+#: already knows where to find. Buying, renting or repairing a vehicle is a shop.
+_AUTOMOTIVE_TRANSPORT = (
+    "parking",
+    "parking_garage",
+    "parking_lot",
+    "rest_stop",
+    "gas_station",
+    "ebike_charging_station",
+    "electric_vehicle_charging_station",
+)
+_AUTOMOTIVE_RETAIL = tuple(
+    place_type for place_type in FAMILY_AUTOMOTIVE if place_type not in set(_AUTOMOTIVE_TRANSPORT)
+)
+
 #: Somewhere you go to spend time rather than to transact.
 _CHIP_LEISURE = (
     *FAMILY_ENTERTAINMENT,
@@ -662,12 +680,12 @@ CHIP_TYPES: dict[str, tuple[str, ...]] = {
         *FAMILY_SHOPPING,
         *FAMILY_SERVICES,
         *FAMILY_FINANCE,
-        *FAMILY_AUTOMOTIVE,
+        *_AUTOMOTIVE_RETAIL,
     ),
     "hotels_stays": _CHIP_HOTELS,
     "education": FAMILY_EDUCATION,
     "outdoors_landmarks": _CHIP_LEISURE,
-    "transit": FAMILY_TRANSPORT,
+    "transit": (*FAMILY_TRANSPORT, *_AUTOMOTIVE_TRANSPORT),
     "worship": FAMILY_WORSHIP,
     "civic": FAMILY_GOVERNMENT,
     "other": _CHIP_OTHER,

@@ -29,10 +29,17 @@ from hushh_mcp.services import google_maps_service as maps
 
 
 def test_the_check_in_sweep_still_costs_what_it_did() -> None:
-    """One request per bucket, plus one unfiltered. Adding a bucket adds a call."""
+    """One request per bucket, plus one unfiltered. Adding a bucket adds a call.
 
-    # Seven buckets was the shipped cost of opening the check-in drawer on "All".
-    assert len(maps._NEARBY_SWEEP_TYPES) == 7
+    Nine, up from the seven this test was written against. Worship and Civic
+    bought their own buckets deliberately: neither family was in any bucket, so a
+    temple or a police station reached the drawer only when the single unfiltered
+    sweep happened to catch one. Folding them into the landmarks bucket instead
+    would have kept the count at seven and let twenty nearby temples take every
+    slot in it -- see the sibling test below, which is the guard that matters.
+    """
+
+    assert len(maps._NEARBY_SWEEP_TYPES) == 9
     assert set(maps._NEARBY_SWEEP_TYPES) == {
         "food_drink",
         "health",
@@ -41,7 +48,33 @@ def test_the_check_in_sweep_still_costs_what_it_did() -> None:
         "education",
         "outdoors_landmarks",
         "transit",
+        "worship",
+        "civic",
     }
+
+
+def test_every_swept_type_belongs_to_the_bucket_that_fetches_it() -> None:
+    """A bucket's types must classify to that bucket's own chip.
+
+    The types in a bucket are free to REQUEST -- Google caps `includedTypes` at
+    50 -- but the response is capped at 20 and ranked by distance, so every type
+    in a bucket competes for the same twenty slots. A bucket that fetches types
+    belonging to some other chip therefore spends its budget on rows it will not
+    show, and starves its own chip.
+
+    That is not hypothetical: worship and government types were briefly packed
+    into the landmarks bucket to keep the bucket count down, and in a pilgrimage
+    city twenty nearby temples would have taken every slot and left the Leisure
+    chip empty at a spot with parks and museums in range. This is a better guard
+    than the count above, because a count cannot see it.
+    """
+
+    for chip, place_types in maps._NEARBY_SWEEP_TYPES.items():
+        for place_type in place_types:
+            assert chip in maps._taxonomy.place_categories([place_type]), (
+                f"the {chip!r} bucket fetches {place_type!r}, which is classified as "
+                f"{maps._taxonomy.place_categories([place_type])} and can never show under {chip!r}"
+            )
 
 
 def test_the_two_taxonomies_are_separate_objects() -> None:

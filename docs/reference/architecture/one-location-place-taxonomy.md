@@ -26,7 +26,7 @@ Two tables, deliberately separate, both in
 
 | Table | Where | Job | Cost |
 | --- | --- | --- | --- |
-| `_NEARBY_SWEEP_TYPES` | `google_maps_service.py` | Recall. What we ask Google for. | **One provider call per bucket.** Keep it at seven. |
+| `_NEARBY_SWEEP_TYPES` | `google_maps_service.py` | Recall. What we ask Google for. | **One provider call per bucket.** Nine of them. |
 | `CHIP_TYPES` | `place_taxonomy.py` | Meaning. What a place is shown as. | Free. Response-side only. |
 
 They used to be one table, which made a chip cost a provider call and kept the
@@ -58,11 +58,11 @@ lets the classifier be exhaustive.
 | --- | --- | --- | --- |
 | `food_drink` | Food | Somewhere food or drink is prepared for you, including bars, pubs and lounge bars | A grocery shop |
 | `health` | Health | Treatment or care by a health professional, plus pharmacies | A gym, a beauty salon |
-| `shopping_services` | Shops | Buying goods, or a service performed for you: retail, groceries, banks, salons, laundry, vehicle service, trades, agents | Somewhere you eat, sleep or spend leisure time |
+| `shopping_services` | Shops | Buying goods, or a service performed for you: retail, groceries, banks, salons, laundry, vehicle sales and repair, trades, agents | Somewhere you eat, sleep or spend leisure time. A car park or a petrol pump is Transit |
 | `hotels_stays` | Hotels | **Somewhere you can pay to sleep for the night** — hotels, motels, hostels, inns, guest houses, resorts, B&Bs, serviced stays | A lounge, a campsite, a mobile-home park, an estate agent |
 | `education` | Education | Somewhere people are taught or study | — |
 | `outdoors_landmarks` | Leisure | Somewhere you spend time rather than transact: parks, nature, landmarks, museums, sport, cinemas, nightclubs, event venues, campsites | — |
-| `transit` | Transit | Catching, boarding or parking transport | — |
+| `transit` | Transit | Getting somewhere: catching, boarding, parking, fuelling or charging | Buying, renting or repairing a vehicle — that is Shops |
 | `worship` | Worship | A place of religious worship | — |
 | `civic` | Civic | A public, government or emergency building | — |
 | `other` | More | A real venue none of the above describes, plus every venue Google names but does not describe | — |
@@ -99,7 +99,14 @@ verification signal at any tier.
   `e2e/one-location-check-in-panel.layout.spec.ts`. A vitest contract asserts the
   replica matches, because a stale replica passes rather than fails.
 - Adding a **sweep bucket** costs a provider call on every drawer open. Types
-  inside a bucket are free up to Google's cap of 50.
+  inside a bucket are free to *request* — Google caps `includedTypes` at 50 —
+  but **not free to return**: the response is capped at 20 and ranked by
+  distance, so every type in a bucket competes for the same twenty slots. A
+  bucket must therefore only fetch types that classify to its own chip, or it
+  starves itself. `test_every_swept_type_belongs_to_the_bucket_that_fetches_it`
+  pins that, and it is a better guard than the bucket count: packing worship and
+  government into the landmarks bucket to save a call would let twenty nearby
+  temples take every slot and render Leisure empty in a pilgrimage city.
 - When Google adds place types, regenerate the families in `place_taxonomy.py`
   from the [Place Types](https://developers.google.com/maps/documentation/places/web-service/place-types)
   page. The exhaustiveness test fails rather than letting a new type go missing.

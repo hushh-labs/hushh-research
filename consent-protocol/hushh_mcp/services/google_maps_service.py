@@ -233,11 +233,20 @@ NearbyPlaceCategory = Literal[
 # 478. Splitting them makes chips free and let the classifier become
 # exhaustive, which is what "no place is silently skipped" needs.
 #
-# Bucket COUNT is the cost -- one request per bucket, so keep it at seven. The
-# types inside a bucket are free up to Google's cap of 50 per request, which is
-# why worship and government venues are swept alongside landmarks rather than
-# earning buckets of their own. They are still classified into their own chips
-# on the way out.
+# Bucket COUNT is the cost -- one request per bucket. Nine, up from seven.
+#
+# The types inside a bucket are NOT free, which is the trap. Google caps
+# `includedTypes` at 50, so a wide bucket costs nothing to ASK; but the response
+# is capped at 20 and ranked by distance, so every type in a bucket competes for
+# the same twenty slots. Worship and government were briefly folded in alongside
+# landmarks to keep the count at seven, and in a pilgrimage city -- which is
+# where this was reported -- twenty nearby temples would take every slot and the
+# Leisure chip would render empty at a spot that has parks and museums in range.
+#
+# So the rule is: a bucket's types must classify to that bucket's own chip.
+# `test_every_swept_type_belongs_to_the_bucket_that_fetches_it` pins it, and it
+# is a better guard than the count -- it catches the starvation this comment is
+# about, which a count never would.
 #
 # "All" issues one request per bucket here, concurrently, and merges the
 # results. That costs more provider calls per drawer open than the single
@@ -269,13 +278,15 @@ _NEARBY_SWEEP_TYPES: dict[str, tuple[str, ...]] = {
         # Everyday errands people wait at, same reasoning.
         "bank",
         "atm",
-        "post_office",
-        "gym",
     ),
     # Every lodging leaf, not just the six we happened to name. A guest house,
     # an inn or a resort is exactly what somebody standing outside one expects
     # the Hotels chip to have found.
-    "hotels_stays": _taxonomy.FAMILY_LODGING,
+    # The chip's own leaves, not the whole Lodging family: a campsite, a camping
+    # cabin and an RV park are Leisure, and a mobile-home park is somewhere
+    # people live, so fetching them here would spend this bucket's twenty
+    # distance-ranked slots on rows the Hotels chip will not show.
+    "hotels_stays": _taxonomy.CHIP_TYPES["hotels_stays"],
     "education": (
         "school",
         "university",
@@ -298,14 +309,27 @@ _NEARBY_SWEEP_TYPES: dict[str, tuple[str, ...]] = {
         "garden",
         "plaza",
         "stadium",
+        "gym",
+        "fitness_center",
         "movie_theater",
         "night_club",
         "event_venue",
         "community_center",
         "zoo",
-        *_taxonomy.FAMILY_WORSHIP,
-        *_taxonomy.FAMILY_GOVERNMENT,
+        "campground",
+        "rv_park",
     ),
+    # Their own buckets, and worth the two extra calls. Neither family was in any
+    # bucket before, so a temple, a mosque or a police station was only ever
+    # returned by the single unfiltered sweep -- which the note above explains is
+    # routinely saturated by the nearest cafes -- and then matched no chip and
+    # vanished behind the first tap.
+    "worship": _taxonomy.FAMILY_WORSHIP,
+    # `post_office` used to be fetched by the shops bucket; it is a government
+    # counter, so it is classified as Civic and is fetched here now. `gym` left
+    # the shops bucket for the same reason -- it is Leisure, and the landmarks
+    # bucket already reaches it.
+    "civic": _taxonomy.FAMILY_GOVERNMENT,
     "transit": (
         "transit_station",
         "bus_stop",
