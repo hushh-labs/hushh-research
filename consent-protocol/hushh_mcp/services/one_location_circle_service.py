@@ -30,6 +30,7 @@ from hushh_mcp.services.connection_graph_service import (
     revoke_circle_origins,
 )
 from hushh_mcp.services.people_search_sql import people_query_match_params
+from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from mcp_modules.log_redaction import redact_log_field
 
 logger = logging.getLogger(__name__)
@@ -653,6 +654,7 @@ class OneLocationCircleService:
             "photoUrl": str(row.get("custom_photo_url") or row.get("photo_url") or "") or None,
             "connectedAt": _iso(row.get("connected_at")),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            "isRia": bool(row.get("is_ria")),
         }
 
     @staticmethod
@@ -2749,7 +2751,7 @@ class OneLocationCircleService:
                     status_code=403,
                 )
             result = self._db.execute_raw(
-                """
+                f"""
                 SELECT DISTINCT
                   connection.id AS connection_id,
                   CASE
@@ -2767,7 +2769,17 @@ class OneLocationCircleService:
                       AND contact_origin.status = 'active'
                       AND contact_origin.origin_kind = 'contact_sync'
                       AND contact_origin.source_ref = :actor_user_id
-                  ) AS connected_from_contacts
+                  ) AS connected_from_contacts,
+                  EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_annotation
+                    WHERE ria_annotation.user_id = CASE
+                      WHEN connection.user_a_id = :actor_user_id
+                      THEN connection.user_b_id
+                      ELSE connection.user_a_id
+                    END
+                      AND {RIA_VERIFIED_STATUS_SQL}
+                  ) AS is_ria
                 FROM one_location_circles circle
                 JOIN one_location_circle_memberships actor_membership
                   ON actor_membership.circle_id = circle.id
@@ -2824,7 +2836,7 @@ class OneLocationCircleService:
                       AND invite.expires_at > NOW()
                   )
                 ORDER BY identity.display_name NULLS LAST
-                """,
+                """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
                     "actor_user_id": actor_user_id,
@@ -2859,7 +2871,7 @@ class OneLocationCircleService:
         offset = (normalized_page - 1) * normalized_limit
         try:
             result = self._db.execute_raw(
-                """
+                f"""
                 WITH authorized_circle AS (
                   SELECT circle.id, circle.owner_user_id
                   FROM one_location_circles circle
@@ -2977,11 +2989,17 @@ class OneLocationCircleService:
                            AND contact_origin.status = 'active'
                            AND contact_origin.origin_kind = 'contact_sync'
                            AND contact_origin.source_ref = :actor_user_id
-                       ) END AS connected_from_contacts
+                       ) END AS connected_from_contacts,
+                       CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
+                         SELECT 1
+                         FROM ria_profiles ria_annotation
+                         WHERE ria_annotation.user_id = page_rows.user_id
+                           AND {RIA_VERIFIED_STATUS_SQL}
+                       ) END AS is_ria
                 FROM total LEFT JOIN page_rows ON TRUE
                 ORDER BY page_rows.match_rank, page_rows.normalized_name,
                          page_rows.user_id, page_rows.connection_id
-                """,
+                """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
                     "actor_user_id": actor_user_id,
