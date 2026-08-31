@@ -1023,37 +1023,6 @@
       "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
-      "data_class": "personal_encrypted",
-      "exact_tables": [
-        "one_location_nearby_visits"
-      ],
-      "id": "one_location_place_rating_visits",
-      "lifecycle_status": "current",
-      "owner": "iam-consent-governance",
-      "primary_access_path": "Short-lived ledger of completed nearby check-in visits, so the place a person just left can be rated and so the check-in travel-continuity guard survives a checkout that clears the presence anchor. The venue is readable only as an AES-256-GCM envelope bound by AAD to its owner, alongside a server-keyed equality token that allows same-venue and distinct-place checks without decryption.",
-      "retention_policy": "Each visit expires seven days after check-in and is deleted by the Location retention purge on its own expires_at, independently of the twelve-hour window used for terminal presence rows.",
-      "deletion_behavior": "Rows cascade on actor_profiles deletion and are also deleted explicitly by the account service for the owning user.",
-      "trust_boundary": "backend_runtime",
-      "plaintext_posture": "metadata_only",
-      "expected_row_growth": "low_per_user_bounded_by_ttl"
-    },
-    {
-      "data_class": "personal_metadata",
-      "exact_tables": [
-        "one_location_place_ratings",
-        "one_location_place_rating_aggregates"
-      ],
-      "id": "one_location_place_ratings",
-      "lifecycle_status": "current",
-      "owner": "iam-consent-governance",
-      "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets.",
-      "retention_policy": "A rating is retained while the account exists and is updated in place on a revisit. The aggregate is derived state, recomputed from the surviving rows on every insert, update and delete.",
-      "deletion_behavior": "Ratings cascade on actor_profiles deletion and are deleted explicitly by the account service, which recomputes every affected place aggregate in the same statement -- an average that still counts a deleted rating has not deleted it.",
-      "trust_boundary": "backend_runtime",
-      "plaintext_posture": "provider_place_id_and_label",
-      "expected_row_growth": "low_per_user"
-    },
-    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "one_location_circles",
@@ -1064,6 +1033,27 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "one_location_nearby_visits"
+      ],
+      "id": "one_location_place_rating_visits",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Short-lived ledger of completed nearby check-in visits, so the place a person just left can be rated and so the check-in travel-continuity guard survives a checkout that clears the presence anchor. The venue is readable only as an AES-256-GCM envelope bound by AAD to its owner, alongside a server-keyed equality token that allows same-venue and distinct-place checks without decryption."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_location_place_ratings",
+        "one_location_place_rating_aggregates"
+      ],
+      "id": "one_location_place_ratings",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets."
     },
     {
       "data_class": "workflow_state",
@@ -5273,7 +5263,7 @@
     "action_gateway": "ad1c14d11ad34a758103eb32781f0ee09d5fc4f21070f9d90faabef025b58703",
     "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
     "cache_manifest": "a46b2b991274b6b0e6ed0264ad83504622599f3c34bbe55ffa902cc940b04097",
-    "data_plane": "98d0c1fe2d78f7eb75b176dc067dafb45c6c0a68d2f27b91359740f318e539fb",
+    "data_plane": "b986ad97560024c0297cc7ce25386a110dc2375e232c805d0325cdbe31ed6cec",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "376cf3193426e923607c74d060cdfe4678e6661dc22042b25f34a36c89e5bbfa",
     "route_index": "b9210b4d9dbb7b668cb349e4039a730aa9a3af2dda33468b6debf79c54c8fd08",
@@ -5292,6 +5282,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 135,
     "semantic_routes": 14,
-    "table_families": 54
+    "table_families": 56
   }
 }
