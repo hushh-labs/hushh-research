@@ -89,6 +89,25 @@ describe("the owner's side of the exchange", () => {
     expect(presented.description).toBe("You gave them 30 min more");
   });
 
+  it("does not offer 'more' of a share that never ends", () => {
+    // The push and the bell each grew a branch for this. Without one here the
+    // `|| amount` fallback resolves to the phrase "as long as they need" and
+    // the row reads "You gave them as long as they need more" -- permanently,
+    // because a Feed row is a record rather than a popup.
+    const owner = presentFeedItem(
+      item({
+        event_type: "location_access_approved",
+        metadata: {
+          counterpart_label: "Ankit",
+          is_extension: true,
+          duration_mode: "until_stopped",
+        },
+      }),
+    );
+    expect(owner.description).toBe("You are still sharing until you stop");
+    expect(owner.description).not.toContain("more");
+  });
+
   it("leaves a fresh approval reporting the total it granted", () => {
     // Not an extension: there is nothing to have added to, and the total is
     // the whole of what was given.

@@ -8727,49 +8727,6 @@ class OneLocationAgentService:
             },
         )
 
-    def _locked_live_share_between(
-        self, *, owner_user_id: str, recipient_user_id: str, is_sos_lane: bool
-    ) -> dict[str, Any] | None:
-        """{@link _active_grant_between}, row-locked, for a caller about to replace it.
-
-        An approval that ADDS to a running share has to read the share it is
-        about to revoke, and read it under the same lock the revoke will take.
-        `shorten_grant` locks the grant ROW rather than this pair's advisory
-        lock, so an unlocked read here would let a shorten commit in the gap and
-        then be silently undone by a sum computed from the pre-shorten expiry --
-        the same "a share's end time moved in a direction nobody chose" defect
-        this read exists to prevent.
-
-        Deliberately keyed on the PAIR and the lane rather than on the request's
-        `extends_grant_id`. The ask is pinned to whichever grant was live when it
-        was made; `create_grant` revokes whichever is live NOW. Reading the
-        pinned row would preserve time on a grant that is no longer there while
-        the revoke destroyed a different one.
-        """
-        return self._execute_one(
-            """
-            SELECT id, expires_at, duration_mode, duration_hours, status
-            FROM one_location_share_grants
-            WHERE owner_user_id = :owner_user_id
-              AND recipient_user_id = :recipient_user_id
-              AND status = 'active'
-              AND (expires_at IS NULL OR expires_at > NOW())"""  # nosec B608 - the
-            # lane predicate is a module-level constant of static SQL text and the
-            # lane itself is BOUND as `:is_sos_lane`; nothing caller-supplied
-            # reaches this statement.
-            + _share_lane_match_sql()
-            + """
-            ORDER BY created_at DESC
-            LIMIT 1
-            FOR UPDATE
-            """,
-            {
-                "owner_user_id": owner_user_id,
-                "recipient_user_id": recipient_user_id,
-                "is_sos_lane": bool(is_sos_lane),
-            },
-        )
-
     def set_grant_duration(
         self,
         *,
@@ -9399,7 +9356,30 @@ class OneLocationAgentService:
             # asking, and an SOS grant's hours must never enter this sum.
             remaining_hours = 0.0
             if was_extension and not _is_until_stopped_share(resolved_mode):
-                live_share = self._locked_live_share_between(
+                # Deliberately the UNLOCKED read, and deliberately the same one
+                # `request_access` used to tell the owner "They have 1 hour 50
+                # minutes left" -- so the promise and the arithmetic share a
+                # source.
+                #
+                # A `SELECT ... FOR UPDATE` here would be the natural instinct,
+                # and it is the wrong one: it takes a grant-row lock BEFORE
+                # `create_grant` reaches `_lock_circle_share_eligibility`,
+                # whose contract is "Circle first, memberships second -- the
+                # same order as membership removal". Circle removal locks the
+                # Circle and then the grant rows it sources; an approval that
+                # locked the grant first would close the cycle, and a
+                # circle-scoped auto-approve racing a member removal would
+                # deadlock. One of the two aborts, and the likely casualty is
+                # the owner being told they cannot remove somebody from their
+                # own Circle.
+                #
+                # What the lock would have bought is small by comparison: a
+                # `shorten_grant` committing inside this window would be added
+                # to from its pre-shorten expiry, over-granting by the minutes
+                # it gave back. Bounded by the day ceiling, needs the same pair
+                # in the same second, and it errs toward more access rather
+                # than the destroyed access this whole change is about.
+                live_share = self._active_grant_between(
                     owner_user_id=owner_user_id,
                     recipient_user_id=requester_user_id,
                     is_sos_lane=False,
