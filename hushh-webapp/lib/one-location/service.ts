@@ -37,6 +37,8 @@ import type {
   OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
+  OneLocationPlaceRating,
+  OneLocationRateableVisit,
   OneLocationSosVoicePreference,
   OneLocationGrant,
   OneLocationMapPreferences,
@@ -1704,6 +1706,71 @@ export class OneLocationService {
         }),
       },
     );
+  }
+
+  /**
+   * Save the caller's own star rating for a place they were recorded at.
+   *
+   * The note is deliberately not a parameter. It goes to the owner's vault,
+   * client-side encrypted, and never reaches a server -- a plaintext note
+   * beside a venue and a timestamp is a movement log with commentary.
+   *
+   * `consentVersion` travels with the write and is checked server-side rather
+   * than stamped there. A build still showing last version's words must not be
+   * able to save a permanent record under them.
+   */
+  static async ratePlace(params: {
+    vaultOwnerToken: string;
+    placeId: string;
+    rating: number;
+    consentVersion: string;
+  }): Promise<OneLocationPlaceRating> {
+    const response = await apiJson<{ rating: OneLocationPlaceRating }>(
+      "/api/one/location/place-ratings",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          placeId: params.placeId,
+          rating: params.rating,
+          consentVersion: params.consentVersion,
+          consentAccepted: true,
+        }),
+      },
+    );
+    return response.rating;
+  }
+
+  static async listPlaceRatings(
+    vaultOwnerToken: string,
+    limit = 25,
+  ): Promise<OneLocationPlaceRating[]> {
+    const response = await apiJson<{ ratings: OneLocationPlaceRating[] }>(
+      `/api/one/location/place-ratings?limit=${encodeURIComponent(String(limit))}`,
+      { headers: jsonAuthHeaders(vaultOwnerToken) },
+    );
+    return response.ratings ?? [];
+  }
+
+  static async listRateableVisits(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationRateableVisit[]> {
+    const response = await apiJson<{ pendingRatings: OneLocationRateableVisit[] }>(
+      "/api/one/location/place-ratings/pending",
+      { headers: jsonAuthHeaders(vaultOwnerToken) },
+    );
+    return response.pendingRatings ?? [];
+  }
+
+  static async deletePlaceRating(params: {
+    vaultOwnerToken: string;
+    placeId: string;
+  }): Promise<void> {
+    await apiJson<{ deleted: boolean }>("/api/one/location/place-ratings", {
+      method: "DELETE",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ placeId: params.placeId }),
+    });
   }
 
   static async checkoutNearby(params: {

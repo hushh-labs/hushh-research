@@ -672,12 +672,60 @@ export type OneLocationNearbyPresence = {
    */
   placeLat?: number | null;
   placeLng?: number | null;
+  /**
+   * The provider place id for that anchor, so the checkout pane can offer the
+   * Google review hand-off without guessing which venue it was. Optional: an
+   * older backend simply omits it, and everything except that one button works
+   * exactly the same without it.
+   */
+  placeId?: string | null;
+};
+
+/** One person's own star rating for a place they were recorded at. */
+export type OneLocationPlaceRating = {
+  id: string;
+  placeId: string;
+  placeLabel: string;
+  rating: number;
+  /** False for a category that never carries a public average (health, worship,
+   *  legal, funeral, shelter). The rating is still the author's own. */
+  countsTowardAverage: boolean;
+  consentVersion: string;
+  /** False once the consent text has moved on, until the author re-accepts. */
+  consentCurrent: boolean;
+  visitedAt?: string | null;
+  visitCount: number;
+  revision: number;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  googleReviewUrl?: string | null;
+};
+
+/** A completed visit the owner could still rate. */
+export type OneLocationRateableVisit = {
+  visitId: string;
+  placeId: string;
+  placeLabel: string | null;
+  placeCategory?: string | null;
+  visitedAt?: string | null;
+  expiresAt?: string | null;
+  googleReviewUrl?: string | null;
+  consentVersion: string;
 };
 
 export type OneLocationNearbyPresenceState = {
   presence: OneLocationNearbyPresence | null;
   attendees: OneLocationNearbyAttendee[];
   checkedOut?: boolean;
+  /**
+   * On checkout only: the place just left, and whether it can be rated.
+   *
+   * Returned by the server rather than remembered on the device, because the
+   * client never held the place id in the first place -- the presence payload
+   * has only a label and a point. Absent whenever there is nothing rateable,
+   * which the pane treats as "no rating step", never as an error.
+   */
+  reviewPrompt?: OneLocationRateableVisit | null;
 };
 
 export type DriveDestination = {
