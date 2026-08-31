@@ -2,6 +2,15 @@
 
 **Status:** implemented and measured on real hardware, 2026-08-28.
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  Owner[Owner device] --> Hermes[Hermes runtime]
+  Hermes --> Model[Resident local model]
+  Hermes --> PKM[Encrypted PKM commit]
+```
+
 Puppy One is the edge tier of Hussh One: a personal AI that answers on hardware
 the owner already has, instead of renting inference from a vendor.
 

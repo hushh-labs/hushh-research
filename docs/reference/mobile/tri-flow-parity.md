@@ -1,5 +1,14 @@
 # Tri-flow parity
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  Contract[Route inventory] --> Web[Web]
+  Contract --> iOS[iOS]
+  Contract --> Android[Android]
+```
+
 Tri-flow is **Web + iOS + Android**. Every layer of a change is either covered
 or explicitly marked not-applicable **with a reason**. Silent omission is not a
 third option.
@@ -10,7 +19,8 @@ Not in the PR checkbox. A tick in a template is not reviewable six months
 later, and nothing reads it.
 
 The claim lives in `hushh-webapp/native-route-inventory.json`, one row per
-route, and `scripts/native/verify-native-static-parity.mjs` enforces it.
+route, and `hushh-webapp/scripts/native/verify-native-static-parity.mjs`
+enforces it.
 
 | Classification | Meaning | Required field |
 | --- | --- | --- |
