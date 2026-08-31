@@ -48,6 +48,10 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
     NearbyPresenceError,
     OneLocationNearbyPresenceService,
 )
+from hushh_mcp.services.one_location_place_rating_service import (
+    OneLocationPlaceRatingService,
+    PlaceRatingError,
+)
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
 
@@ -409,6 +413,32 @@ class NearbyConnectionRequest(_CamelModel):
     )
 
 
+class PlaceRatingSubmitRequest(_CamelModel):
+    """A 1-5 star rating for a place the caller was recorded at.
+
+    No note field on purpose. The author's note is written to their own vault,
+    client-side encrypted, and never reaches this server -- a plaintext note
+    attached to a venue and a timestamp is a movement log with commentary.
+
+    `consentVersion` is sent by the client and checked against the server's
+    current version rather than stamped here. A rating is permanent, so a stale
+    client must not be able to save one under a promise it never displayed.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_id: str = Field(alias="placeId", min_length=1, max_length=300)
+    rating: int = Field(ge=1, le=5)
+    consent_version: str = Field(alias="consentVersion", min_length=1, max_length=80)
+    consent_accepted: bool = Field(alias="consentAccepted")
+
+
+class PlaceRatingDeleteRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_id: str = Field(alias="placeId", min_length=1, max_length=300)
+
+
 def _service() -> OneLocationAgentService:
     return OneLocationAgentService()
 
@@ -419,6 +449,10 @@ def _circle_service() -> OneLocationCircleService:
 
 def _nearby_presence_service() -> OneLocationNearbyPresenceService:
     return OneLocationNearbyPresenceService()
+
+
+def _place_rating_service() -> OneLocationPlaceRatingService:
+    return OneLocationPlaceRatingService()
 
 
 def _user_id(token_data: dict[str, Any]) -> str:
@@ -436,6 +470,11 @@ def _request_fingerprint_hash(request: Request) -> str | None:
 
 
 def _handle_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, PlaceRatingError):
+        return HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        )
     if isinstance(exc, NearbyPresenceError):
         return HTTPException(
             status_code=exc.status_code,
@@ -782,6 +821,9 @@ def purge_location_retention(request: Request, older_than_hours: float = 12):
         result["nearby_presence"] = _nearby_presence_service().purge_terminal(
             older_than_hours=older_than_hours
         )
+        # Visits carry their own seven-day window, so this deliberately ignores
+        # `older_than_hours` and purges on the row's own `expires_at`.
+        result["place_rating_visits"] = _place_rating_service().purge_expired_visits()
         return result
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1631,6 +1673,7 @@ async def check_in_nearby(
             duration_minutes=payload.duration_minutes,
             consent_accepted=payload.consent_accepted,
             allow_connection_requests=payload.allow_connection_requests,
+            place_category=str(place.get("primaryType") or "") or None,
         )
         return state
     except GoogleMapsError as exc:
@@ -1713,6 +1756,106 @@ def request_nearby_connection(
             user_id=_user_id(token_data),
             participant_alias=payload.participant_alias,
         )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# Place ratings
+#
+# Gated by `_require_nearby_presence_simulation` like every other nearby route:
+# a rating cannot exist without a check-in, so it must be dark wherever check-in
+# is. That means production stays dark until the mode and a cohort are both set,
+# which is correct and will be reported as a bug at least once.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/location/place-ratings/pending")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_pending_place_ratings(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Visits the caller could still rate."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return {
+            "pendingRatings": _place_rating_service().list_rateable_visits(
+                user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_place_ratings(
+    request: Request,
+    response: Response,
+    limit: int = Query(default=25, ge=1, le=50),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """The caller's own ratings. Never anybody else's, and never an author id."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return _place_rating_service().list_own_ratings(
+            user_id=_user_id(token_data),
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE_DAILY)
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE)
+async def submit_place_rating(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingSubmitRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        service = _place_rating_service()
+        rating = await run_in_threadpool(
+            service.submit_rating,
+            user_id=_user_id(token_data),
+            place_id=payload.place_id,
+            rating=payload.rating,
+            consent_version=payload.consent_version,
+            consent_accepted=payload.consent_accepted,
+        )
+        return {"rating": rating}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE)
+async def delete_place_rating(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingDeleteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        service = _place_rating_service()
+        result = await run_in_threadpool(
+            service.delete_rating,
+            user_id=_user_id(token_data),
+            place_id=payload.place_id,
+        )
+        return result
     except Exception as exc:
         raise _handle_error(exc) from exc
 
