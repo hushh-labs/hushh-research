@@ -67,8 +67,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   Drawer,
   DrawerContent,
@@ -182,10 +182,11 @@ function useSheetPresentation(): boolean {
 
 export type CircleMemberActionsMenuProps = {
   displayName: string;
-  /** Initials for the sheet header's avatar, computed by the row so the two
-   *  avatars of the same person can never disagree. */
+  /** Retained for existing callers; the shared avatar component now owns
+   *  fallback initials so roster rows and sheets cannot disagree. */
   initials: string;
   photoUrl?: string | null;
+  verified?: boolean;
   /** The row's own second line ("Connected", "Owner", "Location setup
    *  needed"). Repeated in the sheet header so the sheet identifies the
    *  person exactly the way the row it came from did. */
@@ -209,8 +210,8 @@ export type CircleMemberActionsMenuProps = {
  */
 export function CircleMemberActionsMenu({
   displayName,
-  initials,
   photoUrl,
+  verified = false,
   secondaryLine,
   canShare,
   canRemove,
@@ -316,10 +317,12 @@ export function CircleMemberActionsMenu({
                     left this to proximity, and proximity is the one thing a
                     roster of near-identical rows cannot carry. */}
                 <div className="flex items-center gap-3 pb-3">
-                  <Avatar className="h-11 w-11 shrink-0">
-                    {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
-                    <AvatarFallback>{initials}</AvatarFallback>
-                  </Avatar>
+                  <ConnectionPersonAvatar
+                    label={displayName}
+                    photoUrl={photoUrl}
+                    verified={verified}
+                    className="h-11 w-11"
+                  />
                   <div className="min-w-0 flex-1 text-left">
                     <DrawerTitle className="truncate text-[17px] leading-[22px]">
                       {displayName}

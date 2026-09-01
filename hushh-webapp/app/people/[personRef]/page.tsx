@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 
 import { PersonProfilePage } from "@/components/connections/person-profile-page";
 import { fetchPythonApi } from "@/app/api/_utils/backend";
@@ -23,6 +24,7 @@ export default async function PublicPersonProfileRoute({
   if (process.env.CAPACITOR_BUILD === "true") {
     return <PersonProfilePage personRef={personRef} initialProfile={null} />;
   }
+  await connection();
   const response = await fetchPythonApi(
     `/api/public/people/${encodeURIComponent(personRef)}`,
     { cache: "no-store", signal: AbortSignal.timeout(15_000) },

@@ -25,6 +25,7 @@ import type {
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
+  OneLocationCircleMember,
   OneLocationCircleMemberInvite,
   OneLocationCircleMemberPage,
   OneLocationCircleOverview,
@@ -68,6 +69,39 @@ type OneLocationCircleEligibleConnectionsApiResponse = {
   remainingCapacity?: number;
 };
 
+type OneLocationRecipientApiRow = Omit<OneLocationRecipient, "isRia"> & {
+  isRia?: boolean | null;
+};
+
+type OneLocationCircleMemberApiRow = Omit<OneLocationCircleMember, "isRia"> & {
+  isRia?: boolean | null;
+};
+
+type OneLocationStateApiResponse = Omit<OneLocationState, "recipients"> & {
+  recipients?: OneLocationRecipientApiRow[];
+};
+
+type OneLocationRecipientPageApiResponse = Omit<
+  OneLocationRecipientPage,
+  "items"
+> & {
+  items?: OneLocationRecipientApiRow[];
+};
+
+type OneLocationCircleDetailApiResponse = Omit<
+  OneLocationCircleDetail,
+  "members"
+> & {
+  members?: OneLocationCircleMemberApiRow[];
+};
+
+type OneLocationCircleMemberPageApiResponse = Omit<
+  OneLocationCircleMemberPage,
+  "items"
+> & {
+  items?: OneLocationCircleMemberApiRow[];
+};
+
 function normalizeEligibleConnection(
   connection: OneLocationCircleEligibleConnectionApiRow,
 ): OneLocationCircleEligibleConnection {
@@ -75,6 +109,39 @@ function normalizeEligibleConnection(
     ...connection,
     isRia: Boolean(connection.isRia),
   };
+}
+
+function normalizeRecipient(
+  recipient: OneLocationRecipientApiRow,
+): OneLocationRecipient {
+  return {
+    ...recipient,
+    isRia: Boolean(recipient.isRia),
+  };
+}
+
+function normalizeCircleMember(
+  member: OneLocationCircleMemberApiRow,
+): OneLocationCircleMember {
+  return {
+    ...member,
+    isRia: Boolean(member.isRia),
+  };
+}
+
+function normalizeCircleDetail(
+  circle: OneLocationCircleDetailApiResponse,
+): OneLocationCircleDetail {
+  return {
+    ...circle,
+    members: (circle.members ?? []).map(normalizeCircleMember),
+  };
+}
+
+function normalizeCircleMaybeDetail(
+  circle: OneLocationCircleDetailApiResponse | OneLocationCircleOverview,
+): OneLocationCircleDetail | OneLocationCircleOverview {
+  return "members" in circle ? normalizeCircleDetail(circle) : circle;
 }
 
 function authHeaders(vaultOwnerToken: string): Record<string, string> {
@@ -447,7 +514,7 @@ export class OneLocationService {
     algorithm: string;
     encryptedPrivateKeyJwk?: OneLocationEncryptedPrivateKey | null;
   }): Promise<OneLocationRecipient> {
-    const response = await apiJson<{ recipientKey: OneLocationRecipient }>(
+    const response = await apiJson<{ recipientKey: OneLocationRecipientApiRow }>(
       "/api/one/location/recipient-keys",
       {
         method: "POST",
@@ -462,13 +529,20 @@ export class OneLocationService {
         }),
       },
     );
-    return response.recipientKey;
+    return normalizeRecipient(response.recipientKey);
   }
 
   static async getState(vaultOwnerToken: string): Promise<OneLocationState> {
-    return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
-      headers: jsonAuthHeaders(vaultOwnerToken),
-    });
+    const state = await apiJsonWithRetry<OneLocationStateApiResponse>(
+      "/api/one/location/state",
+      {
+        headers: jsonAuthHeaders(vaultOwnerToken),
+      },
+    );
+    return {
+      ...state,
+      recipients: (state.recipients ?? []).map(normalizeRecipient),
+    };
   }
 
   static async updateAutoApprovePreference(params: {
@@ -560,11 +634,11 @@ export class OneLocationService {
   static async listRecipients(
     vaultOwnerToken: string,
   ): Promise<OneLocationRecipient[]> {
-    const response = await apiJson<{ recipients: OneLocationRecipient[] }>(
+    const response = await apiJson<{ recipients?: OneLocationRecipientApiRow[] }>(
       "/api/one/location/recipients",
       { headers: authHeaders(vaultOwnerToken) },
     );
-    return response.recipients ?? [];
+    return (response.recipients ?? []).map(normalizeRecipient);
   }
 
   static async listRecipientsPage(params: {
@@ -579,10 +653,16 @@ export class OneLocationService {
     });
     if (params.query?.trim()) search.set("query", params.query.trim());
     const endpoint = `/api/one/location/recipients?${search.toString()}`;
-    const payload = await apiJson<Partial<OneLocationRecipientPage>>(endpoint, {
-      headers: authHeaders(params.vaultOwnerToken),
-    });
-    const items = pagedItems(payload, "/api/one/location/recipients");
+    const payload = await apiJson<Partial<OneLocationRecipientPageApiResponse>>(
+      endpoint,
+      {
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+    const items = pagedItems(
+      payload,
+      "/api/one/location/recipients",
+    ).map(normalizeRecipient);
     return {
       items,
       page: Math.max(1, Number(payload.page ?? params.page ?? 1)),
@@ -605,11 +685,11 @@ export class OneLocationService {
     vaultOwnerToken: string;
     circleId: string;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}`,
       { headers: authHeaders(params.vaultOwnerToken) },
     );
-    return response.circle;
+    return normalizeCircleDetail(response.circle);
   }
 
   static async getCircleOverview(params: {
@@ -636,11 +716,11 @@ export class OneLocationService {
     });
     if (params.query?.trim()) search.set("query", params.query.trim());
     const route = `/api/one/location/circles/${encodeURIComponent(params.circleId)}/members`;
-    const payload = await apiJson<Partial<OneLocationCircleMemberPage>>(
+    const payload = await apiJson<Partial<OneLocationCircleMemberPageApiResponse>>(
       `${route}?${search.toString()}`,
       { headers: authHeaders(params.vaultOwnerToken) },
     );
-    const items = pagedItems(payload, route);
+    const items = pagedItems(payload, route).map(normalizeCircleMember);
     return {
       items,
       page: Math.max(1, Number(payload.page ?? params.page ?? 1)),
@@ -658,11 +738,11 @@ export class OneLocationService {
   static async ensureSmsSystemCircle(params: {
     vaultOwnerToken: string;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       "/api/one/location/circles/sms-system",
       { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
     );
-    return response.circle;
+    return normalizeCircleDetail(response.circle);
   }
 
   /**
@@ -684,12 +764,12 @@ export class OneLocationService {
     summaryOnly?: boolean;
   }): Promise<OneLocationCircleDetail | OneLocationCircleOverview> {
     const response = await apiJson<{
-      circle: OneLocationCircleDetail | OneLocationCircleOverview;
+      circle: OneLocationCircleDetailApiResponse | OneLocationCircleOverview;
     }>(
       `/api/one/location/circles/trusted${params.summaryOnly ? "?summaryOnly=true" : ""}`,
       { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
     );
-    return response.circle;
+    return normalizeCircleMaybeDetail(response.circle);
   }
 
   static async createNamedCircle(params: {
@@ -697,7 +777,7 @@ export class OneLocationService {
     name: string;
     kind: OneLocationCircleKind;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       "/api/one/location/circles",
       {
         method: "POST",
@@ -705,7 +785,7 @@ export class OneLocationService {
         body: JSON.stringify({ name: params.name, kind: params.kind }),
       },
     );
-    return response.circle;
+    return normalizeCircleDetail(response.circle);
   }
 
   /**
@@ -759,7 +839,7 @@ export class OneLocationService {
     name?: string;
     kind?: OneLocationCircleKind;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}`,
       {
         method: "PATCH",
@@ -770,7 +850,7 @@ export class OneLocationService {
         }),
       },
     );
-    return response.circle;
+    return normalizeCircleDetail(response.circle);
   }
 
   static async deleteNamedCircle(params: {
@@ -835,11 +915,18 @@ export class OneLocationService {
     vaultOwnerToken: string;
     code: string;
   }): Promise<{ circle: OneLocationCircleDetail; joined: boolean }> {
-    return apiJson("/api/one/location/circle-codes/join", {
+    const response = await apiJson<{
+      circle: OneLocationCircleDetailApiResponse;
+      joined: boolean;
+    }>("/api/one/location/circle-codes/join", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({ code: params.code }),
     });
+    return {
+      circle: normalizeCircleDetail(response.circle),
+      joined: response.joined,
+    };
   }
 
   static async leaveNamedCircle(params: {
@@ -1000,14 +1087,14 @@ export class OneLocationService {
     vaultOwnerToken: string;
     inviteId: string;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circle-member-invites/${encodeURIComponent(params.inviteId)}/accept`,
       {
         method: "POST",
         headers: authHeaders(params.vaultOwnerToken),
       },
     );
-    return response.circle;
+    return normalizeCircleDetail(response.circle);
   }
 
   static async declineNamedCircleMemberInvite(params: {

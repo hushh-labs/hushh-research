@@ -142,8 +142,20 @@ const PLACE_CATEGORIES: Array<{
   { value: "shopping_services", label: "Shops" },
   { value: "hotels_stays", label: "Hotels" },
   { value: "education", label: "Education" },
-  { value: "outdoors_landmarks", label: "Outdoors" },
+  // "Leisure", not "Outdoors": this chip owns cinemas, nightclubs, museums,
+  // stadiums and event venues as well as parks, and half of those are indoors.
+  { value: "outdoors_landmarks", label: "Leisure" },
   { value: "transit", label: "Transit" },
+  // Reachable for the first time. A temple, a mosque, a police station and a
+  // government office matched no category at all, so they showed under "All"
+  // and disappeared the moment any chip was tapped -- in a pilgrimage city, a
+  // bigger hole than the one that was reported.
+  { value: "worship", label: "Worship" },
+  { value: "civic", label: "Civic" },
+  // Last, and never empty by construction. Anything the taxonomy cannot place
+  // lands here rather than nowhere, which is what makes "no place is skipped" a
+  // property of the list rather than a hope.
+  { value: "other", label: "More" },
 ];
 
 const NEARBY_RADIUS_METERS = 500;
@@ -284,7 +296,13 @@ function placesInCategory(
   category: OneLocationNearbyPlaceCategory,
 ): OneLocationNearbyPlaceSuggestion[] {
   if (category === "all") return places;
-  return places.filter((place) => place.categories?.includes(category));
+  return places.filter((place) =>
+    // A row with no categories at all belongs to "More". The backend classifies
+    // exhaustively and never sends an empty list, but a response cached before
+    // that shipped still can -- and a row that answers no chip is a row the
+    // person can see under "All" and then never find again.
+    (place.categories?.length ? place.categories : ["other"]).includes(category),
+  );
 }
 
 function placePoint(

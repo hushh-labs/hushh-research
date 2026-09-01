@@ -3773,8 +3773,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(await screen.findByText("Trusted B")).toBeTruthy();
     expect(screen.queryByText(/Request location/)).toBeNull();
-    expect(screen.getByText("TB").className).toContain("bg-[#E5E5EA]");
-    expect(screen.getByText("TB").className).toContain("text-[#6E6E73]");
+    expect(screen.getByText("TB")).toBeTruthy();
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Now" }));
@@ -5148,8 +5147,18 @@ describe("OneLocationAgentPage", () => {
     // The roster carries `role="list"`, and every entry in it is wrapped as a
     // `listitem`. The new compact treatment removes section headers entirely,
     // so a screen reader never reads "Recent" as a person between two names.
+    const state = locationState();
     mockGetState.mockResolvedValue({
-      ...locationState(),
+      ...state,
+      recipients: state.recipients.map((recipient) =>
+        recipient.userId === "user_b"
+          ? {
+              ...recipient,
+              photoUrl: "https://cdn.example.test/trusted-b-avatar.jpg",
+              isRia: true,
+            }
+          : recipient,
+      ),
       // The page derives `requestedByMe` from `requests`, filtered to the ones
       // this viewer sent, so the fixture has to seed the field the API returns.
       requests: [
@@ -5181,6 +5190,12 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(list).getByRole("button", { name: /Select Advisor C/i }),
     ).toBeTruthy();
+    expect(
+      list.querySelector(
+        '[data-photo-url="https://cdn.example.test/trusted-b-avatar.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(within(list).getByLabelText("Verified advisor")).toBeTruthy();
   });
 
   it("offers a way to Connect when the person being looked for is not on the list", async () => {

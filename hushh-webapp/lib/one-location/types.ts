@@ -85,6 +85,7 @@ export type OneLocationRecipient = {
   verificationBadge?: string | null;
   lastInteractionAt?: string | null;
   connectedFromContacts?: boolean;
+  isRia?: boolean;
 };
 
 export type OneLocationRecipientPage = {
@@ -402,6 +403,7 @@ export type OneLocationCircleMember = {
   /** False when there is nothing to request: self, connected, or already pending. */
   canConnect?: boolean;
   connectedFromContacts?: boolean;
+  isRia?: boolean;
 };
 
 export type OneLocationCircleMemberRelationship =
@@ -608,7 +610,13 @@ export type OneLocationNearbyPlaceCategory =
   | "hotels_stays"
   | "education"
   | "outdoors_landmarks"
-  | "transit";
+  | "transit"
+  | "worship"
+  | "civic"
+  // The catch-all. A real venue that belongs to none of the above, plus every
+  // venue Google names but does not describe -- so a row is never reachable
+  // from "All" alone.
+  | "other";
 
 export type OneLocationNearbyPlaceSuggestion = {
   placeId: string;

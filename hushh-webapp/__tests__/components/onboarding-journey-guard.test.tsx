@@ -17,6 +17,7 @@ const {
   bootstrapStateMock,
   getCachedBootstrapStateMock,
   isPersistentSetupResolvedMock,
+  isOnboardingAdmissionExemptRouteMock,
 } = vi.hoisted(
   () => ({
     push: vi.fn(),
@@ -24,6 +25,7 @@ const {
     bootstrapStateMock: vi.fn(),
     getCachedBootstrapStateMock: vi.fn(),
     isPersistentSetupResolvedMock: vi.fn(),
+    isOnboardingAdmissionExemptRouteMock: vi.fn(),
   }),
 );
 
@@ -66,7 +68,7 @@ vi.mock("@/lib/navigation/routes", () => ({
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
   isCapabilityOnboardingRoute: () => false,
-  isOnboardingAdmissionExemptRoute: () => false,
+  isOnboardingAdmissionExemptRoute: isOnboardingAdmissionExemptRouteMock,
   normalizeStaticExportPathname: (pathname: string) =>
     pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") || "/",
 
@@ -121,6 +123,8 @@ describe("OnboardingJourneyGuard", () => {
     getCachedBootstrapStateMock.mockReset();
     isPersistentSetupResolvedMock.mockReset();
     isPersistentSetupResolvedMock.mockReturnValue(false);
+    isOnboardingAdmissionExemptRouteMock.mockReset();
+    isOnboardingAdmissionExemptRouteMock.mockReturnValue(false);
     pathnameValue = "/one/setup";
     window.history.replaceState(null, "", "/one/setup");
     clearSetupIntent();
@@ -272,6 +276,27 @@ describe("OnboardingJourneyGuard", () => {
       );
     });
     expect(screen.queryByText("location workspace")).toBeNull();
+  });
+
+  it("does not replace a Connect-origin person profile with setup or One home", async () => {
+    pathnameValue = "/people/person-ref-scoped";
+    window.history.replaceState(
+      null,
+      "",
+      "/people/person-ref-scoped?from=/one/connect",
+    );
+    isOnboardingAdmissionExemptRouteMock.mockReturnValue(true);
+    getCachedBootstrapStateMock.mockReturnValue(null);
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>person profile</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("person profile")).toBeTruthy();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
   });
 
 
