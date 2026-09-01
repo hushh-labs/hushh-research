@@ -2066,6 +2066,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
      * lined up exactly.
      */
     render(<ConnectPageClient />);
+    await revealPeopleDirectory();
     await screen.findByPlaceholderText("Search people");
 
     fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
