@@ -10517,7 +10517,10 @@ export function OneLocationAgentPageContent({
 
   useLocalOnboardingActionHandler("location.stop_share", async (slots) => {
     const spoken = String(slots?.person ?? "").trim();
-    if (!spoken) {
+    const resolvedRecipientId = String(
+      slots?.resolvedRecipientId ?? "",
+    ).trim();
+    if (!spoken && !resolvedRecipientId) {
       return {
         status: "blocked" as const,
         summary: "Say whose access you want to stop.",
@@ -10529,11 +10532,18 @@ export function OneLocationAgentPageContent({
         summary: "Unlock One before stopping a share.",
       };
     }
-    const resolved = resolveBySpokenName(
-      activeOwnerGrants,
-      spoken,
-      (grant) => grant.recipientDisplayName,
-    );
+    const exactGrant = resolvedRecipientId
+      ? activeOwnerGrants.find(
+          (candidate) => candidate.recipientUserId === resolvedRecipientId,
+        ) ?? null
+      : null;
+    const resolved = exactGrant
+      ? ({ kind: "one", match: exactGrant } as const)
+      : resolveBySpokenName(
+          activeOwnerGrants,
+          spoken,
+          (grant) => grant.recipientDisplayName,
+        );
     if (resolved.kind === "none") {
       return {
         status: "blocked" as const,
@@ -11880,7 +11890,14 @@ export function OneLocationAgentPageContent({
           "Unlock One first -- I cannot see your circles while the vault is locked.",
       };
     }
-    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    const resolvedCircleId = String(slots?.resolvedCircleId ?? "").trim();
+    const exactCircle = resolvedCircleId
+      ? namedCircles.find((candidate) => candidate.id === resolvedCircleId) ??
+        null
+      : null;
+    const resolved = exactCircle
+      ? ({ circle: exactCircle } as const)
+      : resolveVoiceCircle(String(slots?.circle ?? "").trim());
     if ("blocked" in resolved) {
       return { status: "blocked" as const, summary: resolved.blocked };
     }
