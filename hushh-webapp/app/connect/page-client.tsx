@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search as SearchIcon,
   Share2,
+  UserPlus,
   X,
 } from "lucide-react";
 
@@ -72,6 +73,7 @@ import {
 } from "@/lib/voice/voice-action-card";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   CONNECT_PAGER_BUTTON_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLASSNAME,
@@ -82,7 +84,6 @@ import {
 } from "./connect-search-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type ConnectTab = "people" | "advisors" | "nearby";
 
@@ -466,64 +467,6 @@ async function resolveConnectionForVoice({
   // A name may have another duplicate beyond the bounded window. Choosing one
   // would make pagination an authority decision, so voice refuses safely.
   return { matches: [], complete: false };
-}
-
-/**
- * Two-letter fallback for someone with no Google photo. Mirrors the
- * contact-sync sheet, which already draws people this way.
- */
-function connectAvatarInitials(label: string): string {
-  const parts = label.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  const first = parts[0] ?? "";
-  if (parts.length === 1) return (first.slice(0, 2) || "?").toUpperCase();
-  const last = parts[parts.length - 1] ?? "";
-  return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase() || "?";
-}
-
-/**
- * A person's real Google picture where we have one, initials otherwise.
- *
- * Connect used to draw everyone with the same static UserRound glyph even
- * though the directory payload has carried `photoUrl` all along -- so the
- * one screen that exists to tell people apart made them all look alike.
- * The RIA check stays a badge on verified advisors rather than a photo,
- * since that mark means something the picture cannot.
- */
-function ConnectPersonAvatar({
-  photoUrl,
-  label,
-  verified,
-}: {
-  photoUrl: string | null;
-  label: string;
-  /** A capability-bearing RIA. Kept as a mark ON the avatar, never instead
-   *  of it: the photo says who, the badge says what, and swapping one for
-   *  the other loses whichever it replaced. */
-  verified: boolean;
-}) {
-  return (
-    <Avatar
-      className="relative h-[34px] w-[34px] shrink-0"
-      data-photo-url={photoUrl ?? undefined}
-    >
-      {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
-      <AvatarFallback className="text-xs">
-        {connectAvatarInitials(label)}
-      </AvatarFallback>
-      {verified ? (
-        <span
-          className="absolute -right-0.5 -bottom-0.5 z-10 inline-flex size-[15px] items-center justify-center rounded-full bg-background"
-          aria-label="Verified advisor"
-        >
-          <BadgeCheck
-            className="size-[13px] text-[color:var(--app-success,#16a34a)]"
-            aria-hidden="true"
-          />
-        </span>
-      ) : null}
-    </Avatar>
-  );
 }
 
 export default function ConnectPageClient() {
@@ -933,12 +876,25 @@ export default function ConnectPageClient() {
   // The directory is every account on Hussh, so listing all of it unprompted
   // stops being useful as soon as sign-ups outgrow a screen or two: the person
   // you came to connect with is buried among strangers, and paging through them
-  // is the tedious part. Unsearched, this surface therefore shows a short
-  // suggested sample and nothing more — enough that someone who does not yet
-  // know a name has somewhere to start, small enough that it is never the thing
-  // you have to scroll past. Naming a name is what opens the full directory.
+  // is the tedious part.
   const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery.length > 0;
+  // Reported: the People tab opened straight onto that unfiltered directory --
+  // a page of 20 strangers before anyone had asked to see one. Your own
+  // connections render separately, above this, and were never the problem.
+  //
+  // Explicit ask, tracked in state rather than derived from `hasQuery` alone
+  // (`peopleDirectoryRevealed`), plus `hasQuery` itself as a second, independent
+  // reason: a search restored from `readStoredConnectSearchQuery` on a fresh
+  // mount is also an explicit ask, just one made in an earlier visit, and it
+  // must reopen the section it belongs to rather than sit invisible.
+  //
+  // Advisors and Nearby keep browsing on arrival -- unaffected. Searching a
+  // verified-advisor directory or nearby businesses is the whole point of
+  // those tabs, not a fallback for not knowing who you want.
+  const [peopleDirectoryRevealed, setPeopleDirectoryRevealed] = useState(false);
+  const showPeopleDirectory =
+    tab !== "people" || peopleDirectoryRevealed || hasQuery;
 
   // A new query, or a new page size, is a new result set: go back to page one
   // rather than asking for page 4 of something the reader has just redefined.
@@ -956,6 +912,23 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
+  /**
+   * "My connections" is a disclosure, closed until asked for.
+   *
+   * Reported: "Connections wala ek accordion tab ki tarah ho jo click krne pe
+   * he open ho ... currently it looks long for me".
+   *
+   * It was two stacked lists of people on one screen -- the ones you already
+   * know, and the ones you are looking for -- and the first one pushed the
+   * second below the fold on a phone even though the second is what the screen
+   * is FOR. Searching is the reason someone opens Connect; reviewing who you
+   * already have is the occasional visit.
+   *
+   * Closed by default rather than remembering the last state: the default is
+   * the answer to "what is this screen for", and it should not drift per
+   * person. The scroll region it had is unchanged and simply lives inside now.
+   */
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const connectionsHeading = isAdvisorTab
     ? `My RIAs (${connectionsTotalCount})`
     : `My connections (${connectionsTotalCount})`;
@@ -1032,6 +1005,13 @@ export default function ConnectPageClient() {
     let cancelled = false;
     async function run() {
       if (!user) return;
+      // Collapsed on the People tab: no reason to ask the server for a page
+      // of strangers nobody has asked to see yet.
+      if (!showPeopleDirectory) {
+        setLoading(false);
+        setError(null);
+        return;
+      }
       try {
         if (currentPage <= 1) setHasMore(false);
         setLoading(true);
@@ -1086,6 +1066,7 @@ export default function ConnectPageClient() {
     currentPage,
     pageSize,
     directoryAudience,
+    showPeopleDirectory,
     // A contact sync can connect people who are sitting in this list right
     // now. Their rows carry a `relationship` the server decided before the
     // sync ran, so without this the directory keeps offering "Connect" to
@@ -1093,6 +1074,16 @@ export default function ConnectPageClient() {
     // refused. Bumping the nonce re-asks the server for the same page.
     directoryRefreshNonce,
   ]);
+
+  // Single place that focuses the search box on reveal, rather than the two
+  // call sites (this button, the search-people voice handler) each doing it
+  // inline. Inline worked for search-people before this change because the
+  // input was always already mounted; now the input often does not exist
+  // until this exact state flips, so focusing has to wait for the render
+  // that mounts it rather than fire in the same tick as the state update.
+  useEffect(() => {
+    if (peopleDirectoryRevealed) searchInputRef.current?.focus();
+  }, [peopleDirectoryRevealed]);
 
   const selectSurface = useCallback(
     (next: ConnectSurface) => {
@@ -1902,7 +1893,12 @@ export default function ConnectPageClient() {
     selectSurface("all");
     setTab("people");
     setQuery(person);
-    searchInputRef.current?.focus();
+    // A spoken search is an explicit ask too, same as tapping "Add people" --
+    // set alongside `hasQuery` so the section is guaranteed open even on the
+    // very first search of a session, before the reveal-focus effect has ever
+    // run. Focus itself is that effect's job now, once the input this needs
+    // to focus has actually mounted (see the comment beside it).
+    setPeopleDirectoryRevealed(true);
     return {
       status: "succeeded",
       summary: "Searching Connect for the name you gave.",
@@ -2437,27 +2433,43 @@ export default function ConnectPageClient() {
                       ) : null}
                     </div>
                   )}
-                  {tab !== "nearby" ? (
+                  {/*
+                    Sync sits with the directory PICKER, and Select sits on the
+                    directory itself. They were the other way round.
+
+                    Reported as "the positioning of the select button and sync
+                    button got interchanged", and the reason it read that way is
+                    what each one acts on. Sync fills the People directory from
+                    the address book -- it belongs beside the control that says
+                    WHICH directory you are looking at. Select turns that
+                    directory's rows into checkboxes, so it belongs on the
+                    directory's own header, next to the rows it changes, rather
+                    than a scroll away above a list it does not touch.
+
+                    Same gate it carried below: People only. An advisor is found
+                    by their verified profile, not by being in your phone, and
+                    `available` is false on a desktop browser with no Google
+                    client configured -- the one case where there is genuinely
+                    nothing to read.
+                  */}
+                  {!isAdvisorTab && contactSync.available ? (
                     <Button
                       type="button"
                       variant="none"
-                      effect="fill"
+                      effect="fade"
                       size="sm"
-                      showRipple={false}
-                      className={CONNECT_SELECT_TOGGLE_CLASSNAME}
-                      disabled={loading || people.length === 0}
-                      aria-label={
-                        isSelectionMode
-                          ? "Cancel selecting people"
-                          : "Select people"
-                      }
-                      onClick={() => {
-                        setIsSelectionMode((current) => !current);
-                        setSelectedPeople(new Map());
-                        setShowLimitBanner(false);
-                      }}
+                      aria-label="Sync contacts"
+                      aria-busy={contactSync.syncing}
+                      title="Sync contacts"
+                      disabled={contactSync.syncing}
+                      onClick={() => void contactSync.sync()}
+                      className={CONNECT_INLINE_BUTTON_CLASSNAME}
                     >
-                      {isSelectionMode ? "Cancel" : "Select"}
+                      <BookUser
+                        aria-hidden="true"
+                        className="mr-1.5 h-3.5 w-3.5"
+                      />
+                      {contactSync.syncing ? "Syncing\u2026" : "Sync contacts"}
                     </Button>
                   ) : null}
                 </div>
@@ -2481,10 +2493,37 @@ export default function ConnectPageClient() {
                 ) : (
                   <div className="space-y-4 sm:space-y-5">
                     <SettingsGroup
+                      // The heading IS the toggle, which is what a disclosure
+                      // is -- so it carries `aria-expanded` and `aria-controls`
+                      // and the group's own `title` stays a plain label rather
+                      // than becoming a second thing to press.
+                      //
+                      // `<button>` inside `title` would be the mistake the
+                      // `titleAction` note below records: a control rendered
+                      // inside a `role="heading"` node is folded into the
+                      // heading's accessible name and never offered as a
+                      // control. So the button IS the title node, and the
+                      // heading role moves onto it.
                       title={
-                        <span className="min-w-0 truncate">
-                          {connectionsHeading}
-                        </span>
+                        <button
+                          type="button"
+                          data-testid="connect-my-connections-toggle"
+                          aria-expanded={connectionsOpen}
+                          aria-controls="connect-my-connections-panel"
+                          onClick={() => setConnectionsOpen((open) => !open)}
+                          className="-mx-1 flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-[10px] px-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                        >
+                          <span className="min-w-0 truncate">
+                            {connectionsHeading}
+                          </span>
+                          <ChevronDown
+                            aria-hidden="true"
+                            className={cn(
+                              "h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)] transition-transform duration-200 ease-out motion-reduce:transition-none",
+                              connectionsOpen && "rotate-180",
+                            )}
+                          />
+                        </button>
                       }
                       // Refresh sits in `titleAction`, not inside `title`. It used
                       // to be a child of the title node, which `SettingsGroup`
@@ -2494,6 +2533,7 @@ export default function ConnectPageClient() {
                       // announced as "Your connections Refresh contacts", and the
                       // button itself was never offered as something to press.
                       titleAction={
+                        connectionsOpen ? (
                         <Button
                           type="button"
                           variant="none"
@@ -2514,13 +2554,21 @@ export default function ConnectPageClient() {
                             )}
                           />
                         </Button>
+                        ) : null
                       }
                       separatorInset
-                      contentClassName={
-                        sortedConnections.length > 0
+                      // Collapsed, the group is its header and nothing else --
+                      // `hidden` rather than unmounting, so the scroll position
+                      // and any in-flight row state survive a close/open, and
+                      // the panel keeps a stable node for `aria-controls` to
+                      // point at whether or not it is showing.
+                      contentClassName={cn(
+                        !connectionsOpen && "hidden",
+                        connectionsOpen && sortedConnections.length > 0
                           ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
-                          : undefined
-                      }
+                          : undefined,
+                      )}
+                      contentId="connect-my-connections-panel"
                       testId="connect-my-connections-group"
                     >
                       {sortedConnections.length === 0 ? (
@@ -2542,12 +2590,16 @@ export default function ConnectPageClient() {
                           <SettingsRow
                             key={connection.connectionId}
                             leading={
-                              <ConnectPersonAvatar
+                              <ConnectionPersonAvatar
                                 photoUrl={connection.photoUrl ?? null}
                                 label={
                                   connection.displayName || connection.userId
                                 }
                                 verified={Boolean(connection.isRia)}
+                                // Compact rows, so the 58px separator inset
+                                // they draw lands on the text -- the same
+                                // rhythm the Circles tab beside this one has.
+                                size="compact"
                               />
                             }
                             // Deliberately NOT stackTrailingOnMobile. That prop drops
@@ -2577,7 +2629,13 @@ export default function ConnectPageClient() {
                             density="compact"
                             onClick={
                               connection.publicPersonRef
-                                ? () => router.push(buildPersonProfileRoute(connection.publicPersonRef!))
+                                ? () =>
+                                    router.push(
+                                      buildPersonProfileRoute(
+                                        connection.publicPersonRef!,
+                                        { from: ROUTES.CONNECT },
+                                      ),
+                                    )
                                 : undefined
                             }
                             trailing={
@@ -2672,6 +2730,7 @@ export default function ConnectPageClient() {
                       </div>
                     ) : null}
 
+                    {showPeopleDirectory ? (
                     <div className="space-y-4">
                       <SettingsGroup
                         title={CONNECT_TAB_LABEL[tab]}
@@ -2687,29 +2746,40 @@ export default function ConnectPageClient() {
                         // where there is genuinely nothing to read. Hiding it
                         // there is kinder than a button that exists only to
                         // explain that it cannot work.
+                        // Select acts on THESE rows, so it sits on their
+                        // header rather than a scroll away in the sticky bar.
+                        // `titleAction`, not inside `title`, for the reason the
+                        // connections group above documents: a control rendered
+                        // inside a `role="heading"` node is folded into the
+                        // heading's accessible name and never offered as
+                        // something to press.
+                        // No `nearby` guard: that tab short-circuits to its own
+                        // directories component well above this node, so the
+                        // type here is already narrowed to People | RIAs.
                         titleAction={
-                          !isAdvisorTab && contactSync.available ? (
+                          <>
                             <Button
                               type="button"
                               variant="none"
-                              effect="fade"
+                              effect="fill"
                               size="sm"
-                              aria-label="Sync contacts"
-                              aria-busy={contactSync.syncing}
-                              title="Sync contacts"
-                              disabled={contactSync.syncing}
-                              onClick={() => void contactSync.sync()}
-                              className={CONNECT_INLINE_BUTTON_CLASSNAME}
+                              showRipple={false}
+                              className={CONNECT_SELECT_TOGGLE_CLASSNAME}
+                              disabled={loading || people.length === 0}
+                              aria-label={
+                                isSelectionMode
+                                  ? "Cancel selecting people"
+                                  : "Select people"
+                              }
+                              onClick={() => {
+                                setIsSelectionMode((current) => !current);
+                                setSelectedPeople(new Map());
+                                setShowLimitBanner(false);
+                              }}
                             >
-                              <BookUser
-                                aria-hidden="true"
-                                className="mr-1.5 h-3.5 w-3.5"
-                              />
-                              {contactSync.syncing
-                                ? "Syncing\u2026"
-                                : "Sync contacts"}
+                              {isSelectionMode ? "Cancel" : "Select"}
                             </Button>
-                          ) : null
+                          </>
                         }
                         description={
                           isSelectionMode ? (
@@ -2914,10 +2984,11 @@ export default function ConnectPageClient() {
                                 // row rather than on the tab so the mark still means
                                 // something in a search that spans both.
                                 leading={
-                                  <ConnectPersonAvatar
+                                  <ConnectionPersonAvatar
                                     photoUrl={person.photoUrl}
                                     label={title}
                                     verified={Boolean(person.isRia)}
+                                    size="compact"
                                   />
                                 }
                                 title={
@@ -2935,7 +3006,13 @@ export default function ConnectPageClient() {
                                 density="compact"
                                 onClick={
                                   !isSelectionMode && person.publicPersonRef
-                                    ? () => router.push(buildPersonProfileRoute(person.publicPersonRef!))
+                                    ? () =>
+                                        router.push(
+                                          buildPersonProfileRoute(
+                                            person.publicPersonRef!,
+                                            { from: ROUTES.CONNECT },
+                                          ),
+                                        )
                                     : undefined
                                 }
                                 trailing={
@@ -3133,6 +3210,26 @@ export default function ConnectPageClient() {
                           )}
                       </SettingsGroup>
                     </div>
+                    ) : (
+                      <SettingsGroup>
+                        <SettingsRow
+                          leading={
+                            <span
+                              aria-hidden="true"
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]"
+                            >
+                              <UserPlus className="h-4 w-4" />
+                            </span>
+                          }
+                          title="Add people"
+                          description="Search Hussh for someone to connect with."
+                          chevron
+                          onClick={() => setPeopleDirectoryRevealed(true)}
+                          testId="connect-add-people"
+                          ariaLabel="Add people"
+                        />
+                      </SettingsGroup>
+                    )}
                   </div>
                 )}
               </>
@@ -3305,10 +3402,11 @@ export default function ConnectPageClient() {
                     <SettingsRow
                       key={`batch-${person.userId}`}
                       leading={
-                        <ConnectPersonAvatar
+                        <ConnectionPersonAvatar
                           photoUrl={person.photoUrl}
                           label={title}
                           verified={Boolean(person.isRia)}
+                          size="compact"
                         />
                       }
                       title={

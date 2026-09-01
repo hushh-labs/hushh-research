@@ -117,10 +117,9 @@ class TestAgentTreeShape:
             for t in finance_tool.agent.tools
         }
         assert {"ria", "investor"} <= finance_sub_names
-        assert {
+        expected_tools = {
             "ask_email_agent",
             "ask_location_agent",
-            "ask_connected_systems_agent",
             "ask_consent_agent",
             "calendar_summary",
             "calendar_events",
@@ -130,7 +129,10 @@ class TestAgentTreeShape:
             "propose_calendar_reschedule",
             "propose_calendar_cancellation",
             "discover_person_information",
-        } <= tool_names
+        }
+        if _tree._CRM_PRODUCT_AVAILABLE:
+            expected_tools.add("ask_connected_systems_agent")
+        assert expected_tools <= tool_names
         assert "ask_connections_agent" not in tool_names
         assert "ask_gmail_agent" not in tool_names
 
@@ -2000,7 +2002,9 @@ class TestBackendDirectLocationSendRequest:
             patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
         ):
             result = await run_app_action(
-                "location.send_request", {"person": "Sarah"}, _tool_context(state)
+                "location.send_request",
+                {"person": "Sarah", "duration_hours": "1"},
+                _tool_context(state),
             )
         assert result["status"] == "completed"
         assert "Sarah Chen" in result["message"]
@@ -2049,7 +2053,7 @@ class TestBackendDirectLocationSendRequest:
         ):
             result = await run_app_action(
                 "location.send_request",
-                {"person": "Sarah Chen and Abdul"},
+                {"person": "Sarah Chen and Abdul", "duration_hours": "1"},
                 _tool_context(state),
             )
         assert result["status"] == "completed"
@@ -2074,7 +2078,9 @@ class TestBackendDirectLocationSendRequest:
             patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
         ):
             result = await run_app_action(
-                "location.send_request", {"person": "Sarah"}, _tool_context(state)
+                "location.send_request",
+                {"person": "Sarah", "duration_hours": "1"},
+                _tool_context(state),
             )
         assert result["status"] == "failed"
         assert "more than one connection" in result["message"].lower()
@@ -2090,7 +2096,11 @@ class TestBackendDirectLocationSendRequest:
             self._auth_patch(),
             patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
         ):
-            result = await run_app_action("location.send_request", {}, _tool_context(state))
+            result = await run_app_action(
+                "location.send_request",
+                {"duration_hours": "1"},
+                _tool_context(state),
+            )
         request_mock.assert_not_called()
         assert result["status"] in ("ready_to_run", "confirm_pending")
         directive_keys = [k for k in state if k.startswith(f"{_STATE_PENDING_DIRECTIVE}:")]

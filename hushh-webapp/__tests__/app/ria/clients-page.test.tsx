@@ -78,7 +78,7 @@ vi.mock("@/components/profile/settings-ui", () => ({
       {children}
     </section>
   ),
-  SettingsSegmentedTabs: ({
+  SegmentedTabs: ({
     value,
     onValueChange,
     options,

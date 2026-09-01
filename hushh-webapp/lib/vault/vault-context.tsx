@@ -37,6 +37,7 @@ import {
   warmAgentChatHistoryCache,
 } from "@/lib/agent/agent-chat-history-cache";
 import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
@@ -421,14 +422,16 @@ export function VaultProvider({ children }: VaultProviderProps) {
         }).catch((error) => {
           console.warn("[VaultContext] Agent chat history warm-up failed:", error);
         });
-        void import("@/lib/services/connected-systems-resource-service")
-          .then(({ ConnectedSystemsResourceService }) =>
-            ConnectedSystemsResourceService.warmBindingStatuses({
-              userId,
-              vaultOwnerToken: token,
-            })
-          )
-          .catch(() => undefined);
+        if (isLocalCrmBuildEnabled()) {
+          void import("@/lib/services/connected-systems-resource-service")
+            .then(({ ConnectedSystemsResourceService }) =>
+              ConnectedSystemsResourceService.warmBindingStatuses({
+                userId,
+                vaultOwnerToken: token,
+              })
+            )
+            .catch(() => undefined);
+        }
         // The consent center warm step needs a Firebase ID token (its proxy is
         // Firebase-authenticated). Fetch it best-effort; the orchestrator
         // skips consent-center warming gracefully if it is unavailable.

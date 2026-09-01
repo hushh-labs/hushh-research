@@ -187,7 +187,7 @@ def test_threaded_reply_context_is_part_of_the_reviewed_envelope(monkeypatch):
 def test_personal_monitor_migration_is_metadata_only():
     migration = (
         Path(__file__).parents[2]
-        / "db/migrations/189_gmail_personal_information_request_monitor.sql"
+        / "db/migrations/191_gmail_personal_information_request_monitor.sql"
     ).read_text()
 
     assert "gmail_personal_information_request_preferences" in migration

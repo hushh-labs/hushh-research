@@ -1,4 +1,19 @@
-import type { MarketplaceInvestor } from "@/lib/services/ria-service";
+import type {
+  MarketplaceInvestor,
+  MarketplaceInvestorActionRecord,
+} from "@/lib/services/ria-service";
+
+export type MarketplaceEvidenceLink = {
+  id: string;
+  label: string;
+  url: string;
+};
+
+export type MarketplaceSavedInvestorLead = {
+  id: string;
+  investor: MarketplaceInvestor;
+  action: MarketplaceInvestorActionRecord;
+};
 
 export function marketplaceInvestorCardId(investor: MarketplaceInvestor): string {
   const explicitId = String(investor.id || "").trim();
@@ -81,4 +96,197 @@ export function marketplaceInvestorCurationLabel(investor: MarketplaceInvestor):
   if (tier === "showcase") return "Showcase";
   if (tier === "qualified") return "Qualified";
   return null;
+}
+
+export function marketplaceInvestorActionIdentity(
+  action: MarketplaceInvestorActionRecord
+): string | null {
+  const targetKey = String(action.target_key || "").trim();
+  if (targetKey) return targetKey;
+
+  const sourceType = String(action.source_type || "").trim().toLowerCase();
+  const publicProfileId = String(action.public_profile_id || "").trim();
+  if (sourceType === "public_sec" && publicProfileId) return `public_sec:${publicProfileId}`;
+
+  const targetUserId = String(action.target_user_id || "").trim();
+  if (sourceType === "hushh_user" && targetUserId) return targetUserId;
+
+  return null;
+}
+
+export function marketplaceSavedInvestorLeadFromAction(
+  action: MarketplaceInvestorActionRecord
+): MarketplaceSavedInvestorLead | null {
+  if (String(action.status || "").toLowerCase() !== "shortlisted") return null;
+
+  const identity = marketplaceInvestorActionIdentity(action);
+  if (!identity) return null;
+
+  const profile = action.profile;
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) return null;
+
+  const profileRecord = profile as Record<string, unknown>;
+  const displayName = String(profileRecord.display_name || "").trim();
+  if (!displayName) return null;
+
+  return {
+    id: identity,
+    investor: {
+      ...(profile as MarketplaceInvestor),
+      id: String(profileRecord.id || identity),
+      source_type: action.source_type || String(profileRecord.source_type || ""),
+      user_id: action.target_user_id || String(profileRecord.user_id || ""),
+      public_profile_id:
+        action.public_profile_id || (profile as MarketplaceInvestor).public_profile_id,
+      display_name: displayName,
+    },
+    action,
+  };
+}
+
+export function marketplaceSavedInvestorLeadsFromActions(
+  actions: MarketplaceInvestorActionRecord[]
+): MarketplaceSavedInvestorLead[] {
+  const leads: MarketplaceSavedInvestorLead[] = [];
+  const seen = new Set<string>();
+
+  for (const action of actions) {
+    const lead = marketplaceSavedInvestorLeadFromAction(action);
+    if (!lead || seen.has(lead.id)) continue;
+    seen.add(lead.id);
+    leads.push(lead);
+  }
+
+  return leads;
+}
+
+const SEC_ACCESSION_PATTERN = /\b\d{10}-\d{2}-\d{6}\b/;
+const SEC_ACCESSION_COMPACT_PATTERN = /\b\d{18}\b/;
+
+function compactAccessionToDashed(value: string): string {
+  return `${value.slice(0, 10)}-${value.slice(10, 12)}-${value.slice(12)}`;
+}
+
+function normalizeSecAccession(value: unknown): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const dashed = text.match(SEC_ACCESSION_PATTERN)?.[0];
+  if (dashed) return dashed;
+
+  const compact = text.match(SEC_ACCESSION_COMPACT_PATTERN)?.[0];
+  return compact ? compactAccessionToDashed(compact) : null;
+}
+
+function normalizeEvidenceUrl(value: unknown): string | null {
+  const rawUrl = String(value || "").trim();
+  if (!rawUrl) return null;
+
+  try {
+    const parsed = new URL(rawUrl);
+    parsed.hash = "";
+    parsed.hostname = parsed.hostname.toLowerCase();
+    parsed.searchParams.sort();
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+function evidenceUrlParts(url: string): URL | null {
+  try {
+    return new URL(url);
+  } catch {
+    return null;
+  }
+}
+
+function evidenceCikFromUrl(parsed: URL | null): string | null {
+  if (!parsed) return null;
+
+  const queryCik = parsed.searchParams.get("CIK");
+  if (queryCik) return queryCik.trim() || null;
+
+  const pathCik = parsed.pathname.match(/CIK(\d+)\.json$/i)?.[1];
+  return pathCik || null;
+}
+
+function primaryEvidenceForm(
+  forms?: Array<{ form?: string | null; last_filed_at?: string | null }>
+): { form: string | null; lastFiledAt: string | null } {
+  const first = Array.isArray(forms) ? forms[0] : null;
+  return {
+    form: String(first?.form || "").trim() || null,
+    lastFiledAt: String(first?.last_filed_at || "").trim() || null,
+  };
+}
+
+function evidenceLabel(params: {
+  parsed: URL | null;
+  url: string;
+  forms?: Array<{ form?: string | null; last_filed_at?: string | null }>;
+  fallbackIndex: number;
+}): string {
+  const { form, lastFiledAt } = primaryEvidenceForm(params.forms);
+  const accession = normalizeSecAccession(params.url);
+  if (accession) return form ? `SEC Form ${form} - ${accession}` : `SEC filing - ${accession}`;
+
+  const host = params.parsed?.hostname.toLowerCase() || "";
+  const path = params.parsed?.pathname || "";
+  const cik = evidenceCikFromUrl(params.parsed);
+
+  if (host === "data.sec.gov" && /\/submissions\/CIK\d+\.json$/i.test(path)) {
+    return cik ? `SEC submissions - CIK ${cik}` : "SEC submissions";
+  }
+
+  if (host.endsWith("sec.gov") && path.toLowerCase().includes("/edgar/browse/")) {
+    return cik ? `SEC company page - CIK ${cik}` : "SEC company page";
+  }
+
+  if (host.endsWith("sec.gov") && form) {
+    return lastFiledAt ? `SEC Form ${form} - ${lastFiledAt}` : `SEC Form ${form}`;
+  }
+
+  return `SEC filing ${params.fallbackIndex}`;
+}
+
+function evidenceIdentity(url: string): string {
+  const accession = normalizeSecAccession(url);
+  if (accession) return `sec-accession:${accession}`;
+
+  const normalizedUrl = normalizeEvidenceUrl(url);
+  return `url:${normalizedUrl || url}`;
+}
+
+export function marketplaceInvestorEvidenceLinks(
+  evidence: MarketplaceInvestor["evidence"],
+  limit = 3
+): MarketplaceEvidenceLink[] {
+  const sourceUrls = Array.isArray(evidence?.source_urls) ? evidence.source_urls : [];
+  const links: MarketplaceEvidenceLink[] = [];
+  const seen = new Set<string>();
+
+  for (const sourceUrl of sourceUrls) {
+    const url = normalizeEvidenceUrl(sourceUrl);
+    if (!url) continue;
+
+    const id = evidenceIdentity(url);
+    if (seen.has(id)) continue;
+
+    seen.add(id);
+    links.push({
+      id,
+      label: evidenceLabel({
+        parsed: evidenceUrlParts(url),
+        url,
+        forms: evidence?.forms,
+        fallbackIndex: links.length + 1,
+      }),
+      url,
+    });
+
+    if (links.length >= limit) break;
+  }
+
+  return links;
 }

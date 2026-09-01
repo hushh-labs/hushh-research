@@ -151,7 +151,7 @@ vi.mock("@/components/app-ui/surfaces", () => ({
 }));
 
 vi.mock("@/components/profile/settings-ui", () => ({
-  SettingsSegmentedTabs: ({
+  SegmentedTabs: ({
     value,
     onValueChange,
     options,

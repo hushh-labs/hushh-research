@@ -18,7 +18,7 @@ import {
   isKaiTestProfileUser,
 } from "@/components/ria/ria-client-test-profile";
 import { NearbyAroundYou } from "@/components/ria/nearby/nearby-around-you";
-import { SettingsGroup, SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SettingsGroup, SegmentedTabs } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -168,7 +168,7 @@ export default function RiaClientsPage() {
       <>
         <AppPageShell
           as="main"
-          width="standard"
+          width="agent"
           nativeTest={{
             routeId: "/ria/clients",
             marker: "native-route-ria-clients",
@@ -187,7 +187,7 @@ export default function RiaClientsPage() {
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      width="agent"
       nativeTest={{
         routeId: "/ria/clients",
         marker: "native-route-ria-clients",
@@ -226,7 +226,7 @@ export default function RiaClientsPage() {
               kind of person entirely, which is why they are separate views on
               one screen rather than one merged list. */}
           <div data-voice-control-id="ria_clients_view_switch">
-            <SettingsSegmentedTabs
+            <SegmentedTabs
               value={view}
               onValueChange={(next) => setView(next as ClientsView)}
               options={[

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 190,
+  "expected_migration_version": 192,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -1456,7 +1456,9 @@
       "revoked_at",
       "last_synced_at",
       "last_sync_cursor",
-      "sealed_at"
+      "sealed_at",
+      "last_heartbeat_at",
+      "heartbeat"
     ],
     "trusted_device_challenges": [
       "challenge_id",
@@ -1618,6 +1620,45 @@
       "sequence",
       "event_at_ms",
       "metadata"
+    ],
+    "one_location_nearby_visits": [
+      "id",
+      "owner_user_id",
+      "place_ciphertext",
+      "place_iv",
+      "place_tag",
+      "place_algorithm",
+      "place_key_id",
+      "place_token",
+      "checked_in_at",
+      "ended_at",
+      "rated_at",
+      "expires_at",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_place_ratings": [
+      "id",
+      "author_user_id",
+      "place_id",
+      "place_label",
+      "place_category",
+      "rating",
+      "aggregatable",
+      "consent_version",
+      "consent_accepted_at",
+      "source_visit_id",
+      "visited_at",
+      "visit_count",
+      "revision",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_place_rating_aggregates": [
+      "place_id",
+      "rating_count",
+      "rating_sum",
+      "updated_at"
     ]
   }
 }

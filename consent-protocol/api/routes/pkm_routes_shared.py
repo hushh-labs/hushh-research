@@ -42,6 +42,7 @@ _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _Domain = Annotated[str, Path(min_length=1, max_length=128)]
 _RunId = Annotated[str, Path(min_length=1, max_length=128)]
 _AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
+_JsonPath = Annotated[str, Field(min_length=1, max_length=1024)]
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
@@ -374,7 +375,7 @@ class PathDescriptorPayload(BaseModel):
 class StructureDecisionPayload(BaseModel):
     action: str = Field(default="match_existing_domain", min_length=1, max_length=128)
     target_domain: Optional[str] = Field(default=None, max_length=256)
-    json_paths: List[str] = Field(default_factory=list, max_length=1000)
+    json_paths: List[_JsonPath] = Field(default_factory=list, max_length=1000)
     top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
     externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
     summary_projection: dict = Field(default_factory=dict)

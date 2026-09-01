@@ -243,9 +243,11 @@ class TestStructureDecisionPayload:
             StructureDecisionPayload(target_domain="A" * 257)
 
     def test_json_paths_list_max_length(self):
-        """JSON paths list bounded to 1000 items."""
+        """JSON path count and individual path size remain bounded."""
         with pytest.raises(ValidationError):
             StructureDecisionPayload(json_paths=["$.path" for _ in range(1001)])
+        with pytest.raises(ValidationError):
+            StructureDecisionPayload(json_paths=["$" + ".field" * 171])
 
     def test_top_level_scope_paths_max_length(self):
         """Top level scope paths list bounded to 1000 items."""

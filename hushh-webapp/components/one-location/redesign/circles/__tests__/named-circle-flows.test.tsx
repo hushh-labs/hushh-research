@@ -107,6 +107,8 @@ describe("named Circle flows", () => {
           secureLocationReady: true,
           relationship: "connected" as const,
           connectedFromContacts: true,
+          photoUrl: "https://cdn.example.test/asha-contact.jpg",
+          isRia: true,
         },
       ],
     }));
@@ -114,7 +116,16 @@ describe("named Circle flows", () => {
     render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
 
     expect(await screen.findByText("Asha Contact")).toBeTruthy();
-    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    const roster = screen.getByTestId("one-location-circle-members");
+    expect(
+      roster.querySelector(
+        '[data-photo-url="https://cdn.example.test/asha-contact.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(within(roster).getByLabelText("Verified advisor")).toBeTruthy();
+    expect(
+      within(roster).getByLabelText("Connected from your contacts"),
+    ).toBeTruthy();
   });
 
   it("uses bounded member pages and keeps duplicate names addressable by user id", async () => {
@@ -251,8 +262,10 @@ describe("named Circle flows", () => {
             {
               userId: "conn-1",
               displayName: "Asha Meena",
+              photoUrl: "https://cdn.example.test/asha-circle.jpg",
               connectionOrigin: "one" as const,
               connectedFromContacts: true,
+              isRia: true,
             },
             {
               userId: "conn-2",
@@ -268,7 +281,16 @@ describe("named Circle flows", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     expect(await screen.findByText("Asha Meena")).toBeTruthy();
-    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    const ashaRow = screen.getByTestId("one-location-circle-eligible-conn-1");
+    expect(
+      ashaRow.querySelector(
+        '[data-photo-url="https://cdn.example.test/asha-circle.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(within(ashaRow).getByLabelText("Verified advisor")).toBeTruthy();
+    expect(
+      within(ashaRow).getByLabelText("Connected from your contacts"),
+    ).toBeTruthy();
 
     // "Asha Meena" and "Neel Shah" BOTH contain an "n", so a substring filter
     // returned both and one-letter search looked broken. Only Neel's name

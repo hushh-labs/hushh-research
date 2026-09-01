@@ -248,7 +248,7 @@ function resolveCommonRouteBreadcrumb(
       backHref,
       width: "profile",
       align: "center",
-      items: [{ label: parentLabel, href: backHref }, { label: "Profile" }],
+      items: [{ label: parentLabel, href: backHref }],
     };
   }
 

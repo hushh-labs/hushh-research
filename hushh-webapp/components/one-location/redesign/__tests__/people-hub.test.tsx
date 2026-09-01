@@ -97,6 +97,68 @@ function vm(overrides: Partial<LocationHubViewModel> = {}): LocationHubViewModel
 }
 
 describe("PeopleHub requests sent manage surface", () => {
+  it("uses the Connect avatar renderer for Location people rows", () => {
+    render(
+      <PeopleHub
+        vm={vm({
+          requestedByMe: [],
+          receivedGrants: [],
+          editingGrantId: null,
+          visibleRecipients: [
+            {
+              ...recipient,
+              photoUrl: "https://cdn.example.test/roopmann-location.jpg",
+              isRia: true,
+            },
+          ],
+        })}
+        onAddConnections={vi.fn()}
+        onInvite={vi.fn()}
+        onCreateCircle={vi.fn()}
+        onJoinCircle={vi.fn()}
+        onOpenCircle={vi.fn()}
+        focusedInviteId={null}
+        onDismissFocusedInvite={vi.fn()}
+        onStartShare={vi.fn()}
+      />,
+    );
+
+    const peopleList = screen.getByTestId("one-location-people-list");
+    expect(
+      peopleList.querySelector(
+        '[data-photo-url="https://cdn.example.test/roopmann-location.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      within(peopleList).getByLabelText("Verified advisor"),
+    ).toBeInTheDocument();
+  });
+
+  it("starts Circle content at the shared tab pane top", () => {
+    render(
+      <PeopleHub
+        vm={vm()}
+        onAddConnections={vi.fn()}
+        onInvite={vi.fn()}
+        onCreateCircle={vi.fn()}
+        onJoinCircle={vi.fn()}
+        onOpenCircle={vi.fn()}
+        focusedInviteId={null}
+        onDismissFocusedInvite={vi.fn()}
+        onStartShare={vi.fn()}
+      />,
+    );
+
+    const hub = screen.getByTestId("one-location-people-hub");
+    const sectionStack = hub.firstElementChild as HTMLElement | null;
+    const circles = screen.getByTestId("one-location-named-circles");
+
+    expect(hub).not.toHaveClass("pt-5");
+    expect(hub).not.toHaveClass("sm:pt-9");
+    expect(sectionStack).toHaveClass("space-y-7", "sm:space-y-10");
+    expect(sectionStack?.firstElementChild).toBe(circles);
+  });
+
   it("uses quick extension actions instead of the old duration editor", () => {
     render(
       <PeopleHub

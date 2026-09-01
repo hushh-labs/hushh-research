@@ -5,7 +5,6 @@ import { ROUTES } from "@/lib/navigation/routes";
 export type ProfilePanel =
   | "account"
   | "my-data"
-  | "access"
   | "connected-systems"
   | "preferences"
   | "security"
@@ -16,6 +15,7 @@ export type ProfilePanel =
 export type ProfileDetail =
   | `domain:${string}`
   | `connection:${string}`
+  | "sharing"
   | "phone"
   | "kai-preferences"
   | "gemini"
@@ -57,7 +57,6 @@ export function normalizeProfilePanel(value: string | null): ProfilePanel | null
   if (
     value === "account" ||
     value === "my-data" ||
-    value === "access" ||
     value === "connected-systems" ||
     value === "preferences" ||
     value === "security" ||
@@ -91,8 +90,13 @@ export function normalizeProfileDetail(
   if (panel === "my-data" && detail.startsWith("domain:")) {
     return detail as ProfileDetail;
   }
-  if (panel === "access" && detail.startsWith("connection:")) {
+  // Sharing (formerly the standalone "Access & sharing" panel) and its
+  // per-connection detail are now sub-views of the unified Memory panel.
+  if (panel === "my-data" && detail.startsWith("connection:")) {
     return detail as ProfileDetail;
+  }
+  if (panel === "my-data" && detail === "sharing") {
+    return detail;
   }
   if (panel === "account" && detail === "phone") {
     return detail;
@@ -132,7 +136,9 @@ export function normalizeProfileDetail(
 
 function normalizeLegacyTab(value: string | null): ProfilePanel | null {
   if (value === "my-data") return "my-data";
-  if (value === "access" || value === "privacy") return "access";
+  // "access"/"privacy" were the standalone Access & sharing panel; it is now
+  // the Sharing sub-view of the unified Memory panel.
+  if (value === "access" || value === "privacy") return "my-data";
   if (value === "connected-systems" || value === "systems") {
     return "connected-systems";
   }
@@ -252,10 +258,8 @@ export function buildProfileRoute(params?: {
         params?.searchParams,
       );
     }
-    return appendQuery(ROUTES.PROFILE_MY_DATA, {}, params?.searchParams);
-  }
-
-  if (panel === "access") {
+    // Sharing and its per-connection detail keep the legacy
+    // /one/profile/access URLs so existing deep links stay valid.
     if (detail?.startsWith("connection:")) {
       return appendQuery(
         ROUTES.PROFILE_ACCESS_CONNECTION,
@@ -263,7 +267,10 @@ export function buildProfileRoute(params?: {
         params?.searchParams,
       );
     }
-    return appendQuery(ROUTES.PROFILE_ACCESS, {}, params?.searchParams);
+    if (detail === "sharing") {
+      return appendQuery(ROUTES.PROFILE_ACCESS, {}, params?.searchParams);
+    }
+    return appendQuery(ROUTES.PROFILE_MY_DATA, {}, params?.searchParams);
   }
 
   if (panel === "connected-systems") {
@@ -301,6 +308,8 @@ export function resolveProfileRouteStateFromSearchParams(
   const query = toSearchParams(searchParams);
   const panel =
     normalizeProfilePanel(query.get("panel")) ??
+    // Legacy ?panel=access / ?panel=privacy deep links fold into Memory.
+    normalizeLegacyTab(query.get("panel")) ??
     normalizeLegacyTab(query.get("tab"));
 
   return {
@@ -375,13 +384,13 @@ export function resolveProfileRouteState(
   }
 
   if (normalizedPath === ROUTES.PROFILE_ACCESS) {
-    return { panel: "access", detail: null };
+    return { panel: "my-data", detail: "sharing" };
   }
   if (normalizedPath === ROUTES.PROFILE_ACCESS_CONNECTION) {
     const connectionId = query.get("id");
     return {
-      panel: "access",
-      detail: connectionId ? `connection:${connectionId}` : null,
+      panel: "my-data",
+      detail: connectionId ? `connection:${connectionId}` : "sharing",
     };
   }
 

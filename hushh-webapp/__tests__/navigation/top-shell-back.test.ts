@@ -49,6 +49,19 @@ describe("top shell back action", () => {
     ).toEqual({ href: "/one", mode: "push", transitionMode: "full" });
   });
 
+  it("returns a Connect-opened person profile directly to Connect", () => {
+    expect(
+      resolveTopShellBackAction({
+        pathname: "/people/person-ref-scoped",
+        searchParams: new URLSearchParams("from=/one/connect"),
+      }),
+    ).toEqual({
+      href: "/one/connect",
+      mode: "push",
+      transitionMode: "full",
+    });
+  });
+
   it("returns the resolved action to the shared transition owner", () => {
     const navigate = vi.fn();
     expect(

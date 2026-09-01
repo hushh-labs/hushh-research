@@ -345,11 +345,33 @@ def test_setup_progress_is_partitioned_in_authored_order() -> None:
 
     assert goal.setup_completed_ids == ["gmail", "finance"]
     assert goal.setup_remaining_ids == [
+        "calendar",
         "location",
         "email",
         "ria",
         "connected-systems",
     ]
+
+
+def test_hosted_setup_progress_and_actions_do_not_disclose_crm(monkeypatch) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_LOCAL_CRM_ENABLED", "true")
+
+    goal = resolve_onboarding_goal(
+        OnboardingJourneyContext(
+            phase="setup_hub",
+            authenticated=True,
+            setup_capability_ids=[],
+            available_action_ids=["setup.open_connected_systems"],
+            assessment=OnboardingAssessmentV1(
+                intent="execute_visible_action",
+                candidate_action_id="setup.open_connected_systems",
+            ),
+        )
+    )
+
+    assert "connected-systems" not in goal.setup_remaining_ids
+    assert goal.selected_action_id is None
 
 
 def test_conversational_assessment_does_not_force_onboarding() -> None:

@@ -16,7 +16,10 @@ vi.mock("@/lib/agent/agent-pkm-memory", () => ({
     ),
 }));
 
-import { ingestNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
+import {
+  ingestNaturalLanguagePkm,
+  prepareNaturalLanguagePkm,
+} from "@/lib/pkm/pkm-natural-language-ingestion";
 
 describe("ingestNaturalLanguagePkm", () => {
   beforeEach(() => {
@@ -188,5 +191,47 @@ describe("ingestNaturalLanguagePkm", () => {
       .join("\n");
     for (const id of sectionIds) expect(submittedText).toContain(id);
     expect(mocks.preview).toHaveBeenCalledTimes(3);
+  });
+
+  it("fails closed when a source block has unaccounted facts", async () => {
+    mocks.preview.mockResolvedValueOnce({
+      cards: [{ card_id: "one", source_text: "One represented fact." }],
+      preview_summary: { total_segments_detected: 2 },
+    });
+
+    await expect(
+      prepareNaturalLanguagePkm({
+        userId: "user_1",
+        message: "One represented fact. One missing fact.",
+        currentDomains: [],
+        vaultOwnerToken: "owner-token",
+        source: "agent_chat_profile_import",
+      }),
+    ).rejects.toThrow("was not fully accounted for");
+  });
+
+  it("returns an explicit disposition for every processed source block", async () => {
+    mocks.preview.mockResolvedValueOnce({
+      cards: [{ card_id: "one", source_text: "Stable fact.", write_mode: "can_save" }],
+      preview_summary: { total_segments_detected: 1 },
+      used_fallback: false,
+    });
+
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: "Stable fact.",
+      currentDomains: [],
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_profile_import",
+    });
+
+    expect(prepared.sourceCoverage).toEqual([
+      {
+        sourceBlockId: "source_block_001",
+        disposition: "proposed",
+        detectedFactCount: 1,
+        accountedFactCount: 1,
+      },
+    ]);
   });
 });

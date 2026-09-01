@@ -82,6 +82,7 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.crm_product_availability import crm_product_available
 from hushh_mcp.services.live_voice_context import (
     read_pending_specialist_directive,
     record_pending_specialist_directive,
@@ -127,6 +128,8 @@ STATE_PKM_CONTEXT = "hussh:pkm_context"
 # after the current event batch; written by tools, cleared by the relay.
 STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 
+_CRM_PRODUCT_AVAILABLE = crm_product_available()
+
 # Governed navigation allowlist: screen id -> app route. Mirrors the /one
 # roster plus core account surfaces. One can ONLY navigate here; anything
 # else is refused by construction.
@@ -139,9 +142,10 @@ APP_ROUTES: dict[str, str] = {
     "location": "/one/location",
     "personal_data": "/one/pkm",
     "consent": "/one/consent",
-    "connected_systems": "/one/connected-systems",
     "profile": "/profile",
 }
+if _CRM_PRODUCT_AVAILABLE:
+    APP_ROUTES["connected_systems"] = "/one/connected-systems"
 
 # Voice head model contract. The canonical live model is authored in the One
 # manifest (heads.live) and env-swappable through AGENT_ONE_ADK_MODEL with no
@@ -284,9 +288,12 @@ def _build_one_live_model():
 # Folded into ONE_IDENTITY_INSTRUCTION so it reaches BOTH the text head
 # (build_one_text_agent) and the Live head (build_one_root_agent), which share
 # _one_runtime_instruction. It is identity/values grounding, never authority.
-_ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(
-    _ONE_MANIFEST.capabilities.get("specialist_roster", [])
-)
+_ACTIVE_SPECIALIST_ROSTER = [
+    agent_id
+    for agent_id in _ONE_MANIFEST.capabilities.get("specialist_roster", [])
+    if agent_id != "agent_connected_systems" or _CRM_PRODUCT_AVAILABLE
+]
+_ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(_ACTIVE_SPECIALIST_ROSTER)
 
 
 ONE_IDENTITY_INSTRUCTION: str = (
@@ -374,8 +381,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "reasoning -- ask it direct, specific questions rather than broad ones it "
     "cannot interpret. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
-    "- Connected Systems: CRM and external system workflows.\n\n"
-    "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
+    + (
+        "- Connected Systems: CRM and external system workflows.\n\n"
+        if _CRM_PRODUCT_AVAILABLE
+        else "\n"
+    )
+    + "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
     "inbox access, and do not call a tool for either. This does not limit the "
     "open_gmail_email_draft tool for an explicit personal-email request.\n\n"
     # Section 4: tool invocation conditions, one tool per sentence.
@@ -1573,7 +1584,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         ),
         tools=[GoogleSearchTool()],
     )
-    return [
+    tools = [
         AgentTool(agent=search_agent, propagate_grounding_metadata=True),
         open_screen,
         resolve_onboarding_goal,
@@ -1585,7 +1596,6 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         AgentTool(agent=_build_finance_agent(model=specialist_model)),
         ask_email_agent,
         ask_location_agent,
-        ask_connected_systems_agent,
         ask_consent_agent,
         list_my_location_circles,
         get_location_circle_members,
@@ -1604,6 +1614,9 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         propose_calendar_reschedule,
         propose_calendar_cancellation,
     ]
+    if _CRM_PRODUCT_AVAILABLE:
+        tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)
+    return tools
 
 
 def build_one_root_agent(

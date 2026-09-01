@@ -9,7 +9,7 @@ import {
   SettingsGroup,
   SettingsPresentationProvider,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/profile/settings-ui";
 
 describe("SettingsRow", () => {
@@ -267,11 +267,11 @@ describe("SettingsRow", () => {
   });
 });
 
-describe("SettingsSegmentedTabs", () => {
+describe("SegmentedTabs", () => {
   it("keeps the active tab selected and switches tabs through user interaction", () => {
     const handleValueChange = vi.fn();
     render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="my"
         onValueChange={handleValueChange}
         options={[
@@ -281,13 +281,13 @@ describe("SettingsSegmentedTabs", () => {
       />,
     );
 
-    const active = screen.getByRole("button", { name: "My list" });
-    const inactive = screen.getByRole("button", { name: "Kai list" });
+    const active = screen.getByRole("tab", { name: "My list" });
+    const inactive = screen.getByRole("tab", { name: "Kai list" });
 
     expect(active.getAttribute("data-state")).toBe("active");
-    expect(active.getAttribute("aria-pressed")).toBe("true");
+    expect(active.getAttribute("aria-selected")).toBe("true");
     expect(inactive.getAttribute("data-state")).toBe("inactive");
-    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.getAttribute("aria-selected")).toBe("false");
 
     fireEvent.click(active);
     expect(handleValueChange).not.toHaveBeenCalled();
@@ -297,7 +297,7 @@ describe("SettingsSegmentedTabs", () => {
   });
   it("preserves inactive segmented tab accessibility state", () => {
     render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="kai"
         onValueChange={() => {}}
         options={[
@@ -307,11 +307,11 @@ describe("SettingsSegmentedTabs", () => {
       />,
     );
 
-    const inactive = screen.getByRole("button", { name: "My list" });
-    const active = screen.getByRole("button", { name: "Kai list" });
+    const inactive = screen.getByRole("tab", { name: "My list" });
+    const active = screen.getByRole("tab", { name: "Kai list" });
 
     expect(inactive.getAttribute("data-state")).toBe("inactive");
-    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.getAttribute("aria-selected")).toBe("false");
     expect(inactive.className).toContain(
       "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
     );
@@ -321,7 +321,7 @@ describe("SettingsSegmentedTabs", () => {
 
   it("uses the shared quiet segmented geometry", () => {
     const { container } = render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="kai"
         onValueChange={() => {}}
         options={[
@@ -332,20 +332,39 @@ describe("SettingsSegmentedTabs", () => {
     );
 
     const root = container.firstElementChild;
-    const active = screen.getByRole("button", { name: "Kai list" });
+    const active = screen.getByRole("tab", { name: "Kai list" });
 
     expect(root?.className).toContain("rounded-[14px]");
     expect(root?.className).not.toContain("rounded-full");
     expect(active.className).toContain("rounded-[12px]");
-    expect(active.className).toContain("font-normal");
-    expect(active.className).not.toContain("font-semibold");
     expect(active.className).not.toContain("press-scale");
+
+    // One segmented material, shared with the Location strip: a recessed grey
+    // track with no border, and a RAISED pill rather than an outlined one.
+    // The track used to borrow `--app-card-surface-compact` behind a card
+    // border, which put a near-white bordered box around a near-white pill --
+    // the same control as Location's, reading as a different component on the
+    // very next page.
+    expect(root?.className).toContain(
+      "bg-[color:var(--app-segmented-track-surface)]",
+    );
+    expect(root?.className).toContain("border-0");
+    expect(root?.className).not.toContain("var(--app-card-surface-compact)");
+
+    expect(active.className).toContain(
+      "shadow-[var(--app-segmented-active-shadow)]",
+    );
+    expect(active.className).toContain("border-transparent");
+    // Semibold, matching the Location strip's active label. The weight is the
+    // second half of "this one is selected"; the pill is the first.
+    expect(active.className).toContain("font-semibold");
+    expect(active.className).not.toContain("font-normal");
   });
 
   it("disables the whole segmented control while its selection is settling", () => {
     const handleValueChange = vi.fn();
     render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="statement"
         onValueChange={handleValueChange}
         disabled
@@ -356,7 +375,7 @@ describe("SettingsSegmentedTabs", () => {
       />,
     );
 
-    const brokerage = screen.getByRole("button", { name: "Brokerage" });
+    const brokerage = screen.getByRole("tab", { name: "Brokerage" });
     expect(brokerage).toBeDisabled();
     fireEvent.click(brokerage);
     expect(handleValueChange).not.toHaveBeenCalled();

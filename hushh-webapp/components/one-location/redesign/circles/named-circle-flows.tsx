@@ -30,7 +30,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   SheetClose,
   Sheet,
@@ -95,6 +94,7 @@ import {
 import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { othersCountLabel } from "@/lib/one-location/circle-member-count";
@@ -367,9 +367,9 @@ export function CirclesSection({
   return (
     <div className="space-y-3" data-testid="one-location-named-circles">
       <div className="flex w-full items-center justify-between gap-4">
-        <h2 className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
+        <SectionLabel as="div" role="heading" aria-level={2}>
           Circles
-        </h2>
+        </SectionLabel>
 
         <div
           className={cn(
@@ -939,10 +939,12 @@ function CircleMemberRow({
 
   return (
     <div className={CIRCLE_MEMBER_ROW_CLASSNAME}>
-      <Avatar className={CIRCLE_MEMBER_AVATAR_CLASSNAME}>
-        {member.photoUrl ? <AvatarImage src={member.photoUrl} alt="" /> : null}
-        <AvatarFallback>{circleInitials(member.displayName)}</AvatarFallback>
-      </Avatar>
+      <ConnectionPersonAvatar
+        label={member.displayName}
+        photoUrl={member.photoUrl}
+        verified={Boolean(member.isRia)}
+        className={CIRCLE_MEMBER_AVATAR_CLASSNAME}
+      />
       <div className="min-w-0 flex-1">
         {/* `truncate`, not `break-words`. A long name used to wrap to three
             lines and push its own row to twice the height of its neighbours,
@@ -1056,6 +1058,7 @@ function CircleMemberRow({
           displayName={member.displayName}
           initials={circleInitials(member.displayName)}
           photoUrl={member.photoUrl}
+          verified={Boolean(member.isRia)}
           secondaryLine={secondaryLine}
           canShare={canShare}
           canRemove={canRemove}
@@ -2108,17 +2111,11 @@ export function CircleDetailFlow({
                               <SettingsRow
                                 key={connection.userId}
                                 leading={
-                                  <Avatar className="h-10 w-10 rounded-xl">
-                                    {connection.photoUrl ? (
-                                      <AvatarImage
-                                        src={connection.photoUrl}
-                                        alt=""
-                                      />
-                                    ) : null}
-                                    <AvatarFallback className="rounded-xl">
-                                      {circleInitials(connection.displayName)}
-                                    </AvatarFallback>
-                                  </Avatar>
+                                  <ConnectionPersonAvatar
+                                    photoUrl={connection.photoUrl ?? null}
+                                    label={connection.displayName}
+                                    verified={Boolean(connection.isRia)}
+                                  />
                                 }
                                 title={
                                   <span className="flex min-w-0 items-center gap-1.5">
@@ -2232,20 +2229,14 @@ export function CircleDetailFlow({
                             <SettingsRow
                               key={invite.id}
                               leading={
-                                <Avatar className="h-10 w-10">
-                                  {invite.inviteePhotoUrl ? (
-                                    <AvatarImage
-                                      src={invite.inviteePhotoUrl}
-                                      alt=""
-                                    />
-                                  ) : null}
-                                  <AvatarFallback>
-                                    {circleInitials(
-                                      invite.inviteeDisplayName ||
-                                        "One connection",
-                                    )}
-                                  </AvatarFallback>
-                                </Avatar>
+                                <ConnectionPersonAvatar
+                                  label={
+                                    invite.inviteeDisplayName ||
+                                    "One connection"
+                                  }
+                                  photoUrl={invite.inviteePhotoUrl}
+                                  className="h-10 w-10"
+                                />
                               }
                               title={
                                 invite.inviteeDisplayName || "One connection"

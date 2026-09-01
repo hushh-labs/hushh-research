@@ -161,8 +161,10 @@
     "186_feed_share_kind_projection.sql",
     "187_one_location_sms_contact_events.sql",
     "188_feed_location_viewed_projection.sql",
-    "189_gmail_personal_information_request_monitor.sql",
-    "190_gmail_personal_information_request_monitor_hardening.sql"
+    "189_trusted_device_heartbeat.sql",
+    "190_one_location_place_ratings.sql",
+    "191_gmail_personal_information_request_monitor.sql",
+    "192_gmail_personal_information_request_monitor_hardening.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -274,8 +276,13 @@
       "183_one_information_request_bundles.sql",
       "184_encrypted_one_adk_sessions.sql",
       "185_internal_access_request_id_text.sql",
-      "189_gmail_personal_information_request_monitor.sql",
-      "190_gmail_personal_information_request_monitor_hardening.sql"
+      "186_feed_share_kind_projection.sql",
+      "187_one_location_sms_contact_events.sql",
+      "188_feed_location_viewed_projection.sql",
+      "189_trusted_device_heartbeat.sql",
+      "190_one_location_place_ratings.sql",
+      "191_gmail_personal_information_request_monitor.sql",
+      "192_gmail_personal_information_request_monitor_hardening.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
