@@ -361,14 +361,14 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one/setup");
   });
 
-  it("treats the PKM agent lab as a profile privacy surface", () => {
+  it("treats the PKM agent lab as a Memory surface", () => {
     expect(resolveTopShellBreadcrumb("/one/profile/pkm-agent-lab")).toEqual({
-      backHref: "/one/profile/access",
+      backHref: "/one/profile/my-data",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/one/profile/access" },
-        { label: "Privacy", href: "/one/profile/access" },
+        { label: "Profile", href: "/one/profile/my-data" },
+        { label: "Memory", href: "/one/profile/my-data" },
         { label: "PKM Agent" },
       ],
     });
@@ -456,7 +456,7 @@ describe("top shell breadcrumbs", () => {
     ).toBeNull();
   });
 
-  it("keeps the Profile access connection detail route scoped to Access & sharing", () => {
+  it("nests the connection detail under Memory → Sharing", () => {
     const connectionParams = new URLSearchParams();
     connectionParams.set("id", "c-scoped");
 
@@ -471,8 +471,22 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "Profile", href: "/one/profile" },
-        { label: "Access & sharing", href: "/one/profile/access" },
+        { label: "Memory", href: "/one/profile/my-data" },
+        { label: "Sharing", href: "/one/profile/access" },
         { label: "Connection detail" },
+      ],
+    });
+  });
+
+  it("returns the Memory → Sharing sub-view to the Memory panel", () => {
+    expect(resolveTopShellBreadcrumb("/one/profile/access")).toEqual({
+      backHref: "/one/profile/my-data",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Memory", href: "/one/profile/my-data" },
+        { label: "Sharing" },
       ],
     });
   });
