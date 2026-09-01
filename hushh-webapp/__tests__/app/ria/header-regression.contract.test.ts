@@ -54,8 +54,8 @@ describe("RIA shared header regression contract", () => {
     // time.
     const riaShell = read("components/ria/ria-page-shell.tsx");
 
-    expect(riaShell).toContain('width = "agent"');
-    expect(riaShell).not.toContain('width = "standard"');
+    expect(riaShell).toMatch(/\bwidth\s*=\s*["']agent["']/);
+    expect(riaShell).not.toMatch(/\bwidth\s*=\s*["']standard["']/);
   });
 
   it("keeps ria picks on shared surfaces with responsive table sizing", () => {
