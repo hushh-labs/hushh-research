@@ -168,7 +168,7 @@ export default function RiaClientsPage() {
       <>
         <AppPageShell
           as="main"
-          width="standard"
+          width="agent"
           nativeTest={{
             routeId: "/ria/clients",
             marker: "native-route-ria-clients",
@@ -187,7 +187,7 @@ export default function RiaClientsPage() {
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      width="agent"
       nativeTest={{
         routeId: "/ria/clients",
         marker: "native-route-ria-clients",

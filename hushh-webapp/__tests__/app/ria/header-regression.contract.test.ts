@@ -45,6 +45,19 @@ describe("RIA shared header regression contract", () => {
     expect(globals).toContain("--ria-selected-tint: var(--app-accent-surface)");
   });
 
+  it("gives RiaPageShell an \"agent\"-width default, not the wider \"standard\"", () => {
+    // The one place this now needs to be right: every caller that does not
+    // pass its own `width` -- Profile, the client account/request detail
+    // pages, RiaClientWorkspace, and the Marketplace RIA public profile --
+    // inherits this. A future edit widening the default silently widens all
+    // of them at once, which is exactly how this shipped too wide the first
+    // time.
+    const riaShell = read("components/ria/ria-page-shell.tsx");
+
+    expect(riaShell).toContain('width = "agent"');
+    expect(riaShell).not.toContain('width = "standard"');
+  });
+
   it("keeps ria picks on shared surfaces with responsive table sizing", () => {
     const riaPicks = read("app/ria/picks/page.tsx");
 
@@ -60,9 +73,14 @@ describe("RIA shared header regression contract", () => {
     const riaClients = read("app/ria/clients/page.tsx");
     const riaPicks = read("app/ria/picks/page.tsx");
 
+    // "agent" (880px), not "standard" (1440px) -- Connect and Marketplace are
+    // directory-browsing surfaces at that wider measure; RIA is a workspace,
+    // closer in shape to Location's primary surface. See ria-page-shell.tsx.
     expect(riaProfile).toContain("RiaPageShell");
-    expect(riaClients).toContain('width="standard"');
-    expect(riaPicks).toContain('width="standard"');
+    expect(riaClients).toContain('width="agent"');
+    expect(riaPicks).toContain('width="agent"');
+    expect(riaClients).not.toContain('width="standard"');
+    expect(riaPicks).not.toContain('width="standard"');
     expect(riaClients).not.toContain('width="expanded"');
     expect(riaPicks).not.toContain('width="expanded"');
     expect(riaClients).toContain('<AppPageHeaderRegion className="pt-2 sm:pt-3">');

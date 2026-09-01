@@ -38,7 +38,7 @@ function RiaWorkspaceCompatibilityRedirect() {
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      width="agent"
       nativeTest={{
         routeId: "/ria/workspace",
         marker: "native-route-ria-workspace",
