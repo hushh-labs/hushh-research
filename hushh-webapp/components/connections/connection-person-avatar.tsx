@@ -21,21 +21,67 @@ export function connectionAvatarInitials(label: string): string {
  * carries. Keep them together so Connect and Location invite sheets cannot
  * drift into different person identities.
  */
+/**
+ * Which row rhythm this avatar is sitting in.
+ *
+ * `SettingsRow` draws its inset separator from a fixed offset per density --
+ * 58px on `compact`, 62px on `comfortable` -- and those numbers are the row
+ * padding plus the LEADING VISUAL plus the gap. A compact row therefore expects
+ * a 28px leading visual, which is what its own icon well is (`h-7 w-7`).
+ *
+ * This avatar was 34px at every call site, including inside compact rows. So on
+ * Connect's Connections list the hairlines started at 58px while the text
+ * started at 62px, and every separator sat 4px shy of the column it was meant
+ * to align with -- while the Circles tab beside it, whose rows use the 28px
+ * icon well, lined up exactly. Same screen, same primitive, two rhythms.
+ *
+ * Reported as "circle and Connections dono ka thoda alag alag feel ho rha hai".
+ */
+export type ConnectionPersonAvatarSize = "compact" | "comfortable";
+
+const AVATAR_SIZE_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
+  compact: "h-7 w-7",
+  comfortable: "h-[34px] w-[34px]",
+};
+
+/** The verified badge scales with the face, or it swallows a 28px one. */
+const AVATAR_BADGE_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
+  compact: "size-[13px]",
+  comfortable: "size-[15px]",
+};
+
+const AVATAR_BADGE_GLYPH_CLASSNAME: Record<ConnectionPersonAvatarSize, string> =
+  {
+    compact: "size-[11px]",
+    comfortable: "size-[13px]",
+  };
+
 export function ConnectionPersonAvatar({
   photoUrl,
   label,
   verified = false,
+  size = "comfortable",
   className,
 }: {
   photoUrl?: string | null;
   label: string;
   verified?: boolean;
+  /**
+   * Match the row it sits in. `compact` inside a `SettingsRow density="compact"`,
+   * so the separator inset the row already draws lands on the text.
+   */
+  size?: ConnectionPersonAvatarSize;
   className?: string;
 }) {
   return (
     <Avatar
-      className={cn("relative h-[34px] w-[34px] shrink-0", className)}
+      className={cn(
+        "relative shrink-0",
+        AVATAR_SIZE_CLASSNAME[size],
+        className,
+      )}
       data-photo-url={photoUrl ?? undefined}
+      data-avatar-size={size}
     >
       {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
       <AvatarFallback className="text-xs">
@@ -43,11 +89,17 @@ export function ConnectionPersonAvatar({
       </AvatarFallback>
       {verified ? (
         <span
-          className="absolute -right-0.5 -bottom-0.5 z-10 inline-flex size-[15px] items-center justify-center rounded-full bg-background"
+          className={cn(
+            "absolute -right-0.5 -bottom-0.5 z-10 inline-flex items-center justify-center rounded-full bg-background",
+            AVATAR_BADGE_CLASSNAME[size],
+          )}
           aria-label="Verified advisor"
         >
           <BadgeCheck
-            className="size-[13px] text-[color:var(--app-success,#16a34a)]"
+            className={cn(
+              "text-[color:var(--app-success,#16a34a)]",
+              AVATAR_BADGE_GLYPH_CLASSNAME[size],
+            )}
             aria-hidden="true"
           />
         </span>
