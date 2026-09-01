@@ -251,8 +251,6 @@ steps:
         require_non_negative_int "_DB_SQLALCHEMY_MAX_OVERFLOW" "${_DB_SQLALCHEMY_MAX_OVERFLOW}"
         require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
         require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
-        require_positive_int "_CLOUD_RUN_CPU" "${_CLOUD_RUN_CPU}"
-        require_positive_int "_CLOUD_RUN_CONCURRENCY" "${_CLOUD_RUN_CONCURRENCY}"
         if [[ "${_DB_POOL_MAX_SIZE}" -lt "${_DB_POOL_MIN_SIZE}" ]]; then
           echo "_DB_POOL_MAX_SIZE must be greater than or equal to _DB_POOL_MIN_SIZE." >&2
           exit 1
