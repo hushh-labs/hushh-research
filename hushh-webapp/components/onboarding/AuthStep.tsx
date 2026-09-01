@@ -337,9 +337,10 @@ export function AuthStep({
       phoneNumber?: string | null,
       resumeTarget?: string,
     ) => {
-      const targetPath =
-        normalizeInternalRouteHref(resumeTarget || redirectPath) ??
-        ROUTES.KAI_HOME;
+      const explicitTargetPath = normalizeInternalRouteHref(
+        resumeTarget || redirectPath,
+      );
+      const targetPath = explicitTargetPath ?? ROUTES.ONE_HOME;
       const navigationKey = `${userId}:${targetPath}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return lastResolvedNavigationPathRef.current || targetPath;
@@ -359,7 +360,7 @@ export function AuthStep({
           (user ? await user.getIdToken().catch(() => undefined) : undefined);
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
           userId,
-          redirectPath: targetPath,
+          redirectPath: explicitTargetPath ?? undefined,
           idToken: resolvedIdToken,
           phoneNumber,
           enableFirstRunSetupGate: true,

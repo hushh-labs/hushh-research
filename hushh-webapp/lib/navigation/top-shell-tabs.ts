@@ -15,7 +15,7 @@ import {
 } from "@/lib/navigation/ria-route-tabs";
 
 export type TopShellTabSetId =
-  "location" | "finance" | "consent" | "ria" | "public";
+  "location" | "connect" | "finance" | "consent" | "ria" | "public";
 
 export interface TopShellTabDefinition {
   id: TopShellTabSetId;
@@ -94,6 +94,20 @@ export const TOP_SHELL_TAB_REGISTRY = {
         href: "/one/location?view=people",
       },
       { value: "links", label: "Links", href: "/one/location?view=links" },
+    ],
+  },
+  connect: {
+    id: "connect",
+    label: "Connect",
+    queryParam: "tab",
+    defaultValue: "all",
+    tabs: [
+      { value: "all", label: "Connections", href: "/one/connect?tab=all" },
+      {
+        value: "circles",
+        label: "Circles",
+        href: "/one/connect?tab=circles",
+      },
     ],
   },
   finance: {
@@ -214,9 +228,9 @@ function resolveSelection(
 
 /**
  * Resolves the one route-owned contextual tab group for the shared top shell.
- * Location is intentionally excluded here: its hub renders the same registered
- * tabs directly under the Location module header so Now, People, and Links keep
- * the correct local hierarchy while retaining shared tab/swipe state.
+ * Location and Connect are intentionally excluded here: their hubs render the
+ * same registered tabs directly under their module headers so the local module
+ * hierarchy stays intact while retaining shared tab/swipe state.
  */
 export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
   const { pathname, searchParams } = splitRouteKey(routeKey);

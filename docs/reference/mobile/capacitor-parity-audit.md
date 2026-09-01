@@ -228,6 +228,10 @@ Native parity for authenticated flows now includes the verified phone mandate af
   land users on the funding trade surface.
 - `/one/location` is part of the native route inventory because live location is
   a platform permission surface, not a web-only route.
+- `/one/location/check-in/hotel` is explicitly excluded until a supported hotel
+  stay provider exists. The route fails closed and must not become a native
+  functional screen without updating the provider, inventory, and route
+  contracts together.
 - Web, iOS, and Android must all produce the same product truth: a signed-in user without
   `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
 - Android still requires a documented OTP smoke on device or UAT because the repo does not

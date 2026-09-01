@@ -473,10 +473,16 @@ function peopleNearbyLabel(count: number): string | null {
   return `${count} ${count === 1 ? "person" : "people"} nearby`;
 }
 
-function completionCopy(reason: NearbyCheckInCompletionReason | undefined) {
-  if (reason === "expired") return "Your time ran out.";
-  if (reason === "ended") return "This check-in has ended.";
-  return "You're no longer visible nearby.";
+function completionCopy(
+  reason: NearbyCheckInCompletionReason | undefined,
+  placeLabel: string | null | undefined,
+) {
+  const place = placeLabel?.trim();
+  const visibilityLine = place
+    ? `You're no longer visible at ${place}.`
+    : "You're no longer visible nearby.";
+  if (reason === "expired") return `Time ran out. ${visibilityLine}`;
+  return visibilityLine;
 }
 
 function initials(label: string): string {
@@ -526,9 +532,6 @@ function NearbyPersonRow({
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">
           {attendee.displayName}
-        </span>
-        <span className="block text-xs text-muted-foreground">
-          At this place
         </span>
       </span>
       <Button
@@ -2231,7 +2234,6 @@ export function NearbyCheckInSheet({
       setShowAllPlaces(false);
       setAddTimeOpen(false);
       setAddTimeBusy(null);
-      toast.success("Check-in ended.");
       void offerSavePlace(savedPlaceOffer);
     } catch {
       if (
@@ -2476,13 +2478,11 @@ export function NearbyCheckInSheet({
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold">Check-in ended</p>
-                      {completedCheckIn?.placeLabel ? (
-                        <p className="mt-0.5 truncate text-sm font-medium">
-                          {completedCheckIn.placeLabel}
-                        </p>
-                      ) : null}
                       <p className="mt-0.5 text-sm text-muted-foreground">
-                        {completionCopy(completedCheckIn?.reason)}
+                        {completionCopy(
+                          completedCheckIn?.reason,
+                          completedCheckIn?.placeLabel,
+                        )}
                       </p>
                       {completedCheckIn?.saved ? (
                         <p className="mt-2 text-xs font-medium text-muted-foreground">
@@ -2717,20 +2717,11 @@ export function NearbyCheckInSheet({
                   </div>
                 </section>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-12 min-h-12"
-                    disabled={busy !== null}
-                    onClick={() => setAddTimeOpen(true)}
-                  >
-                    Add time
-                  </Button>
+                <div className="space-y-2">
                   <Button
                     type="button"
                     variant={CHECK_OUT_BUTTON_VARIANT}
-                    className="h-12 min-h-12"
+                    className="h-[52px] min-h-[52px] w-full rounded-2xl"
                     disabled={busy !== null}
                     onClick={() => void checkout()}
                   >
@@ -2738,6 +2729,15 @@ export function NearbyCheckInSheet({
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : null}
                     {busy === "checkout" ? "Leaving..." : "I'm leaving"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-11 min-h-11 w-full text-[color:var(--app-accent)]"
+                    disabled={busy !== null}
+                    onClick={() => setAddTimeOpen(true)}
+                  >
+                    Add time
                   </Button>
                 </div>
 
@@ -2786,16 +2786,14 @@ export function NearbyCheckInSheet({
                       ))}
                     </ul>
                   ) : (
-                    <div className="mt-3 rounded-2xl bg-muted/70 px-4 py-5 text-center">
-                      <UsersRound className="mx-auto h-5 w-5 text-muted-foreground" />
+                    <>
                       {/* The auto-refresh line is gone. The list refreshes on a
-                        timer whether or not it is advertised, and telling
-                        someone their empty list will keep checking itself is
-                        an implementation detail dressed as reassurance. */}
-                      <p className="mt-2 text-sm font-medium">
+                        timer whether or not it is advertised, and the empty
+                        roster is only a quiet fact. */}
+                      <p className="mt-3 text-sm text-muted-foreground">
                         Nobody nearby yet
                       </p>
-                    </div>
+                    </>
                   )}
                 </section>
               </div>

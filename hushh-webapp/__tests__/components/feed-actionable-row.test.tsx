@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MapPin, Siren } from "lucide-react";
+import { MapPin } from "lucide-react";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
@@ -19,24 +19,29 @@ function actionable(overrides: Partial<FeedActionable> = {}): FeedActionable {
 }
 
 describe("FeedActionableRow", () => {
-  it("wraps an emergency SMS alert in a prominent red alert frame", () => {
+  it("renders emergency SMS with the sender avatar instead of a separate alert icon", () => {
     render(
       <FeedActionableRow
         item={actionable({
-          icon: Siren,
-          iconTone: "red",
           emphasis: "emergency",
           title: "Mom sent an SMS",
           description: "Emergency SMS — sharing live location with you now.",
+          person: {
+            displayName: "Mom",
+            photoUrl: "https://cdn.example.test/mom.jpg",
+          },
           href: "/one/location?grantId=g1&open=1&section=shared",
           chevron: true,
         })}
       />,
     );
 
-    const frame = screen.getByTestId("feed-sms-emergency");
-    expect(frame).toHaveAttribute("role", "alert");
-    expect(frame).toHaveClass("border-destructive/45");
+    const avatar = screen.getByTestId("feed-actionable-avatar");
+    expect(avatar).toHaveAttribute(
+      "data-photo-url",
+      "https://cdn.example.test/mom.jpg",
+    );
+    expect(screen.queryByTestId("feed-sms-emergency")).toBeNull();
     expect(screen.getByText("Mom sent an SMS")).toBeInTheDocument();
   });
 
@@ -44,11 +49,10 @@ describe("FeedActionableRow", () => {
     const { container: liveContainer } = render(
       <FeedActionableRow
         item={actionable({
-          icon: Siren,
-          iconTone: "red",
           emphasis: "emergency",
           title: "Mom sent an SMS",
           description: "Emergency SMS - Sent.",
+          person: { displayName: "Mom", photoUrl: null },
         })}
       />,
     );
@@ -57,10 +61,9 @@ describe("FeedActionableRow", () => {
     const { container: revokedContainer } = render(
       <FeedActionableRow
         item={actionable({
-          icon: Siren,
-          iconTone: "red",
           title: "Mom sent an SMS",
           description: "Emergency SMS - Revoked",
+          person: { displayName: "Mom", photoUrl: null },
         })}
       />,
     );
@@ -193,14 +196,13 @@ describe("FeedActionableRow", () => {
     expect(denyButton).not.toBeDisabled();
   });
 
-  it("renders a revoked SOS card as a plain row (no frame) but keeps the Siren/red icon signal", () => {
+  it("renders a revoked SOS card as a plain row with sender initials", () => {
     const { container } = render(
       <FeedActionableRow
         item={actionable({
-          icon: Siren,
-          iconTone: "red",
           title: "Mom sent an SMS",
           description: "Emergency SMS - Revoked",
+          person: { displayName: "Mom", photoUrl: null },
           href: "/one/location?grantId=g1&open=1&section=shared",
           chevron: true,
           // No `emphasis` — this is the confirmed "downgrade to plain row" behavior.
@@ -210,7 +212,8 @@ describe("FeedActionableRow", () => {
 
     expect(screen.queryByTestId("feed-sms-emergency")).toBeNull();
     expect(screen.getByText("Mom sent an SMS")).toBeInTheDocument();
-    expect(container.querySelector('[data-icon-tone="red"]')).not.toBeNull();
+    expect(screen.getByTestId("feed-actionable-avatar")).toHaveTextContent("M");
+    expect(container.querySelector('[data-icon-tone="red"]')).toBeNull();
   });
 
   describe("time label", () => {

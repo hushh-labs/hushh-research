@@ -470,11 +470,8 @@ function FeedPageSession({
     return groupItemsByDay(sorted);
   }, [items]);
   // A live SOS share gets its own "Live" section, pinned above "Needs you",
-  // so a safety alert is never mistaken for a routine pending item, and two
-  // live SOS cards never read as one merged block (each keeps its own
-  // gapped, individually framed card). A revoked/expired SOS no longer
-  // carries `emphasis: "emergency"` (see useFeedActionables) and falls
-  // straight into the regular divide-y "Needs you" list like any other row.
+  // so a safety alert is never mistaken for a routine pending item. Revoked or
+  // expired SOS rows fall straight into the regular "Needs you" list.
   const liveActionables = actionables.filter(
     (item) => item.emphasis === "emergency",
   );
@@ -540,7 +537,7 @@ function FeedPageSession({
           ) : null}
 
           {hasRegularActionables ? (
-            <section aria-label="Needs you" className="bg-accent/[0.03]">
+            <section aria-label="Needs you">
               <SectionLabel>Needs you</SectionLabel>
               <div className="divide-y divide-[color:var(--foundation-hairline)]">
                 {regularActionables.map((item) => (

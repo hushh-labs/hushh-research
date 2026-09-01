@@ -188,6 +188,7 @@ import {
   ONE_LOCATION_REQUEST_ID_PARAM,
   ONE_LOCATION_SECTION_PARAM,
   ONE_LOCATION_SUBMISSION_ID_PARAM,
+  isSmsTriggeredGrant,
   playOneLocationNotificationSound,
   type OneLocationNotificationSection,
 } from "@/lib/one-location/notifications";
@@ -197,12 +198,12 @@ import {
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
-import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import {
   resolveShareDurationHours,
   shareReplacementsLosingTime,
 } from "@/lib/one-location/share-replacement";
 import { parseTimestamp } from "@/lib/one-location/share-countdown";
+import { summarizeShareEndTimes } from "@/lib/one-location/grant-lanes";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import {
@@ -236,6 +237,7 @@ import {
   ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
   type GrantViewStatus,
   type LocationHubViewModel,
+  type LocationRequestSendResult,
   type PrivateCheckInRequest,
   type PrivateCheckInResult,
 } from "@/components/one-location/redesign/location-redesign-hub";
@@ -679,8 +681,7 @@ export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
 // cap and lose ties to whichever SUBVIEW_ACTION_BOOST entry matches the
 // current subview) -- this only changes what becomes a CANDIDATE, not how
 // candidates are ranked once the list is bigger.
-export const LOCATION_VOICE_ACTIONS =
-  deriveLocationVoiceActions("one_location");
+export const LOCATION_VOICE_ACTIONS = deriveLocationVoiceActions("one_location");
 
 const LOCATION_VOICE_CONTROLS = [
   {
@@ -2544,6 +2545,9 @@ export function OneLocationAgentPageContent({
    */
   const [liveShareDurationEditing, setLiveShareDurationEditing] =
     useState(false);
+  const [liveShareDurationGrantId, setLiveShareDurationGrantId] = useState<
+    string | null
+  >(null);
   const [liveShareDurationHours, setLiveShareDurationHours] = useState(
     GRANT_EDIT_DURATION_FALLBACK,
   );
@@ -3174,8 +3178,8 @@ export function OneLocationAgentPageContent({
   );
   const rankedRecipients = useMemo(() => {
     const ranked = rankRecipientsForRecommendation(
-      contactSignalRecipients,
-      contactMatchedUserIds,
+        contactSignalRecipients,
+        contactMatchedUserIds,
     );
     // Every paged row came through the same vault-authorized recipient route.
     // Retain it by user id so selecting page 2, then changing search, does not
@@ -3186,7 +3190,7 @@ export function OneLocationAgentPageContent({
         [...pagedRecipientsByUserId.values()],
         contactMatchedUserIds,
       ),
-    );
+  );
   }, [contactMatchedUserIds, contactSignalRecipients, pagedRecipientsByUserId]);
   const shareRecipientPool = useMemo(
     () =>
@@ -3245,9 +3249,9 @@ export function OneLocationAgentPageContent({
             contactMatchedUserIds,
           )
         : filterPeopleByQuery(
-            rankedRecipients,
-            shareRecipientSearch,
-            recipientLabel,
+        rankedRecipients,
+        shareRecipientSearch,
+        recipientLabel,
           ).slice(0, 50),
     [
       contactMatchedUserIds,
@@ -3351,10 +3355,9 @@ export function OneLocationAgentPageContent({
     () =>
       (state?.requests ?? []).filter(
         (request) =>
-          request.ownerUserId === auth.userId &&
-          isLocationRequestPending(request, nowMs),
+          request.ownerUserId === auth.userId && request.status === "pending",
       ),
-    [auth.userId, nowMs, state?.requests],
+    [auth.userId, state?.requests],
   );
   // Warm the shared position while the user is still reading the request.
   //
@@ -3470,8 +3473,25 @@ export function OneLocationAgentPageContent({
     const liveGrantIds = new Set(
       liveShareEntries.map((entry) => entry.grantId),
     );
+    const activeLiveGrants = activeOwnerGrants.filter((grant) =>
+      liveGrantIds.has(grant.id),
+    );
+    const people = Array.from(
+      new Map(
+        activeLiveGrants.map((grant) => [
+          grant.recipientUserId || grant.id,
+          {
+            displayName: grantCounterpartyLabel(grant),
+            photoUrl: grant.recipientPhotoUrl ?? null,
+          },
+        ]),
+      ).values(),
+    ).filter((person) => Boolean(person.displayName));
+    const singleGrant =
+      activeLiveGrants.length === 1 ? activeLiveGrants[0] : null;
     return {
       count: shareWindow.count,
+      grantCount: activeLiveGrants.length || liveShareEntries.length,
       // Names come from the server state only. The device record stays
       // coordinate- and identity-free, so a cold start shows "2 people" rather
       // than inventing who they are.
@@ -3481,18 +3501,12 @@ export function OneLocationAgentPageContent({
       // the same friend in here twice -- which the card turns into "Sharing
       // with 2 people" via `Math.max(names.length, count)`, a headline that
       // names one person and counts two.
-      names: Array.from(
-        new Map(
-          activeOwnerGrants
-            .filter((grant) => liveGrantIds.has(grant.id))
-            .map((grant) => [
-              grant.recipientUserId || grant.id,
-              grantCounterpartyLabel(grant),
-            ]),
-        ).values(),
-      ).filter(Boolean),
+      names: people.map((person) => person.displayName),
+      people,
       startedAt: shareWindow.startedAt,
       endsAt: shareWindow.endsAt,
+      timeSummary: summarizeShareEndTimes(activeLiveGrants),
+      singleGrantIsSms: singleGrant ? isSmsTriggeredGrant(singleGrant) : false,
       stoppableGrantId: resolveStoppableGrantId(liveShareEntries),
     };
   }, [activeOwnerGrants, liveShareEntries]);
@@ -6515,30 +6529,36 @@ export function OneLocationAgentPageContent({
    * change nobody asked for. The wheel snaps to its own 15-minute grid, so the
    * value we hold has to be snapped too, or the screen and the save disagree.
    */
-  const handleEditLiveShareDurationStart = useCallback(() => {
-    const grantId = liveShareStatus?.stoppableGrantId;
-    const grant = grantId
-      ? activeOwnerGrants.find((row) => row.id === grantId)
-      : undefined;
-    if (grant?.durationMode === "until_stopped") {
-      setLiveShareDurationHours("until_stopped");
-    } else {
-      const remaining = grantRemainingHours(grant, Date.now());
-      setLiveShareDurationHours(
-        snapToWheelDurationHours(
-          remaining && remaining > 0
-            ? remaining
-            : Number(GRANT_EDIT_DURATION_FALLBACK),
-        ),
-      );
-    }
-    setLiveShareDurationEditing(true);
-  }, [activeOwnerGrants, liveShareStatus?.stoppableGrantId]);
+  const handleEditLiveShareDurationStart = useCallback(
+    (grantIdOverride?: string) => {
+      const grantId = grantIdOverride ?? liveShareStatus?.stoppableGrantId;
+      const grant = grantId
+        ? activeOwnerGrants.find((row) => row.id === grantId)
+        : undefined;
+      if (!grantId || !grant || isSmsTriggeredGrant(grant)) return;
+      if (grant?.durationMode === "until_stopped") {
+        setLiveShareDurationHours("until_stopped");
+      } else {
+        const remaining = grantRemainingHours(grant, Date.now());
+        setLiveShareDurationHours(
+          snapToWheelDurationHours(
+            remaining && remaining > 0
+              ? remaining
+              : Number(GRANT_EDIT_DURATION_FALLBACK),
+          ),
+        );
+      }
+      setLiveShareDurationGrantId(grantId);
+      setLiveShareDurationEditing(true);
+    },
+    [activeOwnerGrants, liveShareStatus?.stoppableGrantId],
+  );
 
   const handleSaveLiveShareDuration = useCallback(async () => {
-    const grantId = liveShareStatus?.stoppableGrantId;
+    const grantId = liveShareDurationGrantId ?? liveShareStatus?.stoppableGrantId;
     if (!vaultOwnerToken || !grantId) return;
     const grant = activeOwnerGrants.find((row) => row.id === grantId);
+    if (!grant || isSmsTriggeredGrant(grant)) return;
     const untilStopped = liveShareDurationHours === "until_stopped";
     const durationHours = untilStopped ? null : Number(liveShareDurationHours);
 
@@ -6560,38 +6580,18 @@ export function OneLocationAgentPageContent({
 
     setLiveShareDurationSaving(true);
     try {
-      const updatedGrant = await OneLocationService.setGrantDuration({
+      await OneLocationService.setGrantDuration({
         vaultOwnerToken,
         grantId,
         durationHours,
         durationMode: untilStopped ? "until_stopped" : "timed",
       });
-      // The PATCH response is authoritative and already contains the new
-      // expiry. Merge it over the enriched row: duration PATCH payloads may
-      // omit display identity and key fields that the state projection added.
-      // Invalidate before publishing so a refresh started before the PATCH can
-      // never overwrite this authoritative result when it eventually lands.
-      if (updatedGrant?.id && auth.userId && state) {
-        const activeUserId = auth.userId;
-        const priorRefresh = refreshInFlightRef.current;
-        const merged = OneLocationStateResource.mergeOwnerGrant(
-          activeUserId,
-          updatedGrant,
-          state,
-        );
-        if (!merged) OneLocationStateResource.invalidate(activeUserId);
-        // If a refresh was already in flight, calling refresh immediately only
-        // joins that stale task. Wait it out, then start (or join) a read that
-        // is guaranteed to have begun after the mutation.
-        void (async () => {
-          if (priorRefresh) await priorRefresh;
-          await refresh({ background: true });
-        })().catch(() => null);
-      } else {
-        void refresh({ background: true }).catch(() => null);
-      }
       toast.success("Time updated.");
       setLiveShareDurationEditing(false);
+      setLiveShareDurationGrantId(null);
+      // Held until the list has reconciled, so the card's countdown is already
+      // reading the new expiry when the editor closes.
+      await refresh({ background: true }).catch(() => null);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -6603,11 +6603,10 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activeOwnerGrants,
-    auth.userId,
+    liveShareDurationGrantId,
     liveShareDurationHours,
     liveShareStatus?.stoppableGrantId,
     refresh,
-    state,
     vaultOwnerToken,
   ]);
 
@@ -6615,8 +6614,18 @@ export function OneLocationAgentPageContent({
   // editor was opened against out from under it. Closing is the honest answer:
   // the wheel would otherwise still be pointing at a share that is gone.
   useEffect(() => {
-    if (!liveShareStatus?.stoppableGrantId) setLiveShareDurationEditing(false);
-  }, [liveShareStatus?.stoppableGrantId]);
+    if (!liveShareDurationEditing) return;
+    const grantId = liveShareDurationGrantId ?? liveShareStatus?.stoppableGrantId;
+    if (!grantId || !activeOwnerGrants.some((grant) => grant.id === grantId)) {
+      setLiveShareDurationEditing(false);
+      setLiveShareDurationGrantId(null);
+    }
+  }, [
+    activeOwnerGrants,
+    liveShareDurationEditing,
+    liveShareDurationGrantId,
+    liveShareStatus?.stoppableGrantId,
+  ]);
 
   const handleStopSos = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -7113,25 +7122,25 @@ export function OneLocationAgentPageContent({
                     onClick: () => void handleSyncContactSignalRef.current?.(),
                   },
                 }
-              : outcome.remedy === "invite"
-                ? {
-                    action: {
-                      label: "Invite them",
-                      // The other half of a contact scan. Until now the count of
-                      // people who are NOT on One was computed on every sync and
-                      // read by nothing but an analytics dimension — the product
-                      // learned who was missing, recorded it, and offered the
-                      // person no way to act on it.
-                      //
-                      // Reuses the existing invite share rather than minting a
-                      // second one, and deliberately carries no pre-authorized
-                      // connection: `buildInviteToOneShare` documents why, and
-                      // an invite that consents on the recipient's behalf is not
-                      // an invite.
-                      onClick: () => void handleInviteContactCandidates(),
-                    },
-                  }
-                : {}),
+            : outcome.remedy === "invite"
+              ? {
+                  action: {
+                    label: "Invite them",
+                    // The other half of a contact scan. Until now the count of
+                    // people who are NOT on One was computed on every sync and
+                    // read by nothing but an analytics dimension — the product
+                    // learned who was missing, recorded it, and offered the
+                    // person no way to act on it.
+                    //
+                    // Reuses the existing invite share rather than minting a
+                    // second one, and deliberately carries no pre-authorized
+                    // connection: `buildInviteToOneShare` documents why, and
+                    // an invite that consents on the recipient's behalf is not
+                    // an invite.
+                    onClick: () => void handleInviteContactCandidates(),
+                  },
+                }
+              : {}),
       };
       if (result.matchedUserIds.length > 0) {
         toast.success(outcome.title, outcomeOptions);
@@ -7204,11 +7213,16 @@ export function OneLocationAgentPageContent({
     // state first, exactly as handleShare takes one: a setState would not
     // be visible to this call, so the request would still go out carrying
     // the previous value.
-    async (reason?: string | null, durationHoursOverride?: string) => {
-      if (!vaultOwnerToken || !selectedRequestOwners.length) return false;
+    async (
+      reason?: string | null,
+      durationHoursOverride?: string,
+    ): Promise<LocationRequestSendResult> => {
+      const failedResult = { sent: false, completed: false };
+      if (!vaultOwnerToken || !selectedRequestOwners.length)
+        return failedResult;
       if (!auth.user || !auth.userId) {
         toast.error("Refresh your session before sending a location request.");
-        return false;
+        return failedResult;
       }
       const activeUser = auth.user;
       const activeUserId = auth.userId;
@@ -7254,9 +7268,7 @@ export function OneLocationAgentPageContent({
             vaultOwnerToken: activeVaultOwnerToken,
             ownerUserId: owner.userId,
             message: buildOneLocationRequestMessage(reason, requestMessage),
-            requestedDurationHours: Number(
-              durationHoursOverride ?? durationHours,
-            ),
+            requestedDurationHours: Number(durationHoursOverride ?? durationHours),
             requestedDurationMode: "timed",
           });
           successCount += 1;
@@ -7283,7 +7295,7 @@ export function OneLocationAgentPageContent({
               )}. We'll notify you here when they respond.`,
         );
         void refresh().catch(() => null);
-        return true;
+        return { sent: true, completed: true };
       } catch (error) {
         const failureCount = selectedRequestOwners.length - successCount || 1;
         trackEvent("one_location_request_sent", {
@@ -7298,10 +7310,13 @@ export function OneLocationAgentPageContent({
         if (isTransientOneApiError(error)) {
           await refresh().catch(() => null);
         }
+        if (successCount > 0) {
+          resetRequestComposer(sentUserIds);
+        }
         // Partial success still counts: the people who were asked really were
         // asked, and their rows now read "Asked". Only a total failure denies the
         // confirmation.
-        return successCount > 0;
+        return { sent: successCount > 0, completed: false };
       } finally {
         setBusy(null);
       }
@@ -10980,8 +10995,8 @@ export function OneLocationAgentPageContent({
       .map((owner) => recipientLabel(owner).trim())
       .filter(Boolean);
     const names = ownerNames.join(", ");
-    const sent = await handleRequestAccess(null, requestedDuration);
-    if (!sent) {
+    const result = await handleRequestAccess(null, requestedDuration);
+    if (!result.sent) {
       return {
         status: "blocked" as const,
         summary: "Couldn't send the request. Try again.",
@@ -12342,9 +12357,9 @@ export function OneLocationAgentPageContent({
       try {
         const preference = await OneLocationService.updateAutoApprovePreference(
           {
-            vaultOwnerToken,
-            enabled,
-            scope: enabled ? (input.scope ?? null) : null,
+          vaultOwnerToken,
+          enabled,
+          scope: enabled ? (input.scope ?? null) : null,
           },
         );
         // The PATCH result is the authority. Keep it visible even when the
@@ -13402,6 +13417,7 @@ export function OneLocationAgentPageContent({
     setShareReviewOpen,
     resetShareComposer,
     startShareComposer,
+    setSelectedRequestOwnerIds,
     toggleShareRecipient: (id) => toggleShareRecipient(id, "section_list"),
     onSelectShareCircle: handleSelectNamedCircleForShare,
     onResolveNamedCircleRecipients: handleResolveNamedCircleRecipients,
@@ -13444,11 +13460,15 @@ export function OneLocationAgentPageContent({
     onEditGrantStart: (grantId) => setEditingGrantId(grantId),
     onEditGrantCancel: () => setEditingGrantId(null),
     liveShareDurationEditing,
+    liveShareDurationGrantId,
     liveShareDurationHours,
     setLiveShareDurationHours,
     liveShareDurationSaving,
     onEditLiveShareDurationStart: handleEditLiveShareDurationStart,
-    onEditLiveShareDurationCancel: () => setLiveShareDurationEditing(false),
+    onEditLiveShareDurationCancel: () => {
+      setLiveShareDurationEditing(false);
+      setLiveShareDurationGrantId(null);
+    },
     onSaveLiveShareDuration: () => void handleSaveLiveShareDuration(),
     onRequestMoreTime: handleRequestMoreTime,
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
@@ -13600,6 +13620,7 @@ export function OneLocationAgentPageContent({
                     router.push("/one/location?action=active-shares")
                   }
                   onStop={
+                    liveShareStatus.grantCount === 1 &&
                     liveShareStatus.stoppableGrantId
                       ? () =>
                           void handleRevoke(
@@ -13608,6 +13629,7 @@ export function OneLocationAgentPageContent({
                       : undefined
                   }
                   stopBusy={
+                    liveShareStatus.grantCount === 1 &&
                     Boolean(liveShareStatus.stoppableGrantId) &&
                     revokingGrantId === liveShareStatus.stoppableGrantId
                   }

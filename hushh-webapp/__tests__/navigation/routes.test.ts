@@ -80,15 +80,17 @@ describe("navigation routes", () => {
   });
 
   it("resolves the active person ref from public profile pathnames", () => {
-    expect(resolvePersonRefFromProfilePathname("/people/public-person-ref")).toBe(
-      "public-person-ref",
-    );
+    expect(
+      resolvePersonRefFromProfilePathname("/people/public-person-ref"),
+    ).toBe("public-person-ref");
     expect(
       resolvePersonRefFromProfilePathname(
         "/people/public%20person%2Fref?from=%2Fone%2Fconnect",
       ),
     ).toBe("public person/ref");
-    expect(resolvePersonRefFromProfilePathname("/one/profile/access")).toBeNull();
+    expect(
+      resolvePersonRefFromProfilePathname("/one/profile/access"),
+    ).toBeNull();
   });
 
   it("builds canonical nested profile routes while preserving transient query state", () => {
@@ -129,7 +131,7 @@ describe("navigation routes", () => {
         panel: "support",
         detail: "support-compose:bug_report",
       }),
-    ).toBe("/one/profile/support/compose?kind=bug_report");
+    ).toBe("/one/profile/support?kind=bug_report");
     expect(buildProfileRoute({ panel: "gmail" })).toBe("/one/gmail");
     expect(
       buildProfileRoute({
@@ -177,7 +179,13 @@ describe("navigation routes", () => {
         "/one/profile",
         "panel=support&detail=support-routing",
       ),
-    ).toBe("/one/profile/support/routing");
+    ).toBe("/one/profile/support");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=support&detail=support-compose:developer_reachout&from=%2Fone",
+      ),
+    ).toBe("/one/profile/support?from=%2Fone&kind=developer_reachout");
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
         "/one/profile",
