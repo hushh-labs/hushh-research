@@ -17,6 +17,12 @@ import {
   CONNECT_SEARCH_PLACEHOLDER,
 } from "../app/connect/connect-search-layout";
 import {
+  CONNECT_CONNECTIONS_SUMMARY_CHEVRON_CLASSNAME,
+  CONNECT_CONNECTIONS_SUMMARY_COUNT_CLASSNAME,
+  CONNECT_CONNECTIONS_SUMMARY_TRAILING_CLASSNAME,
+  CONNECT_DIRECTORY_MENU_CLASSNAME,
+} from "../app/connect/connect-surface-layout";
+import {
   CIRCLE_NAME_ACTION_CLASSNAME,
   CIRCLE_NAME_INPUT_CLASSNAME,
   CIRCLE_NAME_ROW_CLASSNAME,
@@ -359,9 +365,7 @@ const SEARCH_CANDIDATES = [
 ];
 
 /** The row exactly as Connect builds it: one full-width search field. */
-const searchRowBody = (
-  empty: boolean,
-) => `<div class="block w-full">
+const searchRowBody = (empty: boolean) => `<div class="block w-full">
   <div class="relative">
     <input data-testid="connect-search" placeholder="${CONNECT_SEARCH_PLACEHOLDER}"
       class="${INPUT_CLASSNAME} ${CONNECT_SEARCH_INPUT_CLASSNAME} ${
@@ -434,7 +438,6 @@ test.describe("Connect search row", () => {
         current.needed,
         `"${CONNECT_SEARCH_PLACEHOLDER}" needs ${current.needed.toFixed(1)}px of ${current.available.toFixed(1)}px`,
       ).toBeLessThanOrEqual(current.available + 0.5);
-
     });
   }
 
@@ -486,9 +489,7 @@ test.describe("Connect search row", () => {
       const field = await boxOf(page, '[data-testid="connect-search"]');
       expect(field.left).toBeGreaterThanOrEqual(0);
       expect(field.right).toBeLessThanOrEqual(width + 0.5);
-      expect(field.width).toBeGreaterThanOrEqual(
-        width - PAGE_PADDING_PX * 2,
-      );
+      expect(field.width).toBeGreaterThanOrEqual(width - PAGE_PADDING_PX * 2);
     });
   }
 });
@@ -637,4 +638,130 @@ test.describe("Connect list rows", () => {
     expect(cancel.width).toBeLessThanOrEqual(connect.width + 0.5);
     expect(cancel.height).toBeLessThanOrEqual(32.5);
   });
+});
+
+// ---------------------------------------------------------------------------
+// 4. The My connections disclosure and directory menu
+// ---------------------------------------------------------------------------
+
+const DISCLOSURE_CARD_CLASSNAME =
+  "relative isolate overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] ring-0";
+const DISCLOSURE_ROW_SHELL_CLASSNAME =
+  "group/settings-row relative isolate overflow-hidden bg-transparent [--settings-row-py:10px]";
+const DISCLOSURE_TRIGGER_CLASSNAME =
+  "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left min-h-[56px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]";
+const DISCLOSURE_MAIN_CLASSNAME =
+  "relative z-0 flex min-w-0 items-center gap-[var(--settings-row-gap)]";
+const DISCLOSURE_ICON_CLASSNAME =
+  "inline-flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-[7px]";
+const DISCLOSURE_TITLE_CLASSNAME = "ui-text-row-label min-w-0 flex-1 truncate";
+const DISCLOSURE_TRAILING_WRAPPER_CLASSNAME =
+  "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1";
+
+const DISCLOSURE_CANDIDATES = [
+  "mx-auto w-full max-w-[720px]",
+  DISCLOSURE_CARD_CLASSNAME,
+  DISCLOSURE_ROW_SHELL_CLASSNAME,
+  DISCLOSURE_TRIGGER_CLASSNAME,
+  DISCLOSURE_MAIN_CLASSNAME,
+  DISCLOSURE_ICON_CLASSNAME,
+  DISCLOSURE_TITLE_CLASSNAME,
+  DISCLOSURE_TRAILING_WRAPPER_CLASSNAME,
+  CONNECT_CONNECTIONS_SUMMARY_TRAILING_CLASSNAME,
+  CONNECT_CONNECTIONS_SUMMARY_COUNT_CLASSNAME,
+  CONNECT_CONNECTIONS_SUMMARY_CHEVRON_CLASSNAME,
+].flatMap((className) => className.split(/\s+/));
+
+const disclosureBody = `<section class="mx-auto w-full max-w-[720px]">
+  <div class="${DISCLOSURE_CARD_CLASSNAME}">
+    <div class="${DISCLOSURE_ROW_SHELL_CLASSNAME}">
+      <button type="button" data-testid="connections-trigger" class="${DISCLOSURE_TRIGGER_CLASSNAME}">
+        <span class="${DISCLOSURE_MAIN_CLASSNAME}">
+          <span aria-hidden="true" class="${DISCLOSURE_ICON_CLASSNAME}">
+            <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="6" r="3" /></svg>
+          </span>
+          <span data-testid="connections-title" class="${DISCLOSURE_TITLE_CLASSNAME}">My connections</span>
+        </span>
+        <span data-testid="connections-trailing" class="${DISCLOSURE_TRAILING_WRAPPER_CLASSNAME}">
+          <span class="${CONNECT_CONNECTIONS_SUMMARY_TRAILING_CLASSNAME}">
+            <span class="${CONNECT_CONNECTIONS_SUMMARY_COUNT_CLASSNAME}">9,999</span>
+            <svg data-testid="connections-chevron" aria-hidden="true" class="${CONNECT_CONNECTIONS_SUMMARY_CHEVRON_CLASSNAME}" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" /></svg>
+          </span>
+        </span>
+      </button>
+    </div>
+  </div>
+</section>`;
+
+test.describe("Connect disclosure row", () => {
+  for (const width of [320, 768] as const) {
+    test(`stays a full-width single row at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(
+        await buildFixture(
+          "connect-connections-disclosure",
+          disclosureBody,
+          DISCLOSURE_CANDIDATES,
+        ),
+      );
+      await awaitProductFont(page);
+      await fontsReady(page);
+
+      const trigger = await boxOf(page, '[data-testid="connections-trigger"]');
+      const title = await boxOf(page, '[data-testid="connections-title"]');
+      const trailing = await boxOf(
+        page,
+        '[data-testid="connections-trailing"]',
+      );
+      const chevron = await boxOf(page, '[data-testid="connections-chevron"]');
+
+      expect(trigger.height, "touch target").toBeGreaterThanOrEqual(56);
+      expect(trigger.left).toBeGreaterThanOrEqual(PAGE_PADDING_PX - 1);
+      expect(trigger.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX + 1);
+      expect(
+        title.right,
+        "title does not collide with count",
+      ).toBeLessThanOrEqual(trailing.left + 0.5);
+      expect(title.top).toBeLessThan(trailing.bottom);
+      expect(trailing.top).toBeLessThan(title.bottom);
+      expect(chevron.right).toBeLessThanOrEqual(trigger.right);
+
+      const scrollWidth = await page.evaluate(
+        () => document.documentElement.scrollWidth,
+      );
+      expect(scrollWidth).toBeLessThanOrEqual(width);
+    });
+  }
+});
+
+test("Connect directory menu is opaque in light and dark themes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(
+    await buildFixture(
+      "connect-directory-menu",
+      `<div data-testid="directory-menu" class="${CONNECT_DIRECTORY_MENU_CLASSNAME}">People</div>`,
+      CONNECT_DIRECTORY_MENU_CLASSNAME.split(/\s+/),
+    ),
+  );
+
+  for (const dark of [false, true]) {
+    await page.evaluate((enabled) => {
+      document.documentElement.classList.toggle("dark", enabled);
+    }, dark);
+
+    const alpha = await page.getByTestId("directory-menu").evaluate((el) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d")!;
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = "rgba(0, 0, 0, 0)";
+      context.fillStyle = getComputedStyle(el).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return context.getImageData(0, 0, 1, 1).data[3];
+    });
+
+    expect(alpha, dark ? "dark menu alpha" : "light menu alpha").toBe(255);
+  }
 });
