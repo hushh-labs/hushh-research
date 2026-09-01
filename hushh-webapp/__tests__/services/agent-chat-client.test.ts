@@ -1,17 +1,44 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const runAgent = vi.fn();
+const mockTransport = vi.hoisted(() => ({
+  runAgent: vi.fn(),
+  outcome: "success" as "success" | "interrupt",
+}));
 
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
     constructor(public config: unknown) {}
     abortRun() {}
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
-      runAgent(parameters, this.config);
+      mockTransport.runAgent(parameters, this.config);
       subscriber.onRunStartedEvent?.({ event: { type: "RUN_STARTED" } });
       subscriber.onTextMessageContentEvent?.({
         event: { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "Hello" },
       });
+      subscriber.onActivitySnapshotEvent?.({
+        event: {
+          type: "ACTIVITY_SNAPSHOT",
+          messageId: "activity-1",
+          activityType: "one.scope_discovery.v1",
+          content: {
+            status: "ok",
+            person: {
+              displayName: "Alex Morgan",
+              profilePath: "/people/1234567890abcdef",
+              relationship: "connected",
+            },
+            requestableScopes: [],
+          },
+        },
+      });
+      if (mockTransport.outcome === "interrupt") {
+        subscriber.onRunFinishedEvent?.({
+          event: { type: "RUN_FINISHED" },
+          outcome: "interrupt",
+          interrupts: [{ id: "interrupt-1", toolCallId: "tool-1" }],
+        });
+        return;
+      }
       subscriber.onRunFinishedEvent?.({
         event: { type: "RUN_FINISHED" },
         outcome: "success",
@@ -37,22 +64,30 @@ import {
 } from "@/lib/services/agent-chat-client";
 
 describe("AG-UI Agent One client", () => {
-  beforeEach(() => runAgent.mockClear());
+  beforeEach(() => {
+    mockTransport.runAgent.mockClear();
+    mockTransport.outcome = "success";
+  });
 
   it("uses the canonical endpoint and official run fields", async () => {
     const tokens: string[] = [];
+    const experiences: string[] = [];
     const result = await streamAgentChat({
       userId: "user-1",
       message: "Hello",
       conversationId: "thread-1",
       vaultOwnerToken: "owner-token",
       screenContext: { available_action_ids: [] },
-      handlers: { onToken: (token) => tokens.push(token) },
+      handlers: {
+        onToken: (token) => tokens.push(token),
+        onStructuredExperience: (experience) => experiences.push(experience.type),
+      },
     });
 
     expect(result).toEqual({ conversationId: "thread-1", model: null, text: "Hello" });
     expect(tokens).toEqual(["Hello"]);
-    expect(runAgent).toHaveBeenCalledWith(
+    expect(experiences).toEqual(["one.scope_discovery.v1"]);
+    expect(mockTransport.runAgent).toHaveBeenCalledWith(
       expect.objectContaining({ tools: [], context: [], forwardedProps: expect.any(Object) }),
       expect.objectContaining({ url: "/api/one/agent-chat", threadId: "thread-1" }),
     );
@@ -62,7 +97,7 @@ describe("AG-UI Agent One client", () => {
     await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",
     });
-    expect(runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
+    expect(mockTransport.runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
   });
 
   it("never exposes unknown AG-UI runtime errors to the transcript", () => {
@@ -81,5 +116,24 @@ describe("AG-UI Agent One client", () => {
     expect(
       formatAgentChatErrorMessage("private database detail", "DATABASE_EXECUTION_ERROR"),
     ).toBe("One's conversation history is temporarily unavailable. Please try again.");
+  });
+
+  it("keeps an interrupted HITL run open instead of reporting completion", async () => {
+    mockTransport.outcome = "interrupt";
+    const controller = new AbortController();
+    const onComplete = vi.fn();
+    const onInterrupt = vi.fn(() => controller.abort());
+
+    await streamAgentChat({
+      userId: "user-1",
+      message: "Request access",
+      conversationId: "thread-hitl",
+      vaultOwnerToken: "owner-token",
+      signal: controller.signal,
+      handlers: { onComplete, onInterrupt },
+    });
+
+    expect(onInterrupt).toHaveBeenCalledWith({ conversationId: "thread-hitl" });
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });

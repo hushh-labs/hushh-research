@@ -27,6 +27,14 @@ export type PkmNaturalLanguagePreparationResult = {
   cards: AgentPkmPreviewCard[];
   chunkCount: number;
   ingestionId: string;
+  sourceCoverage: PkmNaturalLanguageSourceCoverage[];
+};
+
+export type PkmNaturalLanguageSourceCoverage = {
+  sourceBlockId: string;
+  disposition: "proposed" | "intentionally_ignored" | "review_required";
+  detectedFactCount: number;
+  accountedFactCount: number;
 };
 
 export type PkmNaturalLanguagePreparationProgress = {
@@ -128,6 +136,46 @@ function splitRecommendedPreview(preview: AgentPkmPreviewResponse): boolean {
   return preview.preview_summary?.split_recommended === true;
 }
 
+function readNonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
+function classifySourceBlock(
+  preview: AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] },
+  blockIndex: number,
+): PkmNaturalLanguageSourceCoverage {
+  const detectedFactCount =
+    readNonNegativeInteger(preview.preview_summary?.total_segments_detected) ??
+    preview.cards.length;
+  const accountedFactCount = preview.cards.length;
+  if (detectedFactCount !== accountedFactCount || accountedFactCount === 0) {
+    throw new Error(
+      `Memory import block ${blockIndex + 1} was not fully accounted for. Split or clarify that section before saving.`,
+    );
+  }
+  const everyCardIgnored = preview.cards.every(
+    (card) => card.write_mode === "do_not_save",
+  );
+  const needsReview =
+    Boolean(preview.error) ||
+    preview.used_fallback === true ||
+    preview.cards.some(
+      (card) => card.write_mode === "confirm_first" || card.requires_confirmation,
+    );
+  return {
+    sourceBlockId: `source_block_${String(blockIndex + 1).padStart(3, "0")}`,
+    disposition: everyCardIgnored
+      ? "intentionally_ignored"
+      : needsReview
+        ? "review_required"
+        : "proposed",
+    detectedFactCount,
+    accountedFactCount,
+  };
+}
+
 /**
  * The one client-side ingestion path for user-authored free text before it is
  * encrypted into PKM. It keeps each proposal below the backend contract limit
@@ -160,6 +208,7 @@ export async function prepareNaturalLanguagePkm(params: {
   const queue = splitStructuredText(message);
   const previews: AgentPkmPreviewResponse[] = [];
   const cards: AgentPkmPreviewCard[] = [];
+  const sourceCoverage: PkmNaturalLanguageSourceCoverage[] = [];
   logIngestion("started", {
     ingestion_id: ingestionId,
     source: params.source,
@@ -212,6 +261,7 @@ export async function prepareNaturalLanguagePkm(params: {
       continue;
     }
     previews.push(preview);
+    sourceCoverage.push(classifySourceBlock(preview, previews.length - 1));
     cards.push(
       ...preview.cards.map((card, cardIndex) => ({
         ...card,
@@ -249,6 +299,7 @@ export async function prepareNaturalLanguagePkm(params: {
     cards,
     chunkCount: previews.length,
     ingestionId,
+    sourceCoverage,
   };
 }
 

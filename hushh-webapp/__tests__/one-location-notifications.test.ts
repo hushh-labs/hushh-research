@@ -226,13 +226,16 @@ describe("One-Location workflow deep-link sections", () => {
       }).description,
     ).toBe("Neelesh added you to Family.");
 
-    // Without the Circle name it still names the person.
+    // Without the Circle name it still names the person -- and stops there.
+    // "Neelesh added you to THEIR Circle" put a possessive pronoun directly
+    // after the name it stands for, which is the thing QA read as wrong. The
+    // name has already said whose Circle it is.
     expect(
       locationWorkflowNotificationCopy({
         type: "location_circle_member_added",
         networkLabel: "Neelesh",
       }).description,
-    ).toBe("Neelesh added you to their Circle.");
+    ).toBe("Neelesh added you to a Circle.");
 
     // And with nothing resolvable it degrades to the same neutral label every
     // other One Location line uses -- not to "Someone".

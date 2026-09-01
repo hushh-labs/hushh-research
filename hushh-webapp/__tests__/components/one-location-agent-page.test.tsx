@@ -3773,8 +3773,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(await screen.findByText("Trusted B")).toBeTruthy();
     expect(screen.queryByText(/Request location/)).toBeNull();
-    expect(screen.getByText("TB").className).toContain("bg-[#E5E5EA]");
-    expect(screen.getByText("TB").className).toContain("text-[#6E6E73]");
+    expect(screen.getByText("TB")).toBeTruthy();
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Now" }));
@@ -4790,9 +4789,16 @@ describe("OneLocationAgentPage", () => {
         has_note: false,
       }),
     );
+    // The confirmation is a toast, not a banner. It used to be both, on a
+    // screen whose rows already say "Asked just now ... waiting on them" --
+    // three tellings of one fact, one of them holding permanent layout to say
+    // something that stopped being news a second later.
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringContaining("Request sent."),
+      ),
     );
+    expect(screen.queryByText("Request sent.")).toBeNull();
   });
 
   // Reported from the field: "can't send req to rest after 1 cycle". Asking
@@ -4815,7 +4821,9 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringContaining("Request sent."),
+      ),
     );
 
     // Sending clears the composer, so with nobody chosen there is nothing to
@@ -4876,7 +4884,9 @@ describe("OneLocationAgentPage", () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringContaining("Request sent."),
+      ),
     );
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
 
@@ -4916,7 +4926,13 @@ describe("OneLocationAgentPage", () => {
           .hasAttribute("disabled"),
       ).toBe(false),
     );
-    expect(screen.queryByRole("status")).toBeNull();
+    // Asserted on the toast, not on the absence of a banner: with the banner
+    // gone, `queryByRole("status")` is null whether the send worked or not, so
+    // it would pass for the wrong reason. The channel that DOES carry a
+    // success is the one that has to stay silent.
+    expect(toast.success).not.toHaveBeenCalledWith(
+      expect.stringContaining("Request sent."),
+    );
   });
 
   it("renders my requests with safe labels instead of raw owner ids", async () => {
@@ -5131,8 +5147,18 @@ describe("OneLocationAgentPage", () => {
     // The roster carries `role="list"`, and every entry in it is wrapped as a
     // `listitem`. The new compact treatment removes section headers entirely,
     // so a screen reader never reads "Recent" as a person between two names.
+    const state = locationState();
     mockGetState.mockResolvedValue({
-      ...locationState(),
+      ...state,
+      recipients: state.recipients.map((recipient) =>
+        recipient.userId === "user_b"
+          ? {
+              ...recipient,
+              photoUrl: "https://cdn.example.test/trusted-b-avatar.jpg",
+              isRia: true,
+            }
+          : recipient,
+      ),
       // The page derives `requestedByMe` from `requests`, filtered to the ones
       // this viewer sent, so the fixture has to seed the field the API returns.
       requests: [
@@ -5164,6 +5190,12 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(list).getByRole("button", { name: /Select Advisor C/i }),
     ).toBeTruthy();
+    expect(
+      list.querySelector(
+        '[data-photo-url="https://cdn.example.test/trusted-b-avatar.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(within(list).getByLabelText("Verified advisor")).toBeTruthy();
   });
 
   it("offers a way to Connect when the person being looked for is not on the list", async () => {

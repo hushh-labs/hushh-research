@@ -13,6 +13,8 @@ const HUB_SOURCE = repoFile(
   "components/one-location/redesign/location-redesign-hub.tsx",
 );
 const CONNECT_SOURCE = repoFile("app/connect/page-client.tsx");
+/** The route that owns the send, and therefore the toast that confirms it. */
+const PAGE_SOURCE = repoFile("app/one/location/page.tsx");
 
 /**
  * The duration ceiling is owned by the consent protocol, not by the web app.
@@ -113,6 +115,36 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     // The surviving statement, on the live link's own card.
     expect(HUB_SOURCE).toContain("Anyone with this link can see your location.");
   });
+
+  it("drops the Request sent banner in favour of the toast that already fired", () => {
+    // Reported on the Ask screen: "request sent is not looking cool, do you
+    // really think we want a bar for this only". The screen was telling the
+    // same fact three times -- a toast raised by `handleRequestAccess`, an
+    // "Asked" pill and an "Asked just now ... waiting on them" line on every
+    // row it applied to, and then a banner pinned above the search field to
+    // announce something that stopped being news a second later.
+    //
+    // `frontend-pattern-catalog.md`: "Do not create inline route banners for
+    // row-level saves... Inline errors are for stable page-blocking states
+    // only." A sent request is neither, so the banner and the `justSent` latch
+    // that drove it are both gone.
+    // Matched on the constructs, not on the words: the code comment that
+    // explains WHY the banner went is worth keeping, and a bare
+    // `not.toContain("justSent")` would forbid writing it down.
+    expect(HUB_SOURCE).not.toMatch(/const \[justSent/);
+    expect(HUB_SOURCE).not.toMatch(/setJustSent\(/);
+    expect(HUB_SOURCE).not.toMatch(/\{justSent \?/);
+    // A line that is nothing but the words is a JSX text node -- i.e. a banner
+    // rendering them. In a comment they are always preceded by `//` or `*`.
+    expect(HUB_SOURCE).not.toMatch(/^\s*Request sent\.\s*$/m);
+
+    // The channel that survives, and the durable per-row telling that made the
+    // banner redundant in the first place.
+    expect(PAGE_SOURCE).toContain(
+      "Request sent. We'll notify you here when they respond.",
+    );
+    expect(HUB_SOURCE).toContain("waiting on them");
+  });
 });
 
 describe("One Location — hub tab naming", () => {
@@ -129,17 +161,41 @@ describe("One Location — hub tab naming", () => {
 });
 
 describe("One Location — People actions stay reachable and single-flight", () => {
-  it("keeps Find contacts mounted for action routing and disabled while syncing", () => {
-    const start = HUB_SOURCE.indexOf(
-      'data-voice-control-id="one-location-find-contacts"',
-    );
-    expect(start).toBeGreaterThan(-1);
-    const addPeopleMenu = HUB_SOURCE.slice(start - 600, start + 900);
+  // The "+" menus moved to the shared `ActionMenu`, which is a bottom sheet on
+  // a phone and an anchored menu on a pointer -- an anchored menu opened
+  // straight down ONTO the very list it belongs to. The properties this test
+  // was written for did not change; where they are declared did.
+  const ACTION_MENU_SOURCE = repoFile("components/app-ui/action-menu.tsx");
 
-    expect(addPeopleMenu).toContain("<DropdownMenuContent");
-    expect(addPeopleMenu).toContain("forceMount");
-    expect(addPeopleMenu).toContain('disabled={vm.busy === "contactSync"}');
-    expect(addPeopleMenu).toContain('aria-busy={vm.busy === "contactSync"');
+  it("keeps Find contacts listed and merely disabled while syncing", () => {
+    const start = HUB_SOURCE.indexOf('voiceControlId: "one-location-find-contacts"');
+    expect(start).toBeGreaterThan(-1);
+    const addPeopleMenu = HUB_SOURCE.slice(start - 900, start + 200);
+
+    // Present in the item list unconditionally -- a row that disappears
+    // mid-action is not a disabled control, it is a missing one.
+    expect(addPeopleMenu).toContain('id: "find-contacts"');
+    expect(addPeopleMenu).toContain('disabled: vm.busy === "contactSync"');
+    expect(addPeopleMenu).toContain('busy: vm.busy === "contactSync"');
+  });
+
+  it("refuses a second tap rather than queueing it, in both presentations", () => {
+    // Single-flight is the point: the sheet returns early and the menu
+    // preventDefaults, so a disabled row can never fire its action.
+    expect(ACTION_MENU_SOURCE).toContain("if (item.disabled) return;");
+    expect(ACTION_MENU_SOURCE).toContain("event.preventDefault();");
+    // The pointer lane keeps the content mounted, as it always did.
+    expect(ACTION_MENU_SOURCE).toContain("forceMount");
+  });
+
+  it("does not open a section's menu on top of that section's own list", () => {
+    // The reported defect, pinned: on a phone the surface is a bottom sheet,
+    // not a menu anchored under a "+" that sits above the list.
+    expect(ACTION_MENU_SOURCE).toContain('side="bottom"');
+    expect(ACTION_MENU_SOURCE).toContain("useIsMobile");
+    // And the presentation is frozen while open, so a rotation cannot remount
+    // the menu under the hand using it.
+    expect(ACTION_MENU_SOURCE).toContain("if (!open) setSheetPresentation(isMobile);");
   });
 });
 

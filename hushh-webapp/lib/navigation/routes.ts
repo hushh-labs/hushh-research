@@ -55,10 +55,28 @@ export function isKaiMarketPathname(value: string | null | undefined): boolean {
   return financeRoutePathname(value) === KAI_MARKET_PATH;
 }
 
-export function buildPersonProfileRoute(personRef: string): string {
+export function buildPersonProfileRoute(
+  personRef: string,
+  entries?: { from?: string | null },
+): string {
   const normalized = String(personRef || "").trim();
   if (!normalized) throw new Error("A public person reference is required.");
-  return `/people/${encodeURIComponent(normalized)}`;
+  return withQuery(`/people/${encodeURIComponent(normalized)}`, {
+    from: normalizeInternalRouteHref(entries?.from),
+  });
+}
+
+export function resolvePersonRefFromProfilePathname(
+  pathname: string | null | undefined,
+): string | null {
+  const match = String(pathname || "").match(/^\/people\/([^/?#]+)/);
+  const rawRef = match?.[1]?.trim();
+  if (!rawRef) return null;
+  try {
+    return decodeURIComponent(rawRef);
+  } catch {
+    return rawRef;
+  }
 }
 
 export const ROUTES = {
@@ -131,6 +149,8 @@ export const ROUTES = {
   ONE_MARKETPLACE: "/one/marketplace",
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
+  /** Puppy One: the agent running on the owner's own machine. */
+  ONE_PUPPY: "/one/puppy",
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
@@ -466,6 +486,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.LOGOUT ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
+    normalizedPathname.startsWith("/people/") ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
     normalizedPathname === ROUTES.CIRCLE_JOIN

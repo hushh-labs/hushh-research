@@ -202,8 +202,9 @@ Every delegated result should include:
 10. `mobile_native_architect`: iOS/Android parity, Capacitor bridge safety, and native release-readiness review.
 11. `security_consent_auditor`: IAM, consent, vault, and PKM trust-boundary review.
 12. `voice_systems_architect`: One Voice and Kai compatibility runtime contract review.
+13. `local_model_judge`: grades on-device small-model output via the review-queue handoff. Wave-2 addition with its own lane on purpose: the Puppy One judging contract requires that the judge is never the answerer, so no agent that produces on-device output may also grade it, and no existing agent could absorb the role without collapsing that separation.
 
-Treat this as a curated baseline, not a signal to create a large specialist lattice. Keep the default range at 8-12 repo-scoped agents unless the fleet audit and a concrete postmortem justify changing it.
+Treat this as a curated baseline, not a signal to create a large specialist lattice. Keep the default range at 8-13 repo-scoped agents unless the fleet audit and a concrete postmortem justify changing it. The 12-to-13 expansion above is the intentional validator update this contract requires, made together with `MAX_AGENT_COUNT` in `scripts/agent_fleet_audit.py`.
 
 ## Two harnesses, one fleet
 

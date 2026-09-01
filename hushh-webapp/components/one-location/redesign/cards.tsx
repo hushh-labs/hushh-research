@@ -271,6 +271,7 @@ export function RequestCard({
   approveLabel = "Approve",
   onApprove,
   shorterApprovals,
+  isExtension = false,
   onApproveShorter,
   onDecline,
 }: {
@@ -294,6 +295,16 @@ export function RequestCard({
    * is also what guarantees none of them is LONGER than the ask.
    */
   shorterApprovals?: readonly ApproveDurationOption[];
+  /**
+   * Whether this ask is for MORE time on a share that is already running.
+   *
+   * It only changes words, but the words are the whole meaning of the grid
+   * below. On an extension the server adds the approved amount to what is
+   * still live, so "Or approve for less" would describe a total the owner is
+   * not choosing -- every rung there is an increment, exactly like the primary
+   * button that says "Approve 30 min more".
+   */
+  isExtension?: boolean;
   onApproveShorter?: (hours: number) => void | boolean | Promise<void | boolean>;
   onDecline: () => void | boolean | Promise<void | boolean>;
 }) {
@@ -391,7 +402,7 @@ export function RequestCard({
                   was hard to reach -- it was that nothing on the card said it
                   existed. Every amount here is less than what was asked. */}
               <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-                Or approve for less
+                {isExtension ? "Or add less" : "Or approve for less"}
               </p>
               <div
                 className="grid grid-cols-2 gap-2"
@@ -412,7 +423,11 @@ export function RequestCard({
                       // The visible label is the amount; the spoken one says
                       // what pressing it does, because four buttons reading
                       // only "1 hour" tell a screen reader nothing.
-                      aria-label={`Approve for ${option.label} instead`}
+                      aria-label={
+                        isExtension
+                          ? `Add ${option.label} instead`
+                          : `Approve for ${option.label} instead`
+                      }
                       className="ui-text-button-label h-11 min-w-0 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80"
                     >
                       {option.label}

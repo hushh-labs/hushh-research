@@ -27,7 +27,6 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -57,6 +56,7 @@ import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
   formatLocationDurationLabel,
+  formatLocationRemaining,
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
@@ -65,15 +65,15 @@ import {
   groupGrantsByCounterpart,
   type OneLocationGrantLaneGroup,
 } from "@/lib/one-location/grant-lanes";
+import { parseTimestamp } from "@/lib/one-location/share-countdown";
+import {
+  resolveShareDurationHours,
+  shareReplacementsLosingTime,
+} from "@/lib/one-location/share-replacement";
+import { ActionMenu } from "@/components/app-ui/action-menu";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -133,8 +133,8 @@ import {
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
-  initialsFrom,
   RequestCard,
   SharedWithMeCard,
   type GrantViewStatus,
@@ -146,6 +146,11 @@ import {
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
+import {
+  ShareReplacementConfirmDialog,
+  ShareReplacementNotice,
+  type ShareReplacementRow,
+} from "./share-replacement-notice";
 // LocationTypeSelector stays exported from ./selectors, unused for now, so
 // PR #4767 can wire it back to a real precision mode without rebuilding it.
 import {
@@ -2668,6 +2673,12 @@ function LocationDetailFlow({
                   // amount is exactly how an owner answers "forever?" with
                   // "two hours".
                   shorterApprovals={approveShorterDurationOptions(request)}
+                  // An extension ADDS the approved amount to the share still
+                  // running, so the rungs above are increments and have to say
+                  // so -- the same word the primary button already uses.
+                  isExtension={Boolean(
+                    request.isExtension || request.extendsGrantId,
+                  )}
                   onApproveShorter={(hours) =>
                     vm.onApprove(request, {
                       durationHoursOverride: hours,
@@ -3140,6 +3151,7 @@ function StopGrantTextButton({
 function PersonRow({
   name,
   photoUrl,
+  verified,
   fromContacts,
   subtitle,
   active,
@@ -3149,6 +3161,7 @@ function PersonRow({
 }: {
   name: string;
   photoUrl?: string | null;
+  verified?: boolean;
   fromContacts?: boolean;
   subtitle: string;
   /** True when there's a live connection (you're sharing or they're sharing). */
@@ -3163,9 +3176,6 @@ function PersonRow({
    */
   expansion?: ReactNode;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const showImage = Boolean(photoUrl) && !imageFailed;
-
   return (
     // The separator and the hover wash belong to the whole row INCLUDING its
     // breakdown: a person's two shares are one row, and a hairline cutting
@@ -3179,27 +3189,19 @@ function PersonRow({
     >
       <div className="flex min-h-[60px] items-center gap-3 px-4 py-2.5 sm:min-h-16">
         <div className="relative shrink-0">
-          <span
-            className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]"
-            aria-hidden
-          >
-            {showImage && photoUrl ? (
-              <Image
-                src={photoUrl}
-                alt=""
-                fill
-                sizes="36px"
-                unoptimized
-                referrerPolicy="no-referrer"
-                className="object-cover"
-                onError={() => setImageFailed(true)}
-              />
-            ) : (
-              personInitials(name)
-            )}
-          </span>
+          <ConnectionPersonAvatar
+            label={name}
+            photoUrl={photoUrl}
+            verified={verified}
+            className="h-9 w-9 text-[13px]"
+          />
           {active ? (
-            <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
+            <span
+              className={cn(
+                "absolute h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]",
+                verified ? "-right-0.5 -top-0.5" : "bottom-0 right-0",
+              )}
+            />
           ) : null}
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
@@ -3378,63 +3380,51 @@ export function PeopleHub({
     </Button>
   );
   const addConnectionsMenu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label="Add people"
-          className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
-        >
-          <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        forceMount
-        className="min-w-52 rounded-2xl border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1.5 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
-      >
-        <DropdownMenuItem
-          data-voice-control-id="one-location-find-contacts"
-          aria-busy={vm.busy === "contactSync" || undefined}
-          disabled={vm.busy === "contactSync"}
-          onSelect={(event) => {
-            if (vm.busy === "contactSync") {
-              event.preventDefault();
-              return;
-            }
-            vm.onSyncContacts();
-          }}
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-        >
-          {vm.busy === "contactSync"
+    <ActionMenu
+      label="Add people"
+      title="Connections"
+      triggerIcon={Plus}
+      testId="one-location-add-people"
+      items={[
+        {
+          id: "find-contacts",
+          // Kept mounted and merely DISABLED while a sync is in flight, so a
+          // second tap is refused rather than queued -- single-flight, and
+          // visibly so. Removing the row instead would make the control
+          // disappear mid-action.
+          label: vm.busy === "contactSync"
             ? "Finding contacts…"
             : vm.contactSyncSummary
               ? "Sync contacts again"
-              : "Find contacts"}
-        </DropdownMenuItem>
-        {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
-          <DropdownMenuItem onSelect={() => vm.onViewContactSyncResults?.()}>
-            View contact sync results
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuItem
-          onSelect={() => onInvite()}
-          data-voice-control-id="one-location-action-invite"
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-        >
-          Invite to One
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => onAddConnections()}
-          data-voice-control-id="one-location-add-connections"
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-        >
-          Manage connections
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+              : "Find contacts",
+          onSelect: () => vm.onSyncContacts(),
+          disabled: vm.busy === "contactSync",
+          busy: vm.busy === "contactSync",
+          voiceControlId: "one-location-find-contacts",
+        },
+        ...(vm.contactSyncSummary && vm.onViewContactSyncResults
+          ? [
+              {
+                id: "sync-results",
+                label: "View contact sync results",
+                onSelect: () => vm.onViewContactSyncResults?.(),
+              },
+            ]
+          : []),
+        {
+          id: "invite",
+          label: "Invite to One",
+          onSelect: () => onInvite(),
+          voiceControlId: "one-location-action-invite",
+        },
+        {
+          id: "manage",
+          label: "Manage connections",
+          onSelect: () => onAddConnections(),
+          voiceControlId: "one-location-add-connections",
+        },
+      ]}
+    />
   );
 
   return (
@@ -3535,6 +3525,7 @@ export function PeopleHub({
                         key={r.userId}
                         name={name}
                         photoUrl={r.photoUrl}
+                        verified={Boolean(r.isRia)}
                         fromContacts={r.connectedFromContacts}
                         expansion={
                           shareGroup && !singleGrant ? (
@@ -4189,9 +4180,17 @@ function ShareFlow({
 }) {
   // Ticks the "access ends" line so a screen left open for a while does not
   // quote a time that has already slipped past.
+  //
+  // Resynced on ENTERING the step, not only every 30 seconds after it. The
+  // clock started at flow mount, so somebody who spent ten minutes choosing
+  // people on step 1 arrived here with a ten-minute-old "now" for up to
+  // another thirty seconds -- long enough to read a wrong end time, and long
+  // enough for the replacement warning below to compare against a share that
+  // has less left than it thinks.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (step !== "details") return;
+    setNowMs(Date.now());
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 30_000);
     return () => window.clearInterval(intervalId);
   }, [step]);
@@ -4283,7 +4282,13 @@ function ShareFlow({
             ? `${selected ? "Deselect" : "Select"} ${label} for private sharing`
             : undefined
         }
-        leading={<Avatar initials={initialsFrom(label)} imageUrl={r.photoUrl} />}
+        leading={
+          <ConnectionPersonAvatar
+            label={label}
+            photoUrl={r.photoUrl}
+            verified={Boolean(r.isRia)}
+          />
+        }
         title={
           <span className="flex min-w-0 items-start gap-1.5">
             <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -4321,6 +4326,60 @@ function ShareFlow({
     .filter((recipient): recipient is OneLocationRecipient =>
       Boolean(recipient && vm.isRecipientShareReady(recipient)),
     );
+  /**
+   * Whose live share this one would CUT SHORT.
+   *
+   * Sharing again does not add to what somebody already has — the backend
+   * revokes their live grant and inserts a new one — so picking a duration
+   * shorter than what is still running gives time back rather than granting
+   * it. Step 1 shows each row's remaining time, but the duration is chosen
+   * here, and nothing compared the two until this. Empty for a first share and
+   * for any extension, so the ordinary case stays silent.
+   *
+   * Reuses the `nowMs` this step already ticks every 30 seconds, so a screen
+   * left open cannot quote a remaining time that has since run out.
+   */
+  const shareReplacementRows: ShareReplacementRow[] = shareReplacementsLosingTime(
+    {
+      recipientUserIds: selectedReady.map((recipient) => recipient.userId),
+      activeOwnerGrants: vm.activeOwnerGrants,
+      durationValue: vm.shareDurationHours,
+      nowMs,
+    },
+  ).map(({ recipientUserId, grant, untilStopped }) => {
+    const recipient = recipientById.get(recipientUserId);
+    return {
+      recipientUserId,
+      label: recipient ? vm.recipientLabel(recipient) : "This person",
+      untilStopped,
+      // The two vocabularies this app already owns for the two kinds of live
+      // share: "Until you stop" is what every surface that lists a share calls
+      // an open-ended one, and `formatLocationRemaining` is what the approvals
+      // card, the feed and the Consent Manager call the time left on a timed
+      // one. A warning about a share must not be the one place that words it
+      // differently.
+      remainingLabel: untilStopped
+        ? "Until you stop"
+        : (formatLocationRemaining(
+            parseTimestamp(grant.expiresAt) ?? nowMs,
+            nowMs,
+          ) ?? "less than a minute more"),
+    };
+  });
+  const shareReplacementDurationLabel = formatLocationDurationLabel(
+    resolveShareDurationHours(vm.shareDurationHours),
+  );
+  const [shareReplacementConfirmOpen, setShareReplacementConfirmOpen] =
+    useState(false);
+  // The dialog must never outlive the reason it opened. Leaving the confirm
+  // step, or de-selecting the person whose share was at risk, both make it a
+  // question about nothing.
+  const shareReplacementCount = shareReplacementRows.length;
+  useEffect(() => {
+    if (step !== "details" || !shareReplacementCount) {
+      setShareReplacementConfirmOpen(false);
+    }
+  }, [shareReplacementCount, step]);
   const shareNoteLength = vm.shareMessage.length;
   const shareNoteLimitExceeded =
     shareNoteLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
@@ -4464,9 +4523,26 @@ function ShareFlow({
           }
         />
 
+        {/* Between the rail that says WHO and the button that starts it: the
+            one place an owner is still looking at both the people and the
+            duration. Renders nothing unless somebody actually loses time. */}
+        <ShareReplacementNotice
+          rows={shareReplacementRows}
+          newDurationLabel={shareReplacementDurationLabel}
+        />
+
         <div className="space-y-2.5">
           <Button
-            onClick={vm.onConfirmShare}
+            // Unchanged for every share that takes nothing away. When one
+            // would, the tap opens the confirm dialog instead of posting, and
+            // the dialog's own action is what reaches `onConfirmShare`.
+            onClick={() => {
+              if (shareReplacementRows.length) {
+                setShareReplacementConfirmOpen(true);
+                return;
+              }
+              vm.onConfirmShare();
+            }}
             disabled={!vm.canShare || shareNoteLimitExceeded}
             isLoading={vm.busy === "share"}
             data-voice-control-id="one-location-confirm-share"
@@ -4482,6 +4558,18 @@ function ShareFlow({
             Cancel
           </Button>
         </div>
+
+        <ShareReplacementConfirmDialog
+          open={shareReplacementConfirmOpen}
+          onOpenChange={setShareReplacementConfirmOpen}
+          rows={shareReplacementRows}
+          newDurationLabel={shareReplacementDurationLabel}
+          busy={vm.busy === "share"}
+          onConfirm={() => {
+            setShareReplacementConfirmOpen(false);
+            vm.onConfirmShare();
+          }}
+        />
       </div>
     );
   }
@@ -4811,6 +4899,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 function RequestRecipientListRow({
   name,
   photoUrl,
+  verified,
   fromContacts,
   subtitle,
   tone,
@@ -4828,6 +4917,7 @@ function RequestRecipientListRow({
 }: {
   name: string;
   photoUrl?: string | null;
+  verified?: boolean;
   fromContacts?: boolean;
   subtitle?: string;
   tone: "ready" | "pending" | "neutral";
@@ -4858,7 +4948,7 @@ function RequestRecipientListRow({
       )}
     >
       <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
-        <ContactAvatar label={name} photoUrl={photoUrl} />
+        <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-start gap-1.5">
             <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
@@ -4974,25 +5064,23 @@ function AskFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
-  // Keep the person on this screen after sending so the confirmation is tied to
-  // the specific request they just made, rather than popping straight back to
-  // the hub.
+  // Keep the person on this screen after sending, so the roster they just acted
+  // on is still the thing in front of them and the next ask is one tap away
+  // rather than a trip back through the hub.
   //
-  // `justSent` is a confirmation, NOT a one-shot lock. It used to latch true
-  // forever the moment the button was tapped, which meant (a) a failed send
-  // still said "Request sent." and (b) after one round the button stayed
-  // disabled, so somebody who asked three people could not then ask the rest
-  // without leaving the screen and coming back. Now it is set from the resolved
-  // result, and choosing the next person clears it and re-arms Send.
-  const [justSent, setJustSent] = useState(false);
-  // Who the last send was for. Anyone selected who is NOT in it is a person
-  // being lined up for a new ask, which is what retires the confirmation and
-  // re-arms Send.
+  // There is no `justSent` banner any more. `handleRequestAccess` already
+  // raises a Sonner toast on a resolved success ("Request sent. We'll notify
+  // you here when they respond."), and every person asked already carries the
+  // outcome durably in their own row -- an "Asked" pill and "Asked just now for
+  // 1 hour, waiting on them". So the banner was the third telling of the same
+  // fact, and the only one that took permanent layout at the top of the screen
+  // to say something that stopped being news a second later. Reported as
+  // exactly that: "request sent is not looking cool, do you really think we
+  // want a bar for this only".
   //
-  // Compared as a set rather than counted: sending subtracts only the people it
-  // actually asked, so a person tapped mid-send survives into a non-empty
-  // selection, and a count would read that leftover as "nothing new here".
-  const sentSelectionRef = useRef<readonly string[]>([]);
+  // `frontend-pattern-catalog.md` has said so since before this screen existed:
+  // "Do not create inline route banners for row-level saves... Inline errors
+  // are for stable page-blocking states only." A sent request is neither.
   const selectedRequestOwnerIds = vm.selectedRequestOwnerIds;
   const selectedRequestRecipients = useMemo(() => {
     const byId = new globalThis.Map(
@@ -5004,12 +5092,6 @@ function AskFlow({
         Boolean(recipient),
       );
   }, [selectedRequestOwnerIds, vm.recipients]);
-  useEffect(() => {
-    const hasNewPick = selectedRequestOwnerIds.some(
-      (id) => !sentSelectionRef.current.includes(id),
-    );
-    if (hasNewPick) setJustSent(false);
-  }, [selectedRequestOwnerIds]);
   // Guards a double-tap inside the same frame, where `vm.busy` has not yet
   // re-rendered the button as disabled.
   const sendInFlightRef = useRef(false);
@@ -5164,14 +5246,13 @@ function AskFlow({
     if (!isRequestFormValid || sendingRequest || sendInFlightRef.current)
       return;
     sendInFlightRef.current = true;
-    sentSelectionRef.current = vm.selectedRequestOwnerIds;
     void (async () => {
       try {
-        // Confirm only what actually happened: the banner appears on a
-        // resolved success, and a failure leaves the composer intact with its
-        // own error toast.
+        // Confirm only what actually happened. `onSendRequest` resolves true
+        // only once at least one request reached the server, and raises the
+        // toast itself; a failure leaves the composer intact with its own error
+        // toast and never moves the step.
         const sent = await vm.onSendRequest(reason);
-        setJustSent(sent);
         if (sent) setStep("person");
       } finally {
         sendInFlightRef.current = false;
@@ -5314,18 +5395,8 @@ function AskFlow({
         )}
       />
 
-      {justSent ? (
-        <div
-          role="status"
-          className="flex items-start gap-2.5 rounded-[20px] border border-[color:var(--app-success)]/25 bg-[color:var(--app-primary-surface)] px-4 py-4 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
-        >
-          <ShieldCheck className="mt-0.5 h-[19px] w-[19px] shrink-0 text-[color:var(--app-success)]" />
-          <p className="text-[17px] font-medium leading-[22px] text-foreground">
-            Request sent.
-          </p>
-        </div>
-      ) : null}
-
+      {/* No confirmation banner here. The send raises a toast, and each person
+          asked says so in their own row -- see the note beside `sendRequest`. */}
       <section className="space-y-3">
         <PersonSearchInput
           value={searchDraft}
@@ -5362,6 +5433,7 @@ function AskFlow({
                   key={r.userId}
                   name={recipientLabel}
                   photoUrl={r.photoUrl}
+                  verified={Boolean(r.isRia)}
                   fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
@@ -5520,6 +5592,7 @@ function SelectedRecipientsRail({
                   key={recipient.userId}
                   label={label}
                   photoUrl={recipient.photoUrl}
+                  verified={Boolean(recipient.isRia)}
                   className="h-9 w-9 border-2 border-[color:var(--app-card-surface-default-solid)] text-[13px]"
                 />
               );
@@ -5555,6 +5628,7 @@ function SelectedRecipientsRail({
                 <ContactAvatar
                   label={label}
                   photoUrl={recipient.photoUrl}
+                  verified={Boolean(recipient.isRia)}
                   className="h-8 w-8 text-[13px]"
                 />
                 <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">

@@ -22,7 +22,9 @@ function status(overrides: Partial<LiveShareStatus> = {}): LiveShareStatus {
 }
 
 function countdown(): string {
-  return screen.getByTestId("one-location-live-share-countdown").textContent ?? "";
+  return (
+    screen.getByTestId("one-location-live-share-countdown").textContent ?? ""
+  );
 }
 
 describe("LiveShareStatusCard", () => {
@@ -170,7 +172,11 @@ describe("LiveShareStatusCard", () => {
 
     rerender(
       <LiveShareStatusCard
-        status={status({ count: 3, names: ["A", "B", "C"], stoppableGrantId: null })}
+        status={status({
+          count: 3,
+          names: ["A", "B", "C"],
+          stoppableGrantId: null,
+        })}
         onManage={onManage}
       />,
     );
@@ -230,7 +236,8 @@ describe("LiveShareStatusCard", () => {
     expect(screen.getByText(/^Ends /)).toBeTruthy();
     const shareMore = screen.getByRole("button", { name: "Share with more" });
     expect(
-      (shareMore.compareDocumentPosition(change) & Node.DOCUMENT_POSITION_FOLLOWING) !==
+      (shareMore.compareDocumentPosition(change) &
+        Node.DOCUMENT_POSITION_FOLLOWING) !==
         0,
     ).toBe(true);
   });
@@ -280,7 +287,11 @@ describe("LiveShareStatusCard", () => {
     // referent, and the card must not offer to act on an unnamed one.
     render(
       <LiveShareStatusCard
-        status={status({ count: 3, names: ["A", "B", "C"], stoppableGrantId: null })}
+        status={status({
+          count: 3,
+          names: ["A", "B", "C"],
+          stoppableGrantId: null,
+        })}
         onManage={vi.fn()}
       />,
     );

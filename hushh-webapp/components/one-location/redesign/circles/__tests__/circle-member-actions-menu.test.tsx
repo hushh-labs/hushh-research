@@ -88,7 +88,10 @@ describe("CircleMemberActionsMenu on a phone", () => {
   });
 
   it("opens a bottom sheet that names the member instead of an anchored menu over the next row", async () => {
-    renderMenu();
+    renderMenu({
+      photoUrl: "https://cdn.example.test/ankit-avatar.jpg",
+      verified: true,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
 
@@ -104,6 +107,12 @@ describe("CircleMemberActionsMenu on a phone", () => {
     // Whose actions these are, said on the surface rather than by proximity.
     expect(within(sheet).getByText(MEMBER_NAME)).toBeInTheDocument();
     expect(within(sheet).getByText("Connected")).toBeInTheDocument();
+    expect(
+      sheet.querySelector(
+        '[data-photo-url="https://cdn.example.test/ankit-avatar.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(within(sheet).getByLabelText("Verified advisor")).toBeInTheDocument();
 
     expect(
       within(sheet).getByRole("menuitem", { name: /Share location/i }),

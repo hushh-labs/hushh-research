@@ -33,12 +33,17 @@ describe("Connect canonical surface contract", () => {
     // says who and the badge says what, instead of one replacing the other.
     // Asserted as behaviour rather than an exact ternary so a later refactor
     // of the avatar is not blocked by the shape of this line.
-    expect(source).toContain("<ConnectPersonAvatar");
+    expect(source).toContain("ConnectionPersonAvatar");
     expect(source).toContain("photoUrl={connection.photoUrl ?? null}");
     expect(source).toContain("photoUrl={person.photoUrl}");
     expect(source).toContain("verified={Boolean(person.isRia)}");
-    expect(source).toContain("BadgeCheck");
-    expect(source).toContain('aria-label="Verified advisor"');
+
+    const avatarSource = readFileSync(
+      join(process.cwd(), "components/connections/connection-person-avatar.tsx"),
+      "utf8",
+    );
+    expect(avatarSource).toContain("BadgeCheck");
+    expect(avatarSource).toContain('aria-label="Verified advisor"');
     expect(source).toContain("separatorInset");
   });
 

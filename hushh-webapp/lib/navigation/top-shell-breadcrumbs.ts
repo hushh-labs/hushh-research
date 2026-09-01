@@ -837,6 +837,29 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  // Reached only from Profile > Account (profile-workspace-page.tsx pushes
+  // ROUTES.ONE_WALLET_CARD from the "Apple Wallet" row), and it had no entry
+  // here at all -- so the resolver returned null, the top shell rendered no
+  // breadcrumb, and the screen had no way back out. The Back control inside
+  // the workspace is a stage control (setStage("manage")); it moves between
+  // steps of the pass flow and exists in only one of them, so it was never
+  // the way out of the surface.
+  if (pathname === ROUTES.ONE_WALLET_CARD) {
+    return {
+      backHref: ROUTES.PROFILE_ACCOUNT,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Account", href: ROUTES.PROFILE_ACCOUNT },
+        // Matches WALLET_CARD_COPY.profileEntry.title, the row that leads
+        // here. Kept as a literal rather than an import so a navigation
+        // module does not reach into a component folder for a string.
+        { label: "Apple Wallet" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.ONE_MARKETPLACE) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
@@ -991,6 +1014,22 @@ function resolveTopShellBreadcrumbInner(
       // the parent ("One") while the route owns the single visible page title.
       hideBack: false,
       items: [{ label: "One" }],
+    };
+  }
+
+  if (pathname.startsWith("/people/")) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    if (!originHref) {
+      return null;
+    }
+    return {
+      backHref: originHref,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: profileOriginCrumbLabel(originHref), href: originHref },
+        { label: "Profile" },
+      ],
     };
   }
 

@@ -434,6 +434,50 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("keeps Connect as the origin for a person profile opened from Connect", () => {
+    const fromConnect = new URLSearchParams();
+    fromConnect.set("from", "/one/connect");
+
+    expect(
+      resolveTopShellBreadcrumb("/people/person-ref-scoped", fromConnect),
+    ).toEqual({
+      backHref: "/one/connect",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Connect", href: "/one/connect" },
+        { label: "Profile" },
+      ],
+    });
+
+    const unsafeOrigin = new URLSearchParams();
+    unsafeOrigin.set("from", "//evil.example/one/connect");
+    expect(
+      resolveTopShellBreadcrumb("/people/person-ref-scoped", unsafeOrigin),
+    ).toBeNull();
+  });
+
+  it("keeps the Profile access connection detail route scoped to Access & sharing", () => {
+    const connectionParams = new URLSearchParams();
+    connectionParams.set("id", "c-scoped");
+
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/profile/access/connection",
+        connectionParams,
+      ),
+    ).toEqual({
+      backHref: "/one/profile/access",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Access & sharing", href: "/one/profile/access" },
+        { label: "Connection detail" },
+      ],
+    });
+  });
+
   it("owns profile nested and legacy panels from the shared top bar", () => {
     const panelParams = new URLSearchParams();
 
@@ -891,5 +935,31 @@ describe("top shell breadcrumbs", () => {
     expect(
       resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
     ).toEqual(barePicks);
+  });
+
+  it("gives the wallet card a way back to the row that opened it", () => {
+    // It had no entry at all, so the resolver returned null and the top shell
+    // rendered no breadcrumb -- leaving the screen with no way out. The Back
+    // control inside the workspace is a stage control between steps of the
+    // pass flow, present in only one stage, so it never served as the exit.
+    expect(resolveTopShellBreadcrumb("/one/wallet-card")).toEqual({
+      backHref: "/one/profile/account",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Account", href: "/one/profile/account" },
+        { label: "Apple Wallet" },
+      ],
+    });
+  });
+
+  it("sends the wallet card back to Account, the panel it is reached from", () => {
+    // profile-workspace-page.tsx pushes this route from the Apple Wallet row
+    // inside the Account panel. Backing out to bare /one/profile would land
+    // somebody a level above the row they tapped.
+    const config = resolveTopShellBreadcrumb("/one/wallet-card");
+    expect(config?.backHref).toBe("/one/profile/account");
+    expect(config?.backHref).not.toBe("/one/profile");
   });
 });
