@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 178,
+  "expected_migration_version": 191,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -56,8 +56,44 @@
       "contact_sync_consent_enabled_at",
       "contact_sync_consent_rule_version",
       "contact_sync_consent_contract_version",
+      "public_person_ref",
+      "public_profile_status",
       "created_at",
       "updated_at"
+    ],
+    "one_adk_sessions": [
+      "app_name",
+      "user_id",
+      "session_id",
+      "payload_ciphertext",
+      "payload_iv",
+      "payload_tag",
+      "payload_algorithm",
+      "revision",
+      "created_at",
+      "updated_at"
+    ],
+    "one_information_request_bundles": [
+      "bundle_id",
+      "requester_user_id",
+      "subject_user_id",
+      "requester_principal",
+      "idempotency_hash",
+      "request_fingerprint",
+      "purpose",
+      "duration_seconds",
+      "connector_key_id",
+      "created_at",
+      "cancelled_at"
+    ],
+    "one_information_request_items": [
+      "bundle_id",
+      "request_id",
+      "scope_ref",
+      "scope",
+      "label",
+      "sensitivity",
+      "created_at"
     ],
     "actor_identity_cache": [
       "user_id",
@@ -753,6 +789,12 @@
       "created_at",
       "updated_at"
     ],
+    "one_location_sos_voice_preferences": [
+      "user_id",
+      "default_action",
+      "created_at",
+      "updated_at"
+    ],
     "one_location_circle_invites": [
       "id",
       "owner_user_id",
@@ -1380,7 +1422,9 @@
       "revoked_at",
       "last_synced_at",
       "last_sync_cursor",
-      "sealed_at"
+      "sealed_at",
+      "last_heartbeat_at",
+      "heartbeat"
     ],
     "trusted_device_challenges": [
       "challenge_id",
@@ -1542,6 +1586,45 @@
       "sequence",
       "event_at_ms",
       "metadata"
+    ],
+    "one_location_nearby_visits": [
+      "id",
+      "owner_user_id",
+      "place_ciphertext",
+      "place_iv",
+      "place_tag",
+      "place_algorithm",
+      "place_key_id",
+      "place_token",
+      "checked_in_at",
+      "ended_at",
+      "rated_at",
+      "expires_at",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_place_ratings": [
+      "id",
+      "author_user_id",
+      "place_id",
+      "place_label",
+      "place_category",
+      "rating",
+      "aggregatable",
+      "consent_version",
+      "consent_accepted_at",
+      "source_visit_id",
+      "visited_at",
+      "visit_count",
+      "revision",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_place_rating_aggregates": [
+      "place_id",
+      "rating_count",
+      "rating_sum",
+      "updated_at"
     ]
   }
 }

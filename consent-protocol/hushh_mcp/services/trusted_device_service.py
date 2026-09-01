@@ -107,6 +107,10 @@ class TrustedDeviceStore(Protocol):
         self, *, user_id: str, device_id: str, cursor: int | None, now_ms: int
     ) -> None: ...
 
+    def record_heartbeat(
+        self, *, user_id: str, device_id: str, snapshot: dict[str, Any], now_ms: int
+    ) -> None: ...
+
     def get_device_status(self, *, user_id: str, device_id: str) -> dict[str, Any] | None: ...
 
     def seal_device(self, *, user_id: str, device_id: str, now_ms: int) -> bool: ...
@@ -255,7 +259,8 @@ class PostgresTrustedDeviceStore:
             self._db.table("trusted_devices")
             .select(
                 "device_id,device_name,platform,status,created_at,last_used_at,"
-                "revoked_at,last_synced_at,last_sync_cursor,sealed_at"
+                "revoked_at,last_synced_at,last_sync_cursor,sealed_at,"
+                "last_heartbeat_at,heartbeat"
             )
             .eq("user_id", user_id)
             .order("created_at", desc=True)
@@ -349,6 +354,23 @@ class PostgresTrustedDeviceStore:
         (
             self._db.table("trusted_devices")
             .update(updates)
+            .eq("user_id", user_id)
+            .eq("device_id", device_id)
+            .eq("status", "active")
+            .execute()
+        )
+
+    def record_heartbeat(
+        self,
+        *,
+        user_id: str,
+        device_id: str,
+        snapshot: dict[str, Any],
+        now_ms: int,
+    ) -> None:
+        (
+            self._db.table("trusted_devices")
+            .update({"last_heartbeat_at": now_ms, "heartbeat": snapshot})
             .eq("user_id", user_id)
             .eq("device_id", device_id)
             .eq("status", "active")
@@ -459,6 +481,71 @@ def _loopback_redirect_uri(value: str) -> str:
     return normalized
 
 
+_HEARTBEAT_TEXT_FIELDS = (
+    "machine_id",
+    "current_model",
+    "agent_version",
+    # What the owner sees on connect: the machine their agent runs on. Names
+    # only, never identifiers -- no serial number, no hostname, no MAC.
+    "brand",
+    "processor",
+)
+_HEARTBEAT_MAX_TEXT = 120
+
+# Bounded because a device posts these. An unbounded float would let a bad or
+# buggy client store 1e309 and render as garbage wherever it is shown; a value
+# outside the plausible range is dropped rather than clamped, since clamping
+# would invent a reading that was never taken.
+_HEARTBEAT_NUMERIC_FIELDS: tuple[tuple[str, float, float], ...] = (
+    ("ram_total_gb", 0.0, 16_384.0),
+    ("ram_used_pct", 0.0, 100.0),
+    # Only a machine with a battery sends these. A desktop omits them entirely
+    # rather than sending 0, so an absent battery stays distinguishable from a
+    # flat one. Never default these to a number when reading them back.
+    ("battery_pct", 0.0, 100.0),
+    ("battery_minutes_remaining", 0.0, 10_080.0),
+)
+
+_HEARTBEAT_BOOL_FIELDS = ("busy", "battery_charging", "on_ac")
+
+
+def _safe_heartbeat(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    """Reduce a device-reported snapshot to a fixed allow-list of scalars.
+
+    A device posts this, so the payload is untrusted input written straight to
+    a JSONB column. Only these runtime fields are kept, each coerced and length
+    capped: everything else -- nested objects, unknown keys, oversized strings,
+    anything resembling vault content, a filesystem path, or a credential -- is
+    dropped rather than sanitized, so the column can only ever hold telemetry.
+    """
+    if not isinstance(snapshot, dict):
+        return {}
+    safe: dict[str, Any] = {}
+    for field in _HEARTBEAT_TEXT_FIELDS:
+        value = snapshot.get(field)
+        if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            text = str(value).strip()
+            if text:
+                safe[field] = text[:_HEARTBEAT_MAX_TEXT]
+    for field, low, high in _HEARTBEAT_NUMERIC_FIELDS:
+        value = snapshot.get(field)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            number = float(value)
+            # NaN and the infinities fail every comparison, so they are excluded
+            # by the range test rather than needing a separate guard.
+            if low <= number <= high:
+                safe[field] = round(number, 2)
+    for field in _HEARTBEAT_BOOL_FIELDS:
+        value = snapshot.get(field)
+        if isinstance(value, bool):
+            safe[field] = value
+    for field in ("active_sessions", "next_cron_at"):
+        value = snapshot.get(field)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            safe[field] = value
+    return safe
+
+
 def _safe_device(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "device_id": str(row.get("device_id") or ""),
@@ -475,6 +562,12 @@ def _safe_device(row: dict[str, Any]) -> dict[str, Any]:
             int(row["last_sync_cursor"]) if row.get("last_sync_cursor") is not None else None
         ),
         "sealed_at": int(row["sealed_at"]) if row.get("sealed_at") is not None else None,
+        "last_heartbeat_at": (
+            int(row["last_heartbeat_at"]) if row.get("last_heartbeat_at") is not None else None
+        ),
+        # Re-reduced on read: a row written before the allow-list existed, or by
+        # any other writer, still cannot surface anything but telemetry.
+        "heartbeat": _safe_heartbeat(row.get("heartbeat")) or None,
     }
 
 
@@ -704,6 +797,29 @@ class TrustedDeviceService:
             return
         self._store.record_sync(
             user_id=user_id, device_id=device_id, cursor=cursor, now_ms=_now_ms()
+        )
+
+    def record_heartbeat(
+        self, *, user_id: str, device_id: str, snapshot: dict[str, Any] | None = None
+    ) -> None:
+        """Stamp liveness telemetry reported by a running device.
+
+        Answers "is this agent reachable right now?", which last_synced_at
+        cannot: that column only moves when the device pulls the sync channel,
+        so a running-but-idle agent looks stale.
+
+        The snapshot is reduced to a fixed allow-list of scalar runtime fields
+        before it is stored, so a device cannot push vault content, filesystem
+        paths, credentials, or unbounded payloads into the row. Only active
+        devices are updated, so a revoked device can never appear live again.
+        """
+        if not _DEVICE_ID_RE.fullmatch(device_id):
+            return
+        self._store.record_heartbeat(
+            user_id=user_id,
+            device_id=device_id,
+            snapshot=_safe_heartbeat(snapshot),
+            now_ms=_now_ms(),
         )
 
     def seal_device(self, *, user_id: str, device_id: str) -> dict[str, Any] | None:

@@ -92,8 +92,15 @@ if ! grep -q -- '--set-env-vars=NEXT_PUBLIC_APP_ENV=' "$frontend_cloudbuild"; th
 fi
 
 frontend_timeout_seconds="$(
-  grep -Eo -- '--timeout=[0-9]+' "$frontend_cloudbuild" | head -n 1 | cut -d= -f2
+  grep -Eo -- '--timeout=[0-9]+' "$frontend_cloudbuild" | head -n 1 | cut -d= -f2 || true
 )"
+if [ -z "$frontend_timeout_seconds" ] && grep -q -- '--timeout=${_CLOUD_RUN_TIMEOUT_SECONDS}' "$frontend_cloudbuild"; then
+  frontend_timeout_seconds="$(
+    grep -E '^[[:space:]]*_CLOUD_RUN_TIMEOUT_SECONDS:' "$frontend_cloudbuild" |
+      head -n 1 |
+      sed -E 's/.*"([0-9]+)".*/\1/'
+  )"
+fi
 if [ -z "$frontend_timeout_seconds" ]; then
   echo "❌ frontend Cloud Run deploy must declare an explicit request timeout."
   exit 1

@@ -916,6 +916,18 @@ function ConsentEntryDetail({
   const isLocationEntry = Boolean(
     entry && isLocationConsent(entry.metadata, entry.scope),
   );
+  /**
+   * Whether this ask is for MORE time on a share that is already running.
+   *
+   * It changes what the duration picker below MEANS. Approving an extension
+   * adds the chosen amount to what is still live rather than replacing it
+   * (#6256), so a control labelled "Access duration" holding "1 hour" would
+   * read as a cap while actually granting an hour on top -- an owner narrowing
+   * the number would be lengthening the share. Written by the Consent Center
+   * contributor beside the requested amount.
+   */
+  const isLocationExtension =
+    isLocationEntry && Boolean(entry?.metadata?.is_extension);
   const parsedRequestedDuration = parseDurationHours(
     requestedDurationHours === null ? null : String(requestedDurationHours),
   );
@@ -1136,7 +1148,10 @@ function ConsentEntryDetail({
     !isConnectionDecision &&
     !showDurationChoice &&
     requestedDurationLabel
-      ? ["Requested duration", requestedDurationLabel]
+      ? [
+          isLocationExtension ? "Extra time requested" : "Requested duration",
+          requestedDurationLabel,
+        ]
       : null,
     entry.is_scope_upgrade && entry.additional_access_summary
       ? ["What changes", entry.additional_access_summary]
@@ -1246,9 +1261,17 @@ function ConsentEntryDetail({
               >
                 <SelectTrigger
                   className="w-[150px]"
-                  aria-label="Access duration"
+                  aria-label={
+                    isLocationExtension
+                      ? "Extra time to add"
+                      : "Access duration"
+                  }
                 >
-                  <SelectValue placeholder="Duration" />
+                  <SelectValue
+                    placeholder={
+                      isLocationExtension ? "Time to add" : "Duration"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {durationOptions.map((option) => (

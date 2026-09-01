@@ -83,7 +83,7 @@ def test_connection_request_push_puts_the_requester_label_in_the_data_map(monkey
     )
 
     assert captured["data"]["requester_label"] == "Ankit Sharma"
-    assert captured["data"]["requester_user_id"] == "requester-1"
+    assert "requester_user_id" not in captured["data"]
     assert captured["body"] == "Ankit Sharma wants to connect with you on Hussh."
 
 
@@ -100,6 +100,36 @@ def test_connection_request_push_deep_links_to_the_review_sheet(monkeypatch):
 
     assert captured["deep_link"] == "/one/consent?tab=pending&requestId=req-42"
     assert captured["data"]["request_id"] == "req-42"
+    assert captured["data"]["message_id"] == "connection-request:req-42"
+    assert captured["notification_tag"] == "connection-request:req-42"
+
+
+def test_connection_request_push_uses_distinct_request_scoped_tags(monkeypatch):
+    captured: list[dict] = []
+
+    def _fake_send(user_id, **kwargs):
+        captured.append({"user_id": user_id, **kwargs})
+        return 1
+
+    monkeypatch.setattr(push_module, "send_user_data_push", _fake_send)
+    for request_id in ("req-1", "req-2", "req-1"):
+        send_connection_request_push(
+            "addressee-1",
+            "requester-1",
+            requester_display_name="Ankit",
+            connection_request_id=request_id,
+        )
+
+    assert [item["notification_tag"] for item in captured] == [
+        "connection-request:req-1",
+        "connection-request:req-2",
+        "connection-request:req-1",
+    ]
+    assert [item["data"]["message_id"] for item in captured] == [
+        "connection-request:req-1",
+        "connection-request:req-2",
+        "connection-request:req-1",
+    ]
 
 
 def test_connection_request_push_falls_back_to_the_list_without_an_id(monkeypatch):
@@ -109,6 +139,10 @@ def test_connection_request_push_falls_back_to_the_list_without_an_id(monkeypatc
 
     assert captured["deep_link"] == "/one/consent?tab=connections"
     assert captured["data"]["request_id"] == ""
+    assert captured["data"]["message_id"] == ""
+    assert captured["notification_tag"] == "connection-request"
+    assert "requester-1" not in str(captured["data"])
+    assert "requester-1" not in captured["notification_tag"]
 
 
 def test_connection_request_push_percent_encodes_the_request_id(monkeypatch):

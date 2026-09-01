@@ -161,23 +161,26 @@ class KaiAnalyzeRunManager:
             run.updated_at = _now_iso()
             if envelope and bool(envelope.get("terminal")):
                 event_name = str(envelope.get("event") or "")
-                run.terminal_event = event_name or run.terminal_event
-                payload = envelope.get("payload")
-                run.terminal_payload = (
-                    payload if isinstance(payload, dict) else run.terminal_payload
-                )
-                if event_name == "decision":
-                    run.status = "completed"
-                    just_completed = True
-                elif event_name == "aborted":
-                    run.status = "canceled"
-                elif event_name == "error":
-                    run.status = "failed"
+                terminal_status = {
+                    "decision": "completed",
+                    "aborted": "canceled",
+                    "error": "failed",
+                }.get(event_name)
+                # A run has one terminal transition. Duplicate/reordered frames
+                # may still be replayed to a reconnecting client, but cannot
+                # overwrite its durable outcome or emit another Feed row.
+                if terminal_status is not None and run.status == "running":
+                    run.terminal_event = event_name
+                    payload = envelope.get("payload")
+                    run.terminal_payload = payload if isinstance(payload, dict) else None
+                    run.status = terminal_status
+                    just_completed = terminal_status == "completed"
             run.condition.notify_all()
         if just_completed:
-            # Best-effort Feed row; the analysis itself is already durably
-            # saved (encrypted PKM) independent of this. Never let a feed
-            # write failure affect the run's own completion.
+            # Best-effort projection of the in-memory terminal transition. The
+            # stable run id makes retries harmless. The optional durable-run
+            # store checkpoints later and exposes no shared transaction/outbox
+            # contract, so this manager must not invent a second DB authority.
             await run_in_threadpool(
                 FeedService().record_event,
                 user_id=run.user_id,
@@ -185,6 +188,7 @@ class KaiAnalyzeRunManager:
                 event_type="kai_analysis_completed",
                 actor_label="Kai",
                 metadata={"ticker": run.ticker},
+                source_row_id=run.run_id,
             )
         return envelope if isinstance(envelope, dict) else None
 
@@ -230,7 +234,7 @@ class KaiAnalyzeRunManager:
             )
             async for frame in generator:
                 envelope = await self._append_frame(run, frame)
-                if envelope and bool(envelope.get("terminal")):
+                if envelope and bool(envelope.get("terminal")) and run.status != "running":
                     saw_terminal = True
                 if run.cancel_event.is_set() and run.status in {"canceled", "failed", "completed"}:
                     break

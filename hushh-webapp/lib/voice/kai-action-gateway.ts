@@ -4,6 +4,7 @@ import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AppRuntimeState, VoiceToolCall } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy =
@@ -23,7 +24,19 @@ export type KaiActionDelegateAgentId =
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
-      path: "kai_command" | "voice_tool" | "route" | "local_handler";
+      path:
+        | "kai_command"
+        | "voice_tool"
+        | "route"
+        | "local_handler"
+        // A UI control the person taps directly (a menu item, a segmented
+        // toggle) rather than a named route or local_handler function.
+        // agent-action-runtime.ts's executor already dispatches this the
+        // same way as local_handler -- it falls through to the same
+        // resolveLocalOnboardingHandler registry for any path that isn't
+        // explicitly "route" -- so a real handler registered under the
+        // action id is all a "control" action needs to actually run.
+        | "control";
       target: string;
       params?: Record<string, unknown>;
     }
@@ -285,7 +298,8 @@ function validateExecutionTarget(
       (path !== "kai_command" &&
         path !== "voice_tool" &&
         path !== "route" &&
-        path !== "local_handler") ||
+        path !== "local_handler" &&
+        path !== "control") ||
       !target
     ) {
       return null;
@@ -679,7 +693,21 @@ function validateGateway(value: unknown): KaiActionGateway {
 }
 
 export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
-export const KAI_ACTION_GATEWAY_ACTIONS = KAI_ACTION_GATEWAY.actions;
+function isCrmProductAction(action: KaiActionDefinition): boolean {
+  const searchable = [
+    action.action_id,
+    action.label,
+    action.meaning,
+    ...action.reachability.routes,
+    ...action.reachability.screens,
+    ...(action.delegate_agent_id ? [action.delegate_agent_id] : []),
+  ].join(" ").toLowerCase();
+  return searchable.includes("crm") || searchable.includes("connected_system") || searchable.includes("connected-system");
+}
+
+export const KAI_ACTION_GATEWAY_ACTIONS = isLocalCrmBuildEnabled()
+  ? KAI_ACTION_GATEWAY.actions
+  : KAI_ACTION_GATEWAY.actions.filter((action) => !isCrmProductAction(action));
 
 const KAI_ACTION_BY_ID = new Map(
   KAI_ACTION_GATEWAY_ACTIONS.map(

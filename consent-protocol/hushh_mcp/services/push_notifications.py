@@ -194,14 +194,18 @@ def send_connection_request_push(
     body = connection_request_body(requester_name)
     deep_link = _connection_request_link(connection_request_id)
     request_id = str(connection_request_id or "").strip()
+    message_id = f"connection-request:{request_id}" if request_id else ""
 
     # Identity and routing fields the CLIENT needs, as opposed to the banner the
     # OS renders. The in-app toast reads only this data map -- it never sees
     # `body` -- which is exactly why it said "Someone" while the system banner
     # said the right thing. Empty values are dropped by send_user_data_push, so
     # an unresolved name simply omits the key and the client owns the fallback.
+    # The raw requester user id is deliberately absent: the client neither
+    # routes nor renders from it, so sending it would widen the push payload
+    # without adding a user-facing capability.
     client_data = {
-        "requester_user_id": requester_user_id,
+        "message_id": message_id,
         "requester_label": requester_name,
         "request_id": request_id,
     }
@@ -253,7 +257,11 @@ def send_connection_request_push(
         title="New connection request",
         body=body,
         deep_link=deep_link,
-        notification_tag=f"connection-request:{addressee_user_id}",
+        # Legacy callers without a row id use one generic replacement tag.
+        # Never substitute the raw requester uid into an OS-visible tag or
+        # client message id; without an id, omitting message_id also prevents
+        # unrelated requests from being collapsed by the in-app deduper.
+        notification_tag=message_id or "connection-request",
         notification_category="ONE_CONNECTIONS",
         data=client_data,
     )

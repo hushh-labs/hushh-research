@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EmblaCarouselType } from "embla-carousel";
 
-import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
+import { SwipeViews, clampSwipePosition } from "@/lib/morphy-ux/ui/swipe-views";
 import { requestTopShellTabSelection } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({
@@ -48,6 +48,12 @@ const OPTIONS = [
 ] as const;
 
 describe("SwipeViews", () => {
+  it("clamps shared tab progress at the first and last workspace pane", () => {
+    expect(clampSwipePosition(-0.24, 3)).toBe(0);
+    expect(clampSwipePosition(0.65, 3)).toBe(0.65);
+    expect(clampSwipePosition(2.31, 3)).toBe(2);
+  });
+
   beforeEach(() => {
     embla.selectedIndex = 0;
     embla.scrollProgress = 0;
@@ -256,10 +262,20 @@ describe("SwipeViews", () => {
   });
 
   it("lets a nested pager own its horizontal drag", () => {
+    const nestedOptions = [
+      ...OPTIONS,
+      { value: "third", label: "Third" },
+    ] as const;
+    embla.selectedIndex = 1;
     render(
-      <SwipeViews tabSetId="nested" activeValue="first" options={OPTIONS}>
+      <SwipeViews
+        tabSetId="nested"
+        activeValue="second"
+        options={nestedOptions}
+      >
         <div>first panel content</div>
         <div>second panel content</div>
+        <div>third panel content</div>
       </SwipeViews>,
     );
 
@@ -272,16 +288,70 @@ describe("SwipeViews", () => {
     outerRoot.append(nestedRoot);
 
     const watchDrag = embla.options?.watchDrag as (
-      api: Pick<EmblaCarouselType, "rootNode">,
+      api: Pick<EmblaCarouselType, "rootNode" | "selectedScrollSnap">,
       event: Event,
     ) => boolean;
 
-    expect(
-      watchDrag({ rootNode: () => outerRoot }, { target: nestedTarget } as Event),
-    ).toBe(false);
-    expect(
-      watchDrag({ rootNode: () => nestedRoot }, { target: nestedTarget } as Event),
-    ).toBe(true);
+    const outerApi = {
+      rootNode: () => outerRoot,
+      selectedScrollSnap: () => 1,
+    };
+    const nestedApi = {
+      rootNode: () => nestedRoot,
+      selectedScrollSnap: () => 1,
+    };
+
+    expect(watchDrag(outerApi, { target: nestedTarget } as Event)).toBe(false);
+    expect(watchDrag(nestedApi, { target: nestedTarget } as Event)).toBe(true);
+  });
+
+  it("does not apply the edge fallback to nested horizontal interactions", () => {
+    const onSelectionChange = vi.fn();
+    const onSelectionCommit = vi.fn();
+    const root = embla.rootNode!;
+    root.dataset.swipeViewsRoot = "true";
+    const nestedScroller = document.createElement("div");
+    nestedScroller.setAttribute("data-swipe-views-horizontal-scroll", "true");
+    const scrollerTarget = document.createElement("button");
+    nestedScroller.append(scrollerTarget);
+    const nestedPager = document.createElement("div");
+    nestedPager.dataset.swipeViewsRoot = "true";
+    const pagerTarget = document.createElement("button");
+    nestedPager.append(pagerTarget);
+    root.append(nestedScroller, nestedPager);
+
+    render(
+      <SwipeViews
+        tabSetId="nested-edge"
+        activeValue="first"
+        options={OPTIONS}
+        onSelectionChange={onSelectionChange}
+        onSelectionCommit={onSelectionCommit}
+      >
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    for (const target of [scrollerTarget, pagerTarget]) {
+      target.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          clientX: 100,
+          clientY: 20,
+        }),
+      );
+      target.dispatchEvent(
+        new MouseEvent("pointerup", {
+          bubbles: true,
+          clientX: 20,
+          clientY: 20,
+        }),
+      );
+    }
+
+    expect(onSelectionChange).not.toHaveBeenCalled();
+    expect(onSelectionCommit).not.toHaveBeenCalled();
   });
 
   describe("viewport resize", () => {

@@ -248,9 +248,9 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     drag progress writes only to the owning tab strip—not an inherited root
     variable that invalidates the whole document. Vertical pane-content
     changes must not reinitialize the horizontal pager; only viewport-width
-    changes may do so. The shared tab strip uses one moving low-emphasis
-    selection wash plus the accent underline, both attached to the same live
-    swipe position.
+    changes may do so. Every shared tab strip uses the Location-proven Morphy
+    rail and one moving solid selection surface attached to the same live swipe
+    position; route-specific underline variants are not allowed.
 
 ## Pixel Grid And Symmetry Contract
 
@@ -291,7 +291,9 @@ Rules:
 
 1. Active assistant stream panels use the full available chat-column width (`w-full max-w-none`). Do not cap active stream panels with the normal assistant bubble width. Completed historical assistant messages may keep a readable max width.
 2. The stream surface has three distinct regions:
-   - `Progress` for app-owned tool, route, stage, cancellation, and settlement events.
+   - `Activity` for app-owned tool, route, stage, cancellation, settlement, and
+     bounded specialist events. AG-UI `ACTIVITY_SNAPSHOT`/`ACTIVITY_DELTA`
+     content enters this surface only through the versioned app registry.
    - `Thinking` only for optional provider telemetry when available.
    - `Response` only for real assistant/model text from SSE `token` frames or explicit final assistant text.
 3. Do not show placeholder text such as `Preparing response` inside the `Response` region. Waiting states belong to `Progress` or a small status line outside the response body.
@@ -300,6 +302,18 @@ Rules:
 6. Marketplace opportunity accordions in Agent Chat receive workspace-preloaded data. The accordion may show a lightweight loading row only while the workspace fetch is genuinely pending.
 7. Mobile chat history uses the shared shell glass family (`chrome-glass-surface` / `.bar-glass` semantics) and flat bottom-nav/top-bar control recipes. Do not ship a flat white drawer or show desktop collapse controls in mobile mode.
 8. Agent Chat session continuity is a surface contract: consecutive user commands reuse the active `conversationId`; reset only on explicit New chat, selecting history, user change, or vault session reset.
+9. Structured model responses use a versioned, app-owned component registry.
+   AG-UI transports typed tool results and activity snapshots/deltas; Morphy
+   owns the visual component. Unknown activity types fail closed. Never mount
+   model-authored React, HTML, classes, routes, or arbitrary action identifiers.
+10. Tool-based generative UI must preserve the readable assistant response and
+    add inspectable evidence rather than replacing the answer with a dashboard.
+    Consumer surfaces show labels, descriptions, grouping, sensitivity, and one
+    governed next action; raw tool names, arguments, opaque references, and
+    backend payloads remain hidden.
+11. An AG-UI interrupt is an awaiting-review lifecycle, not completion. Keep
+    the turn and its Activity visible until the person resolves or cancels the
+    authored HITL surface and the resumed run reaches a terminal event.
 
 ## Page Header Contract
 

@@ -281,6 +281,7 @@ export const CACHE_KEYS = {
   VAULT_STATUS: (userId: string) => `vault_status_${userId}`,
   VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
   ACCOUNT_IDENTITY: (userId: string) => `account_identity_${userId}`,
+  TRUSTED_DEVICES: (userId: string) => `trusted_devices_${userId}`,
   PRE_VAULT_BOOTSTRAP: (userId: string) => `pre_vault_bootstrap_${userId}`,
   DEVELOPER_ACCESS: (userId: string) => `developer_access_${userId}`,
   ACTIVE_CONSENTS: (userId: string) => `active_consents_${userId}`,

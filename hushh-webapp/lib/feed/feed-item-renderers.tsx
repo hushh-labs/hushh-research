@@ -22,6 +22,10 @@ export type FeedItemPresentation = {
   label: string;
   description: string;
   href: string | null;
+  person?: {
+    displayName: string;
+    photoUrl: string | null;
+  } | null;
 };
 
 const DOMAIN_ICON: Record<FeedSourceDomain, LucideIcon> = {
@@ -42,7 +46,24 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   connections: "Connections",
 };
 
-function metadataString(metadata: Record<string, unknown>, key: string): string {
+/**
+ * True when this row is an emergency SOS rather than an ordinary share.
+ *
+ * The lane split is "sos" vs everything else, matching _is_sos_lane in
+ * one_location_agent_service.py -- not one lane per share kind. Until
+ * share_kind was added to the feed metadata allowlist this was unknowable
+ * client-side, so an SOS narrated as "Shared location with you", then
+ * "Stopped sharing location": an alert reading as routine activity on the
+ * one screen someone scans to find out what needs them.
+ */
+function isSosShare(metadata: Record<string, unknown>): boolean {
+  return metadataString(metadata, "share_kind").toLowerCase() === "sos";
+}
+
+function metadataString(
+  metadata: Record<string, unknown>,
+  key: string,
+): string {
   const value = metadata[key];
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
@@ -75,8 +96,9 @@ function metadataDurationLabel(
  * Resolve the most identifying name available for a feed counterparty.
  *
  * Order: a pre-resolved label the backend already chose, then display name,
- * then first name, then a phone number, and only "Someone" as an absolute last
- * resort when nothing identifying exists. `counterpart_label` is preferred
+ * then first name, and only "Someone" as an absolute last resort when nothing
+ * identifying exists. Raw phone fields never belong in the plaintext Feed.
+ * `counterpart_label` is preferred
  * because the backend has already applied its own privacy rules to it — this
  * helper never widens what the row exposes, it only stops falling back to
  * "Someone" when a real identifier is present in the row.
@@ -86,11 +108,32 @@ function resolveCounterpartName(metadata: Record<string, unknown>): string {
     metadataString(metadata, "counterpart_label") ||
     metadataString(metadata, "display_name") ||
     metadataString(metadata, "first_name") ||
-    metadataString(metadata, "phone_number") ||
     "Someone"
   );
 }
 
+function resolveCounterpartPhotoUrl(
+  metadata: Record<string, unknown>,
+): string | null {
+  return (
+    metadataString(metadata, "counterpart_photo_url") ||
+    metadataString(metadata, "counterpartPhotoUrl") ||
+    metadataString(metadata, "photo_url") ||
+    metadataString(metadata, "photoUrl") ||
+    null
+  );
+}
+
+function counterpartPerson(
+  metadata: Record<string, unknown>,
+  displayName: string,
+): FeedItemPresentation["person"] {
+  if (displayName === "Someone") return null;
+  return {
+    displayName,
+    photoUrl: resolveCounterpartPhotoUrl(metadata),
+  };
+}
 
 /**
  * One line per event_type. Wording lives here, not in the backend row, so
@@ -99,8 +142,10 @@ function resolveCounterpartName(metadata: Record<string, unknown>): string {
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
-  const scope = metadataString(item.metadata, "scope_description") || metadataString(item.metadata, "scope");
-  // Best-available name for the other party (label → display → first → phone →
+  const scope =
+    metadataString(item.metadata, "scope_description") ||
+    metadataString(item.metadata, "scope");
+  // Best-available name for the other party (label → display → first →
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
   const who = resolveCounterpartName(item.metadata);
@@ -133,7 +178,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Consent granted",
-        description: scope ? `You granted ${scope}.` : "You granted a consent request.",
+        description: scope
+          ? `You granted ${scope}.`
+          : "You granted a consent request.",
         href: buildConsentCenterHref("active"),
       };
     case "consent_revoked":
@@ -153,37 +200,109 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "location_share_created": {
       const hasWho = who !== "Someone";
       const shareAmount = metadataDurationLabel(item.metadata, "duration");
+      const isSos = isSosShare(item.metadata);
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         // For an approval-born share this is the requester's ONLY row (152
         // writes it; 153 deliberately does not add a second for the approval),
         // so it names the granted amount that the event metadata carries.
-        description: sharedWithMe
-          ? shareAmount
-            ? `Shared their location with you for ${shareAmount}`
-            : "Shared their location with you"
-          : "You started sharing location",
+        // "SMS", never "SOS". SMS is this product's own name -- Save my
+        // Soul -- not the phone carrier's. The service layer already says so
+        // ("the emergency (SMS / Save My Soul) lane"), the Circle that carries
+        // it is the "SMS Circle", and the notification list says "SMS sharing
+        // stopped with X". The Feed was the one surface calling it an SOS, so
+        // the same alert read as a different feature depending on where you
+        // saw it. The short form is also what keeps these lines on one row at
+        // phone width.
+        description: isSos
+          ? sharedWithMe
+            ? shareAmount
+              ? `SMS for ${shareAmount}`
+              : "Sent you an SMS"
+            : "You sent an SMS"
+          : sharedWithMe
+            ? shareAmount
+              ? `Shared location with you for ${shareAmount}`
+              : "Shared location with you"
+            : "You started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
     case "location_share_revoked": {
       const hasWho = who !== "Someone";
-      const ownerRevoked = metadataString(item.metadata, "reason") === "owner_revoke";
+      const ownerRevoked =
+        metadataString(item.metadata, "reason") === "owner_revoke";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         // `reason` describes what the OWNER did, so on the recipient's row
         // "owner_revoke" is still true and "You stopped sharing location"
         // would be shown to the one person who did not stop anything.
         // Audience decides the sentence; reason only refines the owner's.
+        description: isSosShare(item.metadata)
+          ? sharedWithMe
+            ? "SMS ended"
+            : "You ended your SMS"
+          : sharedWithMe
+            ? "Sharing stopped"
+            : ownerRevoked
+              ? "You stopped sharing"
+              : "Sharing stopped",
+        href: ROUTES.ONE_LOCATION,
+      };
+    }
+    // Being on someone's SMS Circle is the list that receives their Save my
+    // Soul alert, so it decides whether an emergency reaches you at all -- and
+    // it was the one relationship the product changed in silence. Both sides
+    // get a row: the owner sees what they changed, the contact learns what
+    // changed about them. The row's title is already the other person, so
+    // neither line needs to name a subject twice.
+    // "Did they actually look?" is the question a person asks after sharing,
+    // and until now the Feed could not answer it: `location_share_viewed` has
+    // been written on every envelope read since the feature shipped and was
+    // never projected. Only the owner gets this row -- "you viewed their
+    // location" is not news to the person who did the viewing -- and the
+    // projection collapses a whole afternoon of polling into one row per
+    // viewer per day, so watching a live share cannot bury everything else.
+    case "location_share_viewed": {
+      const hasWho = who !== "Someone";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
+        description: "Saw your location",
+        href: ROUTES.ONE_LOCATION,
+      };
+    }
+    case "location_sms_contact_added": {
+      const hasWho = who !== "Someone";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description: sharedWithMe
-          ? "Stopped sharing their location"
-          : ownerRevoked
-            ? "You stopped sharing location"
-            : "Stopped sharing location",
+          ? "Added you to SMS Circle"
+          : "Added to your SMS Circle",
+        href: ROUTES.ONE_LOCATION,
+      };
+    }
+    case "location_sms_contact_removed": {
+      const hasWho = who !== "Someone";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
+        description: sharedWithMe
+          ? "Removed you from SMS Circle"
+          : "Removed from your SMS",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -193,9 +312,18 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         // No audience split: this line names no subject, and the row's title is
         // already the other person, so it reads correctly from both sides.
-        description: "Stopped sharing - time ran out",
+        // Both lines shortened to fit the row on one line at 375px. The
+        // description column is ~197px there, about 30 characters of 13px
+        // Inter, and "Sharing ended when time ran out" is 31 -- which is the
+        // "Stopped sharing - time ran..." QA photographed. Nothing is lost:
+        // the row's title is already the other person, so the sentence never
+        // needed to name a subject.
+        description: isSosShare(item.metadata)
+          ? "SMS ran out of time"
+          : "Ended when time ran out",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -219,8 +347,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? `You asked for ${amount} more`
             : "You asked for more location time"
           : amount
-            ? `You asked to see their location for ${amount}`
-            : "You asked to see their location"
+            ? `You asked to see location for ${amount}`
+            : "You asked to see location"
         : isExtension
           ? amount
             ? `Asked for ${amount} more`
@@ -232,6 +360,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description,
         href: buildOneLocationWorkflowHref({
           requestId: metadataString(item.metadata, "request_id") || undefined,
@@ -243,31 +372,53 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const hasWho = who !== "Someone";
       const isExtension = metadataBool(item.metadata, "is_extension");
       const amount = metadataDurationLabel(item.metadata, "duration");
+      // The word "more" needs the INCREMENT, not the new total. Approving
+      // "30 min more" on a two-hour share now leaves two and a half hours
+      // running (#6256), and `duration_hours` is that total -- rendering it
+      // here would report a thirty-minute top-up as "gave you 2 hours 30 min
+      // more". Rows written before the fix carry no `added_duration_hours`,
+      // and for those the total WAS what the approval granted, so the
+      // fallback keeps their line true rather than blanking it.
+      const addedAmount =
+        metadataDurationLabel(item.metadata, "added_duration") || amount;
+      // Approving an extension of a share that never ends adds nothing and
+      // takes nothing: the share stays open-ended. Without this branch the
+      // fallback above resolves `amount` to the phrase "as long as they need"
+      // and the row reads "You gave them as long as they need more" -- the
+      // exact sentence the push and the bell each grew a branch to stop
+      // saying.
+      const openEndedExtension =
+        isExtension && item.metadata.duration_mode === "until_stopped";
       const asRequester = iAskedForThis;
-      const description = asRequester
-        ? isExtension
-          ? amount
-            ? `Gave you ${amount} more`
-            : "Gave you more location time"
-          : amount
-            ? `Shared their location with you for ${amount}`
-            : "Approved your location request"
-        : isExtension
-          ? amount
-            ? `You gave them ${amount} more`
-            : "You gave them more location time"
-          : amount
-            // Migration 151 stopped forwarding the approval-born
-            // location_share_created row, so this line is now the only report
-            // of that whole tap. It has to say the share STARTED, not just
-            // that a request was answered -- main's wording, carrying the
-            // amount this branch adds.
-            ? `You approved ${amount}. Now sharing.`
-            : "You approved. Now sharing.";
+      const description = openEndedExtension
+        ? asRequester
+          ? "They are still sharing until they stop"
+          : "You are still sharing until you stop"
+        : asRequester
+          ? isExtension
+            ? addedAmount
+              ? `Gave you ${addedAmount} more`
+              : "Gave you more location time"
+            : amount
+              ? `Shared location with you for ${amount}`
+              : "Approved your location request"
+          : isExtension
+            ? addedAmount
+              ? `You gave them ${addedAmount} more`
+              : "You gave them more location time"
+            : amount
+              ? // Migration 151 stopped forwarding the approval-born
+                // location_share_created row, so this line is now the only report
+                // of that whole tap. It has to say the share STARTED, not just
+                // that a request was answered -- main's wording, carrying the
+                // amount this branch adds.
+                `You approved sharing for ${amount}`
+              : "You approved sharing";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description,
         href: ROUTES.ONE_LOCATION,
       };
@@ -278,7 +429,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const asRequester = iAskedForThis;
       const description = asRequester
         ? isExtension
-          ? "Declined the extra time — your current access is unchanged"
+          ? "Extra time declined"
           : "Declined your location request"
         : isExtension
           ? "You declined the extra time"
@@ -287,6 +438,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
         description,
         href: ROUTES.ONE_LOCATION,
       };
@@ -299,10 +451,142 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: ownerShortened
-          ? "You shortened their location access"
-          : "Gave back their remaining time early",
-        href: ROUTES.ONE_LOCATION,
+        person: counterpartPerson(item.metadata, who),
+        description: sharedWithMe
+          ? ownerShortened
+            ? "Shortened your location access"
+            : "You gave back your remaining time early"
+          : ownerShortened
+            ? "You shortened location access"
+            : "Gave back remaining time early",
+        href: buildOneLocationWorkflowHref({
+          grantId: metadataString(item.metadata, "grant_id") || undefined,
+          section: sharedWithMe ? "people" : "shared",
+        }),
+      };
+    }
+    case "location_share_duration_changed": {
+      const hasWho = who !== "Someone";
+      const direction = metadataString(item.metadata, "direction");
+      const description = sharedWithMe
+        ? direction === "until_stopped"
+          ? "Sharing until they stop"
+          : direction === "extended"
+            ? "Gave you more time"
+            : "Shortened your location access"
+        : direction === "until_stopped"
+          ? "You changed sharing to until you stop"
+          : direction === "extended"
+            ? "You gave them more time"
+            : "You shortened access";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        person: counterpartPerson(item.metadata, who),
+        description,
+        href: buildOneLocationWorkflowHref({
+          grantId: metadataString(item.metadata, "grant_id") || undefined,
+          section: sharedWithMe ? "people" : "shared",
+        }),
+      };
+    }
+    case "location_access_request_withdrawn": {
+      const hasWho = who !== "Someone";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location request",
+        person: counterpartPerson(item.metadata, who),
+        description: iAskedForThis
+          ? "You took back your location request"
+          : "Took back location request",
+        href: buildOneLocationWorkflowHref({
+          requestId: metadataString(item.metadata, "request_id") || undefined,
+          section: iAskedForThis ? "my_requests" : "approvals",
+        }),
+      };
+    }
+    case "location_referral_invite": {
+      const ownerLabel = metadataString(item.metadata, "owner_label");
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "Location referral",
+        person: counterpartPerson(item.metadata, who),
+        description: ownerLabel
+          ? `Referred you into a location request for ${ownerLabel}`
+          : "Referred you into a location request",
+        href: buildOneLocationWorkflowHref({
+          requestId: metadataString(item.metadata, "request_id") || undefined,
+          referralId: metadataString(item.metadata, "referral_id") || undefined,
+          section: "my_requests",
+        }),
+      };
+    }
+    case "location_public_invite_submitted": {
+      const publicLocationViewed = metadataBool(
+        item.metadata,
+        "public_location_view",
+      );
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "Public location link",
+        person: counterpartPerson(item.metadata, who),
+        description: publicLocationViewed
+          ? "Opened your public location link"
+          : "Requested location access from your public link",
+        href: buildOneLocationWorkflowHref({
+          requestId: metadataString(item.metadata, "request_id") || undefined,
+          submissionId:
+            metadataString(item.metadata, "submission_id") || undefined,
+          section: "public_responses",
+        }),
+      };
+    }
+    case "location_one_network_joined": {
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "One Network",
+        person: counterpartPerson(item.metadata, who),
+        description: sharedWithMe
+          ? "You joined the One Network"
+          : "Joined your One Network",
+        href: buildOneLocationWorkflowHref({ section: "people" }),
+      };
+    }
+    case "location_circle_code_joined": {
+      const circleName = metadataString(item.metadata, "circle_name");
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "Circle member",
+        person: counterpartPerson(item.metadata, who),
+        description: circleName
+          ? `Joined ${circleName} using your code`
+          : "Joined your Circle using your code",
+        href: buildOneLocationWorkflowHref({
+          circleId: metadataString(item.metadata, "circle_id") || undefined,
+          section: "people",
+        }),
+      };
+    }
+    case "location_circle_member_invite_accepted": {
+      const circleName = metadataString(item.metadata, "circle_name");
+      return {
+        icon,
+        domainLabel,
+        label: who !== "Someone" ? who : "Circle member",
+        person: counterpartPerson(item.metadata, who),
+        description: circleName
+          ? `Accepted your invitation and joined ${circleName}`
+          : "Accepted your invitation and joined your Circle",
+        href: buildOneLocationWorkflowHref({
+          circleId: metadataString(item.metadata, "circle_id") || undefined,
+          section: "people",
+        }),
       };
     }
     case "circle_member_invited": {
@@ -335,7 +619,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: addedBy
           ? circleName
             ? `${addedBy} added you to ${circleName}.`
-            : `${addedBy} added you to their Circle.`
+            : `${addedBy} added you to a Circle.`
           : circleName
             ? `You were added to ${circleName}.`
             : "You were added to a Circle.",
@@ -350,14 +634,44 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Analysis ready",
-        description: ticker ? `One finished analyzing ${ticker}.` : "One finished an analysis.",
+        description: ticker
+          ? `One finished analyzing ${ticker}.`
+          : "One finished an analysis.",
         href: ticker
           ? buildKaiMarketRoute("analysis", { ticker })
           : buildKaiMarketRoute("analysis"),
       };
     }
+    case "funding_transfer_status": {
+      const status = metadataString(item.metadata, "user_facing_status");
+      const direction = metadataString(
+        item.metadata,
+        "direction",
+      ).toUpperCase();
+      const transferKind = direction === "OUTGOING" ? "withdrawal" : "deposit";
+      const statusCopy =
+        status === "completed"
+          ? "completed"
+          : status === "failed"
+            ? "failed"
+            : status === "returned"
+              ? "was returned"
+              : status === "canceled"
+                ? "was canceled"
+                : "was updated";
+      return {
+        icon,
+        domainLabel,
+        label: "Funding transfer",
+        description: `Your ${transferKind} ${statusCopy}`,
+        href: ROUTES.KAI_PORTFOLIO,
+      };
+    }
     case "kyc_status_changed": {
-      const status = metadataString(item.metadata, "new_status").replace(/_/g, " ");
+      const status = metadataString(item.metadata, "new_status").replace(
+        /_/g,
+        " ",
+      );
       return {
         icon,
         domainLabel,
@@ -403,6 +717,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
+        person: counterpartPerson(item.metadata, who),
         description: !hasWho
           ? "A connection was accepted."
           : actorIsSelf
@@ -418,6 +733,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
+        person: counterpartPerson(item.metadata, who),
         description: !hasWho
           ? "A connection request was rejected."
           : actorIsSelf
@@ -433,6 +749,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
+        person: counterpartPerson(item.metadata, who),
         description: !hasWho
           ? "A connection was removed."
           : actorIsSelf

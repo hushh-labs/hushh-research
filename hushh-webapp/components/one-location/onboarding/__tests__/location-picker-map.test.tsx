@@ -118,6 +118,25 @@ describe("LocationPickerMap", () => {
     expect(mapsHookMock).toHaveBeenLastCalledWith({ enabled: true });
   });
 
+  it("keeps the pin action footer on an opaque safe-area surface", () => {
+    render(
+      <LocationPickerMap
+        initialLatitude={28.6139}
+        initialLongitude={77.209}
+        initialAddress="New Delhi 110001, India"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    const footer = screen.getByRole("button", { name: "Confirm location" })
+      .parentElement!;
+    expect(footer.className).toContain("bg-background");
+    expect(footer.className).toContain(
+      "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
+    );
+  });
+
 
   it("blocks confirmation until the moved centre has a matching address", async () => {
     vi.useFakeTimers();

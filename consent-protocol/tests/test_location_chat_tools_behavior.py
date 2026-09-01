@@ -1,6 +1,5 @@
 """Regression tests for the fixes that came out of manual testing:
 
-- the model must be able to discover real grant ids (list_active_location_shares)
 - a guessed / non-UUID id must fail cleanly BEFORE hitting Postgres
 - the runner's function declarations must not drift from the tool allow-list
 
@@ -16,10 +15,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from google.genai import types
 
-from hushh_mcp.agents.location import tools
 from hushh_mcp.agents.location import tools as loc_tools
 from hushh_mcp.agents.location.tools import (
-    CONTROL_PLANE_LOCATION_TOOLS,
+    V2_LOCATION_TOOLS,
     propose_location_view,
     propose_public_link,
 )
@@ -30,76 +28,9 @@ _VALID_UUID = "22e4345c-b84f-4789-853e-f77010b32f91"
 _HALLUCINATED = "_-HKa9Do8xBsyZOB-MDeVIWZTFkaSc7pJ5zunMh5mSU"
 
 
-async def test_list_active_shares_returns_only_active_grants_with_ids(monkeypatch):
-    class _Svc:
-        def list_state(self, *, user_id):
-            return {
-                "ownerGrants": [
-                    {
-                        "id": "g-active",
-                        "status": "active",
-                        "recipientUserId": "r1",
-                        "recipientDisplayName": "Mom",
-                        "expiresAt": "2026-06-28T10:00:00Z",
-                    },
-                    {"id": "g-revoked", "status": "revoked", "recipientDisplayName": "Dad"},
-                ]
-            }
-
-    monkeypatch.setattr(tools, "_service", lambda: _Svc())
-
-    with HushhContext(user_id="u", consent_token="t", vault_keys={}):  # noqa: S106
-        out = await tools.list_active_location_shares.__wrapped__()
-
-    assert out == {
-        "activeShares": [
-            {
-                "grantId": "g-active",
-                "recipientUserId": "r1",
-                "recipientDisplayName": "Mom",
-                "expiresAt": "2026-06-28T10:00:00Z",
-            }
-        ]
-    }
-
-
-async def test_revoke_rejects_hallucinated_id_before_touching_db(monkeypatch):
-    calls: list = []
-
-    class _Svc:
-        def revoke_grant(self, **kwargs):
-            calls.append(kwargs)
-            return {}
-
-    monkeypatch.setattr(tools, "_service", lambda: _Svc())
-
-    with HushhContext(user_id="u", consent_token="t", vault_keys={}):  # noqa: S106
-        with pytest.raises(ValueError):
-            await tools.revoke_location_share.__wrapped__(grant_id=_HALLUCINATED)
-
-    assert calls == []  # the bad id never reached the database
-
-
-async def test_revoke_passes_valid_uuid_through_to_service(monkeypatch):
-    calls: list = []
-
-    class _Svc:
-        def revoke_grant(self, **kwargs):
-            calls.append(kwargs)
-            return {"status": "revoked"}
-
-    monkeypatch.setattr(tools, "_service", lambda: _Svc())
-
-    with HushhContext(user_id="owner-1", consent_token="t", vault_keys={}):  # noqa: S106
-        out = await tools.revoke_location_share.__wrapped__(grant_id=_VALID_UUID)
-
-    assert out == {"status": "revoked"}
-    assert calls == [{"owner_user_id": "owner-1", "grant_id": _VALID_UUID}]
-
-
-def test_function_declarations_match_control_plane_tools():
+def test_function_declarations_match_location_tools():
     declared = {decl.name for decl in _function_declarations(types)}
-    tool_names = {t._name for t in CONTROL_PLANE_LOCATION_TOOLS}
+    tool_names = {t._name for t in V2_LOCATION_TOOLS}
     assert declared == tool_names
 
 
@@ -134,109 +65,50 @@ async def test_propose_location_view_rejects_non_uuid():
             await propose_location_view.__wrapped__("not-a-uuid")
 
 
-class _FakeSvc:
-    def list_verified_recipients(self, *, owner_user_id, limit=50):
-        return [
-            {"userId": "u-mom", "displayName": "Mom", "keyId": "k-mom", "canReceiveLocation": True},
-            {"userId": "u-kid", "displayName": "Kid", "keyId": None, "canReceiveLocation": False},
-        ]
+class _IncomingSvc:
+    def __init__(self, expires_at: str) -> None:
+        self._expires_at = expires_at
 
     def list_state(self, *, user_id):
         return {
-            "ownerGrants": [
+            "receivedGrants": [
                 {
                     "id": "g1",
-                    "recipientDisplayName": "Mom",
-                    "expiresAt": "later",
+                    "ownerDisplayName": "Mom",
+                    "expiresAt": self._expires_at,
                     "status": "active",
-                }
-            ],
-            "receivedGrants": [],
-            "requests": [],
+                },
+                {"id": "g-expired", "ownerDisplayName": "Dad", "status": "revoked"},
+            ]
         }
 
 
-async def test_request_recipient_choice_options_carry_real_ids_and_public_link(monkeypatch):
-    monkeypatch.setattr(loc_tools, "_service", lambda: _FakeSvc())
+async def test_request_incoming_choice_options_carry_real_grant_ids(monkeypatch):
+    # request_incoming_choice calls _expiry_hint without an explicit `now`, so the
+    # fixture timestamp must be relative to real wall-clock time, not a fixed date.
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
+    monkeypatch.setattr(loc_tools, "_service", lambda: _IncomingSvc(expires_at))
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
-        out = await loc_tools.request_recipient_choice.__wrapped__()
+        out = await loc_tools.request_incoming_choice.__wrapped__()
     prompt = out["prompt"]
-    assert prompt["kind"] == "select" and prompt["purpose"] == "select_recipient"
-    assert prompt["options"][0]["ref"] == {"recipientUserId": "u-mom", "recipientKeyId": "k-mom"}
-    assert prompt["options"][1]["hint"] == "hasn't set up location yet"
-    assert prompt["options"][-1]["ref"] == {"publicLink": True}
+    assert prompt["kind"] == "select" and prompt["purpose"] == "select_incoming"
+    assert prompt["options"] == [
+        {"label": "Mom", "ref": {"grantId": "g1"}, "hint": "expires in 3 hours"}
+    ]
     # coordinate-free
     blob = repr(out).lower()
     assert "latitude" not in blob and "longitude" not in blob and "lat" not in blob.split("late")[0]
 
 
-class _DupNameSvc:
-    """Directory with two contacts sharing the same display name."""
+async def test_request_incoming_choice_empty_when_no_active_grants(monkeypatch):
+    class _NoneSvc:
+        def list_state(self, *, user_id):
+            return {"receivedGrants": []}
 
-    def list_verified_recipients(self, *, owner_user_id, limit=50):
-        return [
-            {
-                "userId": "u-abdul",
-                "displayName": "Abdul Zalil",
-                "keyId": "k1",
-                "canReceiveLocation": True,
-            },
-            {
-                "userId": "u-neel-1",
-                "displayName": "Neelesh Meena",
-                "keyId": "k2",
-                "canReceiveLocation": True,
-            },
-            {
-                "userId": "u-gautam",
-                "displayName": "Gautam Ahuja",
-                "keyId": "k3",
-                "canReceiveLocation": True,
-            },
-            {
-                "userId": "u-neel-2",
-                "displayName": "Neelesh Meena",
-                "keyId": "k4",
-                "canReceiveLocation": True,
-            },
-        ]
-
-
-async def test_request_recipient_choice_filters_to_named_matches(monkeypatch):
-    # Disambiguation bug: when the user named a person that matches >1 contact,
-    # the picker must show ONLY those matches, not the whole directory, and must
-    # not offer a public link (the user named a specific person).
-    monkeypatch.setattr(loc_tools, "_service", lambda: _DupNameSvc())
+    monkeypatch.setattr(loc_tools, "_service", lambda: _NoneSvc())
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
-        out = await loc_tools.request_recipient_choice.__wrapped__(name="Neelesh Meena")
-    prompt = out["prompt"]
-    labels = [o["label"] for o in prompt["options"]]
-    assert labels == ["Neelesh Meena", "Neelesh Meena"]
-    refs = [o["ref"] for o in prompt["options"]]
-    assert {"recipientUserId": "u-neel-1", "recipientKeyId": "k2"} in refs
-    assert {"recipientUserId": "u-neel-2", "recipientKeyId": "k4"} in refs
-    assert all("publicLink" not in o["ref"] for o in prompt["options"])
-    assert "Neelesh Meena" in prompt["question"]
-
-
-async def test_request_recipient_choice_falls_back_when_name_unmatched(monkeypatch):
-    # A name that matches nothing must not strand the user with an empty picker:
-    # fall back to the full directory (with the public-link escape hatch).
-    monkeypatch.setattr(loc_tools, "_service", lambda: _DupNameSvc())
-    with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
-        out = await loc_tools.request_recipient_choice.__wrapped__(name="Nobody Here")
-    options = out["prompt"]["options"]
-    assert len(options) == 5  # 4 contacts + public link
-    assert options[-1]["ref"] == {"publicLink": True}
-
-
-async def test_request_active_share_choice_includes_stop_all(monkeypatch):
-    monkeypatch.setattr(loc_tools, "_service", lambda: _FakeSvc())
-    with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
-        out = await loc_tools.request_active_share_choice.__wrapped__()
-    refs = [o["ref"] for o in out["prompt"]["options"]]
-    assert {"grantId": "g1"} in refs
-    assert {"all": True} in refs
+        out = await loc_tools.request_incoming_choice.__wrapped__()
+    assert out == {"incomingShares": []}
 
 
 _NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
@@ -279,7 +151,7 @@ def test_expiry_hint_hours_round_to_nearest():
 
 async def test_request_confirmation_returns_confirm_prompt():
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
-        out = await loc_tools.request_confirmation.__wrapped__("Stop sharing with everyone?", True)
+        out = await loc_tools.request_confirmation.__wrapped__("Revoke your public link?", True)
     assert out["prompt"]["kind"] == "confirm"
     assert out["prompt"]["destructive"] is True
-    assert "everyone" in out["prompt"]["question"]
+    assert "public link" in out["prompt"]["question"]

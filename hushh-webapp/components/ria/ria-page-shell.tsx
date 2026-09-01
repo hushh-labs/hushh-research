@@ -42,7 +42,14 @@ export function RiaPageShell({
   icon = BriefcaseBusiness,
   statusPanel,
   children,
-  width = "standard",
+  // "standard" (90rem / 1440px) matched Connect and Marketplace, but those
+  // are directory-browsing surfaces; RIA's own screens are read-and-act
+  // workspaces, closer in shape to Location's primary surface, which uses
+  // "agent" (880px). At phone width the two are visually identical --
+  // both exceed the viewport, so `width: 100%` governs either way -- the
+  // difference shows up on an iPad or any Capacitor window wider than a
+  // phone, which is where "very wide, wrong container" was reported from.
+  width = "agent",
   className,
   headerClassName,
   contentClassName,

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -100,6 +100,16 @@ describe("the circle row's second line", () => {
     expect(screen.getByText("SMS")).toBeTruthy();
     expect(screen.getByText("Save My Soul · 1 person")).toBeTruthy();
     expect(screen.queryByTestId("siren")).toBeNull();
+
+    // 36px here, because these rows are 60px tall with their own padding
+    // overrides; Connect's Circles tab draws the same red disc at 28px to sit
+    // in its compact icon well. Connect used to draw a `Siren` in the indigo
+    // well instead, so the same Circle looked like two different things.
+    const mark = screen.getByTestId("one-location-circle-sms-mark");
+    expect(mark.className).toContain("bg-[color:var(--app-destructive)]");
+    expect(mark.className).toContain("rounded-full");
+    expect(mark.className).toContain("h-9");
+    expect(mark.className).toContain("w-9");
   });
 
   it("uses a neutral identity for ordinary Circles", () => {
@@ -107,5 +117,58 @@ describe("the circle row's second line", () => {
       circle({ id: "c_neutral", name: "Trusted", systemKind: "trusted" }),
     ]);
     expect(screen.getByTestId("one-location-circle-neutral-mark")).toBeTruthy();
+  });
+
+  it("groups every Circle by ownership, including built-in Circles", () => {
+    renderCircles([
+      circle({ id: "joined_1", name: "Road Trip", role: "member" }),
+      circle({ id: "owned_1", name: "Family", role: "owner" }),
+      circle({
+        id: "built_in_trusted",
+        name: "Trusted",
+        role: "owner",
+        systemKind: "trusted",
+      }),
+      circle({ id: "owned_2", name: "Close Friends", role: "owner" }),
+      circle({
+        id: "owned_sms",
+        name: "Emergency Circle",
+        role: "owner",
+        memberCount: 2,
+        isSystem: true,
+        systemKind: "sms",
+      }),
+      circle({
+        id: "joined_sms",
+        name: "Alice's SMS Circle",
+        role: "member",
+        isSystem: true,
+        systemKind: "sms",
+      }),
+    ]);
+
+    const created = screen.getByTestId("one-location-circle-group-created");
+    const joined = screen.getByTestId("one-location-circle-group-joined");
+
+    expect(within(created).getByText("Created by you")).toBeTruthy();
+    expect(within(created).getByText("Family")).toBeTruthy();
+    expect(within(created).getByText("Close Friends")).toBeTruthy();
+    expect(within(created).getByText("Trusted")).toBeTruthy();
+    expect(within(created).getByText("Emergency Circle")).toBeTruthy();
+    expect(within(created).getByText("Save My Soul · 1 person")).toBeTruthy();
+    expect(within(created).queryByText("Road Trip")).toBeNull();
+    expect(within(created).queryByText("Alice's SMS Circle")).toBeNull();
+
+    expect(within(joined).getByText("Joined circles")).toBeTruthy();
+    expect(within(joined).getByText("Road Trip")).toBeTruthy();
+    expect(within(joined).getByText("Alice's SMS Circle")).toBeTruthy();
+    expect(within(joined).getByText("Save My Soul · Only you")).toBeTruthy();
+    expect(within(joined).queryByText("Family")).toBeNull();
+    expect(within(joined).queryByText("Trusted")).toBeNull();
+
+    expect(screen.queryByText("Built-in")).toBeNull();
+    expect(
+      screen.queryByTestId("one-location-circle-group-built-in"),
+    ).toBeNull();
   });
 });

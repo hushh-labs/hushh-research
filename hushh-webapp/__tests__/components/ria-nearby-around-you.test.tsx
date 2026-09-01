@@ -182,7 +182,107 @@ async function openAPlace() {
   fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 }
 
+function chooseCountry(code: string, name: string) {
+  const country = screen.getByLabelText(/^country code$/i);
+  fireEvent.focus(country);
+  expect(
+    screen.getByRole("option", { name: `${code} - ${name}` }),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("option", { name: `${code} - ${name}` }));
+}
+
+function shortlistedProspectsSection() {
+  return screen.getByRole("heading", { name: /shortlisted prospects/i }).closest("section");
+}
+
 describe("Around you", () => {
+  it("shows saved shortlisted prospects before another place search", async () => {
+    mockListShortlist.mockResolvedValue([
+      {
+        id: "shortlist-1",
+        target_key: "nws:persisted_1",
+        status: "shortlisted",
+        profile: {
+          displayName: "Saved Prospect",
+          headline: "Founder",
+          organization: "Saved Office",
+          locationLabel: "Kirkland public association",
+        },
+        updated_at: "2026-08-27T00:00:00.000Z",
+      },
+    ]);
+
+    render(<NearbyAroundYou />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Saved Prospect")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText("Founder - Saved Office - Kirkland public association"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/look around a place/i)).toBeInTheDocument();
+    expect(mockDiscover).not.toHaveBeenCalled();
+  });
+
+  it("removes saved shortlisted prospects through the existing pass action", async () => {
+    mockListShortlist.mockResolvedValue([
+      {
+        id: "shortlist-1",
+        target_key: "nws:persisted_1",
+        status: "shortlisted",
+        profile: {
+          displayName: "Saved Prospect",
+          headline: "Founder",
+          organization: "Saved Office",
+          nearbyRankScore: 77.4,
+          globalNws: 70.1,
+          locationLabel: "Kirkland public association",
+        },
+        updated_at: "2026-08-27T00:00:00.000Z",
+      },
+    ]);
+    mockShortlist.mockResolvedValue({
+      id: "shortlist-1",
+      target_key: "nws:persisted_1",
+      status: "passed",
+      profile: {},
+      updated_at: "2026-08-27T00:00:00.000Z",
+    });
+
+    render(<NearbyAroundYou />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Saved Prospect")).toBeInTheDocument(),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /remove saved prospect from shortlisted prospects/i }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("Saved Prospect")).not.toBeInTheDocument(),
+    );
+    expect(mockShortlist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idToken: "token",
+        action: "pass",
+        record: expect.objectContaining({
+          personId: "persisted_1",
+          displayName: "Saved Prospect",
+        }),
+      }),
+    );
+  });
+
+  it("keeps empty shortlist state clear before search", async () => {
+    render(<NearbyAroundYou />);
+
+    await waitFor(() =>
+      expect(screen.getByText("No shortlisted prospects yet.")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Star a public record to save it here.")).toBeInTheDocument();
+    expect(screen.getByText(/look around a place/i)).toBeInTheDocument();
+  });
+
   it("does not show the location form until it is asked for", async () => {
     render(<NearbyAroundYou />);
 
@@ -260,6 +360,121 @@ describe("Around you", () => {
 
 
 describe("what the list actually shows", () => {
+  it("marks an already-shortlisted search result without duplicating the saved prospect row", async () => {
+    mockListShortlist.mockResolvedValue([
+      {
+        id: "shortlist-b1",
+        target_key: "nws:b1",
+        status: "shortlisted",
+        profile: {
+          displayName: "Builder One",
+          headline: "CEO",
+          organization: "Monolithic Power Systems",
+        },
+        updated_at: "2026-08-27T00:00:00.000Z",
+      },
+    ]);
+
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+
+    expect(screen.getByLabelText("Shortlisted")).toBeInTheDocument();
+    expect(
+      within(shortlistedProspectsSection()!).getAllByText("Builder One"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the shortlist row absent when a new shortlist request fails", async () => {
+    mockShortlist.mockRejectedValue(new Error("offline"));
+
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("Builder One"));
+    fireEvent.click(await screen.findByRole("button", { name: /^shortlist$/i }));
+
+    await waitFor(() => expect(mockShortlist).toHaveBeenCalledTimes(1));
+    const close = screen.queryByRole("button", { name: /close detail panel/i });
+    if (close) fireEvent.click(close);
+    expect(screen.queryAllByLabelText("Shortlisted")).toHaveLength(0);
+    expect(
+      within(shortlistedProspectsSection()!).queryByText("Builder One"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("removing a saved prospect clears the star on its visible search result", async () => {
+    mockListShortlist.mockResolvedValue([
+      {
+        id: "shortlist-b1",
+        target_key: "nws:b1",
+        status: "shortlisted",
+        profile: {
+          displayName: "Builder One",
+          headline: "CEO",
+          organization: "Monolithic Power Systems",
+        },
+        updated_at: "2026-08-27T00:00:00.000Z",
+      },
+    ]);
+    mockShortlist.mockResolvedValue({
+      id: "shortlist-b1",
+      target_key: "nws:b1",
+      status: "passed",
+      profile: {},
+      updated_at: "2026-08-27T00:00:00.000Z",
+    });
+
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByLabelText("Shortlisted")).toBeInTheDocument());
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /remove builder one from shortlisted prospects/i }),
+    );
+
+    await waitFor(() => expect(screen.queryAllByLabelText("Shortlisted")).toHaveLength(0));
+    expect(mockShortlist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "pass",
+        record: expect.objectContaining({ personId: "b1" }),
+      }),
+    );
+  });
+
+  it("restores a saved prospect when removal fails", async () => {
+    mockListShortlist.mockResolvedValue([
+      {
+        id: "shortlist-b1",
+        target_key: "nws:b1",
+        status: "shortlisted",
+        profile: {
+          displayName: "Builder One",
+          headline: "CEO",
+          organization: "Monolithic Power Systems",
+        },
+        updated_at: "2026-08-27T00:00:00.000Z",
+      },
+    ]);
+    mockShortlist.mockRejectedValue(new Error("offline"));
+
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByLabelText("Shortlisted")).toBeInTheDocument());
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /remove builder one from shortlisted prospects/i }),
+    );
+
+    await waitFor(() =>
+      expect(
+        within(shortlistedProspectsSection()!).getByText("Builder One"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("Shortlisted")).toBeInTheDocument();
+  });
+
   it("shows a ranked few rather than everything the service returned", async () => {
     render(<NearbyAroundYou />);
     await openAPlace();
@@ -320,13 +535,14 @@ describe("filters only offer what exists", () => {
 
     // The reviewed release grades every record B. Offering A would return an
     // empty screen — the same dead-option trap the empty lane chips had.
-    expect(screen.getByRole("button", { name: /^B$/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^A$/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^C$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^B$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /^A$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /^C$/ })).not.toBeInTheDocument();
 
-    // Two now: the lane chip plus the confidence "All", which always stands
-    // because it can never come back empty.
-    expect(screen.getAllByRole("button", { name: /^All$/ })).toHaveLength(2);
+    // The lane chip remains an action while the canonical confidence selector
+    // exposes its own "All" option with tab semantics.
+    expect(screen.getAllByRole("button", { name: /^All$/ })).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: /^All$/ })).toBeInTheDocument();
   });
 });
 
@@ -384,13 +600,53 @@ describe("national index", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() => expect(screen.getByText("94010 US")).toBeInTheDocument());
+    expect(mockDiscover.mock.calls[0][0].anchor).toMatchObject({
+      kind: "postal",
+      postalCode: "94010",
+      countryCode: "US",
+    });
     expect(
       screen.queryByText(/United States national public-association index/i),
     ).not.toBeInTheDocument();
+  });
+
+  it("lets advisors choose a country by name while sending the ISO code", async () => {
+    mockDiscover.mockResolvedValue(NOT_COVERED);
+
+    render(<NearbyAroundYou />);
+    fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    const country = screen.getByLabelText(/^country code$/i);
+    fireEvent.focus(country);
+    const codeOptions = screen
+      .getAllByRole("option")
+      .map((option) => option.getAttribute("value"))
+      .filter(Boolean);
+    expect(codeOptions.slice(0, 3)).toEqual(["AD", "AE", "AF"]);
+    expect(screen.getByTestId("nearby-place-postal-country-row")).toHaveClass(
+      "flex-col",
+      "sm:flex-row",
+    );
+    expect(country).toHaveAttribute("role", "combobox");
+    expect(country).toHaveClass("h-11", "w-full", "uppercase");
+    fireEvent.change(country, { target: { value: "IN" } });
+    expect(screen.getByRole("option", { name: "IN - India" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "US - United States" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "560001" } });
+    fireEvent.click(screen.getByRole("option", { name: "IN - India" }));
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/no records here yet/i)).toBeInTheDocument(),
+    );
+    expect(mockDiscover.mock.calls[0][0].anchor).toMatchObject({
+      kind: "postal",
+      postalCode: "560001",
+      countryCode: "IN",
+    });
   });
 
   it("says the list is partial when a source is down", async () => {
@@ -409,7 +665,7 @@ describe("national index", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() => expect(screen.getByText(/Partial — a source is down/i)).toBeInTheDocument());
@@ -429,7 +685,7 @@ describe("national index", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
@@ -452,7 +708,7 @@ describe("national index", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "20500" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() =>
@@ -492,7 +748,7 @@ describe("score regime", () => {
     render(<NearbyAroundYou />);
     fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
-    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    chooseCountry("US", "United States");
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());

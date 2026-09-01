@@ -861,6 +861,41 @@
     }
   },
   {
+    "route": "/one/puppy",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/puppy/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.puppy",
+      "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    }
+  },
+  {
     "route": "/connected-systems",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route only launches the canonical /one/connected-systems surface.",
@@ -4302,6 +4337,52 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/people/[personRef]",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/person-profile-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "PageHeader",
+        "SectionCard",
+        "usePublishVoiceSurfaceMetadata"
+      ]
+    },
+    "interactionLayerPolicy": {
+      "allowedFamilies": [
+        "information_request_review"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.people.person_profile",
+      "purpose": "Help the signed-in viewer understand relationship, requestable information, grants, and request history without exposing private values.",
+      "screen": "one_person_profile",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": "people.profile.review_information_request",
+      "happyPathActionIds": [
+        "people.profile.connect",
+        "people.profile.review_information_request",
+        "people.profile.cancel_connection_request",
+        "people.profile.remove_connection",
+        "people.profile.manage_consent"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the relationship, vault, or field-selection guard without implying access.",
+        "cancelled": "Respect the cancellation and preserve the current profile state.",
+        "failed": "Acknowledge the failure without claiming the request, connection, or consent changed.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Keep the profile open and explain that the action could not be verified.",
+        "routeMismatch": "Use only the verified public person profile route and its generated actions."
+      },
+      "completionBoundary": "Completion is spoken only after the browser settles the exact mounted action; information values still require a separate active grant and local decryption.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never infer or expose private information."
     }
   },
   {

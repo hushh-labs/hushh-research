@@ -116,10 +116,10 @@ export function locationConsentSummary(metadata: MetadataLike): string {
     if (shareMessage) {
       return `${who}: ${shareMessage}`;
     }
-    return `${who} checked in and shared their location with you${durationSuffix}.`;
+    return `${who} checked in and shared location with you${durationSuffix}.`;
   }
   if (shareKind === "share") {
-    return `${who} is sharing their location with you${durationSuffix}.`;
+    return `${who} is sharing location with you${durationSuffix}.`;
   }
   if (durationLabel) {
     return `${who} wants to see your location for ${durationLabel}.`;

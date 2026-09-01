@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  GRANT_EDIT_DURATION_FALLBACK,
-  defaultEditDurationHours,
   grantDurationEditIntent,
   grantRemainingHours,
 } from "@/lib/one-location/grant-duration-edit";
@@ -40,40 +38,6 @@ describe("grantRemainingHours", () => {
   it("has no answer for a grant carrying neither", () => {
     expect(grantRemainingHours(grant({}), NOW)).toBeNull();
     expect(grantRemainingHours(null, NOW)).toBeNull();
-  });
-});
-
-describe("defaultEditDurationHours", () => {
-  // The reported bug: the editor opened on "1 hour" over a row that said
-  // "30 more min", so the field was never the share's current duration.
-  it("opens on the option nearest what is actually left", () => {
-    expect(defaultEditDurationHours(grant({ expiresAt: inMinutes(30) }), NOW)).toBe(
-      "0.5",
-    );
-    expect(defaultEditDurationHours(grant({ expiresAt: inMinutes(59) }), NOW)).toBe(
-      "1",
-    );
-    expect(defaultEditDurationHours(grant({ expiresAt: inMinutes(200) }), NOW)).toBe(
-      "4",
-    );
-    expect(defaultEditDurationHours(grant({ expiresAt: inMinutes(1200) }), NOW)).toBe(
-      "24",
-    );
-  });
-
-  it("never proposes more than the longest option, however far off the expiry is", () => {
-    expect(
-      defaultEditDurationHours(grant({ expiresAt: "2099-05-20T08:00:00.000Z" }), NOW),
-    ).toBe("24");
-  });
-
-  it("falls back when the grant says nothing usable about its length", () => {
-    expect(defaultEditDurationHours(grant({}), NOW)).toBe(
-      GRANT_EDIT_DURATION_FALLBACK,
-    );
-    expect(defaultEditDurationHours(grant({ expiresAt: "not a date" }), NOW)).toBe(
-      GRANT_EDIT_DURATION_FALLBACK,
-    );
   });
 });
 

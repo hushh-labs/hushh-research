@@ -21,6 +21,7 @@ export function KaiControlSurface({
   bodyClassName,
   contentClassName,
   surfaceClassName,
+  showMobileCloseButton,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -33,6 +34,7 @@ export function KaiControlSurface({
   bodyClassName?: string;
   contentClassName?: string;
   surfaceClassName?: string;
+  showMobileCloseButton?: boolean;
 }) {
   return (
     <AdaptiveDetailSurface
@@ -46,6 +48,7 @@ export function KaiControlSurface({
       bodyClassName={bodyClassName}
       contentClassName={contentClassName}
       surfaceClassName={surfaceClassName}
+      showMobileCloseButton={showMobileCloseButton}
       mobilePresentation="sheet"
       desktopMaxWidthClassName="sm:!max-w-[min(42rem,calc(100vw-4.5rem))] lg:!max-w-[min(46rem,calc(100vw-8rem))]"
     >

@@ -44,6 +44,15 @@ if has_match '^hushh-webapp/(lib/services/.*(cache|pkm|sync)|__tests__/services/
   ran=1
 fi
 
+# Feed is the notification inbox across web and native. Its contract spans the
+# page, live providers, FCM/SW bridges, navigation handoff, unread/cache state,
+# and the generated browser fixture. Keep that cross-surface pack together so a
+# focused PR cannot update one half while only exercising an unrelated lane.
+if has_match '^(hushh-webapp/(app/one/feed/|app/providers\.tsx|components/(app-ui/settings-ui\.tsx|consent/notification-provider\.tsx|feed/|navbar\.tsx)|lib/(cache/(cache-sync-service|use-stale-resource)\.ts|feed/|notifications/|services/feed-service\.ts|utils/browser-navigation\.ts)|public/firebase-messaging-sw\.js|capacitor\.config\.ts|ios/App/App/AppDelegate\.swift|scripts/(architecture/audit-cache-coherence\.mjs|testing/(capture-feed-needs-you-fixture|verify-signed-in-routes)\.mjs)|e2e/(feed-needs-you-row\.layout\.spec\.ts|fixtures/feed-needs-you-rows\.html)|__tests__/.*(feed|notification-provider|firebase-messaging|fcm-|browser-navigation-pending|navbar-bottom-nav|cache-sync-mutation-cascade|use-stale-resource-lifecycle))|consent-protocol/(api/(routes/one/feed\.py|utils/fcm_messages\.py)|hushh_mcp/services/(account_service|broker_funding_service|feed_service|one_location_agent_service|one_location_circle_service|push_notifications)\.py|db/.*(feed_notification_projection_coverage|circle_feed_durability)|tests/.*(feed|fcm|push_notifications|broker_funding_transfer_notification_task_ref|one_location_list_state_resilience)))'; then
+  run_check "Feed notifications" npm run verify:feed
+  ran=1
+fi
+
 if has_match '^hushh-webapp/(lib/(analytics|observability)|__tests__/services/observability-|scripts/testing/run-observability|scripts/testing/run-uat-analytics|components/.*/.*analytics)'; then
   run_check "analytics contract" npm run verify:analytics
   ran=1
@@ -61,6 +70,11 @@ fi
 
 if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
   run_check "Capacitor static parity" npm run verify:capacitor:static
+  # Signature parity across the three flows. Static parity checks the route
+  # inventory; this checks that a plugin method declared in TypeScript is
+  # actually implemented AND registered on both iOS and Android. A change under
+  # ios/ or android/ is exactly when that can drift.
+  run_check "Capacitor plugin contracts" npm run verify:capacitor:plugins
   ran=1
 fi
 
@@ -84,7 +98,12 @@ fi
 # shape is half the contract: the RIAs tab filters its connections on a row
 # flag that has to survive the service type on its way from the Python half to
 # the screen, and a change confined to that file used to match no pack at all.
-if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/connections-service\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
+# `lib/contacts/` and `contact-matching.ts` are in here because contact sync is
+# shared code with two front doors: the One Location agent and, now, Connect's
+# People section. A change to the region resolver or the matcher is a change to
+# both screens, so both packs have to re-run -- and until this was added, a
+# change confined to `lib/contacts/` matched no pack in the repo at all.
+if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/connections-service\.ts|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
   run_check "Connect people search" npm run verify:connect-search
   ran=1
 fi
@@ -121,7 +140,13 @@ fi
 # caught here, and one of them -- an open-ended duration offered on the Request
 # screen -- emits a non-numeric sentinel into a field the same lane runs
 # Number() over.
-if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/)'; then
+#
+# `google_maps_service.py` is in this glob because the check-in drawer's category
+# chips are its output: the backend classifies every nearby place and the client
+# only filters what it is handed. A taxonomy change is a backend-only diff that
+# nothing on this side would otherwise run -- which is how "Hotels" shipped
+# listing a lounge.
+if has_match '^(hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/hushh_mcp/services/(google_maps_service|place_taxonomy)\.py)'; then
   run_check "One Location flows" npm run verify:one-location
   ran=1
 fi

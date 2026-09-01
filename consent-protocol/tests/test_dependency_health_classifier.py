@@ -52,6 +52,19 @@ def test_dunning_403_is_advisory_so_a_release_may_continue() -> None:
     assert is_advisory(classify_provider_error(_ProviderError(DUNNING_403, 403))) is True
 
 
+def test_depleted_developer_api_prepayment_is_a_provider_availability_failure() -> None:
+    error = _ProviderError(
+        "1011 None. Your prepayment credits are depleted. "
+        "Please go to AI Studio to manage your project and billing",
+        None,
+    )
+
+    classification = classify_provider_error(error)
+
+    assert classification == PROVIDER_UNAVAILABLE
+    assert is_advisory(classification) is True
+
+
 def test_permission_denial_on_a_resource_still_blocks() -> None:
     """A wrong service account is ours to fix, and must keep blocking."""
     error = _ProviderError(

@@ -48,7 +48,7 @@ export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
  * slots first, so a crowded screen loses the actions nobody is looking at
  * right now rather than whichever happened to be declared last.
  * AVAILABLE_ACTION_IDS_CAP (18) still bounds the total, so a crowded screen
- * trades a few of the 9 GLOBAL_NAV_ACTION_IDS slots for commands that
+ * trades a few of the 10 GLOBAL_NAV_ACTION_IDS slots for commands that
  * actually do something on it.
  */
 export const ACTION_ID_SCREEN_SEGMENT_CAP = 14;
@@ -58,13 +58,6 @@ export const ACTION_ID_SCREEN_SEGMENT_CAP = 14;
 // allowed to see. That decision belongs to prioritizeAvailableActionIds and the
 // two caps applied after it.
 export const PUBLISHED_ACTION_IDS_CAP = 64;
-/**
- * available_action_ids carries the screen-ranked list PLUS a reserved global
- * navigation segment, so it gets a wider cap than other context arrays. The
- * backend mirrors this value (Pydantic max_length + persona sanitize limit);
- * keep all three in sync.
- */
-export const AVAILABLE_ACTION_IDS_CAP = 18;
 /**
  * Cross-screen navigation contracts that must ALWAYS be visible to the model,
  * regardless of the current screen. Without this reserved segment, strict
@@ -82,7 +75,25 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.consents",
   "route.profile_connected_systems",
   "route.voice_settings",
+  "route.one_feed",
 ];
+/**
+ * available_action_ids carries the screen-ranked local segment PLUS the
+ * reserved global navigation segment above, so it must be at least as wide
+ * as both combined -- not a separately-picked number. It used to be a bare
+ * 18. That alone was a real but narrow gap (see prioritizeAvailableActionIds'
+ * caller, which had a separate and much bigger bug suppressing nav
+ * entirely on any screen with published actions -- fixed there). Deriving
+ * the cap here means the next agent that adds its own entry to
+ * GLOBAL_NAV_ACTION_IDS grows this automatically, with no second number to
+ * remember to bump.
+ *
+ * The backend mirrors this value as AVAILABLE_ACTION_IDS_CAP in
+ * hushh_mcp/services/action_gateway.py (Pydantic max_length + the two
+ * agent_tree.py render-time slices); keep them in sync.
+ */
+export const AVAILABLE_ACTION_IDS_CAP =
+  ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length;
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";
 export const INVALID_ARRAY_TYPE_ERROR = "INVALID_ARRAY_TYPE";
@@ -488,7 +499,9 @@ function readStringArray(
  * `${screen}:` (empty subview) as the default set for that screen's bare
  * route. Only screens whose local-handler count has actually outgrown
  * ACTION_ID_SCREEN_SEGMENT_CAP need an entry here -- as of writing, that is
- * Location alone (28 screen-owned local handlers competing for 14 slots).
+ * Location alone (30 screen-owned local handlers competing for 14 slots,
+ * derived from the contract in page.tsx's LOCATION_VOICE_ACTIONS -- see that
+ * file for why it is derived rather than hand-counted).
  *
  * This boosts matches to the top rank in `rankOf` below; it never demotes
  * anything. An action absent from the current subview's list still competes
@@ -504,6 +517,7 @@ const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
     "location.stop_share",
     "location.approve_request",
     "location.decline_request",
+    "location.refresh",
   ],
   "one_location:create-circle": ["location.create_circle"],
   "one_location:share": [
@@ -529,7 +543,11 @@ const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
     "location.add_emergency_contact",
     "location.remove_emergency_contact",
   ],
-  "one_location:sos": ["location.trigger_sos", "location.stop_sos"],
+  "one_location:sos": [
+    "location.trigger_sos",
+    "location.stop_sos",
+    "location.sos_default",
+  ],
   // The People tab is where circle membership is actually managed.
   "one_location:people": [
     "location.add_to_circle",
@@ -916,10 +934,18 @@ export function buildStructuredScreenContext(args: {
       ...publishedActionIds,
     ],
     screen,
-    // A mounted authored inventory is the current interaction authority.
-    // Do not append global navigation behind an active setup terminal, dialog,
-    // or other visible control; that would let a voice turn escape the page.
-    underlyingActionsAvailable && publishedActionIds.length === 0,
+    // Do not append global navigation behind an active setup terminal,
+    // dialog, or other blocking control; that would let a voice turn escape
+    // the page mid-flow. underlyingActionsAvailable already answers exactly
+    // that question (false only while an interaction layer is actively
+    // blocking). The extra `publishedActionIds.length === 0` this used to
+    // carry conflated "a blocking flow is open right now" with "this screen
+    // happens to publish its own actions" -- true of every substantive
+    // screen at every steady-state moment, not just risky ones -- and
+    // silently suppressed GLOBAL_NAV_ACTION_IDS entirely (not just past its
+    // cap) on Location, Gmail, and every other screen with real local
+    // handlers, every single turn.
+    underlyingActionsAvailable,
     subview,
   );
   const screenMetadata = {

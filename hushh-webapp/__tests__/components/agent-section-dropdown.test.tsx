@@ -42,7 +42,9 @@ describe("AgentSectionDropdown", () => {
     expect(screen.getByTestId("top_agent_section_gmail")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_consent")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_pkm")).toBeTruthy();
-    expect(screen.getByTestId("top_agent_section_connected-systems")).toBeTruthy();
+    expect(
+      screen.queryByTestId("top_agent_section_connected-systems"),
+    ).toBeNull();
     expect(
       document.querySelectorAll('[data-testid^="top_agent_section_"]').length,
     ).toBe(getAgentSections().length);

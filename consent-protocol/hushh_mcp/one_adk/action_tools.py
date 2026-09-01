@@ -29,6 +29,7 @@ from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
     is_voice_entirely_disabled,
@@ -64,6 +65,10 @@ from hushh_mcp.services.one_location_circle_service import (
 from hushh_mcp.services.one_location_nearby_presence_service import (
     NearbyPresenceError,
     OneLocationNearbyPresenceService,
+)
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
 )
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
@@ -303,6 +308,8 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
         "connect.remove_connection",
         "connect.cancel_request",
         "connect.send_request",
+        "connect.accept_request",
+        "connect.reject_request",
         "location.checkout_nearby",
     }
 )
@@ -394,7 +401,7 @@ async def _verify_backend_direct_authorization(
     session_user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
     if not session_user_id:
         return False, "", "The user is not signed in."
-    token = str(tool_context.state.get(_STATE_CONSENT_TOKEN) or "").strip()
+    token = resolve_request_secret(tool_context.state.get(_STATE_CONSENT_TOKEN))
     if not token:
         return False, "", "The vault is locked. Unlock it, then try again."
     valid, _reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
@@ -799,9 +806,7 @@ async def _execute_backend_direct_mutation(
                         owner_user_id=user_id, grant_id=str(grant.get("id") or "")
                     )
                 except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                    logger.exception(
-                        "one_adk_backend_direct_partial_failure action=%s", action_id
-                    )
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                     failed_names.append(grant_name)
                     continue
                 stopped_names.append(grant_name)
@@ -1007,7 +1012,13 @@ async def _execute_backend_direct_mutation(
             {"name": join_names_for_speech(asked_names)},
         )
 
-    if action_id in ("connect.remove_connection", "connect.cancel_request", "connect.send_request"):
+    if action_id in (
+        "connect.remove_connection",
+        "connect.cancel_request",
+        "connect.send_request",
+        "connect.accept_request",
+        "connect.reject_request",
+    ):
         connections_service = ConnectionsService()
         raw_people = str(slots.get("person") or "").strip()
         if action_id == "connect.send_request":
@@ -1077,7 +1088,8 @@ async def _execute_backend_direct_mutation(
                     blocked_notes.append(f"already asked {display_name}, waiting on them")
                 elif relationship == "pending_incoming":
                     blocked_notes.append(
-                        f"{display_name} already asked you -- accept theirs instead"
+                        f"{display_name} already asked you -- call connect.accept_request "
+                        "for them instead, once the person confirms"
                     )
                 elif relationship != "none":
                     blocked_notes.append(f"a new request isn't available for {display_name}")
@@ -1187,9 +1199,7 @@ async def _execute_backend_direct_mutation(
                         user_id=user_id, connection_id=str(connection.get("connectionId") or "")
                     )
                 except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                    logger.exception(
-                        "one_adk_backend_direct_partial_failure action=%s", action_id
-                    )
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                     failed_names.append(connection_name)
                     continue
                 removed_names.append(connection_name)
@@ -1208,15 +1218,66 @@ async def _execute_backend_direct_mutation(
                 {"name": join_names_for_speech(removed_names)},
             )
 
-        # cancel_request's real target is the pending CONNECTION REQUEST, not
-        # the connection graph -- but ConnectionsService.cancel_request()
-        # already accepts the counterpart's user id as a fallback when no
-        # request id resolves, so matching against connections here would
-        # silently answer the wrong question (only settled connections, never
-        # pending outgoing asks). List outgoing requests instead.
-        outgoing = connections_service.list_requests(user_id=user_id, direction="outgoing")
+        if action_id == "connect.cancel_request":
+            # cancel_request's real target is the pending CONNECTION REQUEST,
+            # not the connection graph -- but ConnectionsService.cancel_request()
+            # already accepts the counterpart's user id as a fallback when no
+            # request id resolves, so matching against connections here would
+            # silently answer the wrong question (only settled connections,
+            # never pending outgoing asks). List outgoing requests instead.
+            outgoing = connections_service.list_requests(user_id=user_id, direction="outgoing")
+            name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(outgoing, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_AMBIGUOUS",
+                        f'More than one pending request matches "{ambiguous.spoken_text}": '
+                        f"{names}. Say which one.",
+                    )
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND",
+                    f"You have no pending request to {raw_people or 'that person'}.",
+                )
+            cancelled_names: list[str] = []
+            failed_names = []
+            for request in resolution.resolved:
+                request_name = str(request.get("counterpartDisplayName") or "that person")
+                try:
+                    connections_service.cancel_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
+                except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                    failed_names.append(request_name)
+                    continue
+                cancelled_names.append(request_name)
+            if not cancelled_names:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_CANCEL_FAILED",
+                    f"Could not cancel your request to {join_names_for_speech(failed_names)}. "
+                    "Try again in a moment.",
+                )
+            note = _unresolved_people_note(
+                resolution.unresolved, name_of, "pending request"
+            ) + _partial_failure_note(failed_names)
+            return (
+                f"Cancelled your connection request to "
+                f"{join_names_for_speech(cancelled_names)}.{note}",
+                {"name": join_names_for_speech(cancelled_names)},
+            )
+
+        # connect.accept_request / connect.reject_request: the pending
+        # request lives in the INCOMING direction from this user's side --
+        # the same reasoning as cancel_request's own comment above applies
+        # here too, matching against settled connections would silently
+        # answer the wrong question for a request that has not been
+        # accepted yet.
+        incoming = connections_service.list_requests(user_id=user_id, direction="incoming")
         name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
-        resolution = resolve_spoken_names(outgoing, raw_people, name_of)
+        resolution = resolve_spoken_names(incoming, raw_people, name_of)
         if not resolution.resolved:
             ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
             if ambiguous is not None:
@@ -1228,34 +1289,48 @@ async def _execute_backend_direct_mutation(
                 )
             raise ConnectionsError(
                 "CONNECTION_REQUEST_NOT_FOUND",
-                f"You have no pending request to {raw_people or 'that person'}.",
+                f"You have no pending request from {raw_people or 'that person'}.",
             )
-        cancelled_names: list[str] = []
+        settled_names = []
         failed_names = []
         for request in resolution.resolved:
             request_name = str(request.get("counterpartDisplayName") or "that person")
             try:
-                connections_service.cancel_request(
-                    user_id=user_id, request_id=str(request.get("id") or "")
-                )
+                if action_id == "connect.accept_request":
+                    # No scope selection here -- voice never chose one, the
+                    # same reasoning send_request's own scope-reuse toggle
+                    # documents. accept_request already accepts None for
+                    # both and settles with none selected either way.
+                    connections_service.accept_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
+                else:
+                    connections_service.reject_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
             except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
                 logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                 failed_names.append(request_name)
                 continue
-            cancelled_names.append(request_name)
-        if not cancelled_names:
+            settled_names.append(request_name)
+        if not settled_names:
+            verb = "accept" if action_id == "connect.accept_request" else "decline"
             raise ConnectionsError(
-                "CONNECTION_REQUEST_CANCEL_FAILED",
-                f"Could not cancel your request to {join_names_for_speech(failed_names)}. "
+                "CONNECTION_REQUEST_RESOLVE_FAILED",
+                f"Could not {verb} the request from {join_names_for_speech(failed_names)}. "
                 "Try again in a moment.",
             )
         note = _unresolved_people_note(
             resolution.unresolved, name_of, "pending request"
         ) + _partial_failure_note(failed_names)
-        return (
-            f"Cancelled your connection request to {join_names_for_speech(cancelled_names)}.{note}",
-            {"name": join_names_for_speech(cancelled_names)},
-        )
+        if action_id == "connect.accept_request":
+            message = (
+                f"Accepted {join_names_for_speech(settled_names)}'s connection request. "
+                f"You're connected now.{note}"
+            )
+        else:
+            message = f"Declined {join_names_for_speech(settled_names)}'s connection request.{note}"
+        return message, {"name": join_names_for_speech(settled_names)}
 
     if action_id == "location.checkout_nearby":
         # No coordinates, no place, nothing client-only -- checking out only
@@ -1374,8 +1449,113 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     return await _read_tool_result(
-        "your connections", "connections", lambda: ConnectionsService().list_connections(user_id=user_id)
+        "your connections",
+        "connections",
+        lambda: ConnectionsService().list_connections(user_id=user_id),
     )
+
+
+async def discover_person_information(
+    person: str,
+    tool_context: ToolContext,
+    domain: str = "",
+) -> dict[str, Any]:
+    """Resolve a connected person and list the exact information they expose for requests.
+
+    This is discovery only. It returns opaque ``scopeRef`` values and a public
+    profile route; it never creates consent, exposes raw ``attr.*`` scopes, or
+    reads a granted value. The profile review surface remains the sole place
+    where the requester selects fields and confirms a request.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    try:
+        connections = ConnectionsService().list_connections(user_id=user_id)
+        resolution = resolve_spoken_names(
+            connections,
+            person,
+            lambda item: str(item.get("displayName") or ""),
+        )
+        if resolution.unresolved:
+            unresolved = resolution.unresolved[0]
+            if unresolved.kind == "ambiguous":
+                return {
+                    "status": "needs_clarification",
+                    "message": (
+                        "More than one connection matched. Ask which person they mean: "
+                        f"{
+                            ambiguous_match_names(
+                                unresolved.matches, lambda item: str(item.get('displayName') or '')
+                            )
+                        }."
+                    ),
+                }
+            return {
+                "status": "not_found",
+                "message": f"{unresolved.spoken_text or person} is not in your connections.",
+            }
+        if len(resolution.resolved) != 1:
+            return {
+                "status": "needs_clarification",
+                "message": "Name one connection whose requestable information you want to inspect.",
+            }
+
+        connection = resolution.resolved[0]
+        person_ref = str(connection.get("publicPersonRef") or "").strip()
+        if not person_ref:
+            return {
+                "status": "unavailable",
+                "message": "That person's request profile is not ready yet.",
+            }
+        profile = await PersonProfileService().get_viewer_profile(
+            viewer_user_id=user_id,
+            public_person_ref=person_ref,
+        )
+        requested_domain = normalize_spoken_name(domain)
+        scopes = []
+        for item in profile.get("requestableScopes") or []:
+            item_domain = str(item.get("domain") or "").strip()
+            if requested_domain and requested_domain not in normalize_spoken_name(item_domain):
+                continue
+            scopes.append(
+                {
+                    "scopeRef": item.get("scopeRef"),
+                    "label": item.get("label") or "Information",
+                    "description": item.get("description"),
+                    "domain": item_domain or "Other",
+                    "sensitivity": item.get("sensitivity") or "standard",
+                }
+            )
+        return {
+            "status": "ok",
+            "person": {
+                "displayName": profile.get("displayName")
+                or connection.get("displayName")
+                or "Hussh member",
+                "personRef": person_ref,
+                "profilePath": f"/people/{person_ref}",
+                "relationship": (profile.get("relationship") or {}).get("status"),
+            },
+            "domainFilter": domain.strip() or None,
+            "requestableScopes": scopes,
+            "scopeCount": len(scopes),
+            "nextStep": (
+                "Present these exact fields grouped by domain, then link to profilePath. "
+                "The person must select fields and confirm the request on that profile."
+            ),
+        }
+    except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
+        return {"status": "failed", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("discover_person_information failed")
+        return {
+            "status": "failed",
+            "message": "That information catalog is temporarily unavailable. Please try again.",
+        }
 
 
 async def list_pending_connection_requests(
@@ -1408,7 +1588,9 @@ async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[
     return await _read_tool_result(
         "your outgoing location requests",
         "requests",
-        lambda: OneLocationAgentService().list_pending_requester_requests(requester_user_id=user_id),
+        lambda: OneLocationAgentService().list_pending_requester_requests(
+            requester_user_id=user_id
+        ),
     )
 
 
@@ -1463,9 +1645,11 @@ async def run_app_action(
 ) -> dict[str, Any]:
     """Run a governed app action by its exact action id.
 
-    Use list_app_actions first when unsure of the id. Pass required inputs in
-    slots (e.g. {"symbol": "NVDA"}). The app validates guards and confirms
-    sensitive actions; never claim an outcome beyond this tool's status.
+    Call list_app_actions first unless the person's own words are already a
+    close match to a visible label -- do not decide this by how confident it
+    feels. Pass required inputs in slots (e.g. {"symbol": "NVDA"}). The app
+    validates guards and confirms sensitive actions; never claim an outcome
+    beyond this tool's status.
     """
     clean_id = str(action_id or "").strip()
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}

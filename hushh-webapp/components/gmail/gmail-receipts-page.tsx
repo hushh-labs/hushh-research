@@ -110,15 +110,16 @@ function formatAmount(
   amount?: number | null,
 ): string {
   if (typeof amount !== "number" || Number.isNaN(amount)) return "—";
-  const normalized = (currency || "USD").toUpperCase();
+  const normalized = (currency || "USD").trim().toUpperCase();
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: normalized,
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount);
   } catch {
-    return `${normalized} ${amount.toFixed(2)}`;
+    return `${amount.toFixed(2)} ${normalized}`;
   }
 }
 
@@ -558,7 +559,7 @@ export default function GmailReceiptsPage({
     void loadReceipts(1);
   }, [canLoad, hasSealedReceiptAccess, loadReceipts, loading, user?.uid]);
 
-  const syncing = gmail.refreshingStatus || gmail.syncingRun;
+  const syncing = gmail.syncingRun;
   const isConnected = gmail.presentation.isConnected;
   const emailAgentIntroRecipient =
     gmail.status?.google_email?.trim() || user?.email?.trim() || null;
@@ -1262,7 +1263,7 @@ export default function GmailReceiptsPage({
         });
         setReceiptMemorySaveState("idle");
         setReceiptMemoryArtifact(artifact);
-        setReceiptMemoryMessage("Saving your shopping summary to memory...");
+        setReceiptMemoryMessage(null);
       } catch (error) {
         console.error(
           "[ProfileReceiptsPage] Failed to build receipt summary:",
@@ -1326,7 +1327,7 @@ export default function GmailReceiptsPage({
       }
 
       setReceiptMemorySaveState("saving");
-      setReceiptMemoryMessage("Saving your shopping summary to memory...");
+      setReceiptMemoryMessage(null);
       try {
         const existingContext =
           await PkmDomainResourceService.prepareDomainWriteContext({
@@ -1433,7 +1434,7 @@ export default function GmailReceiptsPage({
     <AppPageShell
       as="div"
       width="reading"
-      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]"
       nativeTest={
         journeyVariant === "workspace"
           ? {
@@ -1536,9 +1537,13 @@ export default function GmailReceiptsPage({
                   <h2 className="text-lg font-semibold tracking-tight text-foreground">
                     {statusSummary.title}
                   </h2>
-                  <p className="break-words text-sm text-muted-foreground">
-                    {statusSummary.detail}
-                  </p>
+                  {statusSummary.detail &&
+                  (!isConnected ||
+                    !statusSummary.detail.startsWith("Connected to")) ? (
+                    <p className="break-words text-sm text-muted-foreground">
+                      {statusSummary.detail}
+                    </p>
+                  ) : null}
                   {statusSummary.helper ? (
                     <p className="break-words text-xs text-muted-foreground">
                       {statusSummary.helper}
@@ -1676,8 +1681,8 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
-              <div className="space-y-1">
+            <SurfaceInset className="space-y-4 px-4 py-4.5 text-sm sm:px-5 sm:py-5.5">
+              <div className="space-y-1.5">
                 <p className="font-medium text-foreground">Shopping summary</p>
                 <p className="text-muted-foreground">
                   Generated from your synced receipts. You choose when to save
@@ -1686,15 +1691,15 @@ export default function GmailReceiptsPage({
               </div>
 
               {receiptMemoryLoading && !receiptMemoryArtifact ? (
-                <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-3 text-muted-foreground">
+                <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-background/60 px-3.5 py-3.5 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Creating your shopping summary…
                 </div>
               ) : null}
 
               {receiptMemoryArtifact ? (
-                <div className="space-y-3 rounded-xl border border-border/60 bg-background/60 p-3">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="space-y-4 rounded-xl border border-border/60 bg-background/60 p-4 sm:p-4.5">
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <Badge variant="secondary">
                       {receiptMemoryArtifact.freshness.is_stale
                         ? "Needs refresh"
@@ -1719,7 +1724,7 @@ export default function GmailReceiptsPage({
                     <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                       Shopping summary
                     </p>
-                    <p className="min-h-[96px] whitespace-pre-wrap rounded-xl border border-border/70 bg-background px-3 py-3 text-sm leading-6 text-foreground">
+                    <p className="min-h-[96px] whitespace-pre-wrap rounded-xl border border-border/70 bg-background px-3.5 py-3.5 text-sm leading-6 text-foreground">
                       {
                         receiptMemoryArtifact.candidate_pkm_payload
                           .receipts_memory.readable_summary.text
@@ -1729,7 +1734,7 @@ export default function GmailReceiptsPage({
 
                   {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory
                     .readable_summary.highlights.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap gap-2.5 pt-0.5 text-xs text-muted-foreground">
                       {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.highlights.map(
                         (item) => (
                           <Badge key={item} variant="outline">
@@ -1774,12 +1779,17 @@ export default function GmailReceiptsPage({
                   disabled={receiptMemorySaveState === "saving"}
                   className="w-full sm:w-auto"
                 >
-                  {receiptMemorySaveState === "saving"
-                    ? "Saving summary…"
-                    : "Save shopping summary"}
+                  {receiptMemorySaveState === "saving" ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving summary…
+                    </>
+                  ) : (
+                    "Save shopping summary"
+                  )}
                 </Button>
               ) : null}
-              {receiptMemoryMessage ? (
+              {receiptMemoryMessage && receiptMemorySaveState !== "saving" ? (
                 <p className="text-xs text-muted-foreground">
                   {receiptMemoryMessage}
                 </p>
@@ -1870,6 +1880,43 @@ export default function GmailReceiptsPage({
               density="compact"
               stickyHeader
               tableClassName="min-w-[720px]"
+              rowClassName={() =>
+                "border-b border-border/60 hover:bg-muted/40 transition-colors"
+              }
+              renderMobileCard={(receipt) => (
+                <SurfaceInset
+                  key={receipt.id}
+                  className="space-y-2.5 rounded-xl border border-border/70 bg-card p-3.5 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {receipt.merchant_name ||
+                          receipt.from_name ||
+                          "Unknown merchant"}
+                      </p>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0 text-xs font-medium">
+                      {formatAmount(receipt.currency, receipt.amount)}
+                    </Badge>
+                  </div>
+                  {receipt.subject ? (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {receipt.subject}
+                    </p>
+                  ) : null}
+                  <div className="flex items-center justify-between border-t border-border/50 pt-2 text-[11.5px] text-muted-foreground">
+                    <span>
+                      {formatDate(receipt.receipt_date || receipt.gmail_internal_date)}
+                    </span>
+                    {receipt.order_id ? (
+                      <span className="max-w-[150px] truncate font-mono text-[11px]">
+                        Order: {receipt.order_id}
+                      </span>
+                    ) : null}
+                  </div>
+                </SurfaceInset>
+              )}
             />
           ) : null}
 

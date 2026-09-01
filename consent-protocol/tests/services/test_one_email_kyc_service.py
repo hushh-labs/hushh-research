@@ -679,6 +679,93 @@ def _workflow_row(
     }
 
 
+class _AtomicStatusProjectionDb:
+    """Model the single-statement status/projection commit used in production."""
+
+    def __init__(self, row: dict) -> None:
+        self.row = dict(row)
+        self.feed_source_ids: set[str] = set()
+        self.executions: list[tuple[str, dict]] = []
+        self.fail_next = False
+
+    def execute_raw(self, sql: str, params: dict | None = None):
+        bound = dict(params or {})
+        self.executions.append((sql, bound))
+        normalized = " ".join(sql.lower().split())
+        assert "with previous as materialized" in normalized
+        assert "update one_kyc_workflows as workflow" in normalized
+        assert "insert into feed_events" in normalized
+        assert "on conflict do nothing" in normalized
+
+        previous = dict(self.row)
+        candidate = dict(previous)
+        if bound.get("set_status"):
+            candidate["status"] = bound.get("status")
+
+        # The real data-modifying CTE rolls both writes back if either side
+        # fails. Model that commit boundary without requiring Postgres in unit
+        # tests.
+        if self.fail_next:
+            self.fail_next = False
+            raise RuntimeError("atomic projection failed")
+
+        if bound.get("set_status") and candidate["status"] != previous["status"]:
+            source_id = bound.get("status_transition_source_id")
+            assert isinstance(source_id, str) and source_id
+            self.feed_source_ids.add(source_id)
+        self.row = candidate
+        return SimpleNamespace(data=[dict(candidate)])
+
+
+def test_update_workflow_status_and_feed_projection_rollback_and_retry_together():
+    db = _AtomicStatusProjectionDb(_workflow_row("wf_atomic", status="needs_confirm"))
+    service = OneEmailKycService(db=db)
+
+    db.fail_next = True
+    with pytest.raises(RuntimeError, match="atomic projection failed"):
+        service._update_workflow("wf_atomic", status="waiting_on_user")
+
+    assert db.row["status"] == "needs_confirm"
+    assert db.feed_source_ids == set()
+
+    completed = service._update_workflow("wf_atomic", status="waiting_on_user")
+    retried = service._update_workflow("wf_atomic", status="waiting_on_user")
+
+    assert completed["status"] == "waiting_on_user"
+    assert retried["status"] == "waiting_on_user"
+    assert len(db.feed_source_ids) == 1
+    sql = db.executions[-1][0].lower()
+    assert "status is distinct from updated.previous_status" in sql
+    assert "jsonb_build_object('new_status'" in sql
+    assert ":status_transition_source_id" in sql
+
+
+def test_update_workflow_status_cycle_uses_distinct_transition_source_ids():
+    db = _AtomicStatusProjectionDb(_workflow_row("wf_cycle", status="needs_confirm"))
+    service = OneEmailKycService(db=db)
+
+    completed = service._update_workflow("wf_cycle", status="waiting_on_user")
+    cycled_back = service._update_workflow("wf_cycle", status="needs_confirm")
+    completed_again = service._update_workflow("wf_cycle", status="waiting_on_user")
+    retried_again = service._update_workflow("wf_cycle", status="waiting_on_user")
+
+    assert completed["status"] == "waiting_on_user"
+    assert cycled_back["status"] == "needs_confirm"
+    assert completed_again["status"] == "waiting_on_user"
+    assert retried_again["status"] == "waiting_on_user"
+    assert len(db.feed_source_ids) == 3
+    waiting_transition_ids = {
+        params["status_transition_source_id"]
+        for _sql, params in db.executions
+        if params.get("status") == "waiting_on_user"
+        and params["status_transition_source_id"] in db.feed_source_ids
+    }
+    assert len(waiting_transition_ids) == 2
+    assert all(
+        source_id.startswith("wf_cycle:status-transition:") for source_id in db.feed_source_ids
+    )
+
+
 def test_decode_pubsub_notification_normalizes_numeric_history_id():
     service = _service(_FakeDb(), _FakeConsentDb())
     payload = {

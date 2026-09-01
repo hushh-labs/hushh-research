@@ -28,6 +28,7 @@ import {
   MessageCircleQuestion,
   Users,
   Monitor,
+  Laptop,
   Phone,
   Palette,
   RefreshCw,
@@ -74,6 +75,7 @@ import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-pa
 import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
 import { VoiceExamplesPage } from "@/components/profile/voice-examples-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -518,7 +520,6 @@ function profileRouteRequiresUnlockedVault(
 ): boolean {
   if (
     panel === "my-data" ||
-    panel === "access" ||
     panel === "connected-systems" ||
     panel === "gmail"
   ) {
@@ -534,7 +535,7 @@ function profileRouteRequiresUnlockedVault(
 }
 
 function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
-  return panel === "my-data" || panel === "access";
+  return panel === "my-data";
 }
 
 function ProfilePageContent() {
@@ -686,8 +687,12 @@ function ProfilePageContent() {
     () => resolveProfileRouteState(pathname, searchParams),
     [pathname, searchParams],
   );
-  const activePanel = profileRouteState.panel;
-  const activeDetail = profileRouteState.detail;
+  const localCrmEnabled = isLocalCrmBuildEnabled();
+  const activePanel =
+    profileRouteState.panel === "connected-systems" && !localCrmEnabled
+      ? null
+      : profileRouteState.panel;
+  const activeDetail = activePanel ? profileRouteState.detail : null;
   const profileNativeRouteId = useMemo(
     () =>
       pathname === ROUTES.PROFILE || pathname.startsWith(`${ROUTES.PROFILE}/`)
@@ -903,7 +908,7 @@ function ProfilePageContent() {
   }, [selectedDomain?.key]);
 
   const selectedConnection = useMemo(() => {
-    if (activePanel !== "access" || !activeDetail?.startsWith("connection:"))
+    if (activePanel !== "my-data" || !activeDetail?.startsWith("connection:"))
       return null;
     const connectionId = activeDetail.slice("connection:".length);
     return (
@@ -1611,7 +1616,7 @@ function ProfilePageContent() {
   function openVaultBackedPanel(
     panel: Extract<
       ProfilePanel,
-      "my-data" | "access" | "connected-systems" | "gmail" | "security"
+      "my-data" | "connected-systems" | "gmail" | "security"
     >,
   ) {
     if (vaultAccess.needsVaultCreation && panel !== "security") {
@@ -2057,16 +2062,16 @@ function ProfilePageContent() {
       {
         id: "profile_my_data",
         label: "Memory",
-        purpose: "opens your saved details and sharing controls.",
+        purpose: "opens your saved details and the sharing controls for them.",
         role: "card",
-        voiceAliases: ["personal knowledge model", "my saved details", "pkm"],
-      },
-      {
-        id: "profile_access",
-        label: "Access & sharing",
-        purpose: "opens consent-backed access and sharing controls.",
-        role: "card",
-        voiceAliases: ["access", "sharing", "consent access"],
+        voiceAliases: [
+          "personal knowledge model",
+          "my saved details",
+          "pkm",
+          "access",
+          "sharing",
+          "consent access",
+        ],
       },
       {
         id: "profile_security",
@@ -2165,17 +2170,15 @@ function ProfilePageContent() {
             ? PROFILE_LABELS.account
             : activePanel === "my-data"
               ? "Memory"
-              : activePanel === "access"
-                ? "Access & sharing"
-                : activePanel === "connected-systems"
-                  ? "Connected Systems"
-                  : activePanel === "preferences"
-                    ? PROFILE_LABELS.preferences
-                    : activePanel === "security"
-                      ? PROFILE_LABELS.security
-                      : activePanel === "gmail"
-                        ? "Gmail receipts"
-                        : PROFILE_LABELS.support,
+              : activePanel === "connected-systems"
+                ? "Connected Systems"
+                : activePanel === "preferences"
+                  ? PROFILE_LABELS.preferences
+                  : activePanel === "security"
+                    ? PROFILE_LABELS.security
+                    : activePanel === "gmail"
+                      ? "Gmail receipts"
+                      : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
@@ -2231,17 +2234,15 @@ function ProfilePageContent() {
             ? PROFILE_LABELS.account
             : activePanel === "my-data"
               ? "Memory"
-              : activePanel === "access"
-                ? "Access & sharing"
-                : activePanel === "connected-systems"
-                  ? "Connected Systems"
-                  : activePanel === "preferences"
-                    ? PROFILE_LABELS.preferences
-                    : activePanel === "security"
-                      ? PROFILE_LABELS.security
-                      : activePanel === "gmail"
-                        ? "Gmail receipts"
-                        : PROFILE_LABELS.support
+              : activePanel === "connected-systems"
+                ? "Connected Systems"
+                : activePanel === "preferences"
+                  ? PROFILE_LABELS.preferences
+                  : activePanel === "security"
+                    ? PROFILE_LABELS.security
+                    : activePanel === "gmail"
+                      ? "Gmail receipts"
+                      : PROFILE_LABELS.support
           : "Profile",
         purpose:
           "This surface manages account details, appearance, help, and vault privacy.",
@@ -2960,7 +2961,7 @@ function ProfilePageContent() {
         loadingManifestsByDomain={loadingDomainManifests}
         manifestErrorsByDomain={domainManifestErrors}
         onOpenSharing={() =>
-          updateProfileView({ panel: "access", detail: null }, "push")
+          updateProfileView({ panel: "my-data", detail: "sharing" }, "push")
         }
         onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
         onRefresh={() => {
@@ -2993,7 +2994,7 @@ function ProfilePageContent() {
         onOpenConnection={(connection) =>
           updateProfileView(
             {
-              panel: "access",
+              panel: "my-data",
               detail: `connection:${connection.id}`,
             },
             "push",
@@ -3860,13 +3861,20 @@ function ProfilePageContent() {
         ),
       });
     }
-  } else if (!routeBlockedByVault && activePanel === "access") {
-    profileStackEntries.push({
-      key: "panel:access",
-      title: "Access & sharing",
-      description: "Review live access.",
-      content: accessContent,
-    });
+    // Sharing (formerly the standalone "Access & sharing" panel) is now a
+    // sub-view of Memory. Its per-connection detail keeps the same
+    // consent-backed revoke behavior; only the navigation frame changed.
+    if (
+      activeDetail === "sharing" ||
+      Boolean(activeDetail?.startsWith("connection:"))
+    ) {
+      profileStackEntries.push({
+        key: "detail:sharing",
+        title: "Sharing",
+        description: "Review live access.",
+        content: accessContent,
+      });
+    }
     if (selectedConnection) {
       profileStackEntries.push({
         key: `detail:connection:${selectedConnection.id}`,
@@ -4111,8 +4119,16 @@ function ProfilePageContent() {
                 onClick={openSecurityPanel}
               />
               <SettingsRow
+                icon={Laptop}
+                iconTone="gray"
+                title="Trusted devices"
+                chevron
+                density="compact"
+                onClick={() => router.push(ROUTES.PROFILE_SECURITY_DEVICES)}
+              />
+              <SettingsRow
                 icon={Users}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 density="compact"
@@ -4140,7 +4156,7 @@ function ProfilePageContent() {
               {canShowPkmAgentLab ? (
                 <SettingsRow
                   icon={CodeXml}
-                  iconTone="purple"
+                  iconTone="gray"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron

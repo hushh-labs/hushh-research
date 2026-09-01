@@ -456,8 +456,19 @@ Terminal grants, metadata-only nearby-presence rows, ciphertext envelopes,
 terminal access requests, referrals, and related metadata-only events are
 retained for at most 12 hours after expiry or revocation, then purged from the
 database. The runtime runs opportunistic cleanup during state/read flows.
-Before nearby presence is enabled in a hosted environment, operators must
-configure and verify the hourly `one-location-retention-purge-uat` job through
+The service keeps read-only state projection as its semantic default when
+`ONE_LOCATION_READ_ONLY_STATE_ENABLED` is absent, so a foreground GET does not
+perform expiry writes or notification fan-out. Hosted deployment is a separate
+rollout boundary: dev and production explicitly keep the flag off, and UAT also
+defaults off until an operator opts in. An opted-in UAT deploy fails closed
+unless the canonical `one-location-retention-purge-uat` Cloud Scheduler job
+exists in `hushh-pda-uat/us-central1`, is `ENABLED`, and targets exactly
+`POST /api/one/location/retention/purge?older_than_hours=12`. The deploy check
+privately verifies scheduler state, exact HTTPS URI, method, and the presence of
+a non-empty maintenance-auth header. It prints only sanitized booleans and
+never prints or persists the header value.
+
+Operators configure that hourly job through
 `deploy/one-location/setup_retention_scheduler.sh`. It calls
 `POST /api/one/location/retention/purge?older_than_hours=12` with
 `X-Hushh-Maintenance-Token` backed by the dedicated

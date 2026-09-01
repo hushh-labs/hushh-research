@@ -46,6 +46,41 @@ export function currentTaskSteps(runs: readonly ActionRun[]): ActionRun[] {
   return group;
 }
 
+/**
+ * Collapse steps that would render identically, keeping the most recent.
+ *
+ * Asking for the same thing twice -- or one directive arriving twice --
+ * produces two runs the card draws as the same sentence, stacked. That reads
+ * as two things having happened when only one did, and it is worst exactly
+ * where it matters most: a refusal repeated verbatim ("Add at least one
+ * emergency contact before sending an SOS") looks like two separate
+ * failures.
+ *
+ * Keyed on the rendered content, deliberately not on `actionId` alone: one
+ * task can legitimately run the same action over different subjects -- add
+ * Alex to Family, then add Sam to Family -- and those are genuinely separate
+ * steps that must both stay visible.
+ */
+export function collapseRepeatedSteps(steps: readonly ActionRun[]): ActionRun[] {
+  const keyOf = (step: ActionRun) =>
+    [
+      step.actionId,
+      step.message || step.label,
+      step.subject?.name ?? "",
+      step.subject?.detail ?? "",
+    // NUL separator, written as an escape so it is visible in source: it
+    // cannot occur inside any of these fields, so two different splits of
+    // the same characters can never collide into one key and wrongly
+    // collapse two genuinely distinct steps.
+    ].join("\u0000");
+  // Keep the LAST occurrence of each key, so the surviving row carries the
+  // newest phase -- a retry that finally succeeds must not be represented by
+  // the failed attempt that came before it.
+  const lastIndexForKey = new Map<string, number>();
+  steps.forEach((step, index) => lastIndexForKey.set(keyOf(step), index));
+  return steps.filter((step, index) => lastIndexForKey.get(keyOf(step)) === index);
+}
+
 function StepIcon({ phase }: { phase: ActionRun["phase"] }) {
   if (phase === "completed") {
     return <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />;
@@ -59,11 +94,25 @@ function StepIcon({ phase }: { phase: ActionRun["phase"] }) {
   return <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden="true" />;
 }
 
+/**
+ * Wraps rather than truncates. These lines carry the only explanation of what
+ * went wrong -- "Add at least one emergency contact before sending an SOS"
+ * cut to "Add at least one emergency contact before sending..." hides the very
+ * instruction the person needs to act on. The card grows to fit instead.
+ *
+ * `break-words` covers the pathological case an ellipsis used to hide: a
+ * single unbroken token (a long place name, a URL) wider than the card would
+ * otherwise overflow it rather than wrap.
+ */
+const STEP_TEXT_BASE = "min-w-0 flex-1 break-words text-[13px]";
+
 function stepTextClass(phase: ActionRun["phase"]): string {
-  if (phase === "failed" || phase === "blocked") return "truncate text-[13px] text-destructive";
-  if (phase === "cancelled") return "truncate text-[13px] text-muted-foreground";
-  if (phase === "completed") return "truncate text-[13px] text-muted-foreground";
-  return "truncate text-[13px] font-medium text-foreground";
+  if (phase === "failed" || phase === "blocked") {
+    return `${STEP_TEXT_BASE} text-destructive`;
+  }
+  if (phase === "cancelled") return `${STEP_TEXT_BASE} text-muted-foreground`;
+  if (phase === "completed") return `${STEP_TEXT_BASE} text-muted-foreground`;
+  return `${STEP_TEXT_BASE} font-medium text-foreground`;
 }
 
 /**
@@ -92,7 +141,13 @@ export function VoiceWalkthroughPanel({
 }) {
   const runs = useActionRuns();
   const lastRun = runs[runs.length - 1] ?? null;
-  const group = enabled ? currentTaskSteps(runs) : lastRun ? [lastRun] : [];
+  // Only the grouped path needs collapsing -- the single-step path shows one
+  // run, which cannot repeat itself.
+  const group = enabled
+    ? collapseRepeatedSteps(currentTaskSteps(runs))
+    : lastRun
+      ? [lastRun]
+      : [];
   const last = group[group.length - 1] ?? null;
   const active = last ? !isTerminalActionRunPhase(last.phase) : false;
 
@@ -159,8 +214,14 @@ export function VoiceWalkthroughPanel({
       <ul className="flex flex-col gap-2">
         {group.map((step) => (
           <li key={step.id} className="flex flex-col gap-1">
-            <div className="flex items-center gap-2.5">
-              <StepIcon phase={step.phase} />
+            {/* items-start, not items-center: the text now wraps to as many
+                lines as it needs, and centring would drift the icon down
+                beside a tall block instead of marking the line it belongs to.
+                The icon's nudge optically centres it on that first line. */}
+            <div className="flex items-start gap-2.5">
+              <span className="mt-0.5 flex">
+                <StepIcon phase={step.phase} />
+              </span>
               {/* message over label: label is a static per-action-type name
                   ("Leave a circle"), message is the specific, current
                   sentence ("Preparing Leave a circle" while running,
@@ -171,11 +232,11 @@ export function VoiceWalkthroughPanel({
             </div>
             {step.subject ? (
               <div className="ml-[26px] flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium text-foreground">
+                <span className="break-words text-xs font-medium text-foreground">
                   {step.subject.name}
                 </span>
                 {step.subject.detail ? (
-                  <span className="truncate text-[11px] text-muted-foreground">
+                  <span className="break-words text-[11px] text-muted-foreground">
                     {step.subject.detail}
                   </span>
                 ) : null}

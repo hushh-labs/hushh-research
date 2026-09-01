@@ -214,21 +214,12 @@ function resolveSelection(
 
 /**
  * Resolves the one route-owned contextual tab group for the shared top shell.
- * Direct links, shell clicks, and page swipes converge on this same selection.
+ * Location is intentionally excluded here: its hub renders the same registered
+ * tabs directly under the Location module header so Now, People, and Links keep
+ * the correct local hierarchy while retaining shared tab/swipe state.
  */
 export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
   const { pathname, searchParams } = splitRouteKey(routeKey);
-
-  if (pathname === "/one/location" && !searchParams.get("action")) {
-    const definition = TOP_SHELL_TAB_REGISTRY.location;
-    return {
-      ...definition,
-      activeValue: resolveRegisteredTopShellTabValue(
-        definition,
-        searchParams.get(definition.queryParam),
-      ),
-    };
-  }
 
   if (pathname === KAI_MARKET_PATH) {
     const definition = TOP_SHELL_TAB_REGISTRY.finance;

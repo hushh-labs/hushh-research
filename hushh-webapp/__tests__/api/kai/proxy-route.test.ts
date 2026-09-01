@@ -145,38 +145,6 @@ describe("/api/kai/[...path] proxy", () => {
     expect(options?.body).toBeInstanceOf(FormData);
   });
 
-  it("applies an upstream timeout to Agent chat streams", async () => {
-    const streamBody = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("event: start\\ndata: {}\\n\\n"));
-        controller.close();
-      },
-    });
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(streamBody, {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream" },
-      })
-    );
-    const req = createRequest("http://localhost:3000/api/kai/agent/chat/stream", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer vault_owner_token",
-        Accept: "text/event-stream",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ user_id: "user_123", message: "hello" }),
-    });
-
-    const res = await kaiRoute.POST(req, {
-      params: Promise.resolve({ path: ["agent", "chat", "stream"] }),
-    });
-
-    expect(res.status).toBe(200);
-    const [, options] = fetchSpy.mock.calls[0] ?? [];
-    expect(options?.signal).toBeInstanceOf(AbortSignal);
-  });
-
   it("passes through SSE stream headers and forwards Authorization on stream path", async () => {
     const streamBody = new ReadableStream({
       start(controller) {

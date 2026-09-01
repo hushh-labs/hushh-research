@@ -62,6 +62,8 @@ export const ROUTE_ID_VALUES = [
   "consents",
   "feed",
   "agent",
+  "puppy_one",
+  "person_profile",
   "connect",
   "connect_settings",
   "marketplace",
@@ -246,6 +248,10 @@ export function resolveRouteId(rawPathname: string): RouteId {
   }
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.AGENT) return "agent";
+  if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";
+  // `public_person_ref` is intentionally opaque.  Never let the dynamic
+  // segment fall through to `unknown`, where callers may retain raw paths.
+  if (/^\/people\/[^/]+$/.test(pathname)) return "person_profile";
   if (pathname === ROUTES.CONNECT) return "connect";
   if (pathname === ROUTES.CONNECT_SETTINGS) return "connect_settings";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
@@ -482,16 +488,16 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/one/location/public-invites/{public_invite_id}",
   },
   {
-    regex: /^\/api\/kai\/agent\/chat\/stream(?:\?.*)?$/i,
-    template: "/api/kai/agent/chat/stream",
+    regex: /^\/api\/one\/agent-chat(?:\?.*)?$/i,
+    template: "/api/one/agent-chat",
   },
   {
-    regex: /^\/api\/kai\/agent\/chat\/conversations\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/agent/chat/conversations/{user_id}",
+    regex: /^\/api\/one\/agent-chat\/conversations\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/agent-chat/conversations/{user_id}",
   },
   {
-    regex: /^\/api\/kai\/agent\/chat\/history\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/agent/chat/history/{conversation_id}",
+    regex: /^\/api\/one\/agent-chat\/history\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/agent-chat/history/{conversation_id}",
   },
   {
     regex: /^\/api\/kai\/market\/insights\/baseline\/[^/?]+(?:\?.*)?$/i,

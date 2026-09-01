@@ -4,6 +4,10 @@ import { AlertTriangle, Eye, Link as LinkIcon, MapPin, Share2 } from "lucide-rea
 
 import { Button } from "@/components/ui/button";
 import {
+  ButtonLabel,
+  RowDescription,
+} from "@/components/app-ui/typography";
+import {
   roleClasses,
   type SemanticRole,
 } from "@/lib/morphy-ux/tokens/semantic-roles";
@@ -58,13 +62,15 @@ export function ActionConfirmCard({
   return (
     <div
       data-testid="action-confirm-card"
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
+      className="rounded-[18px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-4 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
     >
       <div className="flex items-start gap-3">
         <span className={`mt-0.5 ${roleClasses(role).glyph}`}>
           <Icon className="h-5 w-5" aria-hidden />
         </span>
-        <p className="flex-1 text-sm font-medium">{action.summary}</p>
+        <RowDescription as="p" className="flex-1 text-[color:var(--app-label)]">
+          {action.summary}
+        </RowDescription>
       </div>
       <div className="mt-3 flex gap-2">
         <Button
@@ -75,8 +81,9 @@ export function ActionConfirmCard({
           variant={role === "danger" ? "destructive" : "default"}
           isLoading={busy}
           onClick={onConfirm}
+          className="ui-text-button-label"
         >
-          {CONFIRM_LABEL[action.type] ?? "Confirm"}
+          <ButtonLabel as="span">{CONFIRM_LABEL[action.type] ?? "Confirm"}</ButtonLabel>
         </Button>
         <Button
           data-testid="action-confirm-cancel"
@@ -84,8 +91,9 @@ export function ActionConfirmCard({
           variant="ghost"
           disabled={busy}
           onClick={onCancel}
+          className="ui-text-button-label"
         >
-          Cancel
+          <ButtonLabel as="span">Cancel</ButtonLabel>
         </Button>
       </div>
     </div>

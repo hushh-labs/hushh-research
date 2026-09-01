@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   Trash2,
   UsersRound,
-  MoreVertical,
 } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -31,13 +30,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   SheetClose,
   Sheet,
@@ -47,6 +39,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
 import {
   EmptyState,
@@ -68,10 +61,18 @@ import {
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_AVATAR_CLASSNAME,
-  CIRCLE_MEMBER_MENU_CLASSNAME,
   CIRCLE_MEMBER_ROW_CLASSNAME,
   CIRCLE_MEMBER_TRAILING_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import { CircleMemberActionsMenu } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
+import {
+  CIRCLE_SHEET_BODY_CLASSNAME,
+  CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME,
+  CIRCLE_SHEET_HEADER_CLASSNAME,
+  CIRCLE_SHEET_NEXT_GROUP_HEADING_CLASSNAME,
+  CIRCLE_SHEET_SCROLL_AREA_CLASSNAME,
+  CIRCLE_SHEET_SCROLL_BODY_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-sheet-layout";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -90,11 +91,14 @@ import {
   filterPeopleByQuery,
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
+import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { othersCountLabel } from "@/lib/one-location/circle-member-count";
+import { ActionMenu } from "@/components/app-ui/action-menu";
 import { cn } from "@/lib/utils";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
@@ -173,9 +177,95 @@ function circleListPeopleLabel(memberCount: number | null | undefined): string {
   return `${others} ${others === 1 ? "person" : "people"}`;
 }
 
+type CircleListGroupKey = "created" | "joined";
+
+type CircleListGroup = {
+  key: CircleListGroupKey;
+  title: string;
+  circles: OneLocationCircleSummary[];
+};
+
+function circleListGroupKey(
+  circle: OneLocationCircleSummary,
+): CircleListGroupKey {
+  return circle.role === "owner" ? "created" : "joined";
+}
+
+function groupCirclesForPeopleTab(
+  circles: readonly OneLocationCircleSummary[],
+): CircleListGroup[] {
+  const groups: CircleListGroup[] = [
+    { key: "created", title: "Created by you", circles: [] },
+    { key: "joined", title: "Joined circles", circles: [] },
+  ];
+  const groupByKey = new Map(groups.map((group) => [group.key, group]));
+
+  for (const circle of circles) {
+    groupByKey.get(circleListGroupKey(circle))?.circles.push(circle);
+  }
+
+  return groups.filter((group) => group.circles.length > 0);
+}
+
 function circleDetailMemberCountLabel(count: number): string {
   if (count <= 1) return "Only you";
   return `${count} people`;
+}
+
+function CircleSummaryRow({
+  circle,
+  onOpen,
+}: {
+  circle: OneLocationCircleSummary;
+  onOpen: (circleId: string) => void;
+}) {
+  const isSmsCircle = circle.systemKind === "sms";
+  const initials = circleInitials(circle.name);
+  const showInitials =
+    !isSmsCircle && circle.systemKind !== "trusted" && initials;
+
+  return (
+    <SettingsRow
+      leading={
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center",
+            isSmsCircle
+              ? "rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
+              : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+          )}
+          data-testid={
+            isSmsCircle
+              ? "one-location-circle-sms-mark"
+              : "one-location-circle-neutral-mark"
+          }
+        >
+          {isSmsCircle ? (
+            <SmsTextIcon className="text-[11px] font-bold tracking-[-0.2px]" />
+          ) : showInitials ? (
+            initials
+          ) : (
+            <UsersRound className="h-[17px] w-[17px]" />
+          )}
+        </span>
+      }
+      title={circle.name}
+      description={
+        isSmsCircle
+          ? `Save My Soul · ${circleListPeopleLabel(circle.memberCount)}`
+          : circleListPeopleLabel(circle.memberCount)
+      }
+      chevron
+      onClick={() => onOpen(circle.id)}
+      className={cn(
+        "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
+        "[&>button]:min-h-[60px] sm:[&>button]:min-h-16",
+        "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
+        "[&_[data-slot=settings-row-description]]:!mt-0.5 [&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
+      )}
+      testId={`one-location-circle-${circle.id}`}
+    />
+  );
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -224,16 +314,10 @@ export function CirclesSection({
     ? (incomingInvites.find((invite) => invite.id === focusedInviteId) ?? null)
     : null;
 
-  const orderedCircles = useMemo(() => {
-    return [...circles].sort((left, right) => {
-      const isSystemLeft = Boolean(left.systemKind || left.isSystem);
-      const isSystemRight = Boolean(right.systemKind || right.isSystem);
-      if (isSystemLeft !== isSystemRight) {
-        return isSystemLeft ? 1 : -1;
-      }
-      return 0;
-    });
-  }, [circles]);
+  const circleGroups = useMemo(
+    () => groupCirclesForPeopleTab(circles),
+    [circles],
+  );
 
   useEffect(() => {
     if (
@@ -280,52 +364,47 @@ export function CirclesSection({
 
   return (
     <div className="space-y-3" data-testid="one-location-named-circles">
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
+      <div className="flex w-full items-center justify-between gap-4">
+        <SectionLabel as="div" role="heading" aria-level={2}>
           Circles
-        </h2>
+        </SectionLabel>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              aria-label="Add Circle"
-              className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
-            >
-              <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            sideOffset={8}
-            className="w-[186px] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 shadow-[0_12px_28px_rgba(0,0,0,0.12)] dark:shadow-[var(--app-glass-shadow)]"
-          >
-            <DropdownMenuItem
-              onSelect={onCreate}
-              data-voice-control-id="one-location-action-create-circle"
-              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-            >
-              <Plus
-                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                aria-hidden="true"
-              />
-              Create Circle
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={onJoin}
-              data-voice-control-id="one-location-action-join-circle"
-              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
-            >
-              <KeyRound
-                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                aria-hidden="true"
-              />
-              Join with code
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div
+          className={cn(
+            "relative flex-none overflow-visible",
+            "[&_[data-radix-popper-content-wrapper]]:!absolute",
+            "[&_[data-radix-popper-content-wrapper]]:!bottom-auto",
+            "[&_[data-radix-popper-content-wrapper]]:!left-auto",
+            "[&_[data-radix-popper-content-wrapper]]:!right-0",
+            "[&_[data-radix-popper-content-wrapper]]:!top-full",
+            "[&_[data-radix-popper-content-wrapper]]:!z-[212]",
+            "[&_[data-radix-popper-content-wrapper]]:!mt-2",
+            "[&_[data-radix-popper-content-wrapper]]:!transform-none",
+          )}
+        >
+          <ActionMenu
+            label="Add Circle"
+            title="Circles"
+            triggerIcon={Plus}
+            testId="one-location-add-circle"
+            items={[
+              {
+                id: "create",
+                label: "Create Circle",
+                icon: Plus,
+                onSelect: onCreate,
+                voiceControlId: "one-location-action-create-circle",
+              },
+              {
+                id: "join",
+                label: "Join with code",
+                icon: KeyRound,
+                onSelect: onJoin,
+                voiceControlId: "one-location-action-join-circle",
+              },
+            ]}
+          />
+        </div>
       </div>
 
       {incomingInvitesError ? (
@@ -448,62 +527,36 @@ export function CirclesSection({
         </div>
       ) : null}
 
-      {orderedCircles.length ? (
-        <SettingsGroup
-          separatorInset
-          shellClassName={CIRCLES_GROUP_SURFACE}
-          testId="one-location-circle-list"
-        >
-          {orderedCircles.map((circle) => {
-            const isSmsCircle = circle.systemKind === "sms";
-            const initials = circleInitials(circle.name);
-            const showInitials =
-              !isSmsCircle && circle.systemKind !== "trusted" && initials;
-            return (
-              <SettingsRow
-                key={circle.id}
-                leading={
-                  <span
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center",
-                      isSmsCircle
-                        ? "rounded-full bg-[#FF3B30] text-[11px] font-bold leading-none tracking-[-0.2px] text-white"
-                        : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
-                    )}
-                    data-testid={
-                      isSmsCircle
-                        ? "one-location-circle-sms-mark"
-                        : "one-location-circle-neutral-mark"
-                    }
-                  >
-                    {isSmsCircle ? (
-                      "SMS"
-                    ) : showInitials ? (
-                      initials
-                    ) : (
-                      <UsersRound className="h-[17px] w-[17px]" />
-                    )}
-                  </span>
-                }
-                title={circle.name}
-                description={
-                  isSmsCircle
-                    ? `Save My Soul · ${circleListPeopleLabel(circle.memberCount)}`
-                    : circleListPeopleLabel(circle.memberCount)
-                }
-                chevron
-                onClick={() => onOpen(circle.id)}
-                className={cn(
-                  "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
-                  "[&>button]:min-h-[60px] sm:[&>button]:min-h-16",
-                  "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
-                  "[&_[data-slot=settings-row-description]]:!mt-0.5 [&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
-                )}
-                testId={`one-location-circle-${circle.id}`}
-              />
-            );
-          })}
-        </SettingsGroup>
+      {circleGroups.length ? (
+        <div className="space-y-4" data-testid="one-location-circle-list">
+          {circleGroups.map((group) => (
+            <section
+              key={group.key}
+              className="space-y-2"
+              data-testid={`one-location-circle-group-${group.key}`}
+            >
+              <SectionLabel
+                as="h3"
+                className="px-[6px] text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]"
+              >
+                {group.title}
+              </SectionLabel>
+              <SettingsGroup
+                separatorInset
+                shellClassName={CIRCLES_GROUP_SURFACE}
+                testId={`one-location-circle-group-list-${group.key}`}
+              >
+                {group.circles.map((circle) => (
+                  <CircleSummaryRow
+                    key={circle.id}
+                    circle={circle}
+                    onOpen={onOpen}
+                  />
+                ))}
+              </SettingsGroup>
+            </section>
+          ))}
+        </div>
       ) : (
         <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
           <EmptyState
@@ -830,12 +883,10 @@ function CircleMemberRow({
    *  to end. Offering Remove there is offering a control that cannot work. */
   membersRemovable?: boolean;
 }) {
-  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const isCurrentUser = member.userId === currentUserId;
   const canShare =
     !isCurrentUser && member.phoneVerified && member.secureLocationReady;
   const canRemove = isOwner && member.role !== "owner" && membersRemovable;
-  const hasMenu = canShare || canRemove;
 
   const relationship =
     !isCurrentUser && member.relationship && member.relationship !== "self"
@@ -886,10 +937,12 @@ function CircleMemberRow({
 
   return (
     <div className={CIRCLE_MEMBER_ROW_CLASSNAME}>
-      <Avatar className={CIRCLE_MEMBER_AVATAR_CLASSNAME}>
-        {member.photoUrl ? <AvatarImage src={member.photoUrl} alt="" /> : null}
-        <AvatarFallback>{circleInitials(member.displayName)}</AvatarFallback>
-      </Avatar>
+      <ConnectionPersonAvatar
+        label={member.displayName}
+        photoUrl={member.photoUrl}
+        verified={Boolean(member.isRia)}
+        className={CIRCLE_MEMBER_AVATAR_CLASSNAME}
+      />
       <div className="min-w-0 flex-1">
         {/* `truncate`, not `break-words`. A long name used to wrap to three
             lines and push its own row to twice the height of its neighbours,
@@ -993,77 +1046,25 @@ function CircleMemberRow({
             </Link>
           </>
         ) : null}
-        {hasMenu ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={busy}
-                aria-label={`Actions for ${member.displayName}`}
-                className={CIRCLE_MEMBER_MENU_CLASSNAME}
-              >
-                <MoreVertical className="h-5 w-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {canShare ? (
-                <DropdownMenuItem onSelect={() => onShare()}>
-                  <Share2 className="h-4 w-4 text-current" />
-                  Share location
-                </DropdownMenuItem>
-              ) : null}
-              {canRemove ? (
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setConfirmRemoveOpen(true);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Remove from Circle
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          // Holds the kebab column open on the rows that have no kebab. Without
-          // it the roster's right edge steps in and out by 44px from row to row.
-          <span
-            aria-hidden="true"
-            className={CIRCLE_MEMBER_MENU_CLASSNAME}
-            data-testid="circle-member-menu-spacer"
-          />
-        )}
+        {/* The kebab, its actions and the confirm they lead to -- one module,
+            because which SURFACE carries them depends on the pointer. See
+            `circle-member-actions-menu.tsx`: a phone gets a bottom action
+            sheet headed by this member's own name, a desktop keeps the
+            anchored menu. It also renders the inert 44px spacer on the rows
+            that offer nothing, so the kebab column exists on every row. */}
+        <CircleMemberActionsMenu
+          displayName={member.displayName}
+          initials={circleInitials(member.displayName)}
+          photoUrl={member.photoUrl}
+          verified={Boolean(member.isRia)}
+          secondaryLine={secondaryLine}
+          canShare={canShare}
+          canRemove={canRemove}
+          busy={busy}
+          onShare={onShare}
+          onRemove={onRemove}
+        />
       </div>
-      {canRemove ? (
-        <AlertDialog
-          open={confirmRemoveOpen}
-          onOpenChange={setConfirmRemoveOpen}
-        >
-          <AlertDialogContent size="sm">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Remove {member.displayName}?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Circle shares with {member.displayName} will stop. Direct shares
-                stay unchanged.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                onClick={() => void onRemove()}
-                className="h-11 w-full sm:w-auto"
-              >
-                Remove
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      ) : null}
     </div>
   );
 }
@@ -1350,9 +1351,21 @@ export function CircleDetailFlow({
       ),
     [members, memberSearch],
   );
-  const filteredMembers = usesPagedMembers
-    ? members
-    : locallyFilteredMembers;
+  // The owner leads the roster in every kind of Circle, from either source --
+  // but only while the roster is a ROSTER. Once a query is typed the list is
+  // answering that query, and both search paths now rank a name that begins
+  // with what you typed above one that merely contains it (client-side in
+  // `filterPeopleByQuery`, server-side since #6244). Hoisting the owner
+  // through that would put a loose match above an exact one, on the one
+  // screen where the reader has already said who they are looking for.
+  // `circle-member-order.ts` documents why this is a partition rather than a
+  // second key on the A-Z sort.
+  const filteredMembers = useMemo(() => {
+    const rendered = usesPagedMembers ? members : locallyFilteredMembers;
+    return memberSearch.trim()
+      ? rendered
+      : sortCircleMembersOwnerFirst(rendered);
+  }, [usesPagedMembers, members, locallyFilteredMembers, memberSearch]);
 
   // Beside the "Members" heading. Unfiltered it is the same phrase the screen
   // title and the "Your circles" row use, so the number never changes wording
@@ -1754,10 +1767,10 @@ export function CircleDetailFlow({
                 aria-describedby={undefined}
                 className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
               >
-                <SheetHeader className="text-left">
+                <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
                   <SheetTitle>Rename Circle</SheetTitle>
                 </SheetHeader>
-                <div className="mt-5 space-y-4">
+                <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
                   <label className="block space-y-2">
                     <span className="text-[15px] font-semibold leading-5 text-foreground">
                       Circle name
@@ -1881,7 +1894,7 @@ export function CircleDetailFlow({
                 }}
                 className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
               >
-                <SheetHeader className="text-left">
+                <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
                   <SheetTitle>Invite code</SheetTitle>
                   {!inviteCode && !inviteCodeNeedsOwnerRotation ? (
                     <SheetDescription>
@@ -1890,7 +1903,7 @@ export function CircleDetailFlow({
                   ) : null}
                 </SheetHeader>
                 {inviteCode ? (
-                  <div className="mt-5 space-y-4">
+                  <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
                     <div className="rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 text-center shadow-[var(--app-card-shadow-standard)]">
                       <p className="break-all font-mono text-2xl font-bold tracking-[0.12em] text-foreground">
                         {inviteCode.code}
@@ -1931,7 +1944,12 @@ export function CircleDetailFlow({
                     ) : null}
                   </div>
                 ) : inviteCodeNeedsOwnerRotation && !canRotateInviteCode ? (
-                  <div className="mt-5 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--app-card-shadow-standard)]">
+                  <div
+                    className={cn(
+                      CIRCLE_SHEET_BODY_CLASSNAME,
+                      "rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--app-card-shadow-standard)]",
+                    )}
+                  >
                     <p className="text-[17px] font-semibold leading-[22px] text-foreground">
                       Invite code unavailable
                     </p>
@@ -1940,7 +1958,7 @@ export function CircleDetailFlow({
                     </p>
                   </div>
                 ) : (
-                  <div className="mt-5 space-y-3">
+                  <div className={cn(CIRCLE_SHEET_BODY_CLASSNAME, "space-y-3")}>
                     <Button
                       type="button"
                       disabled={busy}
@@ -2023,12 +2041,12 @@ export function CircleDetailFlow({
               // field they cannot see.
               className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
             >
-              <SheetHeader className="text-left">
+              <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
                 <SheetTitle>Add people</SheetTitle>
                 <SheetDescription>Choose connections.</SheetDescription>
               </SheetHeader>
 
-              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
+              <div className={CIRCLE_SHEET_SCROLL_BODY_CLASSNAME}>
                 <label className="relative block">
                   <span className="sr-only">Search connections</span>
                   <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -2043,7 +2061,7 @@ export function CircleDetailFlow({
                   />
                 </label>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <div className={CIRCLE_SHEET_SCROLL_AREA_CLASSNAME}>
                   {peopleLoading ? (
                     <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin" />
@@ -2069,6 +2087,9 @@ export function CircleDetailFlow({
                       filteredEligibleConnections.length ? (
                         <SettingsGroup
                           title="Your connections"
+                          headingClassName={
+                            CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME
+                          }
                           description={
                             remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
                               ? `Add up to ${CIRCLE_INVITE_BATCH_LIMIT} people at a time. ${peopleTotalCount} available; ${remainingCapacity} Circle slots remain.`
@@ -2088,17 +2109,11 @@ export function CircleDetailFlow({
                               <SettingsRow
                                 key={connection.userId}
                                 leading={
-                                  <Avatar className="h-10 w-10 rounded-xl">
-                                    {connection.photoUrl ? (
-                                      <AvatarImage
-                                        src={connection.photoUrl}
-                                        alt=""
-                                      />
-                                    ) : null}
-                                    <AvatarFallback className="rounded-xl">
-                                      {circleInitials(connection.displayName)}
-                                    </AvatarFallback>
-                                  </Avatar>
+                                  <ConnectionPersonAvatar
+                                    photoUrl={connection.photoUrl ?? null}
+                                    label={connection.displayName}
+                                    verified={Boolean(connection.isRia)}
+                                  />
                                 }
                                 title={
                                   <span className="flex min-w-0 items-center gap-1.5">
@@ -2202,25 +2217,24 @@ export function CircleDetailFlow({
                       ) : null}
 
                       {pendingInvites.length ? (
-                        <SettingsGroup title="Pending">
+                        <SettingsGroup
+                          title="Pending"
+                          headingClassName={
+                            CIRCLE_SHEET_NEXT_GROUP_HEADING_CLASSNAME
+                          }
+                        >
                           {pendingInvites.map((invite) => (
                             <SettingsRow
                               key={invite.id}
                               leading={
-                                <Avatar className="h-10 w-10">
-                                  {invite.inviteePhotoUrl ? (
-                                    <AvatarImage
-                                      src={invite.inviteePhotoUrl}
-                                      alt=""
-                                    />
-                                  ) : null}
-                                  <AvatarFallback>
-                                    {circleInitials(
-                                      invite.inviteeDisplayName ||
-                                        "One connection",
-                                    )}
-                                  </AvatarFallback>
-                                </Avatar>
+                                <ConnectionPersonAvatar
+                                  label={
+                                    invite.inviteeDisplayName ||
+                                    "One connection"
+                                  }
+                                  photoUrl={invite.inviteePhotoUrl}
+                                  className="h-10 w-10"
+                                />
                               }
                               title={
                                 invite.inviteeDisplayName || "One connection"

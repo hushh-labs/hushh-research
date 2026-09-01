@@ -418,24 +418,6 @@ export function OneSetupHub() {
       }}
     >
       <AppPageHeaderRegion>
-        {/* Header title + mobile master action share one flex row. The action
-            was absolutely positioned over the header before, so the large
-            display title ran underneath it and the two overlapped. A flex row
-            with a min-w-0 title column and a shrink-0 button keeps real
-            horizontal separation; the title shrinks within its column.
-
-            The row wraps, and the title column holds a floor before it does.
-            `min-w-0` let the title shrink to nothing while a shrink-0 action
-            whose label cannot wrap took what it needed first -- at 320px with
-            200% text that left the title 60px to paint 180px of "Finish
-            setting up One", which overflowed a visible box straight through
-            the action (measured: 96px of overlap, in every hub state). The
-            floor has to be min-width, not flex-basis: `flex-1` is
-            `flex: 1 1 0%`, so a basis utility next to it is simply overwritten
-            and the row never wraps. In rem, so it grows with the text setting
-            that causes the squeeze; above that threshold nothing moves. */}
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-[8rem] flex-1">
           <PageHeader
             title={
               !hubStateLoading && allReady ? "You're all set" : "Set up One"
@@ -444,29 +426,6 @@ export function OneSetupHub() {
             accent="neutral"
             className={styles.setupHeader}
           />
-          </div>
-          {/* Mobile surfaces the master Skip/Finish action top-right in the
-              header so it is always reachable and never hides behind the fixed
-              "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
-          {!hubStateLoading ? (
-            <button
-              type="button"
-              onClick={() => void handleMasterAck()}
-              disabled={dismissing}
-              aria-disabled={!runtimeChoiceComplete || undefined}
-              data-testid="one-setup-master-ack-mobile"
-              // Same rule as the desktop footer: the accent is reserved for a
-              // tap that can actually finish. A faded accent still reads blue,
-              // so a blocked finish goes neutral rather than dimmed -- but it
-              // stays tappable, because the `title` tooltip that used to carry
-              // the reason here is invisible on the touch devices this action
-              // exists for. The tap raises the toast instead.
-              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-100 aria-disabled:text-muted-foreground aria-disabled:hover:bg-transparent sm:hidden"
-            >
-              {masterActionLabel}
-            </button>
-          ) : null}
-        </div>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
@@ -577,10 +536,7 @@ export function OneSetupHub() {
                 </SettingsGroup>
               ) : null}
             </div>
-            {/* Desktop keeps the calm in-flow terminal action; mobile uses the
-            top-right header action instead (the fixed agent bar would cover a
-            bottom footer on phones). */}
-            <div className="hidden sm:block">
+            <div>
               <SetupCompletionFooter
                 label={masterActionLabel}
                 onComplete={() => void handleMasterAck()}

@@ -76,6 +76,12 @@ Current inventory policy:
 
 Nested route families are classified explicitly even when they render through a shared web workspace. The profile family uses `/one/profile/<panel>` routes with the shared `native-route-profile` marker; dynamic detail identifiers remain query-backed fixtures in `native-route-inventory.json` so Capacitor static export does not require unbounded dynamic paths.
 
+The consent-aware public person surface is the narrow exception. Its sole
+product route remains `/people/[personRef]`; Capacitor emits one inert UUID
+fixture to include the dynamic client bundle, then resolves the actual opaque
+reference through the shared native-aware API transport. No public identity,
+scope metadata, grant, or plaintext value is compiled into the application.
+
 ## Browser API Policy
 
 Route-facing code must not directly own browser-only APIs when a shared wrapper should exist.
@@ -99,6 +105,26 @@ Direct usage is allowed only in:
 - the wrapper files above
 - explicitly exempt web-only plugin implementations
 - documented accepted exceptions in the mobile docs
+
+## Notification Lifecycle Parity
+
+Web, iOS, and Android share one Feed-first contract for every routine push
+family. While the app is active, receipt refreshes `/one/feed` and the owning
+domain state without a popup toast, foreground system banner, or sound. While
+an iOS or Android app is backgrounded or terminated, the operating system owns
+the notification; the same applies when no visible web client can claim it. A
+notification body tap opens `/one/feed` through the shared internal navigation
+event when a warm client exists, preserving the memory-only vault; cold launch
+opens that same route and follows the normal auth/unlock recovery path. On iOS,
+registered consent action buttons remain confirmation-only deep links. Save My
+Soul is the sole foreground presentation exception and must not produce both a
+native banner and the shared emergency alarm. Capacitor's Firebase Messaging
+router remains the iOS notification delegate and presents only the badge in the
+foreground, while the shared UI owns the emergency card and alarm. Its explicit
+iOS `Open live location` safety action retains a validated direct One Location
+route; ordinary notification body taps still enter Feed. Consent request
+identity survives the Feed handoff so the backend can stop reminders after the
+user attends the system notification.
 
 ## Gemini runtime configuration parity
 
@@ -188,6 +214,10 @@ Native parity for authenticated flows now includes the verified phone mandate af
 - `/register-phone` is a contract route even though it bypasses the standard shell.
 - One Voice/Kai compatibility surfaces require native microphone permission metadata:
   `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
+- Siri/App Shortcuts is an explicit iOS system-surface specialization. Its
+  `HushhVoiceInvocation` bridge exposes metadata-only pending/claim/complete
+  handoff methods on iOS; Android and web return unsupported/no pending
+  invocation and do not create a parallel assistant integration.
 - One Location Agent requires foreground-only location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,
   `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on

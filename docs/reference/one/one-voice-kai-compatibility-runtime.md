@@ -16,9 +16,9 @@ second execution authority.
 
 - In-bar live voice runs through `WS /api/one/adk/live` and One's ADK
   `Runner.run_live` relay in `consent-protocol/api/routes/one/adk_live.py`.
-- Typed private-agent chat uses `consent-protocol/api/routes/kai/agent_chat.py`
-  as a compatibility route into the same One semantic and generated-action
-  boundary.
+- Typed private-agent chat uses the canonical AG-UI endpoint in
+  `consent-protocol/api/routes/one/agent_chat.py` with the same One semantic
+  and generated-action boundary.
 - Authored `*.voice-action-contract.json` files generate the shared
   `contracts/kai/kai-action-gateway.vnext.json`. That artifact is the only
   executable action inventory for Agent Bar, voice, Search, and command

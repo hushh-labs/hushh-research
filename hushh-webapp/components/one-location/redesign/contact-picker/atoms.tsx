@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { cn } from "@/lib/utils";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 
@@ -37,22 +38,22 @@ export function initials(value: string): string {
 
 export function ContactAvatar({
   label,
+  photoUrl,
   className,
+  verified = false,
 }: {
   label: string;
+  photoUrl?: string | null;
   className?: string;
+  verified?: boolean;
 }) {
   return (
-    <span
-      className={cn(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold",
-        CONTACT_AVATAR_TONE,
-        className,
-      )}
-      aria-hidden
-    >
-      {initials(label)}
-    </span>
+    <ConnectionPersonAvatar
+      label={label}
+      photoUrl={photoUrl}
+      verified={verified}
+      className={cn("h-9 w-9 text-[15px]", className)}
+    />
   );
 }
 
@@ -77,7 +78,7 @@ export function ContactGroup({
 
 export function EmptyStateCard({ message }: { message: string }) {
   return (
-    <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-muted-foreground shadow-none transition-all duration-200 ease-out">
+    <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-[color:var(--app-secondary-label)] shadow-none transition-all duration-200 ease-out">
       <p className="max-w-[280px]">{message}</p>
     </div>
   );
@@ -125,7 +126,7 @@ export function ContactRowAction({
       onClick={onAdd}
       disabled={busy || !ready}
       aria-label={`Add ${label}`}
-      className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-muted-foreground"
+      className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)]"
     >
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : ready ? "Add" : "Setup"}
     </button>
@@ -134,6 +135,8 @@ export function ContactRowAction({
 
 export function ContactRow({
   label,
+  photoUrl,
+  verified = false,
   subtitle,
   fromContacts,
   selected,
@@ -143,6 +146,8 @@ export function ContactRow({
   onRemove,
 }: {
   label: string;
+  photoUrl?: string | null;
+  verified?: boolean;
   subtitle?: string | null;
   fromContacts?: boolean;
   selected: boolean;
@@ -156,10 +161,10 @@ export function ContactRow({
       className="flex min-h-[58px] items-center gap-3 px-3.5 py-2"
       data-testid="contact-picker-row"
     >
-      <ContactAvatar label={label} />
+      <ContactAvatar label={label} photoUrl={photoUrl} verified={verified} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+          <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
             {label}
           </span>
           {fromContacts ? (
@@ -167,7 +172,7 @@ export function ContactRow({
           ) : null}
         </span>
         {subtitle ? (
-          <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
+          <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </span>
         ) : null}

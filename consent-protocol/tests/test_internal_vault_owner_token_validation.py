@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -15,9 +16,15 @@ class _FakeResponse:
 
 
 class _FakeQuery:
-    def __init__(self, table_name: str, response_rows: dict[str, list[dict]]):
+    def __init__(
+        self,
+        table_name: str,
+        response_rows: dict[str, list[dict]],
+        execute_thread_ids: list[int],
+    ):
         self._table_name = table_name
         self._response_rows = response_rows
+        self._execute_thread_ids = execute_thread_ids
 
     def select(self, *_args, **_kwargs):
         return self
@@ -35,6 +42,7 @@ class _FakeQuery:
         return self
 
     def execute(self):
+        self._execute_thread_ids.append(threading.get_ident())
         return _FakeResponse(self._response_rows.get(self._table_name, []))
 
 
@@ -42,10 +50,24 @@ class _FakeDb:
     def __init__(self, response_rows: dict[str, list[dict]]):
         self.response_rows = response_rows
         self.requested_tables: list[str] = []
+        self.execute_thread_ids: list[int] = []
 
     def table(self, table_name: str):
         self.requested_tables.append(table_name)
-        return _FakeQuery(table_name, self.response_rows)
+        return _FakeQuery(table_name, self.response_rows, self.execute_thread_ids)
+
+
+@pytest.mark.asyncio
+async def test_token_validation_does_not_execute_sync_database_io_on_event_loop(monkeypatch):
+    fake_db = _FakeDb({"consent_audit": []})
+    service = ConsentDBService()
+    monkeypatch.setattr(service, "_get_db", lambda: fake_db)
+
+    event_loop_thread = threading.get_ident()
+    await service.is_token_active("user_test", ConsentScope.PKM_READ.value)
+
+    assert fake_db.execute_thread_ids
+    assert all(thread_id != event_loop_thread for thread_id in fake_db.execute_thread_ids)
 
 
 @pytest.mark.asyncio

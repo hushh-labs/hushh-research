@@ -1,14 +1,27 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 /**
- * The inline "New duration" editor on a live share, in a real browser.
+ * Asking for more of a live share, in a real browser.
  *
- * The component tests prove the logic; these prove the thing a person
- * actually touches -- against the deployed bundle when BASE_URL points at
- * UAT. The reported bugs were all in this editor:
+ * The component tests prove the logic; these prove the thing a person actually
+ * touches -- against the deployed bundle when BASE_URL points at UAT.
  *
- *   "save button taking more time after edit time"
- *   "time reset is not working"
+ * WHAT THIS USED TO COVER. An inline "New duration" editor: a `Select` of
+ * ABSOLUTE lengths, preselected to whatever the share had left, whose Save
+ * shortened the share when you picked under that and asked its owner for more
+ * when you picked over it. Reported, and correctly:
+ *
+ *   "4 hours ke liye approval maine le liya toh neeche ke time duration edit
+ *    mein aana illogical ... agar deni hain toh user can ask for more time"
+ *
+ * One field performing two opposite operations, with nothing saying which side
+ * of the line you were on -- and the value that went out was already additive,
+ * because the request carries `extendsGrantId`. It is replaced by the control
+ * the People tab already used: four amounts, every one of them "more". Ending
+ * a share early is the row's own Remove, which is unambiguous.
+ *
+ * So the claims here are what the new lane promises: exactly one request goes
+ * out, it names the grant it lengthens, and no shorten is ever spent.
  *
  * The live grant is supplied by intercepting the workspace state, so this
  * needs one reviewer account rather than two real people mid-share.
@@ -133,11 +146,11 @@ async function signInAsReviewer(page: Page) {
   }
 }
 
-/** Land on Request with context, with the fixture's row on screen. */
-async function openDurationEditor(page: Page) {
+/** Land on Request location, with the fixture's row expanded. */
+async function openMoreTimePanel(page: Page) {
   await page.goto("/one/location?action=ask", { waitUntil: "domcontentloaded" });
   await page
-    .getByRole("heading", { name: "Request with context" })
+    .getByRole("heading", { name: "Request location" })
     .waitFor({ state: "visible", timeout: 90_000 });
   const edit = page.getByRole("button", {
     name: `Edit access for ${OWNER_NAME}`,
@@ -145,11 +158,18 @@ async function openDurationEditor(page: Page) {
   await edit.waitFor({ state: "visible", timeout: 30_000 });
   await edit.click();
   await page
-    .getByRole("combobox", { name: "New duration" })
+    .getByTestId("one-location-more-time-options")
     .waitFor({ state: "visible", timeout: 15_000 });
 }
 
-test.describe("One Location inline duration editor", () => {
+/** The button for one amount, addressed the way a screen reader hears it. */
+function moreTimeButton(page: Page, label: string) {
+  return page.getByRole("button", {
+    name: `Ask ${OWNER_NAME} for ${label}`,
+  });
+}
+
+test.describe("One Location ask-for-more-time panel", () => {
   test.skip(
     !hasReviewerAuthority(),
     "needs reviewer credentials AND a /login sign-in path for automation (E2E_REVIEWER_SIGNIN=1); the 'Continue as reviewer' control these specs click does not exist in this repository",
@@ -157,80 +177,73 @@ test.describe("One Location inline duration editor", () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true });
   test.setTimeout(180_000);
 
-  test("opens on what the share has left, not a constant hour", async ({ page }) => {
-    // The row said "4 more hours" while the picker underneath said "1 hour".
+  test("offers additive amounts, never an absolute new length", async ({ page }) => {
+    // The screen the report was about. Four amounts, ascending, every label
+    // saying "more" -- and no Save, because there is nothing to confirm: the
+    // amount IS the action.
     await stubLiveGrant(page, 4 * 60);
     await signInAsReviewer(page);
-    await openDurationEditor(page);
+    await openMoreTimePanel(page);
 
     await expect(
       page.getByRole("combobox", { name: "New duration" }),
-    ).toHaveText(/4 hours/);
-  });
-
-  test("Save on an untouched picker calls nothing and closes", async ({ page }) => {
-    // This is "time reset is not working": Save spent a refused shorten, then
-    // asked the owner for one more minute, and the row never moved.
-    const calls = recordDurationCalls(page);
-    await stubLiveGrant(page, 59);
-    await signInAsReviewer(page);
-    await openDurationEditor(page);
+    ).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
 
     await expect(
-      page.getByRole("combobox", { name: "New duration" }),
-    ).toHaveText(/1 hour/);
-
-    await page.getByRole("button", { name: "Save" }).click();
-    await expect(page.getByRole("button", { name: "Save" })).toBeHidden({
-      timeout: 15_000,
-    });
-    expect(calls).toEqual([]);
+      page.getByTestId("one-location-more-time-options").getByRole("button"),
+    ).toHaveText(["15 min more", "30 min more", "1 hour more", "2 hours more"]);
+    await expect(page.getByText("They\u2019ll need to approve.")).toBeVisible();
   });
 
-  test("shortening applies immediately and leaves the row usable", async ({ page }) => {
-    // The saving flag used to be the revoke flag, and the shorten path left
-    // it set -- so Remove stayed disabled and the next Edit opened on a Save
-    // that spun forever.
+  test("one request goes out, and no shorten is ever spent", async ({ page }) => {
+    // The old editor's cheapest path still cost two round trips: a doomed
+    // shorten, its 422, and then the request the person was always going to
+    // need. There is one call now, whatever the share has left.
+    const calls = recordDurationCalls(page);
+    await stubLiveGrant(page, 2 * 60);
+    await signInAsReviewer(page);
+    await openMoreTimePanel(page);
+
+    await moreTimeButton(page, "1 hour more").click();
+
+    await expect.poll(() => calls, { timeout: 20_000 }).toEqual(["request POST"]);
+  });
+
+  test("the smallest amount is a top-up, not a cut", async ({ page }) => {
+    // "15 min" on the old absolute picker SHORTENED a four-hour share to
+    // fifteen minutes. The same words now add fifteen minutes to it, which is
+    // what somebody minutes from expiry is reaching for.
     const calls = recordDurationCalls(page);
     await stubLiveGrant(page, 4 * 60);
     await signInAsReviewer(page);
-    await openDurationEditor(page);
+    await openMoreTimePanel(page);
 
-    await page.getByRole("combobox", { name: "New duration" }).click();
-    await page.getByRole("option", { name: "30 min" }).click();
-    await page.getByRole("button", { name: "Save" }).click();
-
-    await expect.poll(() => calls, { timeout: 20_000 }).toContain("shorten PATCH");
-    // One call, not a refused shorten followed by a request.
-    expect(calls.filter((c) => c === "request POST")).toEqual([]);
-
-    const remove = page.getByRole("button", {
-      name: `Remove ${OWNER_NAME}'s access`,
-    });
-    await expect(remove).toBeEnabled({ timeout: 20_000 });
-
-    // And the same person can be edited again straight away.
-    await page.getByRole("button", { name: `Edit access for ${OWNER_NAME}` }).click();
-    await expect(page.getByRole("button", { name: "Save" })).toBeEnabled();
-  });
-
-  test("asks the owner directly when the new duration would extend", async ({ page }) => {
-    const calls = recordDurationCalls(page);
-    await stubLiveGrant(page, 12);
-    await signInAsReviewer(page);
-    await openDurationEditor(page);
-
-    await page.getByRole("combobox", { name: "New duration" }).click();
-    await page.getByRole("option", { name: "4 hours" }).click();
-    await page.getByRole("button", { name: "Save" }).click();
+    await moreTimeButton(page, "15 min more").click();
 
     await expect.poll(() => calls, { timeout: 20_000 }).toContain("request POST");
-    // The doomed shorten that made Save slow must not be spent.
-    expect(calls.filter((c) => c === "shorten PATCH")).toEqual([]);
+    expect(calls.filter((call) => call.startsWith("shorten"))).toEqual([]);
+  });
+
+  test("the row stays usable, and Remove is never the ask's to disable", async ({
+    page,
+  }) => {
+    // The retired editor's save flag was the revoke flag, so one successful
+    // save disabled that person's Remove for good. The amounts spin on their
+    // own key now -- see `requestMoreTimeKey`.
+    await stubLiveGrant(page, 4 * 60);
+    await signInAsReviewer(page);
+    await openMoreTimePanel(page);
+
+    await moreTimeButton(page, "30 min more").click();
+
+    await expect(
+      page.getByRole("button", { name: `Remove ${OWNER_NAME}'s access` }),
+    ).toBeEnabled({ timeout: 20_000 });
   });
 
   for (const width of [320, 390, 430]) {
-    test(`editor fits and stays tappable at ${width}px`, async ({ page }) => {
+    test(`panel fits and stays tappable at ${width}px`, async ({ page }) => {
       const consoleErrors: string[] = [];
       page.on("console", (message) => {
         if (message.type() === "error") consoleErrors.push(message.text());
@@ -240,7 +253,7 @@ test.describe("One Location inline duration editor", () => {
       await page.setViewportSize({ width, height: 844 });
       await stubLiveGrant(page, 4 * 60);
       await signInAsReviewer(page);
-      await openDurationEditor(page);
+      await openMoreTimePanel(page);
 
       // RES-001: the editor must not push the page sideways.
       const overflow = await page.evaluate(() => {
@@ -252,15 +265,23 @@ test.describe("One Location inline duration editor", () => {
       });
       expect(overflow).toBeLessThanOrEqual(1);
 
-      // RES-002/005: Save is inside the viewport and big enough to hit.
-      const save = page.getByRole("button", { name: "Save" });
-      const box = await save.boundingBox();
-      expect(box).not.toBeNull();
-      expect(box!.left).toBeGreaterThanOrEqual(-1);
-      expect(box!.right).toBeLessThanOrEqual(width + 1);
-      expect(box!.height).toBeGreaterThanOrEqual(36);
+      // RES-002/005: every amount is inside the viewport and big enough to
+      // hit. All four, not one: below 340px they stack to a single column and
+      // above it they are a 2x2, and it is the longest label ("2 hours more")
+      // that decides whether either fits.
+      const amounts = page
+        .getByTestId("one-location-more-time-options")
+        .getByRole("button");
+      await expect(amounts).toHaveCount(4);
+      for (let index = 0; index < 4; index += 1) {
+        const box = await amounts.nth(index).boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.x).toBeGreaterThanOrEqual(-1);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+      }
 
-      // RES-012: opening the editor introduces no runtime errors.
+      // RES-012: opening the panel introduces no runtime errors.
       expect(
         consoleErrors.filter(
           (text) => !/favicon|Failed to load resource|net::ERR_/i.test(text),

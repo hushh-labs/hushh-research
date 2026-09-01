@@ -13,6 +13,8 @@ const HUB_SOURCE = repoFile(
   "components/one-location/redesign/location-redesign-hub.tsx",
 );
 const CONNECT_SOURCE = repoFile("app/connect/page-client.tsx");
+/** The route that owns the send, and therefore the toast that confirms it. */
+const PAGE_SOURCE = repoFile("app/one/location/page.tsx");
 
 /**
  * The duration ceiling is owned by the consent protocol, not by the web app.
@@ -113,6 +115,36 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     // The surviving statement, on the live link's own card.
     expect(HUB_SOURCE).toContain("Anyone with this link can see your location.");
   });
+
+  it("drops the Request sent banner in favour of the toast that already fired", () => {
+    // Reported on the Ask screen: "request sent is not looking cool, do you
+    // really think we want a bar for this only". The screen was telling the
+    // same fact three times -- a toast raised by `handleRequestAccess`, an
+    // "Asked" pill and an "Asked just now ... waiting on them" line on every
+    // row it applied to, and then a banner pinned above the search field to
+    // announce something that stopped being news a second later.
+    //
+    // `frontend-pattern-catalog.md`: "Do not create inline route banners for
+    // row-level saves... Inline errors are for stable page-blocking states
+    // only." A sent request is neither, so the banner and the `justSent` latch
+    // that drove it are both gone.
+    // Matched on the constructs, not on the words: the code comment that
+    // explains WHY the banner went is worth keeping, and a bare
+    // `not.toContain("justSent")` would forbid writing it down.
+    expect(HUB_SOURCE).not.toMatch(/const \[justSent/);
+    expect(HUB_SOURCE).not.toMatch(/setJustSent\(/);
+    expect(HUB_SOURCE).not.toMatch(/\{justSent \?/);
+    // A line that is nothing but the words is a JSX text node -- i.e. a banner
+    // rendering them. In a comment they are always preceded by `//` or `*`.
+    expect(HUB_SOURCE).not.toMatch(/^\s*Request sent\.\s*$/m);
+
+    // The channel that survives, and the durable per-row telling that made the
+    // banner redundant in the first place.
+    expect(PAGE_SOURCE).toContain(
+      "Request sent. We'll notify you here when they respond.",
+    );
+    expect(HUB_SOURCE).toContain("waiting on them");
+  });
 });
 
 describe("One Location — hub tab naming", () => {
@@ -129,27 +161,51 @@ describe("One Location — hub tab naming", () => {
 });
 
 describe("One Location — People actions stay reachable and single-flight", () => {
-  it("keeps Find contacts mounted for action routing and disabled while syncing", () => {
-    const start = HUB_SOURCE.indexOf(
-      'data-voice-control-id="one-location-find-contacts"',
-    );
-    expect(start).toBeGreaterThan(-1);
-    const addPeopleMenu = HUB_SOURCE.slice(start - 600, start + 900);
+  // The "+" menus moved to the shared `ActionMenu`, which is a bottom sheet on
+  // a phone and an anchored menu on a pointer -- an anchored menu opened
+  // straight down ONTO the very list it belongs to. The properties this test
+  // was written for did not change; where they are declared did.
+  const ACTION_MENU_SOURCE = repoFile("components/app-ui/action-menu.tsx");
 
-    expect(addPeopleMenu).toContain("<DropdownMenuContent");
-    expect(addPeopleMenu).toContain("forceMount");
-    expect(addPeopleMenu).toContain('disabled={vm.busy === "contactSync"}');
-    expect(addPeopleMenu).toContain('aria-busy={vm.busy === "contactSync"');
+  it("keeps Find contacts listed and merely disabled while syncing", () => {
+    const start = HUB_SOURCE.indexOf('voiceControlId: "one-location-find-contacts"');
+    expect(start).toBeGreaterThan(-1);
+    const addPeopleMenu = HUB_SOURCE.slice(start - 900, start + 200);
+
+    // Present in the item list unconditionally -- a row that disappears
+    // mid-action is not a disabled control, it is a missing one.
+    expect(addPeopleMenu).toContain('id: "find-contacts"');
+    expect(addPeopleMenu).toContain('disabled: vm.busy === "contactSync"');
+    expect(addPeopleMenu).toContain('busy: vm.busy === "contactSync"');
+  });
+
+  it("refuses a second tap rather than queueing it, in both presentations", () => {
+    // Single-flight is the point: the sheet returns early and the menu
+    // preventDefaults, so a disabled row can never fire its action.
+    expect(ACTION_MENU_SOURCE).toContain("if (item.disabled) return;");
+    expect(ACTION_MENU_SOURCE).toContain("event.preventDefault();");
+    // The pointer lane keeps the content mounted, as it always did.
+    expect(ACTION_MENU_SOURCE).toContain("forceMount");
+  });
+
+  it("does not open a section's menu on top of that section's own list", () => {
+    // The reported defect, pinned: on a phone the surface is a bottom sheet,
+    // not a menu anchored under a "+" that sits above the list.
+    expect(ACTION_MENU_SOURCE).toContain('side="bottom"');
+    expect(ACTION_MENU_SOURCE).toContain("useIsMobile");
+    // And the presentation is frozen while open, so a rotation cannot remount
+    // the menu under the hand using it.
+    expect(ACTION_MENU_SOURCE).toContain("if (!open) setSheetPresentation(isMobile);");
   });
 });
 
-describe("One Location — the Request location trail agrees with the screen", () => {
+describe("One Location — the Ask for location trail agrees with the screen", () => {
   it("uses one spelling for the crumb, the flow title and the hub row", () => {
     const params = new URLSearchParams({ action: "ask" });
     const crumbs = resolveTopShellBreadcrumb("/one/location", params);
     const last = crumbs?.items.at(-1)?.label;
 
-    expect(last).toBe("Request location");
+    expect(last).toBe("Ask for location");
     // The header contract: the last crumb IS the screen's title. Matched on
     // the title prop rather than a whole single-line element, so the guard
     // survives the header gaining an eyebrow or a description and wrapping
@@ -206,11 +262,19 @@ describe("One Location — the Share confirm step is a measured column", () => {
     expect(HUB_SOURCE).toContain("maxWidthClassName={null}");
   });
 
-  it("keeps the default clamp for the two editors that have no column", () => {
-    // The live-share "New time" editor and the People tab's "New duration"
-    // render straight into the 880px shell. Without the default they stretch to
-    // ~792px and their duration cells reach 258px — the exact state an earlier
-    // round was fixing.
+  it("keeps the default clamp for callers with no column of their own", () => {
+    // The clamp is `DurationSelector`'s default, and it is what stops a
+    // control rendering straight into the 880px shell from stretching to
+    // ~792px with 258px duration cells.
+    //
+    // Its old headline example, the recipient-side "New duration" `select`,
+    // is gone: that lane asks for time additively now, so there is nothing
+    // absolute to pick. See `components/one-location/redesign/request-more-time`.
+    // The live-share "New time" ladder opts out with `maxWidthClassName={null}`
+    // on purpose (issue #6228) -- a wrapping row of content-width chips has
+    // nothing to stretch, unlike the old grid. So this asserts the DEFAULT
+    // still exists for the next caller that does not measure its own column,
+    // which is the part neither of those two changes may quietly remove.
     const selectors = repoFile(
       "components/one-location/redesign/selectors.tsx",
     );
@@ -232,5 +296,28 @@ describe("One Location — the Share confirm step is a measured column", () => {
     expect(labelRowClass).not.toContain("justify-between");
     // And the hint is no longer right-aligned into the far corner.
     expect(classNames.some((c) => c.includes("text-right"))).toBe(false);
+  });
+
+  it("does not draw a second card inside the clipped map preview", () => {
+    // The report: the map's outline "does not follow the map's actual shape
+    // and gets cut off at the corners". LocalMapPreview drew its own card --
+    // border plus a 24px radius -- inside SharedWithMeCard's 14px clip, so
+    // the child bulged past the parent on all four corners and the border was
+    // sliced there. Standalone (Check-In) it still IS the card and keeps both.
+    const page = repoFile("app/one/location/page.tsx");
+
+    // The nested branch inherits the container's rounding rather than
+    // asserting one of its own.
+    expect(page).toContain('nested');
+    expect(page).toContain('"rounded-[inherit]"');
+    // ...and the standalone branch keeps the card it is.
+    expect(page).toContain(
+      '"rounded-[var(--app-card-radius-standard)] border border-border/70"',
+    );
+
+    // The one call site that sits inside a clipping container asks for it.
+    expect(HUB_SOURCE).toContain(
+      "// SharedWithMeCard already draws and clips the card",
+    );
   });
 });

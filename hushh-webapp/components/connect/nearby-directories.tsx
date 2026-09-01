@@ -38,6 +38,17 @@ export function NearbyDirectories({
   getIdToken: () => Promise<string | null>;
 }) {
   const [directory, setDirectory] = useState<NearbyDirectory>("advisors");
+  const [visitedDirectories, setVisitedDirectories] = useState<
+    ReadonlySet<NearbyDirectory>
+  >(() => new Set(["advisors"]));
+
+  const selectDirectory = (next: NearbyDirectory) => {
+    setDirectory(next);
+    setVisitedDirectories((current) => {
+      if (current.has(next)) return current;
+      return new Set([...current, next]);
+    });
+  };
 
   return (
     <div className="space-y-4" data-testid="nearby-directories">
@@ -63,7 +74,7 @@ export function NearbyDirectories({
           <FilterChip
             key={option.value}
             active={directory === option.value}
-            onClick={() => setDirectory(option.value as NearbyDirectory)}
+            onClick={() => selectDirectory(option.value as NearbyDirectory)}
             testId={`nearby-directory-${option.value}`}
           >
             {option.label}
@@ -71,13 +82,21 @@ export function NearbyDirectories({
         ))}
       </FilterChipRow>
 
-      {directory === "places" ? (
-        <PlacesNearby getIdToken={getIdToken} />
-      ) : directory === "insurance" ? (
-        <InsuranceAgentsNearby getIdToken={getIdToken} />
-      ) : (
-        <AdvisorsNearby getIdToken={getIdToken} />
-      )}
+      {visitedDirectories.has("advisors") ? (
+        <div hidden={directory !== "advisors"} aria-hidden={directory !== "advisors"}>
+          <AdvisorsNearby getIdToken={getIdToken} />
+        </div>
+      ) : null}
+      {visitedDirectories.has("insurance") ? (
+        <div hidden={directory !== "insurance"} aria-hidden={directory !== "insurance"}>
+          <InsuranceAgentsNearby getIdToken={getIdToken} />
+        </div>
+      ) : null}
+      {visitedDirectories.has("places") ? (
+        <div hidden={directory !== "places"} aria-hidden={directory !== "places"}>
+          <PlacesNearby getIdToken={getIdToken} />
+        </div>
+      ) : null}
     </div>
   );
 }

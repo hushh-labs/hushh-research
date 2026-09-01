@@ -448,7 +448,7 @@ export default function PublicLocationViewPageClient() {
       : expiredWhileOpen
         ? `${ownerName || "The sender"} stopped sharing. Ask them for a fresh link.`
         : showLocation
-          ? `${ownerName || "A trusted person"} is sharing their live location with you.`
+          ? `${ownerName || "A trusted person"} is sharing live location with you.`
           : `${ownerName || "The sender"} shared this link, but no location is attached to it yet.`;
 
   useEffect(() => {

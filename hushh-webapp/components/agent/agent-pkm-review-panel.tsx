@@ -55,6 +55,17 @@ function cardScope(card: AgentPkmPreviewCard): string | null {
     .join(" > ");
 }
 
+function cardSensitivity(card: AgentPkmPreviewCard): string {
+  const decision = card.structure_decision && typeof card.structure_decision === "object"
+    ? card.structure_decision
+    : {};
+  const labels = decision.sensitivity_labels && typeof decision.sensitivity_labels === "object"
+    ? decision.sensitivity_labels as Record<string, unknown>
+    : {};
+  const path = String(card.primary_json_path || card.target_entity_scope || "").trim();
+  return titleize(String(labels[path] || labels[path.split(".")[0] || ""] || "confidential"));
+}
+
 export function AgentPkmReviewPanel({
   cards,
   saving = false,
@@ -118,17 +129,23 @@ export function AgentPkmReviewPanel({
             disabled={saving}
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            Save
+            Save all {reviewableCards.length}
           </Button>
         </div>
       </div>
 
-      <div className="mt-3 space-y-2 rounded-md border border-border/60 bg-background px-3 py-2">
-        {reviewableCards.slice(0, 2).map((card) => (
-          <div key={card.card_id} className="space-y-1 text-xs">
-            <p className="font-medium text-foreground">
-              {titleize(cardDomain(card))}{cardScope(card) ? ` > ${cardScope(card)}` : ""}
-            </p>
+      <div className="mt-3 max-h-80 space-y-2 overflow-y-auto rounded-md border border-border/60 bg-background p-2 pr-1">
+        {reviewableCards.map((card, index) => (
+          <div key={card.card_id} className="space-y-1 rounded-lg bg-muted/35 px-3 py-2.5 text-xs">
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-medium text-foreground">
+                <span className="mr-2 tabular-nums text-muted-foreground">{index + 1}</span>
+                {titleize(cardDomain(card))}{cardScope(card) ? ` · ${cardScope(card)}` : ""}
+              </p>
+              <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {cardSensitivity(card)}
+              </span>
+            </div>
             {card.confirmation_reason ? (
               <p className="leading-5 text-muted-foreground">
                 {cleanText(card.confirmation_reason, 120)}
@@ -145,12 +162,6 @@ export function AgentPkmReviewPanel({
             )}
           </div>
         ))}
-        {reviewableCards.length > 2 ? (
-          <p className="text-xs text-muted-foreground">
-            +{reviewableCards.length - 2} more memory candidate
-            {reviewableCards.length - 2 === 1 ? "" : "s"}
-          </p>
-        ) : null}
       </div>
     </div>
   );

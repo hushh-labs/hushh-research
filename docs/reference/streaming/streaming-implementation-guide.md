@@ -43,10 +43,16 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.
 
 - `Response` renders only real assistant/model text: SSE `token` deltas, or a final non-streamed assistant result when the backend did not stream tokens. Do not simulate token streaming from placeholders, staged strings, tool names, or progress events.
-- `Progress` renders app-owned lifecycle events: `tool_start`, `tool_waiting`, `tool_result`, route/action settlement, import stages, cancellation state, and backend progress frames.
+- `Activity` renders app-owned lifecycle events: `tool_start`, `tool_waiting`, `tool_result`, route/action settlement, import stages, cancellation state, backend progress frames, and validated AG-UI `ACTIVITY_SNAPSHOT`/`ACTIVITY_DELTA` messages.
 - `Thinking` is optional provider telemetry. It must never be required for control flow, and it must never replace app-owned progress rows.
 - Marketplace recommendations and other proactive cards should be preloaded by the workspace/session owner, then passed into the stream surface. Do not start durable fetches from a render-only accordion path when the workspace can load them at access or turn start.
 - Provider/auth details such as Vertex ADC, API-key transport, Gemini Live, or OpenAI Realtime stay below this UI contract. The UI consumes normalized token/progress/thinking events only.
+- Tool-based and activity-based generative UI must pass through the versioned
+  app component registry. The model may select typed content, but it cannot
+  author React, HTML, CSS, routes, or action authority. Unknown activity types
+  are ignored safely, and opaque scope or record references never render.
+- `RUN_FINISHED` with an interrupt outcome keeps the turn awaiting its authored
+  review surface. Only the resumed terminal success/error settles the turn.
 
 ## 5. UI State Machines
 

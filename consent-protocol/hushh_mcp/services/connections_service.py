@@ -30,11 +30,16 @@ from hushh_mcp.services.connection_graph_service import (
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
 )
-from hushh_mcp.services.feed_service import FeedService
+from hushh_mcp.services.people_search_sql import people_query_match_params
+from hushh_mcp.services.requester_identity import label_from_identity_row
+from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 
 logger = logging.getLogger(__name__)
 
 _RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
+_CONNECTION_FEED_EVENT_TYPES = frozenset(
+    {"connection_accepted", "connection_rejected", "connection_revoked"}
+)
 
 
 def _iso(value: Any) -> str | None:
@@ -53,6 +58,7 @@ def _iso(value: Any) -> str | None:
         return str(value.astimezone(timezone.utc).isoformat())
     return str(value)
 
+
 # The SQL predicate for "this RIA profile is real enough to carry a capability".
 #
 # One string, interpolated into every statement that asks the question, because
@@ -70,7 +76,7 @@ def _iso(value: Any) -> str | None:
 #
 # Static text under our control, never user input -- it is interpolated, not
 # bound, because a bound array would erase those literals from the SQL text.
-_RIA_VERIFIED_STATUS_SQL = "verification_status IN ('active', 'verified', 'finra_verified')"
+_RIA_VERIFIED_STATUS_SQL = RIA_VERIFIED_STATUS_SQL
 
 # Who a directory search is asking about.
 #
@@ -236,26 +242,86 @@ class ConnectionsService:
         return result.data or []
 
     def _display_name_for(self, user_id: str) -> str | None:
-        """Best-effort full display name for a user, for feed copy only.
+        """Best-effort canonical relationship-safe label for Feed copy.
 
-        Reads the same `actor_identity_cache.display_name` the connection and
-        directory queries already surface, so this never widens what the app
-        exposes about a mutual connection. Returns None when unresolved, letting
-        the feed fall back to its safe generic line.
+        The cache can contain the raw Firebase uid in ``display_name`` for a
+        user who has not synced an identity yet. Reuse the same canonical
+        display-name/email-handle ladder as push notifications so a technical
+        identifier never becomes human-facing Feed copy.
         """
         uid = (user_id or "").strip()
         if not uid:
             return None
         try:
             row = self._execute_one(
-                "SELECT display_name FROM actor_identity_cache WHERE user_id = :uid",
+                """
+                SELECT user_id, display_name, email
+                FROM actor_identity_cache
+                WHERE user_id = :uid
+                LIMIT 1
+                """,
                 {"uid": uid},
             )
         except Exception:  # noqa: BLE001 - name is cosmetic; never break the action
             logger.exception("connections.feed_display_name_lookup_failed")
             return None
-        name = str((row or {}).get("display_name") or "").strip()
-        return name or None
+        label = label_from_identity_row(row, allow_email_handle=True)
+        return label or None
+
+    def _record_connection_feed_transition(
+        self,
+        *,
+        owner_user_id: str,
+        counterpart_user_id: str,
+        actor_user_id: str,
+        event_type: str,
+        source_row_id: str,
+    ) -> None:
+        """Persist relationship history on the owning mutation transaction.
+
+        ``_execute_one`` automatically reuses ``_transaction_connection`` in
+        production. Unlike the best-effort Feed helper, failures here must
+        propagate so an accepted/rejected/revoked relationship can never
+        commit without the two corresponding, source-idempotent Feed rows.
+        """
+
+        owner = (owner_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        actor = (actor_user_id or "").strip()
+        source_id = (source_row_id or "").strip()
+        if not owner or not counterpart or not actor or not source_id:
+            raise ValueError("Connection Feed transitions require complete identities.")
+        if event_type not in _CONNECTION_FEED_EVENT_TYPES:
+            raise ValueError(f"Unsupported connection Feed event type: {event_type}")
+
+        counterpart_label = self._display_name_for(counterpart)
+        self._execute_one(
+            """
+            INSERT INTO feed_events (
+              user_id, source_domain, event_type, metadata, source_row_id
+            )
+            VALUES (
+              :owner_user_id,
+              'connections',
+              :event_type,
+              jsonb_strip_nulls(jsonb_build_object(
+                'actor_is_self', :actor_is_self,
+                'counterpart_label',
+                  NULLIF(LEFT(BTRIM(:counterpart_label), 160), '')
+              )),
+              :source_row_id
+            )
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            """,
+            {
+                "owner_user_id": owner,
+                "event_type": event_type,
+                "actor_is_self": owner == actor,
+                "counterpart_label": counterpart_label,
+                "source_row_id": source_id,
+            },
+        )
 
     @staticmethod
     def _row_mapping(row: Any) -> dict[str, Any]:
@@ -478,12 +544,12 @@ class ConnectionsService:
         domain: str = "",
         limit: int = 20,
     ) -> dict[str, Any]:
-        """Search a connected person's dynamically discoverable ``attr.*`` scopes.
+        """Search a person's dynamically discoverable ``attr.*`` scopes.
 
-        This is deliberately post-connection and metadata-only. A relationship
-        never grants access to values: callers must make a separate, consented
-        request that binds a requester-owned connector key before an encrypted
-        export can exist.
+        Scope metadata is discoverable independently from the social graph.
+        A relationship never grants access to values: callers must make a
+        separate, consented request bound to a requester-owned connector key
+        before an encrypted export can exist.
         """
         from hushh_mcp.consent.scope_generator import rank_scope_matches
 
@@ -493,31 +559,15 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
-        active_connection = self._execute_one(
-            """
-            SELECT id
-            FROM connections
-            WHERE status = 'active'
-              AND user_a_id = LEAST(:viewer, :counterpart)
-              AND user_b_id = GREATEST(:viewer, :counterpart)
-            LIMIT 1
-            """,
-            {"viewer": viewer, "counterpart": counterpart},
-        )
-        if not active_connection:
-            raise ConnectionsError(
-                "CONNECTION_INFORMATION_SCOPE_FORBIDDEN",
-                "Connect with this person before searching their available scopes.",
-                status_code=403,
-            )
-
         safe_entries = [
             {
                 "scope": str(entry.get("scope") or ""),
                 "label": str(entry.get("label") or "") or None,
+                "description": str(entry.get("description") or "") or None,
                 "domain": str(entry.get("domain") or "") or None,
                 "path": str(entry.get("path") or "") or None,
                 "wildcard": bool(entry.get("wildcard")),
+                "sensitivity": str(entry.get("sensitivity") or "") or None,
             }
             for entry in self._scope_entries_lookup(counterpart)
             if isinstance(entry, dict)
@@ -2250,26 +2300,15 @@ class ConnectionsService:
                 {"id": req.get("id")},
             )
             connection_id = (connection or {}).get("id")
-
-        # Feed is a best-effort, post-commit projection. It must not cause a
-        # caller to retry an already-authorized connection transition.
-        for owner, counterpart in ((user_id, requester), (requester, user_id)):
-            try:
-                counterpart_metadata: dict[str, Any] = {
-                    "counterpart_user_id": counterpart,
-                    "actor_is_self": owner == user_id,
-                }
-                counterpart_name = self._display_name_for(counterpart)
-                if counterpart_name:
-                    counterpart_metadata["counterpart_label"] = counterpart_name
-                FeedService().record_event(
-                    user_id=owner,
-                    source_domain="connections",
+            source_request_id = str(req.get("id") or "")
+            for owner, counterpart in ((user_id, requester), (requester, user_id)):
+                self._record_connection_feed_transition(
+                    owner_user_id=owner,
+                    counterpart_user_id=counterpart,
+                    actor_user_id=user_id,
                     event_type="connection_accepted",
-                    metadata=counterpart_metadata,
+                    source_row_id=source_request_id,
                 )
-            except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
-                logger.exception("connections.accepted_feed_projection_failed")
 
         # Accepting a connection grants nothing on its own. Location sharing is
         # opt-in and one-directional: it starts only when a person explicitly
@@ -2345,7 +2384,16 @@ class ConnectionsService:
                 raise ConnectionsError(
                     "CONNECTION_NOT_ADDRESSEE", "Only the addressee can reject.", status_code=403
                 )
-            self._execute_one(
+            request_status = str(req.get("status") or "")
+            if request_status == "rejected":
+                return {"status": "rejected", "requestId": req.get("id")}
+            if request_status != "pending":
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
+            updated_request = self._execute_one(
                 """
                 UPDATE connection_requests
                 SET status = 'rejected', responded_at = NOW(), updated_at = NOW()
@@ -2354,6 +2402,12 @@ class ConnectionsService:
                 """,
                 {"id": req.get("id")},
             )
+            if not updated_request:
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
             self._resolve_pending_scope_proposals(
                 str(req.get("id") or ""),
                 status="declined",
@@ -2361,23 +2415,15 @@ class ConnectionsService:
                 reason="connection_rejected",
             )
             requester = str(req.get("requester_user_id"))
-        for owner, counterpart in ((requester, user_id), (user_id, requester)):
-            try:
-                rejected_metadata: dict[str, Any] = {
-                    "counterpart_user_id": counterpart,
-                    "actor_is_self": owner == user_id,
-                }
-                rejected_name = self._display_name_for(counterpart)
-                if rejected_name:
-                    rejected_metadata["counterpart_label"] = rejected_name
-                FeedService().record_event(
-                    user_id=owner,
-                    source_domain="connections",
+            source_request_id = str(req.get("id") or "")
+            for owner, counterpart in ((requester, user_id), (user_id, requester)):
+                self._record_connection_feed_transition(
+                    owner_user_id=owner,
+                    counterpart_user_id=counterpart,
+                    actor_user_id=user_id,
                     event_type="connection_rejected",
-                    metadata=rejected_metadata,
+                    source_row_id=source_request_id,
                 )
-            except Exception:  # noqa: BLE001 - projection cannot roll back rejection
-                logger.exception("connections.rejected_feed_projection_failed")
         return {"status": "rejected", "requestId": req.get("id")}
 
     def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
@@ -2573,6 +2619,25 @@ class ConnectionsService:
         )
         return {str(row.get("user_id") or "") for row in rows}
 
+    def _public_person_refs(self, user_ids: list[str]) -> dict[str, str]:
+        """Resolve public route addresses for one bounded page of people."""
+        candidates = [uid for uid in {*user_ids} if uid]
+        if not candidates:
+            return {}
+        rows = self._execute_many(
+            """
+            SELECT user_id, public_person_ref
+            FROM actor_profiles
+            WHERE user_id = ANY(CAST(:user_ids AS TEXT[]))
+            """,
+            {"user_ids": candidates},
+        )
+        return {
+            str(row.get("user_id") or ""): str(row.get("public_person_ref") or "")
+            for row in rows
+            if row.get("user_id") and row.get("public_person_ref")
+        }
+
     def search_directory(
         self,
         user_id: str,
@@ -2753,11 +2818,13 @@ class ConnectionsService:
         # name-resolution searches across everyone, and a row that only knew its
         # kind from its tab would go back to being unlabelled there.
         ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
+        public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
 
         return {
             "items": [
                 {
                     "userId": str(p.get("userId") or ""),
+                    "publicPersonRef": public_person_refs.get(str(p.get("userId") or "")),
                     "displayName": p.get("displayName"),
                     "photoUrl": p.get("photoUrl"),
                     "email": p.get("email"),
@@ -2910,10 +2977,12 @@ class ConnectionsService:
         # for the whole list, not one lookup per row; no statement at all when
         # you have no connections.
         ria_user_ids = self._verified_ria_user_ids([str(r.get("user_id") or "") for r in rows])
+        public_person_refs = self._public_person_refs([str(r.get("user_id") or "") for r in rows])
         return [
             {
                 "connectionId": str(r.get("connection_id") or ""),
                 "userId": str(r.get("user_id") or ""),
+                "publicPersonRef": public_person_refs.get(str(r.get("user_id") or "")),
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
                 "email": r.get("email"),
@@ -2999,13 +3068,32 @@ class ConnectionsService:
                   )
                 )
             ),
+            matched AS (
+              -- One rule for every people search; see people_search_sql.py.
+              SELECT *,
+                CASE
+                  WHEN :query = '' THEN 0
+                  WHEN normalized_name ~ :query_prefix_re THEN 0
+                  WHEN normalized_name ~ :query_word_re THEN 1
+                  ELSE 2
+                END AS match_rank
+              FROM filtered
+            ),
+            narrowed AS (
+              SELECT * FROM matched
+              WHERE NOT :query_is_single_char
+                 OR match_rank < 2
+                 OR NOT EXISTS (
+                      SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                    )
+            ),
             total AS (
-              SELECT COUNT(*)::BIGINT AS total_count FROM filtered
+              SELECT COUNT(*)::BIGINT AS total_count FROM narrowed
             ),
             page_rows AS (
               SELECT *
-              FROM filtered
-              ORDER BY normalized_name, user_id, connection_id
+              FROM narrowed
+              ORDER BY match_rank, normalized_name, user_id, connection_id
               OFFSET :offset
               LIMIT :limit
             )
@@ -3030,12 +3118,13 @@ class ConnectionsService:
               ) END AS is_ria
             FROM total
             LEFT JOIN page_rows ON TRUE
-            ORDER BY page_rows.normalized_name, page_rows.user_id,
-                     page_rows.connection_id
+            ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                     page_rows.user_id, page_rows.connection_id
             """,  # nosec B608 - the RIA predicate is a static module constant.
             {
                 "user_id": viewer_id,
                 "query": normalized_query,
+                **people_query_match_params(normalized_query),
                 "audience": normalized_audience,
                 "offset": offset,
                 "limit": normalized_limit,
@@ -3043,10 +3132,14 @@ class ConnectionsService:
         )
         total_count = int((rows[0] if rows else {}).get("total_count") or 0)
         page_rows = [row for row in rows if row.get("connection_id")]
+        public_person_refs = self._public_person_refs(
+            [str(row.get("user_id") or "") for row in page_rows]
+        )
         items = [
             {
                 "connectionId": str(row.get("connection_id") or ""),
                 "userId": str(row.get("user_id") or ""),
+                "publicPersonRef": public_person_refs.get(str(row.get("user_id") or "")),
                 "displayName": row.get("display_name"),
                 "photoUrl": row.get("photo_url"),
                 "email": row.get("email"),
@@ -3577,7 +3670,7 @@ class ConnectionsService:
                 UPDATE connections
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE id = :id AND status = 'active'
-                RETURNING id
+                RETURNING id, revoked_at
                 """,
                 {"id": (connection_id or "").strip()},
             )
@@ -3586,33 +3679,21 @@ class ConnectionsService:
                     user_a_id=str(user_a or ""),
                     user_b_id=str(user_b or ""),
                 )
-        if conn:
-            user_a_id = str(user_a or "")
-            user_b_id = str(user_b or "")
-            user_a_name = self._display_name_for(user_a_id)
-            user_b_name = self._display_name_for(user_b_id)
-            a_metadata: dict[str, Any] = {
-                "counterpart_user_id": user_b_id,
-                "actor_is_self": user_a_id == user_id,
-            }
-            if user_b_name:
-                a_metadata["counterpart_label"] = user_b_name
-            b_metadata: dict[str, Any] = {
-                "counterpart_user_id": user_a_id,
-                "actor_is_self": user_b_id == user_id,
-            }
-            if user_a_name:
-                b_metadata["counterpart_label"] = user_a_name
-            FeedService().record_event(
-                user_id=user_a_id,
-                source_domain="connections",
-                event_type="connection_revoked",
-                metadata=a_metadata,
-            )
-            FeedService().record_event(
-                user_id=user_b_id,
-                source_domain="connections",
-                event_type="connection_revoked",
-                metadata=b_metadata,
-            )
+                user_a_id = str(user_a or "")
+                user_b_id = str(user_b or "")
+                connection_source_id = str(conn.get("id") or connection_id)
+                revoked_at = conn.get("revoked_at")
+                if revoked_at:
+                    connection_source_id = f"{connection_source_id}:{revoked_at}"
+                for owner, counterpart in (
+                    (user_a_id, user_b_id),
+                    (user_b_id, user_a_id),
+                ):
+                    self._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id=counterpart,
+                        actor_user_id=user_id,
+                        event_type="connection_revoked",
+                        source_row_id=connection_source_id,
+                    )
         return {"removed": 1 if conn else 0}
