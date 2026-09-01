@@ -29,10 +29,10 @@ describe("Kai command palette contract", () => {
   it("anchors the mobile palette above the keyboard without the centered-dialog shift", () => {
     expect(source).toContain('data-keyboard-anchor="bottom"');
     expect(source).toContain(
-      "bottom-[calc(var(--kb-height,0px)+0.5rem)]",
+      "bottom-[calc(var(--kb-height,0px)+var(--bottom-chrome-stack-height,0px)+0.5rem)]",
     );
     expect(source).toContain(
-      "max-h-[min(calc(100dvh-var(--kb-height,0px)-1rem),34rem)]",
+      "max-h-[min(calc(100dvh-var(--kb-height,0px)-var(--bottom-chrome-stack-height,0px)-1rem),34rem)]",
     );
     expect(source).toContain("max-sm:!translate-y-0");
   });
