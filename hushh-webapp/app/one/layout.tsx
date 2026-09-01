@@ -3,6 +3,9 @@ import type { ReactNode } from "react";
 import { OneAuthGate } from "./one-auth-gate";
 import { HushhIntroGate } from "@/components/app-ui/HushhIntroGate";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default function OneLayout({ children }: { children: ReactNode }) {
   // HushhIntroGate sits one level above OneAuthGate (and therefore above
   // VaultLockGuard and every other auth/vault guard). It does not just
