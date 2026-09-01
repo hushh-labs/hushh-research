@@ -246,6 +246,13 @@ class RateLimits:
 
     ONE_LOCATION_NEARBY_WRITE = "6/minute"  # noqa: S105
     ONE_LOCATION_NEARBY_CONNECT = "10/minute"  # noqa: S105
+    # Two ceilings, for two different attacks. The minute bound stops a tight
+    # loop; the daily bound stops the patient walk -- rating forty venues over
+    # an afternoon is the realistic way to move an average, and a per-minute
+    # limit does nothing about it.
+    ONE_LOCATION_PLACE_RATING_WRITE = "6/minute"  # noqa: S105
+    ONE_LOCATION_PLACE_RATING_WRITE_DAILY = "40/day"  # noqa: S105
+    ONE_LOCATION_PLACE_RATING_READ = "20/minute"  # noqa: S105
     # Provider-backed search/details incur external cost. Keep a separate,
     # comfortably interactive bucket so search cannot consume nearby roster or
     # check-in budgets while still bounding scripted abuse per signed owner.

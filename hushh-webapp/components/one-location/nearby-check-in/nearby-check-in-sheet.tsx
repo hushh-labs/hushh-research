@@ -27,7 +27,23 @@ import {
   DURATION_CELL_OFF_CLASS,
   DURATION_CELL_ON_CLASS,
 } from "@/components/one-location/redesign/duration-presets";
+import { StarRatingInput } from "@/components/one-location/nearby-check-in/star-rating-input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
+  PLACE_RATING_CONSENT_VERSION,
+  PLACE_RATING_PRIVACY_LINE,
+} from "@/lib/one-location/place-rating-consent";
+import { recordVisitNote } from "@/lib/one-location/visit-notes";
+import {
+  trackReviewHandoffOpened,
+  trackVisitRated,
+} from "@/lib/observability/location-events";
+import {
+  CHECK_IN_NOTE_COUNTER_VISIBLE_AT,
+  CHECK_IN_NOTE_MAX_LENGTH,
+  CHECK_IN_NOTE_TEXTAREA_CLASSNAME,
+  CHECK_IN_RATING_COMPOSER_CLASSNAME,
   CHECK_IN_CATEGORY_ROW_CLASSNAME,
   CHECK_IN_PANEL_DESKTOP_WIDTH_REM,
   CHECK_IN_PLACE_DISTANCE_CLASSNAME,
@@ -79,6 +95,7 @@ import type {
   OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
+  OneLocationRateableVisit,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
@@ -184,11 +201,31 @@ type PresenceLoadResult = OneLocationNearbyPresenceState | "error" | null;
 type PointOrigin = "fresh" | "last-known";
 type NearbyCheckInViewState = "loading" | "setup" | "active" | "completed";
 type NearbyCheckInCompletionReason = "left" | "expired" | "ended";
+/** Ties the star group to the visible question, and the note to its label. */
+const VISIT_RATING_HEADING_ID = "one-location-visit-rating-heading";
+const VISIT_RATING_NOTE_ID = "one-location-visit-rating-note";
+
 type CompletedCheckIn = {
   placeLabel: string | null;
   reason: NearbyCheckInCompletionReason;
   saved: boolean;
   saveError: string | null;
+  /**
+   * The place just left, as the server described it on checkout. `null`
+   * whenever nothing is rateable -- an expired presence, an unreadable visit,
+   * a backend that predates ratings -- and the pane then simply does not ask.
+   */
+  rateable: OneLocationRateableVisit | null;
+  /**
+   * UI-only, and deliberately NOT a member of `NearbyCheckInViewState`. That
+   * enum mirrors the presence lifecycle and is written from server responses
+   * in six places, including a 15s poll that would otherwise be free to knock
+   * somebody out of the step mid-note. This flag is orthogonal to presence and
+   * cannot be clobbered by a presence read.
+   */
+  rating: 1 | 2 | 3 | 4 | 5 | null;
+  ratingSaved: boolean;
+  ratingError: string | null;
 };
 
 /**
@@ -640,6 +677,10 @@ export function NearbyCheckInSheet({
   const [savePlaceCandidateState, setSavePlaceCandidateState] =
     useState<SavePlaceCandidate | null>(null);
   const [savingPlace, setSavingPlace] = useState(false);
+  // The note is component state rather than part of `completedCheckIn` so a
+  // keystroke does not rebuild that object 280 times.
+  const [ratingNote, setRatingNote] = useState("");
+  const [savingRating, setSavingRating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationRecovery, setLocationRecovery] =
     useState<LocationRecovery>(null);
@@ -1209,6 +1250,10 @@ export function NearbyCheckInSheet({
                   : "ended",
               saved: false,
               saveError: null,
+              rateable: null,
+              rating: null,
+              ratingSaved: false,
+              ratingError: null,
             });
           } else {
             void captureAndLoadPlaces();
@@ -1979,6 +2024,10 @@ export function NearbyCheckInSheet({
           reason: "ended",
           saved: false,
           saveError: null,
+          rateable: null,
+          rating: null,
+          ratingSaved: false,
+          ratingError: null,
         });
       }
       setAddTimeOpen(false);
@@ -2007,8 +2056,80 @@ export function NearbyCheckInSheet({
   const finishCompletedCheckIn = () => {
     setCompletedCheckIn(null);
     setSavePlaceCandidateState(null);
+    setRatingNote("");
     setViewState("setup");
     onOpenChange(false);
+  };
+
+  /**
+   * Save the star rating, and the note if there is a vault to put it in.
+   *
+   * The two halves go to different places on purpose. The star reaches the
+   * server, because an average and one-vote-per-place cannot be computed on a
+   * device. The note stays in the owner's vault, client-side encrypted, and
+   * the rating endpoint has no field for it to arrive in -- free text about a
+   * named business, sitting in plaintext beside a venue and a timestamp, is a
+   * movement log with commentary.
+   *
+   * A locked vault therefore costs the note and nothing else.
+   */
+  const saveVisitRating = async () => {
+    const rateable = completedCheckIn?.rateable;
+    const rating = completedCheckIn?.rating;
+    if (!rateable || !rating || !vaultOwnerToken || savingRating) return;
+    const ownerToken = vaultOwnerToken;
+    const note = ratingNote.trim();
+    setSavingRating(true);
+    try {
+      await OneLocationService.ratePlace({
+        vaultOwnerToken: ownerToken,
+        placeId: rateable.placeId,
+        rating,
+        consentVersion: PLACE_RATING_CONSENT_VERSION,
+      });
+      if (note && ownerId && vaultKey) {
+        // Best-effort, and deliberately after the rating: a vault write that
+        // fails must not lose the star the person already chose.
+        await recordVisitNote({
+          context: { userId: ownerId, vaultKey, vaultOwnerToken: ownerToken },
+          entry: {
+            placeId: rateable.placeId,
+            label: rateable.placeLabel ?? "",
+            rating,
+            note,
+            visitedAt: rateable.visitedAt ?? null,
+          },
+        }).catch(() => undefined);
+      }
+      setCompletedCheckIn((current) =>
+        current ? { ...current, ratingSaved: true, ratingError: null } : current,
+      );
+      trackVisitRated({
+        route_id: "one_location_check_in",
+        result: "success",
+        stars: rating,
+        has_note: Boolean(note),
+        has_place_id: Boolean(rateable.googleReviewUrl),
+      });
+      toast.success("Rated.");
+    } catch {
+      // The stars stay set. Clearing somebody's input because the network
+      // failed is how a retry becomes a re-decision.
+      setCompletedCheckIn((current) =>
+        current
+          ? { ...current, ratingError: "Couldn't save your rating." }
+          : current,
+      );
+      trackVisitRated({
+        route_id: "one_location_check_in",
+        result: "error",
+        stars: rating,
+        has_note: Boolean(note),
+        has_place_id: Boolean(rateable.googleReviewUrl),
+      });
+    } finally {
+      setSavingRating(false);
+    }
   };
 
   const checkout = async () => {
@@ -2035,11 +2156,23 @@ export function NearbyCheckInSheet({
       setViewState("completed");
       setCompletedCheckIn({
         placeLabel:
-          savedPlaceOffer?.label ?? state.presence?.placeLabel ?? null,
+          next.reviewPrompt?.placeLabel ??
+          savedPlaceOffer?.label ??
+          state.presence?.placeLabel ??
+          null,
         reason: "left",
         saved: false,
         saveError: null,
+        // The server names the place it just closed the visit on. The client
+        // never held a place id -- the presence payload carries a label and a
+        // point and nothing else -- so guessing one here would be how a Google
+        // review ends up attached to the wrong venue.
+        rateable: next.reviewPrompt ?? null,
+        rating: null,
+        ratingSaved: false,
+        ratingError: null,
       });
+      setRatingNote("");
       setConsentAccepted(false);
       setAllowConnectionRequests(false);
       setShowAllPlaces(false);
@@ -2314,13 +2447,155 @@ export function NearbyCheckInSheet({
                     </div>
                   </div>
                 </section>
-                <Button
-                  type="button"
-                  className="h-[52px] min-h-[52px] w-full rounded-2xl"
-                  onClick={finishCompletedCheckIn}
-                >
-                  Done
-                </Button>
+                {completedCheckIn?.rateable ? (
+                  <section
+                    className="space-y-3"
+                    data-testid="nearby-visit-rating"
+                  >
+                    <h2
+                      id={VISIT_RATING_HEADING_ID}
+                      className="text-[15px] font-semibold leading-5"
+                    >
+                      {completedCheckIn.placeLabel
+                        ? `How was ${completedCheckIn.placeLabel}?`
+                        : "How was it?"}
+                    </h2>
+
+                    <StarRatingInput
+                      labelledBy={VISIT_RATING_HEADING_ID}
+                      value={completedCheckIn.rating}
+                      disabled={savingRating || completedCheckIn.ratingSaved}
+                      onChange={(next) =>
+                        setCompletedCheckIn((current) =>
+                          current
+                            ? { ...current, rating: next, ratingError: null }
+                            : current,
+                        )
+                      }
+                    />
+
+                    {/* One slot, one height, whatever is in it. The map reads
+                        this sheet's rect and republishes its camera padding on
+                        every height change, so a pane that grows as you use it
+                        settles the camera three times for one interaction. */}
+                    <div className={CHECK_IN_RATING_COMPOSER_CLASSNAME}>
+                      {completedCheckIn.ratingSaved ? (
+                        <p className="text-sm text-muted-foreground">
+                          {completedCheckIn.rateable.googleReviewUrl
+                            ? "Opens Google Maps — you'll type it there."
+                            : "Saved to your places."}
+                        </p>
+                      ) : completedCheckIn.rating ? (
+                        <>
+                          <Label
+                            htmlFor={VISIT_RATING_NOTE_ID}
+                            className="sr-only"
+                          >
+                            Add a note (optional)
+                          </Label>
+                          <Textarea
+                            id={VISIT_RATING_NOTE_ID}
+                            rows={2}
+                            maxLength={CHECK_IN_NOTE_MAX_LENGTH}
+                            disabled={savingRating}
+                            placeholder="Anything worth remembering"
+                            className={CHECK_IN_NOTE_TEXTAREA_CLASSNAME}
+                            value={ratingNote}
+                            onChange={(event) =>
+                              setRatingNote(event.target.value)
+                            }
+                          />
+                          {ratingNote.length >=
+                          CHECK_IN_NOTE_COUNTER_VISIBLE_AT ? (
+                            <p
+                              aria-live="polite"
+                              className="mt-1 text-right text-xs tabular-nums text-muted-foreground"
+                            >
+                              {CHECK_IN_NOTE_MAX_LENGTH - ratingNote.length}{" "}
+                              left
+                            </p>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Tap a star to rate. {PLACE_RATING_PRIVACY_LINE}
+                        </p>
+                      )}
+                    </div>
+
+                    {completedCheckIn.ratingError ? (
+                      <p
+                        className="text-xs font-medium text-destructive"
+                        role="alert"
+                      >
+                        {completedCheckIn.ratingError}
+                      </p>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                {completedCheckIn?.rateable && !completedCheckIn.ratingSaved ? (
+                  <>
+                    <Button
+                      type="button"
+                      className="h-[52px] min-h-[52px] w-full rounded-2xl"
+                      disabled={!completedCheckIn.rating}
+                      isLoading={savingRating}
+                      onClick={() => void saveVisitRating()}
+                    >
+                      Save
+                    </Button>
+                    {/* "Done" beside an unanswered question reads as "submit".
+                        It comes back once there is nothing left to answer. */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-11 min-h-11 w-full text-muted-foreground"
+                      onClick={finishCompletedCheckIn}
+                    >
+                      Not now
+                    </Button>
+                  </>
+                ) : completedCheckIn?.ratingSaved &&
+                  completedCheckIn.rateable?.googleReviewUrl ? (
+                  <>
+                    {/* An anchor, not `window.open`: on iOS Capacitor cancels
+                        the top-level navigation and hands it to
+                        `UIApplication.open`, which honours the universal link
+                        into the Maps app; on Android it becomes an
+                        `Intent.ACTION_VIEW`. `_blank` is dropped on native
+                        because this app never enables multiple windows. */}
+                    <Button
+                      asChild
+                      className="h-[52px] min-h-[52px] w-full rounded-2xl"
+                    >
+                      <a
+                        href={completedCheckIn.rateable.googleReviewUrl}
+                        target={isNative() ? undefined : "_blank"}
+                        rel="noopener noreferrer"
+                        onClick={() => trackReviewHandoffOpened()}
+                      >
+                        Also post on Google
+                      </a>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-11 min-h-11 w-full text-muted-foreground"
+                      onClick={finishCompletedCheckIn}
+                    >
+                      Done
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    className="h-[52px] min-h-[52px] w-full rounded-2xl"
+                    onClick={finishCompletedCheckIn}
+                  >
+                    Done
+                  </Button>
+                )}
                 {savePlaceCandidateState && !completedCheckIn?.saved ? (
                   <Button
                     type="button"

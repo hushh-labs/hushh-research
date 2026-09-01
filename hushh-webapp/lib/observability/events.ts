@@ -132,6 +132,8 @@ export type ObservabilityEventName =
   | "one_location_activation_completed"
   | "one_location_setup_completed"
   | "one_location_check_in_completed"
+  | "one_location_visit_rated"
+  | "one_location_review_handoff_opened"
   | "one_location_circle_created"
   | "one_location_sos_triggered";
 
@@ -291,6 +293,8 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_location_activation_completed: "funnel",
   one_location_setup_completed: "funnel",
   one_location_check_in_completed: "feature",
+  one_location_visit_rated: "feature",
+  one_location_review_handoff_opened: "feature",
   one_location_circle_created: "feature",
   one_location_sos_triggered: "feature",
 };
@@ -657,6 +661,35 @@ export interface EventPayloadMap {
     failure_count: number;
     /** Whether a Circle was the target rather than hand-picked people. */
     circle_targeted: boolean;
+  };
+  /**
+   * Somebody rated the place they just checked out of.
+   *
+   * `stars` and two booleans, and nothing else. A key named `note_text`,
+   * `place_name` or `review_message` would match `DENYLIST_KEY_REGEX` and be
+   * silently dropped by the sanitizer -- shipping an event that looks correct
+   * and carries nothing, which is worse than not sending it.
+   */
+  one_location_visit_rated: {
+    route_id: RouteId;
+    result: EventResult;
+    /** 1-5. The rating itself is not personal data; which place it was for is. */
+    stars: number;
+    /** Whether a note was written. Never the note. */
+    has_note: boolean;
+    /** Whether the Google hand-off could be offered at all. */
+    has_place_id: boolean;
+  };
+  /**
+   * The Google review composer was opened.
+   *
+   * Once they leave, nothing we can observe tells us whether they posted -- so
+   * the tap is the only signal this integration will ever produce.
+   */
+  one_location_review_handoff_opened: {
+    route_id: RouteId;
+    /** Constant "google_maps" today; a second destination would need its own. */
+    destination: string;
   };
   one_location_circle_created: {
     route_id: RouteId;
