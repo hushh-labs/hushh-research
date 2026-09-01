@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { OneAuthGate } from "./one-auth-gate";
 import { HushhIntroGate } from "@/components/app-ui/HushhIntroGate";
 
-export const dynamic = "force-dynamic";
+// `revalidate = 0` keeps signed-in web routes out of the Full Route Cache
+// without making Capacitor's static export impossible.
 export const revalidate = 0;
 
 export default function OneLayout({ children }: { children: ReactNode }) {
