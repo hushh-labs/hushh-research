@@ -15,7 +15,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapPin, Star, UserRound } from "lucide-react";
+import type { ReactNode } from "react";
+import { MapPin, Star, Trash2, UserRound } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { NearbyFilterBar } from "@/components/ria/nearby/nearby-filters";
@@ -37,6 +38,7 @@ import {
   type NearbyDiscoverResult,
   type NearbyFilters,
   type NearbyRecord,
+  type NearbyShortlistEntry,
 } from "@/lib/services/nws-nearby-service";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +65,64 @@ const COVERAGE_COPY: Record<string, string> = {
  */
 const NATIONAL_MARKET_ID = "us-national-public-association";
 
+function personIdFromShortlist(entry: NearbyShortlistEntry): string {
+  return entry.target_key.replace(/^nws:/, "");
+}
+
+function profileText(
+  profile: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = profile[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function profileNumber(
+  profile: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = profile[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function recordFromShortlistEntry(entry: NearbyShortlistEntry): NearbyRecord {
+  const profile = entry.profile ?? {};
+  const personId = personIdFromShortlist(entry);
+  return {
+    rank: null,
+    personId,
+    displayName: profileText(profile, "displayName"),
+    headline: profileText(profile, "headline"),
+    organization: profileText(profile, "organization"),
+    lane: null,
+    globalNws: profileNumber(profile, "globalNws"),
+    nearbyRankScore: profileNumber(profile, "nearbyRankScore"),
+    scoreStatus: null,
+    scoreKind: null,
+    rankingBasis: null,
+    confidence: {
+      score: null,
+      grade: null,
+    },
+    publicLocation: {
+      label: profileText(profile, "locationLabel"),
+      associationKind: null,
+      granularity: null,
+      distanceBand: null,
+      note: null,
+    },
+    scoreBreakdown: null,
+    reasons: [],
+    warnings: [],
+    tags: [],
+    revalidationRequired: false,
+    evidence: null,
+    associationContext: null,
+    sources: [],
+    modelVersion: profileText(profile, "modelVersion"),
+  };
+}
+
 export function NearbyAroundYou() {
   const { user } = useAuth();
   const location = useCurrentLocation();
@@ -74,6 +134,8 @@ export function NearbyAroundYou() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<NearbyRecord | null>(null);
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
+  const [shortlistEntries, setShortlistEntries] = useState<NearbyShortlistEntry[]>([]);
+  const [shortlistLoading, setShortlistLoading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -148,18 +210,17 @@ export function NearbyAroundYou() {
     void (async () => {
       const idToken = await user?.getIdToken();
       if (!idToken) return;
+      setShortlistLoading(true);
       try {
         const entries = await NwsNearbyService.listShortlist({ idToken });
         if (cancelled) return;
-        setShortlisted(
-          new Set(
-            entries
-              .filter((e) => e.status === "shortlisted")
-              .map((e) => e.target_key.replace(/^nws:/, "")),
-          ),
-        );
+        const activeEntries = entries.filter((e) => e.status === "shortlisted");
+        setShortlistEntries(activeEntries);
+        setShortlisted(new Set(activeEntries.map(personIdFromShortlist)));
       } catch {
         // A shortlist that will not load must not block discovery.
+      } finally {
+        if (!cancelled) setShortlistLoading(false);
       }
     })();
     return () => {
@@ -203,10 +264,15 @@ export function NearbyAroundYou() {
         return next;
       });
       try {
-        await NwsNearbyService.shortlist({
+        const entry = await NwsNearbyService.shortlist({
           idToken,
           record,
           action: already ? "pass" : "shortlist",
+        });
+        setShortlistEntries((current) => {
+          const personId = record.personId;
+          const withoutRecord = current.filter((item) => personIdFromShortlist(item) !== personId);
+          return already || entry.status !== "shortlisted" ? withoutRecord : [entry, ...withoutRecord];
         });
       } catch {
         setShortlisted((current) => {
@@ -218,6 +284,35 @@ export function NearbyAroundYou() {
       }
     },
     [shortlisted, user],
+  );
+
+  const handleRemoveShortlistEntry = useCallback(
+    async (entry: NearbyShortlistEntry) => {
+      const idToken = await user?.getIdToken();
+      if (!idToken) return;
+      const record = recordFromShortlistEntry(entry);
+      const personId = record.personId;
+      const previousEntries = shortlistEntries;
+      setShortlistEntries((current) =>
+        current.filter((item) => personIdFromShortlist(item) !== personId),
+      );
+      setShortlisted((current) => {
+        const next = new Set(current);
+        next.delete(personId);
+        return next;
+      });
+      try {
+        await NwsNearbyService.shortlist({ idToken, record, action: "pass" });
+      } catch {
+        setShortlistEntries(previousEntries);
+        setShortlisted((current) => {
+          const next = new Set(current);
+          next.add(personId);
+          return next;
+        });
+      }
+    },
+    [shortlistEntries, user],
   );
 
   const picker = (
@@ -234,30 +329,37 @@ export function NearbyAroundYou() {
   // Nothing chosen yet: one action, one quiet alternative.
   if (!anchor) {
     return (
-      <SettingsGroup>
-        <div className="flex flex-col items-center gap-3 p-8 text-center">
-          <MapPin className="h-5 w-5 text-muted-foreground" aria-hidden />
-          <p className="type-headline">Look around a place</p>
-          <Button
-            type="button"
-            variant="blue-gradient"
-            effect="fill"
-            size="lg"
-            disabled={location.status === "locating"}
-            onClick={() => void location.request()}
-          >
-            Use my location
-          </Button>
-          <button
-            type="button"
-            onClick={() => setPickerOpen(true)}
-            className={cn(MUTED_TEXT, "underline-offset-4 hover:underline")}
-          >
-            Enter a place
-          </button>
-        </div>
+      <SettingsGroupStack>
+        <ShortlistedProspects
+          entries={shortlistEntries}
+          loading={shortlistLoading}
+          onRemove={handleRemoveShortlistEntry}
+        />
+        <SettingsGroup>
+          <div className="flex flex-col items-center gap-3 p-8 text-center">
+            <MapPin className="h-5 w-5 text-muted-foreground" aria-hidden />
+            <p className="type-headline">Look around a place</p>
+            <Button
+              type="button"
+              variant="blue-gradient"
+              effect="fill"
+              size="lg"
+              disabled={location.status === "locating"}
+              onClick={() => void location.request()}
+            >
+              Use my location
+            </Button>
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className={cn(MUTED_TEXT, "underline-offset-4 hover:underline")}
+            >
+              Enter a place
+            </button>
+          </div>
+        </SettingsGroup>
         {picker}
-      </SettingsGroup>
+      </SettingsGroupStack>
     );
   }
 
@@ -275,6 +377,12 @@ export function NearbyAroundYou() {
 
   return (
     <div className="flex flex-col gap-4">
+      <ShortlistedProspects
+        entries={shortlistEntries}
+        loading={shortlistLoading}
+        onRemove={handleRemoveShortlistEntry}
+      />
+
       <SettingsGroup>
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
@@ -408,6 +516,81 @@ export function NearbyAroundYou() {
       />
       {picker}
     </div>
+  );
+}
+
+function SettingsGroupStack({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-4">{children}</div>;
+}
+
+function ShortlistedProspects({
+  entries,
+  loading,
+  onRemove,
+}: {
+  entries: NearbyShortlistEntry[];
+  loading: boolean;
+  onRemove: (entry: NearbyShortlistEntry) => void;
+}) {
+  return (
+    <SettingsGroup
+      separatorInset
+      title="Shortlisted prospects"
+      description={
+        entries.length > 0
+          ? "Prospects saved from public Around You records."
+          : "Star a public record to save it here."
+      }
+    >
+      {loading ? (
+        <div className="flex flex-col gap-2 p-4" aria-busy role="status">
+          {[0, 1].map((row) => (
+            <Skeleton key={row} className="h-14 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="px-4 py-5">
+          <p className={MUTED_TEXT}>No shortlisted prospects yet.</p>
+        </div>
+      ) : (
+        entries.map((entry) => {
+          const profile = entry.profile ?? {};
+          const name = profileText(profile, "displayName") ?? "Public record";
+          const detail = [
+            profileText(profile, "headline"),
+            profileText(profile, "organization"),
+            profileText(profile, "locationLabel"),
+          ]
+            .filter(Boolean)
+            .join(" - ");
+          return (
+            <SettingsRow
+              key={entry.id || entry.target_key}
+              icon={Star}
+              iconTone="orange"
+              density="compact"
+              title={name}
+              description={detail || "Public Around You record"}
+              trailingInteractive
+              stackTrailingOnMobile
+              trailing={
+                <Button
+                  type="button"
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  onClick={() => onRemove(entry)}
+                  aria-label={`Remove ${name} from shortlisted prospects`}
+                >
+                  <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
+                  Remove
+                </Button>
+              }
+            />
+          );
+        })
+      )}
+    </SettingsGroup>
   );
 }
 

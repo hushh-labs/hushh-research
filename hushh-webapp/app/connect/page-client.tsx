@@ -2559,6 +2559,10 @@ export default function ConnectPageClient() {
                                   connection.displayName || connection.userId
                                 }
                                 verified={Boolean(connection.isRia)}
+                                // Compact rows, so the 58px separator inset
+                                // they draw lands on the text -- the same
+                                // rhythm the Circles tab beside this one has.
+                                size="compact"
                               />
                             }
                             // Deliberately NOT stackTrailingOnMobile. That prop drops
@@ -2946,6 +2950,7 @@ export default function ConnectPageClient() {
                                     photoUrl={person.photoUrl}
                                     label={title}
                                     verified={Boolean(person.isRia)}
+                                    size="compact"
                                   />
                                 }
                                 title={
@@ -3343,6 +3348,7 @@ export default function ConnectPageClient() {
                           photoUrl={person.photoUrl}
                           label={title}
                           verified={Boolean(person.isRia)}
+                          size="compact"
                         />
                       }
                       title={

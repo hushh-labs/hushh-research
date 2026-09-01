@@ -134,11 +134,7 @@ import {
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
-import {
-  RequestCard,
-  SharedWithMeCard,
-  type GrantViewStatus,
-} from "./cards";
+import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
 
 export type { GrantViewStatus } from "./cards";
 import {
@@ -164,10 +160,7 @@ import {
   REQUEST_DURATION_LADDER,
 } from "./duration-presets";
 import { approveShorterDurationOptions } from "@/lib/one-location/approve-duration-options";
-import {
-  AskForMoreTime,
-  type RequestMoreTimeHours,
-} from "./request-more-time";
+import { AskForMoreTime, type RequestMoreTimeHours } from "./request-more-time";
 import {
   LiveShareStatusCard,
   ShareCountdownText,
@@ -176,6 +169,7 @@ import {
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
+import { PlacesVisitedFlow } from "@/components/one-location/redesign/places-visited-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -684,7 +678,8 @@ type FlowKind =
   | "settings"
   | "active-shares"
   | "shared-with-me"
-  | "needs-review";
+  | "needs-review"
+  | "places-visited";
 
 // The open action flow is reflected in the URL as `?action=<slug>` so the single
 // top-left back button in the app chrome (and the OS/hardware back button) knows
@@ -712,6 +707,7 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   "active-shares": "active-shares",
   "shared-with-me": "shared-with-me",
   "needs-review": "needs-review",
+  "places-visited": "places-visited",
 };
 
 /**
@@ -1492,6 +1488,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onLeave={vm.onLeaveNamedCircle}
             onDelete={vm.onDeleteNamedCircle}
           />
+        ) : flow === "places-visited" ? (
+          <PlacesVisitedFlow />
         ) : flow === "active-shares" ||
           flow === "shared-with-me" ||
           flow === "needs-review" ? (
@@ -1523,6 +1521,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             smsContactCount={vm.smsContactUserIds.length}
             onManageSmsContacts={() => openFlow("sms-contacts")}
+            onOpenPlacesVisited={() => openFlow("places-visited")}
           />
         ) : // Every FlowKind above is matched, and `none` never reaches here.
         // This used to fall through to the temporary-link screen, so any
@@ -1539,11 +1538,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-4 sm:space-y-5">
       <PageHeader
-        title={
-          <PageTitle as="span">
-            Location
-          </PageTitle>
-        }
+        title={<PageTitle as="span">Location</PageTitle>}
         leading={<LocationHeaderIconTile />}
         accent="location"
         titleRole="agent"
@@ -2769,6 +2764,31 @@ function ownedUserCircleScopeOptions(
   );
 }
 
+export function shareCircleSections(
+  circles: readonly OneLocationCircleSummary[],
+  query: string,
+) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visible = circles.filter(
+    (circle) =>
+      !circle.isSystem &&
+      circle.systemKind == null &&
+      (!normalizedQuery ||
+        circle.name.toLocaleLowerCase().includes(normalizedQuery)),
+  );
+  const created = visible.filter((circle) => circle.role === "owner");
+  const joined = visible.filter((circle) => circle.role !== "owner");
+
+  return [
+    ...(created.length
+      ? [{ id: "created" as const, title: "Created by you", circles: created }]
+      : []),
+    ...(joined.length
+      ? [{ id: "joined" as const, title: "Joined Circles", circles: joined }]
+      : []),
+  ];
+}
+
 function autoApproveScopeKey(scope: AutoApproveScope | null): string {
   if (!scope) return "";
   return scope.kind === "circle" ? `circle:${scope.circleId}` : "all_contacts";
@@ -2789,10 +2809,12 @@ function LocationSettingsFlow({
   vm,
   smsContactCount,
   onManageSmsContacts,
+  onOpenPlacesVisited,
 }: {
   vm: LocationHubViewModel;
   smsContactCount: number;
   onManageSmsContacts: () => void;
+  onOpenPlacesVisited: () => void;
 }) {
   const [scopeSheetOpen, setScopeSheetOpen] = useState(false);
   const [draftScope, setDraftScope] = useState<AutoApproveScope | null>(null);
@@ -2891,15 +2913,34 @@ function LocationSettingsFlow({
           <SettingsRow
             title="Emergency contacts"
             trailing={
-              <TrailingValue as="span">
-                {smsContactCount}
-              </TrailingValue>
+              <TrailingValue as="span">{smsContactCount}</TrailingValue>
             }
             onClick={onManageSmsContacts}
             chevron
             density="compact"
             className="[--settings-row-px:16px]"
             testId="one-location-sms-contacts-entry"
+          />
+        </SettingsGroup>
+      </LocationSettingSection>
+
+      <LocationSettingSection title="Your visits">
+        <SettingsGroup
+          embedded
+          separatorInset
+          shellClassName="[--settings-group-radius:16px] shadow-none"
+        >
+          {/* The way back into what you rated. Without an entry point the
+              ratings are write-only: the check-out pane collects them and no
+              screen ever shows them again. */}
+          <SettingsRow
+            title="Places you've been"
+            description="Your ratings and notes, private to you"
+            onClick={onOpenPlacesVisited}
+            chevron
+            density="compact"
+            className="[--settings-row-px:16px]"
+            testId="one-location-places-visited-entry"
           />
         </SettingsGroup>
       </LocationSettingSection>
@@ -3406,11 +3447,12 @@ export function PeopleHub({
           // second tap is refused rather than queued -- single-flight, and
           // visibly so. Removing the row instead would make the control
           // disappear mid-action.
-          label: vm.busy === "contactSync"
-            ? "Finding contacts…"
-            : vm.contactSyncSummary
-              ? "Sync contacts again"
-              : "Find contacts",
+          label:
+            vm.busy === "contactSync"
+              ? "Finding contacts…"
+              : vm.contactSyncSummary
+                ? "Sync contacts again"
+                : "Find contacts",
           onSelect: () => vm.onSyncContacts(),
           disabled: vm.busy === "contactSync",
           busy: vm.busy === "contactSync",
@@ -4069,9 +4111,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 data-voice-control-id="one-location-action-temp-link"
                 className="h-12 min-h-12 w-full rounded-[15px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
               >
-                {vm.busy === "publicInvite"
-                  ? "Creating link…"
-                  : "Create link"}
+                {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
               </Button>
             </div>
           </>
@@ -4353,33 +4393,32 @@ function ShareFlow({
    * Reuses the `nowMs` this step already ticks every 30 seconds, so a screen
    * left open cannot quote a remaining time that has since run out.
    */
-  const shareReplacementRows: ShareReplacementRow[] = shareReplacementsLosingTime(
-    {
+  const shareReplacementRows: ShareReplacementRow[] =
+    shareReplacementsLosingTime({
       recipientUserIds: selectedReady.map((recipient) => recipient.userId),
       activeOwnerGrants: vm.activeOwnerGrants,
       durationValue: vm.shareDurationHours,
       nowMs,
-    },
-  ).map(({ recipientUserId, grant, untilStopped }) => {
-    const recipient = recipientById.get(recipientUserId);
-    return {
-      recipientUserId,
-      label: recipient ? vm.recipientLabel(recipient) : "This person",
-      untilStopped,
-      // The two vocabularies this app already owns for the two kinds of live
-      // share: "Until you stop" is what every surface that lists a share calls
-      // an open-ended one, and `formatLocationRemaining` is what the approvals
-      // card, the feed and the Consent Manager call the time left on a timed
-      // one. A warning about a share must not be the one place that words it
-      // differently.
-      remainingLabel: untilStopped
-        ? "Until you stop"
-        : (formatLocationRemaining(
-            parseTimestamp(grant.expiresAt) ?? nowMs,
-            nowMs,
-          ) ?? "less than a minute more"),
-    };
-  });
+    }).map(({ recipientUserId, grant, untilStopped }) => {
+      const recipient = recipientById.get(recipientUserId);
+      return {
+        recipientUserId,
+        label: recipient ? vm.recipientLabel(recipient) : "This person",
+        untilStopped,
+        // The two vocabularies this app already owns for the two kinds of live
+        // share: "Until you stop" is what every surface that lists a share calls
+        // an open-ended one, and `formatLocationRemaining` is what the approvals
+        // card, the feed and the Consent Manager call the time left on a timed
+        // one. A warning about a share must not be the one place that words it
+        // differently.
+        remainingLabel: untilStopped
+          ? "Until you stop"
+          : (formatLocationRemaining(
+              parseTimestamp(grant.expiresAt) ?? nowMs,
+              nowMs,
+            ) ?? "less than a minute more"),
+      };
+    });
   const shareReplacementDurationLabel = formatLocationDurationLabel(
     resolveShareDurationHours(vm.shareDurationHours),
   );
@@ -4407,7 +4446,8 @@ function ShareFlow({
   // rows remain individually deselectable. Once one is turned off the recipients
   // are no longer that Circle, so the Circle row stops reading as selected.
   const shareableCircles = useMemo(
-    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    () =>
+      shareCircleSections(vm.circles, "").flatMap((section) => section.circles),
     [vm.circles],
   );
   const shareCircleFullySelected = isCircleSelectionFullySelected(
@@ -4468,10 +4508,7 @@ function ShareFlow({
                 8px gap under one and 10px under the other reads as a
                 mistake. */}
             <div className="space-y-2.5">
-              <FormLabel
-                as="label"
-                htmlFor="one-location-share-note"
-              >
+              <FormLabel as="label" htmlFor="one-location-share-note">
                 Optional note
               </FormLabel>
               <div className="relative">
@@ -4620,43 +4657,45 @@ function ShareFlow({
           className="[&>div:first-child]:mt-0"
         >
           {[...shareableCircles]
-            .sort((a, b) => (a.name === "SMS Circle" ? 1 : b.name === "SMS Circle" ? -1 : 0))
+            .sort((a, b) =>
+              a.name === "SMS Circle" ? 1 : b.name === "SMS Circle" ? -1 : 0,
+            )
             .map((circle) => {
-            const selected =
-              vm.selectedShareCircleSelection?.circle.id === circle.id &&
-              shareCircleFullySelected;
-            const circleRole = roleClasses("people");
-            return (
-              <SettingsRow
-                key={circle.id}
-                density="compact"
-                disabled={vm.busy === "shareCircle"}
-                onClick={() => void vm.onSelectShareCircle(circle.id)}
-                ariaPressed={selected}
-                ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle`}
-                leading={
-                  <span
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                      circleRole.tile,
-                      circleRole.glyph,
-                    )}
-                  >
-                    <UsersRound className="h-[18px] w-[18px]" />
-                  </span>
-                }
-                title={circle.name}
-                description={
-                  vm.busy === "shareCircle"
-                    ? "Loading…"
-                    : selected
-                      ? `${selectedReady.length} selected`
-                      : circleMemberCountLabel(circle.memberCount)
-                }
-                trailing={<SelectionDot selected={selected} />}
-              />
-            );
-          })}
+              const selected =
+                vm.selectedShareCircleSelection?.circle.id === circle.id &&
+                shareCircleFullySelected;
+              const circleRole = roleClasses("people");
+              return (
+                <SettingsRow
+                  key={circle.id}
+                  density="compact"
+                  disabled={vm.busy === "shareCircle"}
+                  onClick={() => void vm.onSelectShareCircle(circle.id)}
+                  ariaPressed={selected}
+                  ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle`}
+                  leading={
+                    <span
+                      className={cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                        circleRole.tile,
+                        circleRole.glyph,
+                      )}
+                    >
+                      <UsersRound className="h-[18px] w-[18px]" />
+                    </span>
+                  }
+                  title={circle.name}
+                  description={
+                    vm.busy === "shareCircle"
+                      ? "Loading…"
+                      : selected
+                        ? `${selectedReady.length} selected`
+                        : circleMemberCountLabel(circle.memberCount)
+                  }
+                  trailing={<SelectionDot selected={selected} />}
+                />
+              );
+            })}
         </SettingsGroup>
       ) : null}
       <PersonSearchInput
@@ -5351,10 +5390,7 @@ function AskFlow({
             />
             {reason === "Other" ? (
               <div className="space-y-2.5">
-                <FormLabel
-                  as="label"
-                  htmlFor="one-location-ask-other-reason"
-                >
+                <FormLabel as="label" htmlFor="one-location-ask-other-reason">
                   Add reason
                 </FormLabel>
                 <textarea

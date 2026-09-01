@@ -1961,6 +1961,39 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("gives Connections the same row rhythm as Circles beside it", async () => {
+    /**
+     * Reported: "circle and Connections dono ka thoda alag alag feel ho rha
+     * hai ... I like the UI and design and layout guidelines in Circle wale
+     * mai."
+     *
+     * The two tabs sit on one screen and used two rhythms. `SettingsRow` draws
+     * its inset separator from a fixed offset per density -- 58px on
+     * `compact` -- and that number is the row padding plus the LEADING VISUAL
+     * plus the gap, so a compact row expects a 28px leading visual, which is
+     * exactly what the Circles rows' icon well is.
+     *
+     * `ConnectionPersonAvatar` was 34px at every call site, including inside
+     * these compact rows. So every hairline on the Connections list started
+     * 4px shy of the text it was meant to align with, while the Circles list
+     * lined up exactly.
+     */
+    render(<ConnectPageClient />);
+    await screen.findByPlaceholderText("Search people");
+
+    fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
+
+    const avatars = document.querySelectorAll("[data-avatar-size]");
+    expect(avatars.length).toBeGreaterThan(0);
+    for (const avatar of avatars) {
+      expect(avatar.getAttribute("data-avatar-size")).toBe("compact");
+      // The 28px face the 58px compact inset is measured from.
+      expect(avatar.className).toContain("h-7");
+      expect(avatar.className).toContain("w-7");
+      expect(avatar.className).not.toContain("h-[34px]");
+    }
+  });
+
   it("asks for the search field in two words", async () => {
     render(<ConnectPageClient />);
     expect(await screen.findByPlaceholderText("Search people")).toBeTruthy();
@@ -2275,7 +2308,7 @@ describe("Connect — Circles", () => {
     mocks.searchParams = new URLSearchParams("tab=circles");
     render(<ConnectPageClient />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Connections" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Connections" }));
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
@@ -2296,7 +2329,7 @@ describe("Connect — Circles", () => {
       screen.getByRole("button", { name: "Cancel selecting people" }),
     ).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Circles" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Circles" }));
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");

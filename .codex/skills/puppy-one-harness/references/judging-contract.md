@@ -160,3 +160,60 @@ their capability profile matches. A model tested through tool calling and one
 tested through JSON mode were not asked the same question, and a delta between
 them is invented rather than measured. `compare_runs` refuses rather than
 producing a trend nobody can invalidate.
+
+## The goal-progress suite
+
+Structural validity was standing in for goal achievement, and the founder
+called it: a valid action that does not advance the user's goal is still a
+miss. The `goal_progress` suite grades exactly that question, one action at a
+time, through this same queue discipline. The runner lives in the Hermes fork
+as `hermes_cli/hussh_one_routing/exam/goal_progress.py`.
+
+Rows are blinded across models: every model's actions go into one queue under
+one seed with identity stripped, because this suite exists precisely because a
+reputation disagreed with a number, and a judge who knows which rows are whose
+is measuring the reputation. The identity map is stored beside the seal,
+outside the run directory, and handing it to the grader defeats the blinding
+the way handing over the seal defeats the tamper check.
+
+Each row shows the frontier run's next action labelled as one known-good
+continuation and NOT ground truth. A different action can be on-path; the judge
+rules on progress toward the goal, never on imitation.
+
+### The five off-path rules
+
+A `wrong` verdict in this suite may cite only these, each with a verbatim
+citation:
+
+- `wrong-object` — the action operates on an artifact the request never named.
+  Cite the object.
+- `dead-end` — the action cannot yield what the request needs. Cite the
+  argument that makes it a dead end.
+- `redundant` — it repeats a step whose result is already in the context. Cite
+  the earlier result.
+- `destructive-detour` — it mutates state nothing asked to change. Cite the
+  verb.
+- `stalls` — it asks the user or does nothing when the context already holds
+  the answer. Cite the span that holds it.
+
+`on_path` needs no citation. `unsure` counts against the model, as everywhere
+in this contract.
+
+### Controls in this suite
+
+Negative controls are real requests wearing another case's action: structurally
+valid, off-path by construction, which is precisely the control the cheap
+benchmark cannot catch. One construction rule is load-bearing, learned from a
+voided run: the donor action must not equal the base row's reference
+continuation, or the control is on-path by construction while labelled
+must-catch and voids any judge diligent enough to notice. Positive controls are
+rows whose action equals the reference byte for byte; flagging one voids the
+run.
+
+### What this suite still does not prove
+
+On-path is progress, not arrival. A true goal-achievement probe needs a
+multi-turn rollout in a sandboxed worktree with a deterministic gate deciding
+success; until that exists, goal progress is the honest ceiling of what a
+single-action judgement can claim, and it is reported beside structural and
+agreement as a third number that is never added to either.

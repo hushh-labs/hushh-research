@@ -1267,32 +1267,32 @@ export default function MarketplacePage() {
             </div>
           ) : swipeCard ? (
             <div className="px-0 pb-2 pt-1 sm:px-1 sm:pt-2">
-              <div className="relative mx-auto flex w-full max-w-[720px] items-center justify-center pt-1 sm:pt-2">
+              <div className="relative mx-auto flex w-full max-w-[1120px] items-center justify-center pt-1 sm:pt-2">
                 <div className="absolute inset-x-4 top-2 h-[calc(100%-14px)] rounded-[var(--radius-lg)] bg-card/50 opacity-50 sm:inset-x-6 sm:top-3" />
                 <div className="absolute inset-x-2 top-3 h-[calc(100%-10px)] rounded-[var(--radius-lg)] bg-card/70 opacity-70 sm:inset-x-3 sm:top-4" />
                 <div
                   // Opts this card-deck out of any RIA tab-level swipe pager so
                   // its own left/right pass/connect gesture is never double-consumed.
                   data-no-route-swipe
-                  className="relative flex w-full touch-pan-y flex-col justify-between rounded-[var(--radius-lg)] border-0 bg-card p-5 shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] sm:p-6"
+                  data-testid="marketplace-swipe-card"
+                  className="relative flex w-full touch-pan-y flex-col gap-6 rounded-[var(--radius-lg)] border-0 bg-card p-6 shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] sm:p-7"
                   style={{
                     transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${swipeRotation}deg)`,
                     opacity: swipeOpacity,
-                    minHeight: "min(60dvh, 560px)",
                   }}
                   onPointerDown={(event) => {
                     dragStartRef.current = { x: event.clientX, y: event.clientY };
                   }}
                 >
-                  <div className="space-y-5">
-                    <div className="flex items-center gap-4">
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-5">
                       <ProfileAvatar
                         kind={swipeCard.kind}
                         label={swipeCard.title}
                         className="h-20 w-20 shrink-0 rounded-[24px]"
                         riaSurface={isRiaConnectSurface}
                       />
-                      <div className="min-w-0 space-y-2">
+                      <div className="min-w-0 space-y-2.5">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-[22px] font-semibold leading-tight tracking-normal text-foreground sm:text-[24px]">
                             {swipeCard.title}
@@ -1313,10 +1313,10 @@ export default function MarketplacePage() {
                       </div>
                     </div>
 
-                    <div className="rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
+                    <div className="rounded-[var(--radius-md)] bg-background/50 p-5 dark:bg-white/5">
                       <p className="text-[14px] leading-[1.5] text-foreground/86">{swipeCard.summary}</p>
-                      <div className="mt-3 flex flex-wrap items-center gap-3 text-[13px] text-muted-foreground">
-                        <span className="inline-flex items-center gap-2">
+                      <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-2.5">
                           {swipeCard.kind === "ria" ? (
                             <Building2 className="h-4 w-4" />
                           ) : (
@@ -1328,7 +1328,7 @@ export default function MarketplacePage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div data-testid="marketplace-swipe-card-actions" className="grid grid-cols-3 gap-3">
                     <Button
                       variant="none"
                       effect="fade"
