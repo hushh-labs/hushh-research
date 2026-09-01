@@ -74,6 +74,11 @@ def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
 async def main() -> dict[str, object]:
     binding = ManagedGeminiRuntimeBinding.from_environment()
     models, live_model = _managed_manifest_models()
+    # Match the candidate service exactly when an environment activates the
+    # authored rollback lever. Otherwise a UAT revision could run the Vertex
+    # fallback while this gate continued probing the unavailable canonical
+    # Developer API model.
+    live_model = (os.getenv("AGENT_ONE_ADK_MODEL") or live_model).strip()
     live_location = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
     # The live model's endpoint follows its declared transport, mirroring
     # agent_tree._build_one_live_model: vertex-transport live models probe the

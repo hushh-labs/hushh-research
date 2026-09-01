@@ -174,6 +174,21 @@ def test_cross_project_vertex_fallback_is_dev_or_exact_uat_bridge_only() -> None
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
+def test_uat_uses_the_rehearsed_vertex_live_fallback_when_developer_credits_are_depleted() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+    readiness_probe = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
+
+    fallback = "gemini-live-2.5-flash-native-audio"
+    assert f"##_AGENT_ONE_ADK_MODEL={fallback}" in uat_workflow
+    assert "_AGENT_ONE_ADK_MODEL" not in production_workflow
+    assert 'add_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"' in backend_build
+    assert "AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}" in backend_build
+    assert '_AGENT_ONE_ADK_MODEL: ""' in backend_build
+    assert 'os.getenv("AGENT_ONE_ADK_MODEL") or live_model' in readiness_probe
+
+
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     production_workflow = _read(".github/workflows/deploy-production.yml")
 

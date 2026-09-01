@@ -563,6 +563,10 @@ jobs:
           # still target hushh-pda-uat via $PROJECT_ID. To revert, delete this
           # line (genai_project_id then falls back to $PROJECT_ID).
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GENAI_PROJECT_ID=hushh-gemini-bridge"
+          # The canonical 3.1 Live preview uses a separate prepaid Developer
+          # API pool. UAT must remain functional when that pool is depleted, so
+          # pin the already-rehearsed GA Vertex rollback until credits recover.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_AGENT_ONE_ADK_MODEL=gemini-live-2.5-flash-native-audio"
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
