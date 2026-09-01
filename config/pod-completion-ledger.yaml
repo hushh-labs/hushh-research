@@ -217,15 +217,22 @@ assertions:
     falsifiable: true
     check:
       kind: receipt
-      verified_on: "2026-08-28"
+      verified_on: "2026-08-31"
       expires_after_days: 30
       reproduce: consent-protocol/scripts/ops/measure_pod_cost.py
       evidence: >-
-        Cloud Monitoring billable_instance_time on hushh-pda-dev: 0.5 vCPU / 1 GiB
-        = $0.0000145 per billable second; the identity-proof pod used 19.5s = $0.00028;
-        100 wakes/month = $0.0145; always-warm = $37.58. Model inference is excluded
-        and the report says so on its face, because a user_adc pod bills Vertex to its
-        owner's account and is not in this project's metrics at all.
+        Re-earned 2026-08-31 against a REAL pod, because the 2026-08-28 receipt was a
+        false green: measure_pod_cost.py shelled out to `gcloud monitoring time-series
+        list`, a subcommand that does not exist in SDK 577 (nor alpha/beta), so the
+        reproduction path could never run. The receipt passed only because the check
+        verifies the path EXISTS, not that it RUNS. It now uses the Monitoring REST
+        API and was executed to produce this line.
+        Measured on one-pod-ha1-6ty5ir24faljqjfb43r6dexar6soha47 in
+        hussh-one-kd8rb4ssh-one-tk2o4w over 7d: 0.5 vCPU / 1 GiB at $0.0000145 per
+        billable second, 424.7 billable seconds across 489 sampled points, $0.00616
+        for the window. Model inference is excluded and the report says so on its
+        face, because a user_adc pod bills Vertex to its owner's account and is not
+        in this project's metrics at all.
 
   - id: economics-cost-attributable-per-pod
     requirement: Economics

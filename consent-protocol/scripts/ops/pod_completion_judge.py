@@ -203,6 +203,21 @@ def check_receipt(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
     proof is actionable ("run it again") in a way that "we could not look" is not.
     An untracked reproduction path fails too: a proof nobody else can re-run is a
     claim, not evidence.
+
+    KNOWN WEAKNESS, stated rather than hidden. This checks that the reproduction
+    path EXISTS. It does not check that it RUNS, and the difference is not
+    academic: on 2026-08-31 the economics receipt was found green while
+    `measure_pod_cost.py` could never have executed, because it shelled out to
+    `gcloud monitoring time-series list`, a subcommand absent from SDK 577. The
+    file existed, so the receipt passed. A false green inside the very mechanism
+    built to abolish false greens.
+
+    Running each reproduction here is not the fix -- they need clouds, credentials
+    and minutes. The honest mitigation is that `verified_on` must only ever be set
+    by someone who actually ran the thing that day, and that a receipt whose
+    reproduction has rotted will be caught the next time somebody re-earns it.
+    Treat a receipt older than a code change to its reproduction path with
+    suspicion.
     """
     from datetime import date, timedelta  # noqa: PLC0415
 

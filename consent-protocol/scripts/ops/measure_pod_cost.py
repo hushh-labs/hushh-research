@@ -26,6 +26,7 @@ is the same false green this ledger exists to prevent).
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import json
 import re
 import subprocess
@@ -105,28 +106,62 @@ def read_tier(project: str, region: str, service: str) -> tuple[float, float]:
     return cpu, mem
 
 
-def read_billable_seconds(project: str, service: str, window: str) -> tuple[float, int]:
-    code, out = _sh(
-        [
-            "gcloud",
-            "monitoring",
-            "time-series",
-            "list",
-            f"--project={project}",
-            f'--filter=metric.type="{METRIC}" AND resource.labels.service_name="{service}"',
-            "--interval-end-time=now",
-            f"--window={window}",
-            "--format=json",
-        ]
-    )
-    if code != 0:
-        raise RuntimeError(f"monitoring query failed: {out.strip()[:400]}")
+def _window_seconds(window: str) -> int:
+    """Accept the same `24h` / `7d` / `30m` shorthand the CLI flag documents."""
+    raw = (window or "").strip().lower()
+    unit = raw[-1:] if raw and raw[-1] in "smhd" else "h"
+    number = raw[:-1] if raw and raw[-1] in "smhd" else raw
     try:
-        series = json.loads(out or "[]")
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"monitoring returned unparseable output: {exc}") from exc
+        value = int(number)
+    except ValueError as exc:
+        raise RuntimeError(f"unreadable --window {window!r}; use forms like 24h, 7d, 30m") from exc
+    return value * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+
+
+def read_billable_seconds(project: str, service: str, window: str) -> tuple[float, int]:
+    """Query Cloud Monitoring over its REST API.
+
+    NOT `gcloud monitoring time-series list`. That subcommand does not exist --
+    verified against Google Cloud SDK 577.0.0, and it is absent from `alpha` and
+    `beta` too. This function called it anyway, so the script could never run,
+    and the completion ledger's economics receipt pointed at it as the
+    reproduction path. The receipt passed because the check verifies the
+    reproduce path EXISTS, not that it RUNS: a false green of exactly the kind
+    the ledger was built to abolish, shipped inside the ledger's own tooling.
+
+    The v3 timeSeries endpoint is the stable surface and answers 200.
+    """
+    # `requests` rather than urllib: it ships its own CA bundle, and the stdlib
+    # opener fails CERTIFICATE_VERIFY_FAILED on a stock macOS Python. The repo's
+    # other operator scripts already use it for the same reason.
+    import requests  # noqa: PLC0415
+
+    code, token = _sh(["gcloud", "auth", "print-access-token"])
+    if code != 0 or not token.strip():
+        raise RuntimeError("could not obtain an access token from gcloud")
+
+    seconds = _window_seconds(window)
+    end = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+    start = end - _dt.timedelta(seconds=seconds)
+    try:
+        resp = requests.get(
+            f"https://monitoring.googleapis.com/v3/projects/{project}/timeSeries",
+            params={
+                "filter": f'metric.type="{METRIC}" AND resource.labels.service_name="{service}"',
+                "interval.startTime": start.isoformat().replace("+00:00", "Z"),
+                "interval.endTime": end.isoformat().replace("+00:00", "Z"),
+            },
+            headers={"Authorization": f"Bearer {token.strip()}"},
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"monitoring unreachable: {exc}") from exc
+    if resp.status_code != 200:
+        raise RuntimeError(f"monitoring query failed: HTTP {resp.status_code} {resp.text[:300]}")
+    payload = resp.json()
+
     total, points = 0.0, 0
-    for s in series:
+    for s in payload.get("timeSeries") or []:
         for pt in s.get("points") or []:
             value = pt.get("value") or {}
             raw = value.get("doubleValue", value.get("int64Value"))

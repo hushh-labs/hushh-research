@@ -45,6 +45,7 @@ EXPECTED_PARKED_MIGRATIONS = (
     "910_personal_agent_status_needs_reinit.sql",
     "911_pod_migration_jobs.sql",
     "912_personal_agent_status_migrating.sql",
+    "913_consent_audit_receipts_ledger.sql",
 )
 
 
