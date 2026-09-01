@@ -177,7 +177,7 @@ function circleListPeopleLabel(memberCount: number | null | undefined): string {
   return `${others} ${others === 1 ? "person" : "people"}`;
 }
 
-type CircleListGroupKey = "created" | "joined" | "built-in";
+type CircleListGroupKey = "created" | "joined";
 
 type CircleListGroup = {
   key: CircleListGroupKey;
@@ -188,7 +188,6 @@ type CircleListGroup = {
 function circleListGroupKey(
   circle: OneLocationCircleSummary,
 ): CircleListGroupKey {
-  if (circle.systemKind || circle.isSystem) return "built-in";
   return circle.role === "owner" ? "created" : "joined";
 }
 
@@ -198,7 +197,6 @@ function groupCirclesForPeopleTab(
   const groups: CircleListGroup[] = [
     { key: "created", title: "Created by you", circles: [] },
     { key: "joined", title: "Joined circles", circles: [] },
-    { key: "built-in", title: "Built-in", circles: [] },
   ];
   const groupByKey = new Map(groups.map((group) => [group.key, group]));
 

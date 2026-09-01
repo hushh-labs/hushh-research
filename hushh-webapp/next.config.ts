@@ -81,7 +81,10 @@ const config: NextConfig = {
     parallelServerCompiles: false,
     parallelServerBuildTraces: false,
     optimizePackageImports: ["@phosphor-icons/react", "lucide-react"],
-    preloadEntriesOnStart: false,
+    // UAT serves from an immutable Cloud Run image. Preload server entries so
+    // unreadable image-layer chunks fail during startup instead of on a user's
+    // first request, and keep cold-route latency out of the request path.
+    preloadEntriesOnStart: true,
     serverSourceMaps: false,
     serverComponentsHmrCache: true,
     webpackMemoryOptimizations: true,

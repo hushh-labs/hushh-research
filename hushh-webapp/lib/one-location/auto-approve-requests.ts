@@ -1,5 +1,6 @@
 import type { OneLocationAccessRequest } from "@/lib/one-location/types";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 
 /**
  * Which pending location requests this browser may schedule for server review.
@@ -44,8 +45,9 @@ export function selectAutoApprovableRequests(input: {
   // point: a missing timestamp must not read as "approve everything".
   if (!Number.isFinite(enabledAtMs)) return [];
 
+  const nowMs = Date.now();
   return pendingRequests.filter((request) => {
-    if (request.status !== "pending") return false;
+    if (!isLocationRequestPending(request, nowMs)) return false;
     if (alreadyAttemptedIds.has(request.id)) return false;
     // A standing people rule does not grant an open-ended duration. Requests
     // for ongoing access stay visible for an explicit owner decision.

@@ -119,7 +119,7 @@ describe("the circle row's second line", () => {
     expect(screen.getByTestId("one-location-circle-neutral-mark")).toBeTruthy();
   });
 
-  it("separates circles created by you, joined circles, and built-in circles", () => {
+  it("groups every Circle by ownership, including built-in Circles", () => {
     renderCircles([
       circle({ id: "joined_1", name: "Road Trip", role: "member" }),
       circle({ id: "owned_1", name: "Family", role: "owner" }),
@@ -131,9 +131,17 @@ describe("the circle row's second line", () => {
       }),
       circle({ id: "owned_2", name: "Close Friends", role: "owner" }),
       circle({
-        id: "built_in_sms",
+        id: "owned_sms",
         name: "Emergency Circle",
         role: "owner",
+        memberCount: 2,
+        isSystem: true,
+        systemKind: "sms",
+      }),
+      circle({
+        id: "joined_sms",
+        name: "Alice's SMS Circle",
+        role: "member",
         isSystem: true,
         systemKind: "sms",
       }),
@@ -141,20 +149,26 @@ describe("the circle row's second line", () => {
 
     const created = screen.getByTestId("one-location-circle-group-created");
     const joined = screen.getByTestId("one-location-circle-group-joined");
-    const builtIn = screen.getByTestId("one-location-circle-group-built-in");
 
     expect(within(created).getByText("Created by you")).toBeTruthy();
     expect(within(created).getByText("Family")).toBeTruthy();
     expect(within(created).getByText("Close Friends")).toBeTruthy();
+    expect(within(created).getByText("Trusted")).toBeTruthy();
+    expect(within(created).getByText("Emergency Circle")).toBeTruthy();
+    expect(within(created).getByText("Save My Soul · 1 person")).toBeTruthy();
     expect(within(created).queryByText("Road Trip")).toBeNull();
+    expect(within(created).queryByText("Alice's SMS Circle")).toBeNull();
 
     expect(within(joined).getByText("Joined circles")).toBeTruthy();
     expect(within(joined).getByText("Road Trip")).toBeTruthy();
+    expect(within(joined).getByText("Alice's SMS Circle")).toBeTruthy();
+    expect(within(joined).getByText("Save My Soul · Only you")).toBeTruthy();
     expect(within(joined).queryByText("Family")).toBeNull();
+    expect(within(joined).queryByText("Trusted")).toBeNull();
 
-    expect(within(builtIn).getByText("Built-in")).toBeTruthy();
-    expect(within(builtIn).getByText("Trusted")).toBeTruthy();
-    expect(within(builtIn).getByText("Emergency Circle")).toBeTruthy();
-    expect(within(builtIn).getByText("Save My Soul · Only you")).toBeTruthy();
+    expect(screen.queryByText("Built-in")).toBeNull();
+    expect(
+      screen.queryByTestId("one-location-circle-group-built-in"),
+    ).toBeNull();
   });
 });

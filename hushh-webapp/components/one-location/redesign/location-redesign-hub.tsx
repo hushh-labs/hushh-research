@@ -52,6 +52,10 @@ import {
   shortAgo,
   type RequestRecipientStatus,
 } from "@/lib/one-location/request-recipient-status";
+import {
+  isLocationRequestExpired,
+  isLocationRequestPending,
+} from "@/lib/one-location/request-expiry";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
@@ -1678,6 +1682,7 @@ function NowHub({
   onOpenNeedsReview: () => void;
   onRequestLocation: () => void;
 }) {
+  const liveShareDurationTriggerRef = useRef<HTMLElement | null>(null);
   const activityRows = [
     {
       leading: <LocationMenuListIcon name="pin" />,
@@ -1738,7 +1743,10 @@ function NowHub({
           // running there is no single one for "change time" to mean.
           onChangeDuration={
             vm.liveShare.stoppableGrantId
-              ? vm.onEditLiveShareDurationStart
+              ? (trigger) => {
+                  liveShareDurationTriggerRef.current = trigger;
+                  vm.onEditLiveShareDurationStart();
+                }
               : undefined
           }
           onShareMore={onStartShare}
@@ -1746,22 +1754,36 @@ function NowHub({
         />
       ) : null}
       <Dialog
+        modal
         open={Boolean(vm.liveShare && vm.liveShareDurationEditing)}
         onOpenChange={(open) => {
-          if (!open) vm.onEditLiveShareDurationCancel();
+          if (!open && !vm.liveShareDurationSaving) {
+            vm.onEditLiveShareDurationCancel();
+          }
         }}
       >
         <DialogContent
           className="max-w-[min(420px,calc(100%-2rem))] gap-4 rounded-[24px] p-4 sm:max-w-[420px]"
           showCloseButton={!vm.liveShareDurationSaving}
+          srDescription="Choose how long this live location share should continue."
+          aria-busy={vm.liveShareDurationSaving}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = liveShareDurationTriggerRef.current;
+            liveShareDurationTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+          }}
+          onEscapeKeyDown={(event) => {
+            if (vm.liveShareDurationSaving) event.preventDefault();
+          }}
+          onPointerDownOutside={(event) => {
+            if (vm.liveShareDurationSaving) event.preventDefault();
+          }}
         >
           <DialogHeader className="gap-1 text-left">
             <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
               Change time
             </DialogTitle>
-            <DialogDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
-              Set a new end time for this share.
-            </DialogDescription>
           </DialogHeader>
           <LiveShareDurationEditor
             value={vm.liveShareDurationHours}
@@ -3354,7 +3376,8 @@ function sentRequestStatusLine(
     ? `Requested ${shortAgo(requestedAt, nowMs)}`
     : "Requested";
   const duration = requestDurationLabel(request);
-  if (request.status === "pending") {
+  if (isLocationRequestExpired(request, nowMs)) return "Request expired";
+  if (isLocationRequestPending(request, nowMs)) {
     return duration ? `${when} · ${duration}` : when;
   }
   return requestStatusWord(request.status);
@@ -3409,19 +3432,27 @@ export function PeopleHub({
   const pendingExtensionByGrantId = useMemo(() => {
     const byGrantId = new globalThis.Map<string, OneLocationAccessRequest>();
     for (const request of vm.requestedByMe) {
-      if (request.status !== "pending" || !request.extendsGrantId) continue;
+      if (
+        !isLocationRequestPending(request, vm.nowMs) ||
+        !request.extendsGrantId
+      )
+        continue;
       if (!byGrantId.has(request.extendsGrantId)) {
         byGrantId.set(request.extendsGrantId, request);
       }
     }
     return byGrantId;
-  }, [vm.requestedByMe]);
+  }, [vm.nowMs, vm.requestedByMe]);
   const requestsSentRows = useMemo(
     () =>
       vm.requestedByMe.filter(
-        (request) => !(request.status === "pending" && request.extendsGrantId),
+        (request) =>
+          !(
+            isLocationRequestPending(request, vm.nowMs) &&
+            request.extendsGrantId
+          ),
       ),
-    [vm.requestedByMe],
+    [vm.nowMs, vm.requestedByMe],
   );
   const { expandedLaneUserIds, toggleLaneExpansion } = useExpandedShareLanes();
   const addPeopleEmptyAction = (
@@ -3760,7 +3791,7 @@ export function PeopleHub({
                           </Button>
                         ) : isLive ? (
                           "Active"
-                        ) : request.status === "pending" ? (
+                        ) : isLocationRequestPending(request, vm.nowMs) ? (
                           // "Pending" as bare text was the whole trailing slot:
                           // the state was reported and there was nothing to do
                           // about it. The button replaces the word rather than
@@ -3782,6 +3813,8 @@ export function PeopleHub({
                           >
                             Take back
                           </Button>
+                        ) : isLocationRequestExpired(request, vm.nowMs) ? (
+                          "Expired"
                         ) : (
                           requestStatusWord(request.status)
                         )
@@ -4845,16 +4878,18 @@ function LiveShareDurationEditor({
       */}
       <DurationSelector
         value={value}
-        onChange={onChange}
+        onChange={(next) => {
+          if (!saving) onChange(next);
+        }}
         presentation="ladder"
         rungs={CHANGE_TIME_DURATION_LADDER}
         untilStopValue="until_stopped"
         allowCustom={false}
         centered
         maxWidthClassName={null}
-        label="New time"
+        label="Share for"
         // Beside the label rather than on its own line under the control --
-        // "New time … Ends 6:50 PM" is one statement, and it is how every
+        // "Share for … Ends 6:50 PM" is one statement, and it is how every
         // other ladder on these screens already reads.
         hint={shareEndsAtLabel(value, nowMs)}
       />
@@ -4863,6 +4898,7 @@ function LiveShareDurationEditor({
           variant="ghost"
           className="h-11 rounded-full"
           onClick={onCancel}
+          disabled={saving}
           data-testid="one-location-live-share-duration-cancel"
         >
           Cancel
@@ -5215,9 +5251,10 @@ function AskFlow({
     () =>
       vm.requestedByMe.filter(
         (request) =>
-          request.status === "pending" && request.extendsGrantId == null,
+          isLocationRequestPending(request, statusNowMs) &&
+          request.extendsGrantId == null,
       ),
-    [vm.requestedByMe],
+    [statusNowMs, vm.requestedByMe],
   );
 
   const recipientById = useMemo(() => {
@@ -5284,7 +5321,7 @@ function AskFlow({
   /**
    * Whether anything on screen is actually measured against the clock.
    *
-   * "Asked 6m ago" and "Sharing with you, 29 more min" go stale; "Ready for
+   * "Asked 6m ago" and "Sharing with you, 29 min left" go stale; "Ready for
    * private sharing" does not. A roster of people you have never asked and who
    * are not sharing has nothing that ages, and re-rendering it every 30 seconds
    * is CPU spent to redraw identical text -- battery, on a phone.
@@ -5316,13 +5353,17 @@ function AskFlow({
   const pendingExtensionByGrantId = useMemo(() => {
     const byGrantId = new globalThis.Map<string, OneLocationAccessRequest>();
     for (const request of vm.requestedByMe) {
-      if (request.status !== "pending" || !request.extendsGrantId) continue;
+      if (
+        !isLocationRequestPending(request, statusNowMs) ||
+        !request.extendsGrantId
+      )
+        continue;
       if (!byGrantId.has(request.extendsGrantId)) {
         byGrantId.set(request.extendsGrantId, request);
       }
     }
     return byGrantId;
-  }, [vm.requestedByMe]);
+  }, [statusNowMs, vm.requestedByMe]);
 
   const isRequestFormValid = vm.selectedRequestOwnerIds.length > 0;
   const sendingRequest = vm.busy === "request";
@@ -5379,7 +5420,7 @@ function AskFlow({
               allowUntilStop={false}
               // Not FULL: the two lanes shared one constant for a moment, and
               // trimming this screen to four cells must not take rungs off the
-              // owner's own "New time" editor, which has a card to itself.
+              // owner's own "Share for" editor, which has a card to itself.
               rungs={REQUEST_DURATION_LADDER}
             />
             <ReasonChips

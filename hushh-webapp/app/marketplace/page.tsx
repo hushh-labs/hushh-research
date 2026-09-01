@@ -1703,6 +1703,7 @@ export default function MarketplacePage() {
             ? selectedAdvisor?.headline || RIA_COPY.connect.detail.description
             : selectedInvestor?.headline || RIA_COPY.connect.detail.description
         }
+        contentClassName="md:top-[calc(var(--top-shell-mask-visible-height)+1rem)] md:max-h-[calc(100dvh-var(--top-shell-mask-visible-height)-2rem)] md:translate-y-0"
       >
         <div className="space-y-4">
           {selectedProfile?.kind === "ria" && selectedRiaLoading ? (

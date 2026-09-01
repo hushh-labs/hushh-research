@@ -122,7 +122,11 @@ describe("the Requests sent list", () => {
     // fixture: re-adding the word here would not change the fixture and would
     // not turn it red. This assertion is what closes that gap, so the two are
     // load-bearing together, not redundant.
-    const pendingBranchStart = source.indexOf('request.status === "pending" ?');
+    // Pending is now deadline-aware: a cached row at or beyond `expiresAt`
+    // must become the compact Expired state rather than retaining this action.
+    const pendingBranchStart = source.indexOf(
+      "isLocationRequestPending(request, vm.nowMs) ?",
+    );
     expect(pendingBranchStart).toBeGreaterThan(-1);
     const pendingBranchEnd = source.indexOf(
       "requestStatusWord(request.status)",
@@ -134,7 +138,7 @@ describe("the Requests sent list", () => {
       // The comment explaining the decision says "Pending" itself.
       .replace(/^\s*\/\/.*$/gm, "");
     expect(pendingBranch.trim().length).toBeGreaterThan(0);
-    expect(pendingBranch).not.toContain("Pending");
+    expect(pendingBranch).not.toMatch(/(["'`])Pending\1/);
     expect(pendingBranch).not.toContain("MUTED_TEXT");
   });
 

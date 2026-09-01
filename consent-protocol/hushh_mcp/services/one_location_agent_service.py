@@ -105,6 +105,11 @@ COORDINATE_METADATA_KEYS = {
     "reverse_geocode",
 }
 LOCATION_TERMINAL_RETENTION_HOURS = 12
+LOCATION_REQUEST_EXPIRY_HOURS = 24
+# Keep a small outcome tombstone long enough for the reported three-day return
+# visit to explain what happened and offer Ask again. Other terminal work still
+# uses the 12-hour privacy cleanup window.
+LOCATION_EXPIRED_REQUEST_RETENTION_HOURS = 7 * 24
 ATOMIC_LOCATION_SHARE_NAMESPACE = uuid.UUID("ef983dac-5044-49b0-9d35-c523b3437a54")
 
 
@@ -221,6 +226,38 @@ def _parse_datetime(value: datetime | str | None, *, field_name: str) -> datetim
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _request_effective_expires_at(row: dict[str, Any]) -> Any:
+    """Persisted deadline, or a rolling-deploy projection for an old direct row."""
+
+    expires_at = row.get("expires_at")
+    if expires_at is not None or not bool(row.get("legacy_direct_request")):
+        return expires_at
+    try:
+        requested_at = _parse_datetime(row.get("requested_at"), field_name="requestedAt")
+    except OneLocationAgentError:
+        return None
+    return requested_at + timedelta(hours=LOCATION_REQUEST_EXPIRY_HOURS)
+
+
+def _request_expiry_has_passed(row: dict[str, Any], *, now: datetime | None = None) -> bool:
+    """Whether a direct request crossed its server-owned deadline.
+
+    A NULL deadline is intentional for referral/public-link workflows. A read
+    query can mark an unlinked NULL as an old-revision direct row, in which case
+    its original send time projects the same one-day deadline until repaired.
+    Invalid persisted values fail closed so a read projection cannot 500.
+    """
+
+    expires_at = _request_effective_expires_at(row)
+    if expires_at is None:
+        return False
+    try:
+        parsed = _parse_datetime(expires_at, field_name="expiresAt")
+    except OneLocationAgentError:
+        return False
+    return parsed <= (now or _utcnow())
 
 
 def _validated_envelope_fields(
@@ -2238,7 +2275,27 @@ class OneLocationAgentService:
                 (
                     "one_location_requests",
                     """
-                    SELECT owner_user_id, requester_user_id, referred_by_user_id, status,
+                    SELECT owner_user_id, requester_user_id, referred_by_user_id,
+                           CASE
+                             WHEN status = 'pending' AND (
+                               (expires_at IS NOT NULL AND expires_at <= clock_timestamp())
+                               OR (
+                                 expires_at IS NULL
+                                 AND referred_by_user_id IS NULL
+                                 AND requested_at + INTERVAL '24 hours' <= clock_timestamp()
+                                 AND NOT EXISTS (
+                                   SELECT 1 FROM one_location_referrals referral
+                                   WHERE referral.request_id = one_location_access_requests.id
+                                 )
+                                 AND NOT EXISTS (
+                                   SELECT 1 FROM one_location_public_invite_submissions submission
+                                   WHERE submission.request_id = one_location_access_requests.id
+                                 )
+                               )
+                             )
+                               THEN 'expired'
+                             ELSE status
+                           END AS status,
                            requested_at, resolved_at
                     FROM one_location_access_requests
                     WHERE owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id
@@ -2651,6 +2708,14 @@ class OneLocationAgentService:
             if row.get("requested_duration_hours") is not None
             else None
         )
+        expires_at = _request_effective_expires_at(row)
+        raw_status = str(row.get("status") or "pending")
+        status = (
+            "expired" if raw_status == "pending" and _request_expiry_has_passed(row) else raw_status
+        )
+        resolved_at = row.get("resolved_at")
+        if status == "expired" and resolved_at is None:
+            resolved_at = expires_at
         return {
             "id": str(row.get("id") or ""),
             "ownerUserId": str(row.get("owner_user_id") or ""),
@@ -2672,10 +2737,11 @@ class OneLocationAgentService:
             or None,
             "ownerMaskedPhone": _mask_phone(row.get("owner_phone_number")),
             "referredByUserId": str(row.get("referred_by_user_id") or "") or None,
-            "status": str(row.get("status") or "pending"),
+            "status": status,
             "message": str(row.get("message") or "") or None,
             "requestedAt": _iso(row.get("requested_at")),
-            "resolvedAt": _iso(row.get("resolved_at")),
+            "expiresAt": _iso(expires_at),
+            "resolvedAt": _iso(resolved_at),
             "approvedGrantId": str(row.get("approved_grant_id") or "") or None,
             "requestedDurationHours": requested_duration_hours,
             "requestedDurationMode": str(row.get("requested_duration_mode") or "") or None,
@@ -3278,6 +3344,100 @@ class OneLocationAgentService:
         for notification in notifications:
             self._send_metadata_notification(**notification)
 
+    def _repair_legacy_direct_request_deadlines(self, user_id: str | None) -> None:
+        """Adopt direct asks written by an older revision during rollout.
+
+        Release migrations run before the new backend is fully promoted. An
+        old replica can therefore insert a NULL-expiry direct request after the
+        one-time backfill. Parent rows distinguish the intentional NULLs used
+        by public-link/referral workflows; only unlinked rows are repaired.
+        """
+
+        self._execute_many(
+            """
+            WITH repair_clock AS (
+              SELECT clock_timestamp() AS observed_at
+            )
+            UPDATE one_location_access_requests AS legacy_request
+            SET expires_at = legacy_request.requested_at
+                + (:hours * INTERVAL '1 hour'),
+                status = CASE
+                  WHEN legacy_request.requested_at
+                    + (:hours * INTERVAL '1 hour') <= repair_clock.observed_at
+                    THEN 'expired'
+                  ELSE legacy_request.status
+                END,
+                resolved_at = CASE
+                  WHEN legacy_request.requested_at
+                    + (:hours * INTERVAL '1 hour') <= repair_clock.observed_at
+                    THEN COALESCE(
+                      legacy_request.resolved_at,
+                      legacy_request.requested_at + (:hours * INTERVAL '1 hour')
+                    )
+                  ELSE legacy_request.resolved_at
+                END
+            FROM repair_clock
+            WHERE legacy_request.status = 'pending'
+              AND legacy_request.expires_at IS NULL
+              AND legacy_request.referred_by_user_id IS NULL
+              AND (
+                :user_id IS NULL
+                OR legacy_request.owner_user_id = :user_id
+                OR legacy_request.requester_user_id = :user_id
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM one_location_referrals AS referral
+                WHERE referral.request_id = legacy_request.id
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM one_location_public_invite_submissions AS submission
+                WHERE submission.request_id = legacy_request.id
+              )
+            RETURNING legacy_request.id
+            """,
+            {"hours": LOCATION_REQUEST_EXPIRY_HOURS, "user_id": user_id},
+        )
+
+    def _expire_stale_requests(self, user_id: str | None) -> None:
+        """Settle direct asks whose one-day answer window has ended.
+
+        Reads and action mutations also enforce ``expires_at`` immediately, so
+        scheduler lag can never widen consent. This bounded transition exists
+        to keep persistence and terminal-retention cleanup in step with that
+        effective state. NULL-expiry linked workflows are deliberately outside
+        this policy.
+        """
+
+        self._repair_legacy_direct_request_deadlines(user_id)
+        self._execute_many(
+            """
+            WITH stale AS (
+              SELECT id
+              FROM one_location_access_requests
+              WHERE status = 'pending'
+                AND expires_at IS NOT NULL
+                AND expires_at <= clock_timestamp()
+                AND (
+                  :user_id IS NULL
+                  OR owner_user_id = :user_id
+                  OR requester_user_id = :user_id
+                )
+              ORDER BY expires_at
+              LIMIT 500
+              FOR UPDATE SKIP LOCKED
+            )
+            UPDATE one_location_access_requests AS target_request
+            SET status = 'expired',
+                resolved_at = COALESCE(target_request.resolved_at, target_request.expires_at)
+            FROM stale
+            WHERE target_request.id = stale.id
+            RETURNING target_request.id
+            """,
+            {"user_id": user_id},
+        )
+
     def _purge_terminal_work(
         self,
         *,
@@ -3314,6 +3474,11 @@ class OneLocationAgentService:
                   status IN ('approved', 'denied', 'cancelled')
                   AND COALESCE(resolved_at, requested_at)
                     <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR (
+                  status = 'expired'
+                  AND COALESCE(resolved_at, expires_at, requested_at)
+                    <= NOW() - (:expired_request_hours * INTERVAL '1 hour')
                 )
                 OR approved_grant_id IN (SELECT id FROM stale_grants))
                 AND (
@@ -3571,7 +3736,11 @@ class OneLocationAgentService:
               (SELECT COUNT(*) FROM deleted_public_submissions) AS deleted_public_submissions,
               (SELECT COUNT(*) FROM deleted_events) AS deleted_events
             """,
-                {"user_id": user_id, "hours": hours},
+                {
+                    "user_id": user_id,
+                    "hours": hours,
+                    "expired_request_hours": LOCATION_EXPIRED_REQUEST_RETENTION_HOURS,
+                },
             )
             or {}
         )
@@ -3594,6 +3763,7 @@ class OneLocationAgentService:
     def purge_terminal_work(
         self, *, older_than_hours: float = LOCATION_TERMINAL_RETENTION_HOURS
     ) -> dict[str, Any]:
+        self._expire_stale_requests(None)
         self._expire_stale_grants(None)
         return self._purge_terminal_work(user_id=None, older_than_hours=older_than_hours)
 
@@ -7524,6 +7694,7 @@ class OneLocationAgentService:
                         message=message_value or f"Public request from {display_name}",
                         notify_owner=False,
                         require_requester_key_material=True,
+                        _expires_after_hours=None,
                     )
                     status_value = "matched_request_pending"
                 except OneLocationAgentError as exc:
@@ -7946,6 +8117,14 @@ class OneLocationAgentService:
         ).strip().lower() in {"1", "true", "yes", "on"}
         if not read_only_state:
             try:
+                self._expire_stale_requests(user_id)
+            except Exception as exc:  # noqa: BLE001 - compatibility housekeeping
+                logger.warning(
+                    "one_location.list_state.expire_stale_requests_failed user=%s error=%s",
+                    user_id,
+                    exc,
+                )
+            try:
                 self._expire_stale_grants(user_id)
             except Exception as exc:  # noqa: BLE001 - compatibility housekeeping
                 logger.warning(
@@ -8054,7 +8233,19 @@ class OneLocationAgentService:
                       owner.photo_url AS owner_photo_url,
                       owner.custom_photo_url AS owner_custom_photo_url,
                       owner.phone_number AS owner_phone_number,
-                      extended.expires_at AS extends_grant_expires_at
+                      extended.expires_at AS extends_grant_expires_at,
+                      (
+                        req.expires_at IS NULL
+                        AND req.referred_by_user_id IS NULL
+                        AND NOT EXISTS (
+                          SELECT 1 FROM one_location_referrals referral
+                          WHERE referral.request_id = req.id
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1 FROM one_location_public_invite_submissions submission
+                          WHERE submission.request_id = req.id
+                        )
+                      ) AS legacy_direct_request
                     FROM one_location_access_requests req
                     LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
                     LEFT JOIN actor_identity_cache owner ON owner.user_id = req.owner_user_id
@@ -8376,6 +8567,7 @@ class OneLocationAgentService:
 
     def list_pending_owner_requests(self, *, owner_user_id: str) -> list[dict[str, Any]]:
         """The owner's own pending access requests -- see list_active_owner_grants."""
+        self._expire_stale_requests(owner_user_id)
         rows = self._execute_many(
             """
             SELECT
@@ -8390,6 +8582,7 @@ class OneLocationAgentService:
             LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
             WHERE req.owner_user_id = :owner_user_id
               AND req.status = 'pending'
+              AND (req.expires_at IS NULL OR req.expires_at > clock_timestamp())
             ORDER BY req.requested_at DESC
             LIMIT 50
             """,
@@ -8402,6 +8595,7 @@ class OneLocationAgentService:
         outgoing asks still waiting on someone else's approve/decline.
         Joins the owner's identity instead of the requester's, since the
         requester already knows who they are."""
+        self._expire_stale_requests(requester_user_id)
         rows = self._execute_many(
             """
             SELECT
@@ -8416,6 +8610,7 @@ class OneLocationAgentService:
             LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
             WHERE req.requester_user_id = :requester_user_id
               AND req.status = 'pending'
+              AND (req.expires_at IS NULL OR req.expires_at > clock_timestamp())
             ORDER BY req.requested_at DESC
             LIMIT 50
             """,
@@ -8916,6 +9111,7 @@ class OneLocationAgentService:
         requested_duration_mode: str | None = None,
         extends_grant_id: str | None = None,
         _notification_outbox: list[_MetadataNotification] | None = None,
+        _expires_after_hours: float | None = LOCATION_REQUEST_EXPIRY_HOURS,
     ) -> dict[str, Any]:
         """Ask an owner for location access -- optionally for a named duration.
 
@@ -8946,6 +9142,7 @@ class OneLocationAgentService:
             duration_hours=requested_duration_hours,
             duration_mode=requested_duration_mode,
         )
+        expires_after_hours = None if _expires_after_hours is None else float(_expires_after_hours)
 
         # Resolve which live share (if any) this ask is about. A client-supplied
         # id is a hint that must be verified -- it is only honoured when the
@@ -8997,14 +9194,20 @@ class OneLocationAgentService:
                     )
                 },
             )
+            self._repair_legacy_direct_request_deadlines(owner_user_id)
             row = self._execute_one(
                 """
-                SELECT *
+                SELECT *,
+                       (expires_at IS NOT NULL AND expires_at <= clock_timestamp()) AS request_expired
                 FROM one_location_access_requests
                 WHERE owner_user_id = :owner_user_id
                   AND requester_user_id = :requester_user_id
                   AND status = 'pending'
                   AND referred_by_user_id IS NOT DISTINCT FROM :referred_by_user_id
+                  AND (
+                    (:has_request_expiry AND expires_at IS NOT NULL)
+                    OR (NOT :has_request_expiry AND expires_at IS NULL)
+                  )
                 ORDER BY requested_at DESC
                 LIMIT 1
                 FOR UPDATE
@@ -9013,20 +9216,46 @@ class OneLocationAgentService:
                     "owner_user_id": owner_user_id,
                     "requester_user_id": requester_user_id,
                     "referred_by_user_id": referred_by_user_id,
+                    "has_request_expiry": expires_after_hours is not None,
                 },
             )
+            if row and bool(row.get("request_expired")):
+                # Retire the old question before inserting the new one. Reusing
+                # it would make an exact "Ask again" a no-op with no event or
+                # notification, which is the failure the expired affordance is
+                # specifically promising to repair.
+                expired = self._execute_one(
+                    """
+                    UPDATE one_location_access_requests
+                    SET status = 'expired',
+                        resolved_at = COALESCE(resolved_at, expires_at)
+                    WHERE id = CAST(:request_id AS UUID)
+                      AND status = 'pending'
+                      AND expires_at IS NOT NULL
+                      AND expires_at <= clock_timestamp()
+                    RETURNING *
+                    """,
+                    {"request_id": str(row.get("id") or "")},
+                )
+                if expired:
+                    row = None
             if not row:
                 row = self._execute_one(
                     """
                     INSERT INTO one_location_access_requests (
                       owner_user_id, requester_user_id, referred_by_user_id, status,
-                      message, requested_at, metadata,
+                      message, requested_at, expires_at, metadata,
                       requested_duration_hours, requested_duration_mode, extends_grant_id,
                       request_revision
                     )
                     VALUES (
                       :owner_user_id, :requester_user_id, :referred_by_user_id, 'pending',
-                      :message, NOW(), '{}'::jsonb,
+                      :message, clock_timestamp(),
+                      CASE
+                        WHEN :expires_after_hours IS NULL THEN NULL
+                        ELSE clock_timestamp() + (:expires_after_hours * INTERVAL '1 hour')
+                      END,
+                      '{}'::jsonb,
                       :requested_duration_hours, :requested_duration_mode,
                       CAST(:extends_grant_id AS UUID), 1
                     )
@@ -9040,6 +9269,7 @@ class OneLocationAgentService:
                         "requested_duration_hours": duration_hours_value,
                         "requested_duration_mode": duration_mode_value,
                         "extends_grant_id": extends_grant_value,
+                        "expires_after_hours": expires_after_hours,
                     },
                 )
                 transitioned = row is not None
@@ -9071,7 +9301,15 @@ class OneLocationAgentService:
                             requested_duration_mode = :requested_duration_mode,
                             extends_grant_id = CAST(:extends_grant_id AS UUID),
                             request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
-                            requested_at = CASE WHEN :ask_changed THEN NOW() ELSE requested_at END
+                            requested_at = CASE
+                              WHEN :ask_changed THEN clock_timestamp()
+                              ELSE requested_at
+                            END,
+                            expires_at = CASE
+                              WHEN :ask_changed AND :expires_after_hours IS NOT NULL
+                                THEN clock_timestamp() + (:expires_after_hours * INTERVAL '1 hour')
+                              ELSE expires_at
+                            END
                         WHERE id = CAST(:request_id AS UUID)
                           AND status = 'pending'
                         RETURNING *
@@ -9083,6 +9321,7 @@ class OneLocationAgentService:
                             "requested_duration_mode": duration_mode_value,
                             "extends_grant_id": extends_grant_value,
                             "ask_changed": ask_changed,
+                            "expires_after_hours": expires_after_hours,
                         },
                     )
                     if refreshed:
@@ -9229,16 +9468,30 @@ class OneLocationAgentService:
             )
         request_identity = self._execute_one(
             """
-            SELECT requester_user_id
+            SELECT requester_user_id, status, expires_at,
+                   (expires_at IS NOT NULL AND expires_at <= clock_timestamp()) AS request_expired
             FROM one_location_access_requests
             WHERE id = CAST(:request_id AS UUID)
               AND owner_user_id = :owner_user_id
-              AND status = 'pending'
             LIMIT 1
             """,
             {"owner_user_id": owner_user_id, "request_id": request_id},
         )
         if not request_identity:
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_NOT_FOUND",
+                "Pending location access request was not found.",
+                status_code=404,
+            )
+        if str(request_identity.get("status") or "") == "expired" or bool(
+            request_identity.get("request_expired")
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_EXPIRED",
+                "This location request expired. Ask them to send a new one.",
+                status_code=410,
+            )
+        if str(request_identity.get("status") or "") != "pending":
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_NOT_FOUND",
                 "Pending location access request was not found.",
@@ -9250,19 +9503,34 @@ class OneLocationAgentService:
             owner_user_id=owner_user_id,
             recipient_user_id=expected_requester_user_id,
         ):
+            self._repair_legacy_direct_request_deadlines(owner_user_id)
             request_row = self._execute_one(
                 """
-                SELECT *
+                SELECT *,
+                       (expires_at IS NOT NULL AND expires_at <= clock_timestamp()) AS request_expired
                 FROM one_location_access_requests
                 WHERE id = CAST(:request_id AS UUID)
                   AND owner_user_id = :owner_user_id
-                  AND status = 'pending'
                 LIMIT 1
                 FOR UPDATE
                 """,
                 {"owner_user_id": owner_user_id, "request_id": request_id},
             )
             if not request_row:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_NOT_FOUND",
+                    "Pending location access request was not found.",
+                    status_code=404,
+                )
+            if str(request_row.get("status") or "") == "expired" or bool(
+                request_row.get("request_expired")
+            ):
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_EXPIRED",
+                    "This location request expired. Ask them to send a new one.",
+                    status_code=410,
+                )
+            if str(request_row.get("status") or "") != "pending":
                 raise OneLocationAgentError(
                     "LOCATION_REQUEST_NOT_FOUND",
                     "Pending location access request was not found.",
@@ -9479,6 +9747,7 @@ class OneLocationAgentService:
                 WHERE id = CAST(:request_id AS UUID)
                   AND owner_user_id = :owner_user_id
                   AND status = 'pending'
+                  AND (expires_at IS NULL OR expires_at > clock_timestamp())
                 RETURNING *
                 """,
                 {
@@ -9488,6 +9757,12 @@ class OneLocationAgentService:
                 },
             )
             if not resolved:
+                if _request_expiry_has_passed(request_row):
+                    raise OneLocationAgentError(
+                        "LOCATION_REQUEST_EXPIRED",
+                        "This location request expired. Ask them to send a new one.",
+                        status_code=410,
+                    )
                 raise OneLocationAgentError(
                     "LOCATION_REQUEST_CHANGED",
                     "This request changed. Review it again.",
@@ -9610,6 +9885,7 @@ class OneLocationAgentService:
 
     def deny_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
         with self._event_bound_writer():
+            self._repair_legacy_direct_request_deadlines(owner_user_id)
             row = self._execute_one(
                 """
                 UPDATE one_location_access_requests
@@ -9617,11 +9893,32 @@ class OneLocationAgentService:
                 WHERE id = CAST(:request_id AS UUID)
                   AND owner_user_id = :owner_user_id
                   AND status = 'pending'
+                  AND (expires_at IS NULL OR expires_at > clock_timestamp())
                 RETURNING *
                 """,
                 {"owner_user_id": owner_user_id, "request_id": request_id},
             )
             if not row:
+                existing = self._execute_one(
+                    """
+                    SELECT status, expires_at,
+                           (expires_at IS NOT NULL AND expires_at <= clock_timestamp()) AS request_expired
+                    FROM one_location_access_requests
+                    WHERE id = CAST(:request_id AS UUID)
+                      AND owner_user_id = :owner_user_id
+                    LIMIT 1
+                    """,
+                    {"owner_user_id": owner_user_id, "request_id": request_id},
+                )
+                if existing and (
+                    str(existing.get("status") or "") == "expired"
+                    or bool(existing.get("request_expired"))
+                ):
+                    raise OneLocationAgentError(
+                        "LOCATION_REQUEST_EXPIRED",
+                        "This location request has expired.",
+                        status_code=410,
+                    )
                 raise OneLocationAgentError(
                     "LOCATION_REQUEST_NOT_FOUND",
                     "Pending location access request was not found.",
@@ -9693,6 +9990,7 @@ class OneLocationAgentService:
         second call is a 404 rather than a silent success.
         """
         with self._event_bound_writer():
+            self._repair_legacy_direct_request_deadlines(requester_user_id)
             row = self._execute_one(
                 """
                 UPDATE one_location_access_requests
@@ -9700,11 +9998,32 @@ class OneLocationAgentService:
                 WHERE id = CAST(:request_id AS UUID)
                   AND requester_user_id = :requester_user_id
                   AND status = 'pending'
+                  AND (expires_at IS NULL OR expires_at > clock_timestamp())
                 RETURNING *
                 """,
                 {"requester_user_id": requester_user_id, "request_id": request_id},
             )
             if not row:
+                existing = self._execute_one(
+                    """
+                    SELECT status, expires_at,
+                           (expires_at IS NOT NULL AND expires_at <= clock_timestamp()) AS request_expired
+                    FROM one_location_access_requests
+                    WHERE id = CAST(:request_id AS UUID)
+                      AND requester_user_id = :requester_user_id
+                    LIMIT 1
+                    """,
+                    {"requester_user_id": requester_user_id, "request_id": request_id},
+                )
+                if existing and (
+                    str(existing.get("status") or "") == "expired"
+                    or bool(existing.get("request_expired"))
+                ):
+                    raise OneLocationAgentError(
+                        "LOCATION_REQUEST_EXPIRED",
+                        "This location request has expired.",
+                        status_code=410,
+                    )
                 raise OneLocationAgentError(
                     "LOCATION_REQUEST_NOT_FOUND",
                     "Pending location access request was not found.",
@@ -9792,6 +10111,7 @@ class OneLocationAgentService:
                 message=message,
                 referred_by_user_id=referring_user_id,
                 _notification_outbox=notifications,
+                _expires_after_hours=None,
             )
             # Keep the global request -> grant lock order used by approval.
             # If the grant ended after the first eligibility read, this second

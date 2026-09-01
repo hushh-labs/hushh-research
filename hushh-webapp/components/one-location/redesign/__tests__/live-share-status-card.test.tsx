@@ -232,6 +232,7 @@ describe("LiveShareStatusCard", () => {
     const change = screen.getByRole("button", { name: "Change time" });
     change.click();
     expect(onChangeDuration).toHaveBeenCalledTimes(1);
+    expect(onChangeDuration).toHaveBeenCalledWith(change);
 
     expect(screen.getByText(/^Ends /)).toBeTruthy();
     const shareMore = screen.getByRole("button", { name: "Share with more" });

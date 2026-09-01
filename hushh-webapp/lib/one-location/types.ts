@@ -223,9 +223,22 @@ export type OneLocationAccessRequest = {
   ownerPhotoUrl?: string | null;
   ownerMaskedPhone?: string | null;
   referredByUserId?: string | null;
-  status: "pending" | "approved" | "denied" | "cancelled" | string;
+  status:
+    | "pending"
+    | "approved"
+    | "denied"
+    | "cancelled"
+    | "expired"
+    | string;
   message?: string | null;
   requestedAt?: string | null;
+  /**
+   * Server-owned deadline for a direct location ask. `null` is deliberate for
+   * linked referral/public-link workflows, whose parent record owns its own
+   * lifetime. `undefined` is kept for rolling-deploy compatibility with older
+   * API payloads.
+   */
+  expiresAt?: string | null;
   resolvedAt?: string | null;
   approvedGrantId?: string | null;
   /**
