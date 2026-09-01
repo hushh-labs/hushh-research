@@ -24,7 +24,7 @@ import type { ButtonProps } from "@/components/ui/button";
  * sharing. This can still be the primary active-state action; it just must not
  * borrow the emergency color.
  */
-export const CHECK_OUT_BUTTON_VARIANT: ButtonProps["variant"] = "default";
+export const CHECK_OUT_BUTTON_VARIANT: ButtonProps["variant"] = "secondary";
 
 /**
  * The desktop side rail, in rem.
