@@ -14,6 +14,16 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
+const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
+  developmentFloorMs: 285_000,
+  overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
+});
+
+function requestTimeoutMs(path: string, acceptHeader: string | null): number {
+  const acceptsEventStream = acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
+  const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");
+  return acceptsEventStream || isKnownStreamRoute ? ONE_STREAM_TIMEOUT_MS : ONE_API_TIMEOUT_MS;
+}
 
 function privateResponseHeaders(upstream?: Response): Headers {
   const headers = new Headers({
@@ -69,7 +79,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers,
       body,
-      signal: AbortSignal.timeout(ONE_API_TIMEOUT_MS),
+      signal: AbortSignal.timeout(requestTimeoutMs(path, acceptHeader)),
     });
 
     // A streamed upstream must be handed through untouched. The JSON path below

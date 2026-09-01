@@ -219,6 +219,40 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Resolve last-known-good rollback targets
+        id: rollback-targets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # This tag intentionally moves after every healthy UAT release. Force
+          # refresh it so a reused checkout cannot resolve a stale local tag.
+          git fetch --force origin \
+            refs/tags/deployed/uat-latest:refs/tags/deployed/uat-latest
+
+          backend_revision=""
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            backend_revision="$(
+              ROLLBACK_VERIFY_SERVICE="${{ env.BACKEND_SERVICE }}" \
+              ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
+              ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
+              bash scripts/ci/resolve-rollback-target.sh uat backend
+            )"
+          fi
+
+          frontend_revision=""
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            frontend_revision="$(
+              ROLLBACK_VERIFY_SERVICE="${{ env.FRONTEND_SERVICE }}" \
+              ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
+              ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
+              bash scripts/ci/resolve-rollback-target.sh uat frontend
+            )"
+          fi
+
+          echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
+          echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+
       - name: Resolve UAT verification plan
         id: verification-plan
         shell: bash
@@ -518,7 +552,7 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
@@ -616,7 +650,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_FRONTEND_RUNTIME_SERVICE_ACCOUNT=${{ env.FRONTEND_RUNTIME_SERVICE_ACCOUNT }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ 'true' }},_LOCATION_MAP_DEMO=false,_APP_ENV=uat,_ONE_WALLET_CARD_ENABLED=true,_HUSHH_TECH_CLIENT_ENABLED=${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }},_HUSHH_TECH_PROXY_AUDIENCE=${{ env.CONSENT_API_RUNTIME_ORIGIN }},_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${{ vars.HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS || '0' }},_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI,_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }},_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }},_DEPLOY_ENV=uat,_DEPLOY_SOURCE=deploy-uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_FRONTEND_RUNTIME_SERVICE_ACCOUNT=${{ env.FRONTEND_RUNTIME_SERVICE_ACCOUNT }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ 'true' }},_LOCATION_MAP_DEMO=false,_APP_ENV=uat,_ONE_WALLET_CARD_ENABLED=true,_HUSHH_TECH_CLIENT_ENABLED=${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }},_HUSHH_TECH_PROXY_AUDIENCE=${{ env.CONSENT_API_RUNTIME_ORIGIN }},_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${{ vars.HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS || '0' }},_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI,_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }},_CLOUD_RUN_MEMORY=1Gi,_CLOUD_RUN_TIMEOUT_SECONDS=300,_CLOUD_RUN_CONCURRENCY=10,_CLOUD_RUN_MIN_INSTANCES=2,_CLOUD_RUN_MAX_INSTANCES=10,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }},_DEPLOY_ENV=uat,_DEPLOY_SOURCE=deploy-uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
@@ -1192,19 +1226,19 @@ jobs:
 
       - name: Roll back backend revision
         id: rollback-backend
-        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.predeploy-state.outputs.backend_revision != ''
+        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.backend_revision }}"
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.rollback-targets.outputs.backend_revision }}"
 
       - name: Roll back frontend revision
         id: rollback-frontend
-        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.predeploy-state.outputs.frontend_revision != ''
+        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.rollback-targets.outputs.frontend_revision }}"
 
       - name: Resolve final Cloud Run state
         if: always()
@@ -1248,13 +1282,13 @@ jobs:
           if [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
             STATUS="healthy"
           else
-            if [ "${{ steps.classify-uat-release.outputs.backend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] && [ "${{ steps.predeploy-state.outputs.backend_revision }}" != "" ]; then
+            if [ "${{ steps.classify-uat-release.outputs.backend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] && [ "${{ steps.rollback-targets.outputs.backend_revision }}" != "" ]; then
               BACKEND_ROLLBACK_REQUIRED=true
               if [ "${{ steps.rollback-backend.outcome }}" != "success" ]; then
                 BACKEND_ROLLBACK_DONE=false
               fi
             fi
-            if [ "${{ steps.classify-uat-release.outputs.frontend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] && [ "${{ steps.predeploy-state.outputs.frontend_revision }}" != "" ]; then
+            if [ "${{ steps.classify-uat-release.outputs.frontend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] && [ "${{ steps.rollback-targets.outputs.frontend_revision }}" != "" ]; then
               FRONTEND_ROLLBACK_REQUIRED=true
               if [ "${{ steps.rollback-frontend.outcome }}" != "success" ]; then
                 FRONTEND_ROLLBACK_DONE=false
@@ -1319,8 +1353,8 @@ jobs:
                   "blocking_classifications": "${{ steps.classify-uat-release.outputs.blocking_classifications }}",
               },
               "rollback_targets": {
-                  "backend_revision": "${{ steps.predeploy-state.outputs.backend_revision }}",
-                  "frontend_revision": "${{ steps.predeploy-state.outputs.frontend_revision }}",
+                  "backend_revision": "${{ steps.rollback-targets.outputs.backend_revision }}",
+                  "frontend_revision": "${{ steps.rollback-targets.outputs.frontend_revision }}",
               },
               "timing_seconds": {
                   "backend_cloud_build": "${{ steps.deploy-backend.outputs.duration_seconds || '0' }}",
