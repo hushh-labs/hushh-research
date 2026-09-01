@@ -583,13 +583,8 @@ describe("Connect — People", () => {
     expect(await screen.findByText("Current Person")).toBeTruthy();
     expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1);
 
-    // My connections is a disclosure now, closed on arrival. Refresh only
-    // exists against a list you can see -- a refresh control over a collapsed
-    // panel reloads something nobody is looking at.
-    expect(screen.queryByRole("button", { name: "Refresh contacts" })).toBeNull();
-    fireEvent.click(
-      screen.getByTestId("connect-my-connections-toggle"),
-    );
+    // My connections is a disclosure, open by default -- Refresh exists
+    // against a list you can already see, with no click needed to reach it.
 
     // Refresh is a control, not part of the heading text. It used to be a
     // child of the `title` node, which SettingsGroup renders inside an element
@@ -1727,6 +1722,10 @@ describe("Connect — People", () => {
     // and rendering another is the exact shape of the original Connect search
     // bug, so the count is asserted here alongside the rows.
     expect(await screen.findByText("My RIAs (1)")).toBeTruthy();
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     expect(screen.getByText("Verified Adviser")).toBeTruthy();
     expect(screen.queryByText("Ordinary Person")).toBeNull();
   });
@@ -1964,19 +1963,21 @@ describe("Connect — the phone-width geometry QA reported", () => {
     );
     expect(list).toBeTruthy();
 
-    // Closed on arrival, which is the point: twelve people no longer push the
-    // search field -- the reason the screen exists -- below the fold.
-    expect(list!.className).toContain("hidden");
-    expect(list!.className).not.toContain("max-h-[232px]");
-
-    fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
-
-    // Opened, it is the same scroll region it always was.
+    // Open on arrival: the directory/search half is collapsed behind its
+    // own "Add people" button now, so there is no search field on the fold
+    // left for a long connections list to push down.
     expect(list!.className).not.toContain("hidden");
     expect(list!.className).toContain("max-h-[232px]");
     expect(list!.className).toContain("overflow-y-auto");
     expect(list!.className).toContain("overscroll-contain");
     expect(list!.className).toContain("sm:max-h-[320px]");
+
+    fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
+
+    // Still collapsible -- someone may still want it out of the way, only
+    // the default changed.
+    expect(list!.className).toContain("hidden");
+    expect(list!.className).not.toContain("max-h-[232px]");
   });
 
   it("puts Sync with the directory picker and Select on the directory", async () => {
@@ -2020,17 +2021,18 @@ describe("Connect — the phone-width geometry QA reported", () => {
     ).toBe(true);
   });
 
-  it("opens My connections only when asked, and says so to a screen reader", async () => {
-    // "Connections wala ek accordion tab ki tarah ho jo click krne pe he open
-    // ho ... currently it looks long for me." A disclosure, so the state has to
-    // be announced rather than only drawn -- a chevron is not an affordance to
-    // anyone who cannot see it.
+  it("opens My connections by default, and says so to a screen reader", async () => {
+    // A disclosure either way, so the state has to be announced rather than
+    // only drawn -- a chevron is not an affordance to anyone who cannot see
+    // it. Defaults open now that the directory/search half collapses behind
+    // its own "Add people" button -- nothing left on the fold to protect by
+    // shutting this one too.
     render(<ConnectPageClient />);
     await revealPeopleDirectory();
     await screen.findByPlaceholderText("Search people");
 
     const toggle = screen.getByTestId("connect-my-connections-toggle");
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(toggle).toHaveAttribute(
       "aria-controls",
       "connect-my-connections-panel",
@@ -2042,10 +2044,34 @@ describe("Connect — the phone-width geometry QA reported", () => {
     ).not.toBeNull();
 
     fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("does not open the RIAs disclosure just because People opens by default", async () => {
+    render(<ConnectPageClient />);
+    await revealPeopleDirectory();
+
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    chooseDirectory("RIAs");
+
+    expect(await screen.findByText("My RIAs (0)")).toBeTruthy();
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("gives Connections the same row rhythm as Circles beside it", async () => {
