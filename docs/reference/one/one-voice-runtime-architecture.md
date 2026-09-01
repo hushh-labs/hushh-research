@@ -467,9 +467,9 @@ execution by `action_id` is unaffected either way.
 
 ## Chat Runtime (parity path)
 
-Typed Agent Chat (`api/routes/kai/agent_chat.py`) sends new natural-language
-turns to One's ADK semantic head and retains encrypted history plus explicit
-specialist continuity. It does not run a client lexical action planner. The
+Typed private-agent chat (`api/routes/one/agent_chat.py`) accepts standard
+AG-UI runs, sends natural-language turns to One's ADK semantic head, and
+retains encrypted history plus explicit specialist continuity. It does not run a client lexical action planner. The
 Information Marketplace is intentionally rejected at this boundary; its
 standalone consent-first chat and routes remain separate.
 

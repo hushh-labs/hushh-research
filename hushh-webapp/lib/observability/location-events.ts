@@ -53,3 +53,24 @@ export function trackLocationShareConfirmed(
 export function trackLocationShareReceived(): void {
   trackLocationActivationCompleted({ activationPath: "share_received" });
 }
+
+/**
+ * A rated visit, and the Google hand-off it can lead to.
+ *
+ * Wrapped here rather than called from the sheet for the same reason share is:
+ * the rating step will gain a second entry point the moment "rate a past
+ * visit" ships on the history screen, and an event emitted from only one of
+ * them undercounts silently.
+ */
+export function trackVisitRated(
+  payload: EventPayloadFor<"one_location_visit_rated">
+): void {
+  trackEvent("one_location_visit_rated", payload);
+}
+
+export function trackReviewHandoffOpened(): void {
+  trackEvent("one_location_review_handoff_opened", {
+    route_id: "one_location_check_in",
+    destination: "google_maps",
+  });
+}

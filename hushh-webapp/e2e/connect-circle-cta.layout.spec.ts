@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,8 +15,6 @@ import {
   CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
   CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
   CONNECT_SEARCH_PLACEHOLDER,
-  CONNECT_SEARCH_ROW_GAP_PX,
-  CONNECT_SELECT_TOGGLE_CLASSNAME,
 } from "../app/connect/connect-search-layout";
 import {
   CIRCLE_NAME_ACTION_CLASSNAME,
@@ -24,8 +22,8 @@ import {
   CIRCLE_NAME_ROW_CLASSNAME,
   CIRCLE_NAME_ROW_HEIGHT_PX,
 } from "../components/one-location/redesign/circles/circle-name-row-layout";
-import { INPUT_CLASSNAME } from "../components/ui/input";
 import { buttonVariants } from "../components/ui/button";
+import { INPUT_CLASSNAME } from "../components/ui/input";
 import { cn } from "../lib/utils";
 
 /**
@@ -35,8 +33,8 @@ import { cn } from "../lib/utils";
  *   2. "remove neeche aa rha" -- the trailing control on a connection row
  *      dropping onto its own line.
  *   3. "text is long currently inside search bar" -- the Connect placeholder
- *      clipping to "Search people by nam", and the request button beside it
- *      reading oversized.
+ *      clipping to "Search people by nam" when the select action shared the
+ *      same row.
  *
  * Every one of them is invisible to the JSDOM suite, which applies no CSS and
  * measures every element as 0x0. A `className.toContain(...)` assertion would
@@ -102,7 +100,10 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
         id === "tailwindcss"
           ? path.join(webappRoot, "node_modules/tailwindcss/index.css")
           : id === "tw-animate-css"
-            ? path.join(webappRoot, "node_modules/tw-animate-css/dist/tw-animate.css")
+            ? path.join(
+                webappRoot,
+                "node_modules/tw-animate-css/dist/tw-animate.css",
+              )
             : path.resolve(base, id);
       return {
         path: file,
@@ -266,7 +267,10 @@ test.describe("Circle name row", () => {
         ).toBeLessThanOrEqual(0.5);
 
         // Same box, same line, flush on both edges.
-        expect(Math.abs(action.top - input.top), `${state}: top`).toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs(action.top - input.top),
+          `${state}: top`,
+        ).toBeLessThanOrEqual(0.5);
         expect(
           Math.abs(action.bottom - input.bottom),
           `${state}: bottom`,
@@ -295,7 +299,9 @@ test.describe("Circle name row", () => {
     });
   }
 
-  test("the version QA photographed really was 6px too tall", async ({ page }) => {
+  test("the version QA photographed really was 6px too tall", async ({
+    page,
+  }) => {
     // Mutation check. Without this, the assertions above could be passing on a
     // rule that was never capable of failing.
     //
@@ -315,13 +321,15 @@ test.describe("Circle name row", () => {
     const input = await boxOf(page, '[data-testid="circle-name-input"]');
     const action = await boxOf(page, '[data-testid="circle-name-action"]');
 
-    expect(Math.abs(input.height - CIRCLE_NAME_ROW_HEIGHT_PX)).toBeLessThanOrEqual(0.5);
-    expect(action.height, "the shipped Save button measured 50px").toBeGreaterThan(
-      input.height + 4,
-    );
+    expect(
+      Math.abs(input.height - CIRCLE_NAME_ROW_HEIGHT_PX),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      action.height,
+      "the shipped Save button measured 50px",
+    ).toBeGreaterThan(input.height + 4);
   });
 });
-
 // ---------------------------------------------------------------------------
 // 2. The Connect search row
 // ---------------------------------------------------------------------------
@@ -331,13 +339,9 @@ const SEARCH_CANDIDATES = [
   ...CONNECT_SEARCH_INPUT_CLASSNAME.split(/\s+/),
   ...CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME.split(/\s+/),
   ...CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME.split(/\s+/),
-  ...CONNECT_SELECT_TOGGLE_CLASSNAME.split(/\s+/),
-  "flex",
+  "block",
   "w-full",
-  "items-center",
-  "gap-2",
   "relative",
-  "flex-1",
   "inline-flex",
   "justify-center",
   "whitespace-nowrap",
@@ -354,29 +358,11 @@ const SEARCH_CANDIDATES = [
   "shrink-0",
 ];
 
-/**
- * The row as it shipped, and as QA photographed it.
- *
- * Kept here rather than in the app module because these are dead values: a
- * five-word placeholder, a content-sized toggle spelling out "Select multiple",
- * and a right gutter reserved for a clear button that is not in an empty field.
- * A fit assertion that never rejects anything is not a fit assertion, so the
- * contract measures the real before-geometry rather than trusting that the
- * after-geometry is roomy.
- */
-const BEFORE = {
-  placeholder: "Search people by name",
-  inputClassName: "h-10 pl-11 pr-11",
-  toggleClassName:
-    "h-10 min-h-10 shrink-0 rounded-full px-4 text-[15px] font-semibold leading-5",
-  toggleLabel: "Select multiple",
-} as const;
-
-const BUTTON_BASE = "inline-flex items-center justify-center whitespace-nowrap";
-
-/** The row exactly as Connect builds it: field, `gap-2`, fixed-width toggle. */
-const searchRowBody = (empty: boolean) => `<div class="flex w-full items-center gap-2">
-  <div class="relative flex-1">
+/** The row exactly as Connect builds it: one full-width search field. */
+const searchRowBody = (
+  empty: boolean,
+) => `<div class="block w-full">
+  <div class="relative">
     <input data-testid="connect-search" placeholder="${CONNECT_SEARCH_PLACEHOLDER}"
       class="${INPUT_CLASSNAME} ${CONNECT_SEARCH_INPUT_CLASSNAME} ${
         empty
@@ -384,18 +370,6 @@ const searchRowBody = (empty: boolean) => `<div class="flex w-full items-center 
           : CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
       }" />
   </div>
-  <button data-testid="connect-select-toggle"
-    class="${BUTTON_BASE} min-h-9 h-9 ${CONNECT_SELECT_TOGGLE_CLASSNAME}">Select many</button>
-</div>`;
-
-/** The same row before this change, for the mutation check. */
-const searchRowBodyBefore = () => `<div class="flex w-full items-center gap-2">
-  <div class="relative flex-1">
-    <input data-testid="connect-search" placeholder="${BEFORE.placeholder}"
-      class="${INPUT_CLASSNAME} ${BEFORE.inputClassName}" />
-  </div>
-  <button data-testid="connect-select-toggle"
-    class="${BUTTON_BASE} min-h-9 h-9 ${BEFORE.toggleClassName}">${BEFORE.toggleLabel}</button>
 </div>`;
 
 /**
@@ -432,15 +406,24 @@ test.describe("Connect search row", () => {
     test(`placeholder is fully readable at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(
-        await buildFixture("connect-search", searchRowBody(true), SEARCH_CANDIDATES),
+        await buildFixture(
+          "connect-search",
+          searchRowBody(true),
+          SEARCH_CANDIDATES,
+        ),
       );
       await fontsReady(page);
 
       // The fixture must be measuring the real 17px field type. If globals.css
       // ever stops reaching this page, every assertion below would pass against
       // a smaller fallback font and prove nothing.
-      const current = await page.evaluate(probePlaceholder, CONNECT_SEARCH_PLACEHOLDER);
-      expect(current.fontSize, "field is at the app's real input type").toBe("17px");
+      const current = await page.evaluate(
+        probePlaceholder,
+        CONNECT_SEARCH_PLACEHOLDER,
+      );
+      expect(current.fontSize, "field is at the app's real input type").toBe(
+        "17px",
+      );
 
       // Sub-pixel tolerance, matching the 0.5px this file already allows on every
       // other measured box. Text advance widths differ by a fraction between the
@@ -452,24 +435,6 @@ test.describe("Connect search row", () => {
         `"${CONNECT_SEARCH_PLACEHOLDER}" needs ${current.needed.toFixed(1)}px of ${current.available.toFixed(1)}px`,
       ).toBeLessThanOrEqual(current.available + 0.5);
 
-      // Mutation check, against the row as it actually shipped -- the long
-      // placeholder in a field that also reserved its clear gutter, beside a
-      // toggle that spelled out "Select multiple". If this passed, the
-      // assertion above would have passed while QA was photographing the bug,
-      // and it would be guarding nothing.
-      await page.goto(
-        await buildFixture(
-          "connect-search-before",
-          searchRowBodyBefore(),
-          SEARCH_CANDIDATES,
-        ),
-      );
-      await fontsReady(page);
-      const before = await page.evaluate(probePlaceholder, BEFORE.placeholder);
-      expect(
-        before.needed,
-        `"${BEFORE.placeholder}" needed ${before.needed.toFixed(1)}px of ${before.available.toFixed(1)}px and clipped`,
-      ).toBeGreaterThan(before.available);
     });
   }
 
@@ -479,70 +444,51 @@ test.describe("Connect search row", () => {
     await page.setViewportSize({ width: 375, height: 844 });
 
     await page.goto(
-      await buildFixture("connect-search-empty", searchRowBody(true), SEARCH_CANDIDATES),
+      await buildFixture(
+        "connect-search-empty",
+        searchRowBody(true),
+        SEARCH_CANDIDATES,
+      ),
     );
-    const empty = await page.evaluate(probePlaceholder, CONNECT_SEARCH_PLACEHOLDER);
+    const empty = await page.evaluate(
+      probePlaceholder,
+      CONNECT_SEARCH_PLACEHOLDER,
+    );
 
     await page.goto(
-      await buildFixture("connect-search-typed", searchRowBody(false), SEARCH_CANDIDATES),
+      await buildFixture(
+        "connect-search-typed",
+        searchRowBody(false),
+        SEARCH_CANDIDATES,
+      ),
     );
-    const typed = await page.evaluate(probePlaceholder, CONNECT_SEARCH_PLACEHOLDER);
+    const typed = await page.evaluate(
+      probePlaceholder,
+      CONNECT_SEARCH_PLACEHOLDER,
+    );
 
     // An empty field has no clear button in it, so it should not be holding
     // 44px back from the only thing it is showing.
     expect(empty.available).toBeGreaterThan(typed.available);
   });
 
-  // Every compact width the product supports, not just 375. The label grew from
-  // "Select" to "Select many" so the control says on its face that it selects
-  // more than one person, and the whole risk of that change is the narrowest
-  // phone — which is the one width the old single-viewport test never ran.
   for (const width of [320, 360, 375, 390, 430] as const) {
-    test(`the selection toggle holds its label and its width at ${width}px`, async ({
-      page,
-    }) => {
+    test(`search owns the full content row at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(
-        await buildFixture("connect-toggle", searchRowBody(true), SEARCH_CANDIDATES),
+        await buildFixture(
+          "connect-search-full-width",
+          searchRowBody(true),
+          SEARCH_CANDIDATES,
+        ),
       );
 
-      const toggle = await boxOf(page, '[data-testid="connect-select-toggle"]');
       const field = await boxOf(page, '[data-testid="connect-search"]');
-
-      // Fixed width: "Select many" and "Cancel" are different lengths, and a
-      // content-sized toggle would hand the difference to the search field and
-      // move it on every tap. The number is read off the shipped token rather
-      // than written down twice.
-      const tokenWidth = Number(
-        /w-\[(\d+)px\]/.exec(CONNECT_SELECT_TOGGLE_CLASSNAME)?.[1],
+      expect(field.left).toBeGreaterThanOrEqual(0);
+      expect(field.right).toBeLessThanOrEqual(width + 0.5);
+      expect(field.width).toBeGreaterThanOrEqual(
+        width - PAGE_PADDING_PX * 2,
       );
-      expect(Number.isFinite(tokenWidth)).toBe(true);
-      expect(Math.abs(toggle.width - tokenWidth)).toBeLessThanOrEqual(0.5);
-
-      // The label FITS. This is the assertion the width number cannot make on
-      // its own: a wider label inside an unchanged box would still measure the
-      // box correctly and ship clipped text.
-      const label = await page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="connect-select-toggle"]',
-        ) as HTMLElement;
-        return {
-          text: el.textContent ?? "",
-          scrollWidth: el.scrollWidth,
-          clientWidth: el.clientWidth,
-          lines: el.getClientRects().length,
-        };
-      });
-      expect(label.text).toBe("Select many");
-      expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth + 1);
-      expect(label.lines).toBe(1);
-
-      // The field still owns the rest of the row, and nothing leaves the page.
-      expect(
-        Math.abs(toggle.left - field.right - CONNECT_SEARCH_ROW_GAP_PX),
-      ).toBeLessThanOrEqual(0.5);
-      expect(toggle.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX + 1);
-      expect(field.width).toBeGreaterThan(120);
     });
   }
 });
@@ -637,13 +583,16 @@ test.describe("Connect list rows", () => {
       page,
     }) => {
       await page.setViewportSize({ width, height: 844 });
-      await page.goto(await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES));
+      await page.goto(
+        await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES),
+      );
       await awaitProductFont(page);
       await fontsReady(page);
 
-      expect(width, "this width is below sm: and therefore a phone").toBeLessThan(
-        SM_BREAKPOINT_PX,
-      );
+      expect(
+        width,
+        "this width is below sm: and therefore a phone",
+      ).toBeLessThan(SM_BREAKPOINT_PX);
 
       const stackedTitle = await boxOf(page, '[data-testid="stacked-title"]');
       const stackedAction = await boxOf(page, '[data-testid="stacked-action"]');
@@ -663,7 +612,9 @@ test.describe("Connect list rows", () => {
         "the shipped row keeps the action beside the name",
       ).toBeLessThan(inlineTitle.bottom);
       expect(inlineAction.right).toBeGreaterThan(inlineTitle.right);
-      expect(inlineAction.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX + 1);
+      expect(inlineAction.right).toBeLessThanOrEqual(
+        width - PAGE_PADDING_PX + 1,
+      );
     });
   }
 
@@ -671,7 +622,9 @@ test.describe("Connect list rows", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 375, height: 844 });
-    await page.goto(await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES));
+    await page.goto(
+      await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES),
+    );
     await awaitProductFont(page);
     await fontsReady(page);
 

@@ -194,3 +194,95 @@ describe("destructive voice actions can explain themselves", () => {
     expect((action?.meaning || "").length).toBeGreaterThan(40);
   });
 });
+
+describe("a bare 'stop sharing' actually stops something (#6081)", () => {
+  const VIEW = "location.open_active_shares";
+  const STOP_ALL = "location.pause_updates";
+
+  it("owns the bare phrase on the action that stops, not the one that just opens a list", () => {
+    // Regression: "stop sharing" used to sit only on open_active_shares (a
+    // low-risk VIEW), so saying it opened a screen and nothing actually
+    // stopped. It now belongs to pause_updates, the safe, decisive reading of
+    // an urgent, nameless "stop sharing".
+    const viewAliases = (getKaiActionById(VIEW)?.aliases ?? []).map((a) => a.toLowerCase());
+    const stopAliases = (getKaiActionById(STOP_ALL)?.aliases ?? []).map((a) => a.toLowerCase());
+    expect(viewAliases).not.toContain("stop sharing");
+    expect(stopAliases).toContain("stop sharing");
+  });
+
+  it("keeps pause_updates allow_direct so the bare phrase still runs immediately", () => {
+    expect(getKaiActionById(STOP_ALL)?.execution_policy).toBe("allow_direct");
+  });
+});
+
+describe("'send it' is not owned by two acting actions at once (#6082)", () => {
+  const ASK = "location.send_request";
+  const SHARE_IT = "location.share_selected";
+
+  it("removed the shared alias from both composers' finalizers", () => {
+    // Regression: both the ask-for-location composer and the
+    // share-my-location composer carried the identical alias "send it",
+    // which action_tools.py's exact-match scoring cannot break a tie on.
+    // Neither composer needs it -- both still have unambiguous finalizers
+    // ("confirm the request" / "confirm the share").
+    const askAliases = (getKaiActionById(ASK)?.aliases ?? []).map((a) => a.toLowerCase());
+    const shareAliases = (getKaiActionById(SHARE_IT)?.aliases ?? []).map((a) => a.toLowerCase());
+    expect(askAliases).not.toContain("send it");
+    expect(shareAliases).not.toContain("send it");
+    expect(askAliases).toContain("confirm the request");
+    expect(shareAliases).toContain("confirm the share");
+  });
+});
+
+describe("'share my location' redirects to the sender once recipients are picked (#6083)", () => {
+  const OPEN = "location.open_share";
+  const SEND = "location.share_selected";
+
+  it("tells the model in its own meaning to prefer share_selected once the composer is populated", () => {
+    // Not an alias move (from cold, opening the composer IS correct) -- the
+    // ambiguity is resolved via meaning text redirecting to the sender,
+    // matching the pattern already established for location.sos_default.
+    expect(getKaiActionById(OPEN)?.meaning ?? "").toMatch(/share_selected/);
+    expect(getKaiActionById(SEND)?.meaning ?? "").toMatch(/open_share/);
+  });
+});
+
+describe("asking for someone's location asks how long, like sharing does", () => {
+  const ASK = "location.send_request";
+  const SHARE = "location.share_selected";
+
+  it("requires a duration, with the same bounded options a share uses", () => {
+    // Reported live: "ask location doesn't ask for duration like share does."
+    // It declared the slot but left it optional and unbounded, so One never
+    // asked and the request went out carrying whatever `durationHours`
+    // happened to hold -- shared state written by the share composer and the
+    // link controls, never by the Ask screen, which has no duration control
+    // at all. The number is what the OTHER person is shown and approves, so
+    // guessing it asks a question on their behalf.
+    const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.required).toBe(true);
+    expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
+  });
+
+  it("offers the same lengths as a share, so the two do not disagree", () => {
+    const ask = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    const share = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(ask?.options).toEqual(share?.options);
+  });
+
+  it("never offers an open-ended request", () => {
+    // requestAccess is sent as requestedDurationMode: "timed", so
+    // "until I stop" has nothing to map onto and would resolve to NaN hours.
+    const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.options).not.toContain("until_stopped");
+    expect(input?.prompt ?? "").not.toMatch(/until you stop/i);
+  });
+});

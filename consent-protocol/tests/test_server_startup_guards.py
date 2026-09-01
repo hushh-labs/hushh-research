@@ -139,6 +139,14 @@ def test_named_circle_tables_are_required_runtime_dependencies():
     } <= set(server.REQUIRED_RUNTIME_TABLES)
 
 
+def test_agent_one_profile_and_session_tables_are_runtime_dependencies():
+    assert {
+        "one_information_request_bundles",
+        "one_information_request_items",
+        "one_adk_sessions",
+    } <= set(server.REQUIRED_RUNTIME_TABLES)
+
+
 def test_required_runtime_tables_are_live_in_migrations():
     """Every guarded table must still exist after the last migration runs.
 

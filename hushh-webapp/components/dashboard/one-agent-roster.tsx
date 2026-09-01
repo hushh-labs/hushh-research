@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Grid2X2, List, MoreHorizontal, Search, X } from "lucide-react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PageTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
@@ -21,6 +22,7 @@ import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { OneLocationState } from "@/lib/one-location/types";
 import type { KaiHomeInsightsV2, KaiHomeMover } from "@/lib/services/api-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
@@ -48,13 +50,55 @@ type OneAgentMode = {
 type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
 type AgentMetricTone = "default" | "positive" | "accent" | "warning" | "muted";
-type AgentLauncherState = {
-  notificationCount: number | null;
-  isLive: boolean;
-  informationalMetric: AgentMetric | null;
+type DashboardAgentIconFamily = "indigo" | "blue" | "neutral";
+type DashboardAgentIconStyle = CSSProperties & {
+  "--agent-icon-profile-bg": string;
+  "--agent-icon-profile-fg": string;
+  "--agent-icon-profile-bg-dark": string;
+  "--agent-icon-profile-fg-dark": string;
 };
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
+const DASHBOARD_AGENT_ICON_FAMILY_BY_ID: Record<string, DashboardAgentIconFamily> = {
+  finance: "indigo",
+  ria: "indigo",
+  gmail: "blue",
+  calendar: "blue",
+  email: "blue",
+  location: "blue",
+  "connected-systems": "blue",
+  pkm: "neutral",
+  consent: "neutral",
+};
+
+const DASHBOARD_AGENT_ICON_STYLE_BY_FAMILY: Record<
+  DashboardAgentIconFamily,
+  DashboardAgentIconStyle
+> = {
+  indigo: {
+    "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
+    "--agent-icon-profile-fg": "#5856D6",
+    "--agent-icon-profile-bg-dark": "rgba(94, 92, 230, 0.24)",
+    "--agent-icon-profile-fg-dark": "#A7A3FF",
+  },
+  blue: {
+    "--agent-icon-profile-bg": "rgba(0, 122, 255, 0.14)",
+    "--agent-icon-profile-fg": "var(--app-accent-deep)",
+    "--agent-icon-profile-bg-dark": "rgba(10, 132, 255, 0.24)",
+    "--agent-icon-profile-fg-dark": "var(--app-accent-bright)",
+  },
+  neutral: {
+    "--agent-icon-profile-bg": "#E5E5EA",
+    "--agent-icon-profile-fg": "#3A3A3C",
+    "--agent-icon-profile-bg-dark": "rgba(142, 142, 147, 0.28)",
+    "--agent-icon-profile-fg-dark": "#E5E5EA",
+  },
+};
+
+function dashboardAgentIconStyle(mode: OneAgentMode): DashboardAgentIconStyle {
+  const family = DASHBOARD_AGENT_ICON_FAMILY_BY_ID[mode.id] ?? "blue";
+  return DASHBOARD_AGENT_ICON_STYLE_BY_FAMILY[family];
+}
 
 /**
  * The roster only ever mounts client-side (its `/one` route renders a loader
@@ -65,14 +109,14 @@ const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
  * `/one`.
  */
 function readPersistedRosterView(): AgentRosterView {
-  if (typeof window === "undefined") return "grid";
+  if (typeof window === "undefined") return "list";
   try {
     const persisted = window.localStorage.getItem(
       AGENT_ROSTER_VIEW_STORAGE_KEY,
     );
-    return persisted === "list" ? "list" : "grid";
+    return persisted === "grid" ? "grid" : "list";
   } catch {
-    return "grid";
+    return "list";
   }
 }
 
@@ -353,96 +397,6 @@ function isZeroMetric(metric: AgentMetric): boolean {
   return Number(metric.value) === 0;
 }
 
-function positiveIntegerMetricValue(metric: AgentMetric): number | null {
-  const number = Number(metric.value);
-  return Number.isInteger(number) && number > 0 ? number : null;
-}
-
-function isUnavailableMetric(metric: AgentMetric): boolean {
-  return metric.value === "—" || /status not loaded|checking/i.test(metric.label);
-}
-
-const ACTION_METRIC_LABELS = new Set([
-  "review",
-  "reviews",
-  "request",
-  "requests",
-  "approval waiting",
-  "approvals waiting",
-]);
-
-function actionBadgeValue(mode: OneAgentMode): number | null {
-  const value = positiveIntegerMetricValue(mode.primaryMetric);
-  if (value === null) return null;
-  return ACTION_METRIC_LABELS.has(mode.primaryMetric.label.toLowerCase())
-    ? value
-    : null;
-}
-
-function locationLiveValue(mode: OneAgentMode): number | null {
-  if (mode.id !== "location") return null;
-  const value = positiveIntegerMetricValue(mode.primaryMetric);
-  return value === null ? null : value;
-}
-
-function launcherState(mode: OneAgentMode): AgentLauncherState {
-  const notificationCount = actionBadgeValue(mode);
-  const isLive = locationLiveValue(mode) !== null;
-  return {
-    notificationCount,
-    isLive,
-    informationalMetric:
-      notificationCount === null && !isUnavailableMetric(mode.primaryMetric)
-        ? mode.primaryMetric
-        : null,
-  };
-}
-
-function shouldShowGridMetric(mode: OneAgentMode): boolean {
-  if (isUnavailableMetric(mode.primaryMetric)) return false;
-  if (actionBadgeValue(mode) !== null) return false;
-  if (mode.id === "location") return locationLiveValue(mode) !== null;
-  if (mode.id === "finance") return mode.primaryMetric.label.endsWith("%");
-  if (mode.id === "pkm") return !isZeroMetric(mode.primaryMetric);
-  if (mode.primaryMetric.label.includes("client")) {
-    return !isZeroMetric(mode.primaryMetric);
-  }
-  return false;
-}
-
-function shouldShowListMetric(mode: OneAgentMode): boolean {
-  if (isUnavailableMetric(mode.primaryMetric)) return false;
-  if (isZeroMetric(mode.primaryMetric)) return false;
-  if (actionBadgeValue(mode) !== null) return false;
-  return true;
-}
-
-function formatBadgeValue(value: number): string {
-  return value > 99 ? "99+" : String(value);
-}
-
-function formatA11yMetric(mode: OneAgentMode): string {
-  const badge = actionBadgeValue(mode);
-  if (badge !== null) {
-    return `, ${formatBadgeValue(badge)} ${mode.primaryMetric.label}`;
-  }
-  const live = locationLiveValue(mode);
-  if (live !== null) {
-    return `, ${live} live ${live === 1 ? "share" : "shares"}`;
-  }
-  if (isUnavailableMetric(mode.primaryMetric) || isZeroMetric(mode.primaryMetric)) {
-    return "";
-  }
-  if (mode.id === "finance" && mode.primaryMetric.label.endsWith("%")) {
-    const direction = mode.primaryMetric.label.startsWith("-") ? "down" : "up";
-    const percent = mode.primaryMetric.label
-      .replace(/^[+-]/, "")
-      .replace("%", " percent");
-    return `, ${mode.primaryMetric.value} ${direction} ${percent}`;
-  }
-  return `, ${mode.primaryMetric.value} ${mode.primaryMetric.label}`;
-}
-
 function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
   const metric = mode.primaryMetric;
   const isZero = isZeroMetric(metric);
@@ -510,9 +464,6 @@ function AgentMetric({
   const labelTone = isTopWinner ? "positive" : tone;
   const isGrid = align === "grid";
 
-  if (isGrid && !shouldShowGridMetric(mode)) return null;
-  if (!isGrid && !shouldShowListMetric(mode)) return null;
-
   return (
     <span
       data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
@@ -559,28 +510,6 @@ function AgentMetric({
   );
 }
 
-function AgentNotificationBadge({ value }: { value: number }) {
-  return (
-    <span
-      data-testid="one-agent-notification-badge"
-      className="absolute -right-1.5 -top-1.5 z-20 inline-flex min-h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-[color:var(--background)] bg-[#FF3B30] px-1 text-[11px] font-semibold leading-none text-white shadow-none"
-      aria-hidden
-    >
-      {formatBadgeValue(value)}
-    </span>
-  );
-}
-
-function AgentLiveDot() {
-  return (
-    <span
-      data-testid="one-agent-live-dot"
-      className="absolute -bottom-0.5 -right-0.5 z-20 h-3.5 w-3.5 rounded-full border-2 border-[color:var(--background)] bg-[#34C759]"
-      aria-hidden
-    />
-  );
-}
-
 function AgentGridItem({
   mode,
   className,
@@ -588,56 +517,50 @@ function AgentGridItem({
   mode: OneAgentMode;
   className?: string;
 }) {
-  const state = launcherState(mode);
-
   return (
     <Link
       href={mode.href}
-      aria-label={`Open ${mode.title}${formatA11yMetric(mode)}`}
+      aria-label={`Open ${mode.title}`}
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group relative flex min-h-[94px] min-w-0 w-full flex-col items-center justify-start gap-2 rounded-[18px] px-1 py-0.5 text-center",
-        "transition-[background-color,opacity,transform] duration-150 ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 active:scale-[0.97] active:opacity-80 motion-reduce:transition-none motion-reduce:active:scale-100",
+        "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
+        "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
         className,
       )}
     >
-      <span className="relative z-10 overflow-visible">
-        <AgentSectionIcon
-          id={mode.id}
-          icon={mode.icon}
-          tone={mode.tone}
-          paletteIndex={mode.paletteIndex}
-          isActive={mode.statusTone !== "muted"}
-          size="roster-lg"
-          treatment="default"
-        />
-        {state.notificationCount !== null ? (
-          <AgentNotificationBadge value={state.notificationCount} />
-        ) : null}
-        {state.isLive ? (
-          <AgentLiveDot />
-        ) : null}
-      </span>
+      <AgentSectionIcon
+        id={mode.id}
+        icon={mode.icon}
+        tone={mode.tone}
+        paletteIndex={mode.paletteIndex}
+        isActive={mode.statusTone !== "muted"}
+        size="roster-dashboard"
+        treatment="profile"
+        glyphContrast="default"
+        className="relative z-10"
+        profileStyle={dashboardAgentIconStyle(mode)}
+      />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
-          className="block w-full truncate text-center text-[13px] font-semibold leading-[17px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
+          className="block w-full truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
           data-ui-role="body-strong"
         >
           {mode.title}
         </span>
+        <AgentMetric mode={mode} align="grid" />
       </span>
+      <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
   );
 }
 
 function AgentListRow({ mode }: { mode: OneAgentMode }) {
-  const state = launcherState(mode);
   return (
     <Link
       href={mode.href}
-      aria-label={`Open ${mode.title}${formatA11yMetric(mode)}`}
+      aria-label={`Open ${mode.title}`}
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
@@ -648,23 +571,17 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       )}
     >
       <span className="relative z-10 flex items-center justify-center">
-        <span className="relative overflow-visible">
-          <AgentSectionIcon
-            id={mode.id}
-            icon={mode.icon}
-            tone={mode.tone}
-            paletteIndex={mode.paletteIndex}
-            isActive={mode.statusTone !== "muted"}
-            size="roster"
-            treatment="default"
-          />
-          {state.notificationCount !== null ? (
-            <AgentNotificationBadge value={state.notificationCount} />
-          ) : null}
-          {state.isLive ? (
-            <AgentLiveDot />
-          ) : null}
-        </span>
+        <AgentSectionIcon
+          id={mode.id}
+          icon={mode.icon}
+          tone={mode.tone}
+          paletteIndex={mode.paletteIndex}
+          isActive={mode.statusTone !== "muted"}
+          size="roster"
+          treatment="profile"
+          glyphContrast="default"
+          profileStyle={dashboardAgentIconStyle(mode)}
+        />
       </span>
       <span className="relative z-10 flex min-w-0 flex-col justify-center">
         <span
@@ -700,99 +617,52 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
         aria-hidden
         className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
       />
+      <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
   );
 }
 
-function AgentRosterOverflowMenu({
+function AgentRosterViewToggle({
   value,
   onChange,
-  onSearch,
 }: {
   value: AgentRosterView;
   onChange: (next: AgentRosterView) => void;
-  onSearch: () => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const nextView = value === "grid" ? "list" : "grid";
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const closeOnOutside = (event: MouseEvent | TouchEvent) => {
-      const target = event.target;
-      if (target instanceof Node && rootRef.current?.contains(target)) return;
-      setIsOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
-    };
-
-    document.addEventListener("mousedown", closeOnOutside);
-    document.addEventListener("touchstart", closeOnOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutside);
-      document.removeEventListener("touchstart", closeOnOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
-
-  const runMenuAction = (action: () => void) => {
-    action();
-    setIsOpen(false);
-  };
-
   return (
-    <div ref={rootRef} className="relative shrink-0">
-      <button
-        type="button"
-        aria-label="Agent launcher options"
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        data-testid="one-agents-overflow-trigger"
-        onClick={() => setIsOpen((open) => !open)}
+    <div
+      role="group"
+      aria-label="Agent roster view"
+      className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-[13px] bg-[rgba(120,120,128,.14)] p-0.5"
+    >
+      <ShellActionSurface
+        aria-label="Show agent grid view"
+        aria-pressed={value === "grid"}
+        data-testid="one-agents-view-grid"
+        onClick={() => onChange("grid")}
         className={cn(
-          "inline-flex h-9 w-9 items-center justify-center rounded-full text-[#1D1D1F]",
-          "transition-[background-color,opacity,transform] duration-150 hover:bg-[rgba(120,120,128,.12)] active:scale-[0.96] active:opacity-80",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/55 dark:text-[#F5F5F7]",
+          "h-8 w-8 rounded-[11px]",
+          value === "grid"
+            ? "bg-white text-[color:var(--app-accent-deep)] shadow-[0_1px_2px_rgba(0,0,0,.10)] hover:bg-white dark:bg-[#2C2C2E] dark:text-[color:var(--app-accent-bright)]"
+            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent dark:text-[#98989D]",
         )}
       >
-        <MoreHorizontal className="h-[21px] w-[21px] [stroke-width:2]" aria-hidden />
-      </button>
-      {isOpen ? (
-        <div
-          role="menu"
-          data-testid="one-agents-overflow-menu"
-          className="absolute right-0 top-11 z-30 w-[188px] overflow-hidden rounded-[14px] border border-[rgba(60,60,67,.10)] bg-white py-1 shadow-[0_12px_30px_rgba(0,0,0,.16)] dark:border-white/10 dark:bg-[#1C1C1E]"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="one-agents-search-open"
-            onClick={() => runMenuAction(onSearch)}
-            className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-[15px] font-medium leading-5 text-[#1D1D1F] transition-colors hover:bg-[rgba(120,120,128,.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/55 dark:text-[#F5F5F7]"
-          >
-            <Search className="h-4 w-4 text-[#6E6E73] [stroke-width:1.8]" aria-hidden />
-            <span>Search agents</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            data-testid={`one-agents-view-${nextView}`}
-            onClick={() => runMenuAction(() => onChange(nextView))}
-            className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-[15px] font-medium leading-5 text-[#1D1D1F] transition-colors hover:bg-[rgba(120,120,128,.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/55 dark:text-[#F5F5F7]"
-          >
-            {nextView === "list" ? (
-              <List className="h-4 w-4 text-[#6E6E73] [stroke-width:1.8]" aria-hidden />
-            ) : (
-              <Grid2X2 className="h-4 w-4 text-[#6E6E73] [stroke-width:1.8]" aria-hidden />
-            )}
-            <span>{nextView === "list" ? "View as list" : "View as grid"}</span>
-          </button>
-        </div>
-      ) : null}
+        <Grid2X2 className="h-4 w-4 [stroke-width:1.8]" aria-hidden />
+      </ShellActionSurface>
+      <ShellActionSurface
+        aria-label="Show agent list view"
+        aria-pressed={value === "list"}
+        data-testid="one-agents-view-list"
+        onClick={() => onChange("list")}
+        className={cn(
+          "h-8 w-8 rounded-[11px]",
+          value === "list"
+            ? "bg-white text-[color:var(--app-accent-deep)] shadow-[0_1px_2px_rgba(0,0,0,.10)] hover:bg-white dark:bg-[#2C2C2E] dark:text-[color:var(--app-accent-bright)]"
+            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent dark:text-[#98989D]",
+        )}
+      >
+        <List className="h-4 w-4 [stroke-width:1.8]" aria-hidden />
+      </ShellActionSurface>
     </div>
   );
 }
@@ -814,7 +684,6 @@ export function OneAgentRoster({
   const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
   const [view, setView] = useState<AgentRosterView>(readPersistedRosterView);
   const [animateViewChange, setAnimateViewChange] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const visibleModes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -843,75 +712,38 @@ export function OneAgentRoster({
     }
   };
 
-  const closeSearch = () => {
-    setQuery("");
-    setIsSearchOpen(false);
-  };
-
   return (
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="mx-auto w-full max-w-[560px]"
+      className="mx-auto w-full max-w-[720px] pb-[calc(var(--app-bottom-fixed-ui,96px)+1.75rem)] md:pb-[calc(var(--app-bottom-fixed-ui,96px)+2rem)]"
     >
-      <div className="mb-6 flex min-h-11 items-center justify-between gap-3">
-        {isSearchOpen ? (
-          <>
-            <label className="relative block min-w-0 flex-1">
-              <Search
-                className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93] [stroke-width:1.8]"
-                aria-hidden="true"
-              />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search agents"
-                aria-label="Search agents"
-                autoFocus
-                data-ui-role="input-text"
-                data-testid="one-agents-search"
-                className="h-11 w-full rounded-[14px] border border-transparent bg-white py-[12px] pl-11 pr-10 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/55 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
-              />
-              {query ? (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => setQuery("")}
-                  className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[#1D1D1F] transition-colors hover:bg-[rgba(120,120,128,.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/55 dark:text-[#F5F5F7]"
-                >
-                  <X className="h-4 w-4 [stroke-width:2]" aria-hidden />
-                </button>
-              ) : null}
-            </label>
-            <button
-              type="button"
-              onClick={closeSearch}
-              className="h-11 shrink-0 rounded-full px-1.5 text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] transition-opacity active:opacity-65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/55"
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <PageTitle
-              as="h1"
-              id="one-agents-heading"
-              className="min-w-0 whitespace-nowrap"
-              aria-label={`Agents, ${modes.length} agents`}
-            >
-              {/* Legacy design gate marker: Agents ({modes.length}) */}
-              Agents
-              <span className="sr-only">, {modes.length} agents</span>
-            </PageTitle>
-            <AgentRosterOverflowMenu
-              value={view}
-              onChange={selectView}
-              onSearch={() => setIsSearchOpen(true)}
-            />
-          </>
-        )}
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <PageTitle
+          as="h1"
+          id="one-agents-heading"
+          className="min-w-0 whitespace-nowrap"
+        >
+          Agents ({modes.length})
+        </PageTitle>
+        <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
+      <label className="relative mb-3.5 block">
+        <Search
+          className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93] [stroke-width:1.8]"
+          aria-hidden="true"
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search agents"
+          aria-label="Search agents"
+          data-ui-role="input-text"
+          data-testid="one-agents-search"
+          className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white py-[11px] pl-11 pr-4 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/60 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
+        />
+      </label>
       <div
         key={view}
         data-testid="one-agents-view-content"
@@ -920,29 +752,16 @@ export function OneAgentRoster({
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="mx-auto w-full max-w-[552px] overflow-visible"
+            className="overflow-hidden rounded-[20px] bg-white p-[18px] shadow-none dark:bg-[#1C1C1E]"
           >
             <div
-              data-agent-roster-layout="app-icon-launcher-grid"
-              className="grid w-full grid-cols-3 justify-center gap-x-5 gap-y-7 overflow-visible min-[430px]:gap-x-6"
+              data-agent-roster-layout="grouped-icon-grid"
+              className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />
               ))}
             </div>
-            {visibleModes.length === 0 ? (
-              <div
-                data-testid="one-agents-empty-state"
-                className="py-10 text-center"
-              >
-                <p className="text-[17px] font-semibold leading-[22px] text-[#1D1D1F] dark:text-[#F5F5F7]">
-                  No matching agents
-                </p>
-                <p className="mt-1 text-[15px] font-normal leading-5 text-[#8E8E93]">
-                  Try another search.
-                </p>
-              </div>
-            ) : null}
           </div>
         ) : (
           <div

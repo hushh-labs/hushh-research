@@ -7,15 +7,12 @@ import {
   KaiHistoryService,
   type AnalysisHistoryEntry,
 } from "@/lib/services/kai-history-service";
-import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { enforceMinimumRetryDelayMs } from "@/lib/runtime/retry-delay";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 
 const RUN_MANAGER_STORAGE_KEY = "kai_debate_run_manager_v1";
 const RUN_MANAGER_SESSION_KEY = "kai_debate_session_id_v1";
 const RETRY_DELAYS_MS = [750, 2000, 4500].map(enforceMinimumRetryDelayMs);
-const FINANCIAL_WRITE_WAIT_TIMEOUT_MS = 20_000;
-const FINANCIAL_WRITE_POLL_MS = 400;
 const STREAM_RECONNECT_MESSAGE =
   "Live updates paused. Reopen Analysis to reconnect.";
 
@@ -678,26 +675,6 @@ class DebateRunManager {
     return this.getTask(task.runId);
   }
 
-  private async waitForFinancialWritesToSettle(userId: string): Promise<void> {
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < FINANCIAL_WRITE_WAIT_TIMEOUT_MS) {
-      const portfolioSaveRunning = AppBackgroundTaskService.hasRunningTask(
-        userId,
-        "portfolio_save",
-      );
-      const profileSyncRunning = AppBackgroundTaskService.hasRunningTask(
-        userId,
-        "portfolio_postsave_sync",
-      );
-      if (!portfolioSaveRunning && !profileSyncRunning) {
-        return;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, FINANCIAL_WRITE_POLL_MS),
-      );
-    }
-  }
-
   async resumeActiveRun(params: {
     userId: string;
     vaultOwnerToken: string;
@@ -1059,10 +1036,7 @@ class DebateRunManager {
       listener(entry, pendingTask);
     }
 
-    await this.waitForFinancialWritesToSettle(task.userId);
-
     let success = false;
-    let lastError: unknown = null;
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       try {
         const saved = await KaiHistoryService.saveAnalysis({
@@ -1075,8 +1049,9 @@ class DebateRunManager {
           success = true;
           break;
         }
-      } catch (error) {
-        lastError = error;
+      } catch {
+        // Persistence diagnostics can include protected manifest or provider
+        // detail. The durable task stores only a consumer-safe recovery state.
       }
       if (attempt < RETRY_DELAYS_MS.length) {
         await new Promise((resolve) =>
@@ -1100,9 +1075,7 @@ class DebateRunManager {
     this.upsertTask({
       ...pendingTask,
       persistenceState: "failed",
-      persistenceError:
-        (lastError as Error | undefined)?.message ||
-        "Could not persist analysis history. Retry from task center.",
+      persistenceError: "Analysis is ready, but could not be saved to history.",
     });
   }
 

@@ -8,6 +8,8 @@ import { LocationImmersiveMap } from "@/components/one-location/location-immersi
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
+import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 /**
  * Nearby check-in, as its own destination.
@@ -24,6 +26,10 @@ import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-c
  * `location.open_check_in` all name it directly. Nothing routes through Your
  * Map to reach it any more.
  */
+const LOCATION_CHECK_IN_VOICE_ACTIONS = deriveLocationVoiceActions(
+  "one_location_check_in",
+);
+
 export default function OneLocationCheckInPage() {
   const auth = useRequireAuth();
   const router = useRouter();
@@ -33,6 +39,26 @@ export default function OneLocationCheckInPage() {
   // and without this they opened a place list the backend would refuse. The
   // hub still renders the plain check-in, so that is where those arrivals go.
   const nearbyAvailable = isOneLocationNearbyCheckInAvailable();
+
+  // This route had no voice publisher at all -- see the same note in
+  // app/one/location/map/page.tsx. Gated on nearbyAvailable to match the
+  // render gate below: a build that redirects away from this screen has
+  // nothing here for voice to describe either.
+  usePublishVoiceSurfaceMetadata(
+    nearbyAvailable && !auth.loading && auth.isAuthenticated
+      ? {
+          screenId: "one_location_check_in",
+          title: "Check in nearby",
+          purpose:
+            "Temporarily shows you to people checked in at the same public place.",
+          spokenSubject: "Location, Check in nearby",
+          actions: LOCATION_CHECK_IN_VOICE_ACTIONS,
+          availableActions: LOCATION_CHECK_IN_VOICE_ACTIONS.map(
+            (action) => action.label,
+          ),
+        }
+      : null,
+  );
 
   useEffect(() => {
     if (nearbyAvailable) return;

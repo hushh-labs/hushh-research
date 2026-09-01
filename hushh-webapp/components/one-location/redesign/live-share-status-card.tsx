@@ -26,7 +26,6 @@ import {
   formatShareDuration,
   formatShareEndsAt,
   parseTimestamp,
-  shareProgressRatio,
 } from "@/lib/one-location/share-countdown";
 import { useShareClock } from "@/lib/one-location/use-share-clock";
 import {
@@ -41,7 +40,7 @@ import {
   LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
   LIVE_SHARE_TITLE_CLASSNAME,
 } from "./live-share-card-layout";
-import { CARD_SURFACE, MUTED_TEXT } from "./tokens";
+import { CARD_SURFACE } from "./tokens";
 
 export type LiveShareStatus = {
   /** How many of your shares are live right now. */
@@ -73,7 +72,10 @@ export function ShareCountdownText({
 }) {
   const endsAtMs = parseTimestamp(expiresAt ?? null);
   const rough = endsAtMs === null ? 0 : endsAtMs - Date.now();
-  const nowMs = useShareClock(endsAtMs !== null, rough > HOUR_MS ? 15_000 : 1_000);
+  const nowMs = useShareClock(
+    endsAtMs !== null,
+    rough > HOUR_MS ? 15_000 : 1_000,
+  );
 
   if (endsAtMs === null) return <span className={className}>Active</span>;
   const remainingMs = endsAtMs - nowMs;
@@ -96,6 +98,55 @@ export function liveShareTitle(status: LiveShareStatus): string {
   const count = Math.max(status.names.length, status.count, 1);
   if (count === 1) return "Sharing with 1 person";
   return `Sharing with ${count} people`;
+}
+
+function initialsForName(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "1"
+  );
+}
+
+function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
+  const names = status.names.filter(Boolean);
+  if (status.count > 1 || names.length > 1) {
+    const visibleNames = names.slice(0, 3);
+    const fallbackCount = Math.min(status.count, 3);
+    const slots = visibleNames.length
+      ? visibleNames
+      : Array.from({ length: fallbackCount }, (_, index) => `${index + 1}`);
+    const remaining = Math.max(status.count - slots.length, 0);
+    return (
+      <span aria-hidden="true" className="flex h-10 w-14 shrink-0 items-center">
+        {slots.map((name, index) => (
+          <span
+            key={`${name}-${index}`}
+            className="-ml-2 first:ml-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[12px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
+          >
+            {initialsForName(name)}
+          </span>
+        ))}
+        {remaining > 0 ? (
+          <span className="-ml-2 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]">
+            +{remaining}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)] ring-1 ring-inset ring-[color:var(--app-separator)]"
+    >
+      {initialsForName(names[0] ?? "1")}
+    </span>
+  );
 }
 
 export function LiveShareStatusCard({
@@ -134,11 +185,21 @@ export function LiveShareStatusCard({
   // Seconds only matter inside the last hour. Above that they are noise, and a
   // once-a-second re-render for a 24-hour share is waste.
   const rough = endsAtMs !== null ? endsAtMs - Date.now() : 0;
-  const nowMs = useShareClock(true, !openEnded && rough > HOUR_MS ? 15_000 : 1_000);
+  const nowMs = useShareClock(
+    true,
+    !openEnded && rough > HOUR_MS ? 15_000 : 1_000,
+  );
 
   const remainingMs = endsAtMs === null ? null : endsAtMs - nowMs;
   const elapsedMs = startedAtMs === null ? 0 : Math.max(0, nowMs - startedAtMs);
   const ended = remainingMs !== null && remainingMs <= 0;
+  const progress =
+    startedAtMs !== null && endsAtMs !== null && endsAtMs > startedAtMs
+      ? Math.min(
+          1,
+          Math.max(0, (nowMs - startedAtMs) / (endsAtMs - startedAtMs)),
+        )
+      : null;
 
   // Fires once per share window. The page reconciles against the server from
   // here, so a share that runs out while the screen is open clears itself
@@ -154,7 +215,6 @@ export function LiveShareStatusCard({
     onEnded?.();
   }, [ended, onEnded]);
 
-  const progress = shareProgressRatio(startedAtMs, endsAtMs, nowMs);
   const clock = openEnded
     ? formatShareDuration(elapsedMs)
     : formatShareDuration(Math.max(0, remainingMs ?? 0));
@@ -256,80 +316,67 @@ export function LiveShareStatusCard({
         )}
       </div>
 
-      <p
-        data-ui-contract="required-copy"
-        data-ui-id="location-live-share-title"
-        data-ui-truncation="forbid"
-        data-ui-role="label"
-        className={LIVE_SHARE_TITLE_CLASSNAME}
-      >
-        {title}
-      </p>
+      <div className="mt-3 flex items-start gap-3">
+        <LiveShareIdentity status={status} />
+        <div className="min-w-0 flex-1">
+          <p
+            data-ui-contract="required-copy"
+            data-ui-id="location-live-share-title"
+            data-ui-truncation="forbid"
+            data-ui-role="label"
+            className={LIVE_SHARE_TITLE_CLASSNAME}
+          >
+            {title}
+          </p>
 
-      <p className={LIVE_SHARE_CLOCK_ROW_CLASSNAME}>
-        <span
-          // The visible clock changes every second; a live region here would
-          // announce it every second too. The sentence below carries the value
-          // for assistive tech instead, at a pace a person can follow.
-          aria-hidden="true"
-          data-ui-contract="required-copy"
-          data-ui-id="location-live-share-countdown"
-          data-ui-truncation="forbid"
-          data-testid="one-location-live-share-countdown"
-          className={LIVE_SHARE_CLOCK_CLASSNAME}
-        >
-          {clock}
-        </span>
-        <span aria-hidden="true" className={cn(MUTED_TEXT, "shrink-0")}>
-          {openEnded ? "so far" : "left"}
-        </span>
-        <span className="sr-only">{spoken}</span>
-      </p>
+          <p className={LIVE_SHARE_CLOCK_ROW_CLASSNAME}>
+            <span
+              // The visible clock changes every second; a live region here would
+              // announce it every second too. The sentence below carries the value
+              // for assistive tech instead, at a pace a person can follow.
+              aria-hidden="true"
+              data-ui-contract="required-copy"
+              data-ui-id="location-live-share-countdown"
+              data-ui-truncation="forbid"
+              data-testid="one-location-live-share-countdown"
+              className={LIVE_SHARE_CLOCK_CLASSNAME}
+            >
+              {clock}
+            </span>
+            <span aria-hidden="true" className="shrink-0">
+              {openEnded ? "so far" : "left"}
+            </span>
+            {footer ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="text-[color:var(--app-tertiary-label)]"
+                >
+                  ·
+                </span>
+                <span
+                  data-ui-contract="required-copy"
+                  data-ui-id="location-live-share-ends"
+                  data-ui-truncation="forbid"
+                  data-ui-role="description"
+                  className={LIVE_SHARE_FOOTER_CLASSNAME}
+                >
+                  {footer}
+                </span>
+              </>
+            ) : null}
+            <span className="sr-only">{spoken}</span>
+          </p>
+        </div>
+      </div>
 
       {progress !== null ? (
-        <div
-          aria-hidden="true"
-          className={LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}
-        >
+        <div aria-hidden="true" className={LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}>
           <div
             data-testid="one-location-live-share-progress"
             className={LIVE_SHARE_PROGRESS_FILL_CLASSNAME}
             style={{ width: `${Math.round(progress * 100)}%` }}
           />
-        </div>
-      ) : null}
-
-      {footer || onChangeDuration ? (
-        <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
-          {footer ? (
-            <p
-              data-ui-contract="required-copy"
-              data-ui-id="location-live-share-ends"
-              data-ui-truncation="forbid"
-              data-ui-role="description"
-              className={cn(MUTED_TEXT, LIVE_SHARE_FOOTER_CLASSNAME)}
-            >
-              {footer}
-            </p>
-          ) : null}
-
-          {onChangeDuration ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={runChildAction(onChangeDuration)}
-              className={cn(
-                LIVE_SHARE_ACTION_CLASSNAME,
-                "ml-auto text-[color:var(--app-accent)]",
-              )}
-              data-ui-contract="occlusion-sensitive"
-              data-ui-role="control"
-              data-ui-id="location-live-share-duration"
-              data-testid="one-location-live-share-change-time"
-            >
-              Change time
-            </Button>
-          ) : null}
         </div>
       ) : null}
 
@@ -345,6 +392,26 @@ export function LiveShareStatusCard({
         >
           Share with more
         </Button>
+      ) : null}
+
+      {onChangeDuration ? (
+        <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={runChildAction(onChangeDuration)}
+            className={cn(
+              LIVE_SHARE_ACTION_CLASSNAME,
+              "mx-auto text-[color:var(--app-accent)]",
+            )}
+            data-ui-contract="occlusion-sensitive"
+            data-ui-role="control"
+            data-ui-id="location-live-share-duration"
+            data-testid="one-location-live-share-change-time"
+          >
+            Change time
+          </Button>
+        </div>
       ) : null}
     </section>
   );

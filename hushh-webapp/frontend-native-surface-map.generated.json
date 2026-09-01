@@ -148,6 +148,22 @@
       "file": "app/api/developer/[...path]/route.ts"
     },
     {
+      "template": "/api/hermes/chat",
+      "file": "app/api/hermes/chat/route.ts"
+    },
+    {
+      "template": "/api/hermes/chat/stream",
+      "file": "app/api/hermes/chat/stream/route.ts"
+    },
+    {
+      "template": "/api/hermes/models",
+      "file": "app/api/hermes/models/route.ts"
+    },
+    {
+      "template": "/api/hermes/status",
+      "file": "app/api/hermes/status/route.ts"
+    },
+    {
       "template": "/api/iam/{path*}",
       "file": "app/api/iam/[...path]/route.ts"
     },
@@ -218,6 +234,10 @@
     {
       "template": "/api/products/hushh-tech/launch/exchange",
       "file": "app/api/products/hushh-tech/launch/exchange/route.ts"
+    },
+    {
+      "template": "/api/public/people/{personRef}",
+      "file": "app/api/public/people/[personRef]/route.ts"
     },
     {
       "template": "/api/ria/{path*}",
@@ -468,7 +488,8 @@
       },
       "native": {
         "route": "/blog",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public marketing content. The native shell ships the signed-in product; the public site is web."
       },
       "shell": {
         "app_page_shell": false,
@@ -520,7 +541,8 @@
       },
       "native": {
         "route": "/blog/[slug]",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public marketing content. The native shell ships the signed-in product; the public site is web."
       },
       "shell": {
         "app_page_shell": false,
@@ -621,7 +643,8 @@
       },
       "native": {
         "route": "/circle/join",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Invite landing opened from a shared link. The link arrives in a browser, and the flow hands off to the app rather than being rendered by it."
       },
       "shell": {
         "app_page_shell": true,
@@ -871,7 +894,8 @@
       },
       "native": {
         "route": "/developers",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public developer documentation, part of the marketing site rather than the signed-in product."
       },
       "shell": {
         "app_page_shell": false,
@@ -1611,7 +1635,8 @@
       "native": {
         "route": "/kai/optimize",
         "classification": "excluded-compatibility-redirect",
-        "legacyAlias": true
+        "legacyAlias": true,
+        "reason": "Compatibility redirect to the canonical Kai route. Redirect targets carry the parity obligation, not the redirects."
       },
       "shell": {
         "app_page_shell": false,
@@ -2176,7 +2201,8 @@
       },
       "native": {
         "route": "/oauth/authorize",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "OAuth authorization must complete in a system browser. Providers reject embedded webviews, so a native surface would break the flow rather than improve it."
       },
       "shell": {
         "app_page_shell": false,
@@ -2308,7 +2334,8 @@
       },
       "native": {
         "route": "/one/calendar",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "GAP, not a permanent exclusion. Calendar is a first-class One agent and should have a native surface; it does not have one yet. Excluding it hides that. Revisit before the next native release."
       },
       "shell": {
         "app_page_shell": false,
@@ -3483,7 +3510,8 @@
       },
       "native": {
         "route": "/one/kai/optimize",
-        "classification": "excluded-compatibility-redirect"
+        "classification": "excluded-compatibility-redirect",
+        "reason": "Compatibility redirect to the canonical Kai route. Redirect targets carry the parity obligation, not the redirects."
       },
       "shell": {
         "app_page_shell": false,
@@ -5335,7 +5363,8 @@
       },
       "native": {
         "route": "/one/profile/google/oauth/return",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "OAuth return leg. It exists to receive a system-browser redirect and hand control back; there is nothing for a native surface to render."
       },
       "shell": {
         "app_page_shell": false,
@@ -5387,7 +5416,8 @@
       },
       "native": {
         "route": "/one/profile/integrations",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Redirect kept for existing bookmarks; it resolves to the Calendar agent, which carries the parity obligation."
       },
       "shell": {
         "app_page_shell": false,
@@ -5638,7 +5668,8 @@
       },
       "native": {
         "route": "/one/profile/pkm-agent-lab",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Operator lab surface for inspecting agent runs, not a product surface. Not shipped to app users."
       },
       "shell": {
         "app_page_shell": false,
@@ -6429,7 +6460,7 @@
       "shell": {
         "app_page_shell": true,
         "page_header": true,
-        "settings_ui": false,
+        "settings_ui": true,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
@@ -6832,6 +6863,64 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/puppy",
+      "page_file": "app/one/puppy/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/puppy/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.puppy",
+          "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally without inventing a control."
+        }
+      },
+      "native": {
+        "route": "/one/puppy",
+        "classification": "excluded-web-only",
+        "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/setup",
       "page_file": "app/one/setup/page.tsx",
       "physical_page_exists": true,
@@ -7002,7 +7091,8 @@
       },
       "native": {
         "route": "/one/setup/calendar",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
       },
       "shell": {
         "app_page_shell": false,
@@ -7741,6 +7831,109 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/people/[personRef]",
+      "page_file": "app/people/[personRef]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/connections/person-profile-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "PageHeader",
+          "SectionCard",
+          "usePublishVoiceSurfaceMetadata"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": [
+            "information_request_review"
+          ]
+        },
+        "voice_playbook": {
+          "playbook_id": "route.people.person_profile",
+          "purpose": "Help the signed-in viewer understand relationship, requestable information, grants, and request history without exposing private values.",
+          "screen": "one_person_profile",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": "people.profile.review_information_request",
+          "happy_path_action_ids": [
+            "people.profile.connect",
+            "people.profile.review_information_request",
+            "people.profile.cancel_connection_request",
+            "people.profile.remove_connection",
+            "people.profile.manage_consent"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the relationship, vault, or field-selection guard without implying access.",
+            "cancelled": "Respect the cancellation and preserve the current profile state.",
+            "failed": "Acknowledge the failure without claiming the request, connection, or consent changed.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Keep the profile open and explain that the action could not be verified.",
+            "route_mismatch": "Use only the verified public person profile route and its generated actions."
+          },
+          "completion_boundary": "Completion is spoken only after the browser settles the exact mounted action; information values still require a separate active grant and local decryption.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never infer or expose private information."
+        }
+      },
+      "native": {
+        "route": "/people/[personRef]",
+        "classification": "native-required-functional",
+        "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
+        "expectedMarker": "native-route-person-profile",
+        "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
+        "autoReviewerLogin": false,
+        "expectedAuth": "public",
+        "allowedDataStates": [
+          "loading",
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "people.profile.cancel_connection_request",
+        "people.profile.connect",
+        "people.profile.manage_consent",
+        "people.profile.remove_connection",
+        "people.profile.review_information_request"
+      ],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/person-profile-service.ts",
+          "service_methods": [
+            "getPublic",
+            "getViewer",
+            "createInformationRequest",
+            "getInformationRequestExports",
+            "cancelInformationRequest",
+            "connect",
+            "cancelConnectionRequest",
+            "removeConnection"
+          ],
+          "nextjs_api_route": "/api/{public/people/{personRef},one/{path*}}",
+          "nextjs_proxy_file": "app/api/public/people/[personRef]/route.ts; app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/{public/people/*,one/people/*,one/information-requests/*}",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch; native static export emits one non-production route fixture while runtime identity remains the opaque personRef."
+        }
+      ],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": {
+        "public_projection": "Signed-out reads expose minimal public identity only and use an unguessable immutable reference.",
+        "authenticated_projection": "Relationship, requestable scope metadata, grant metadata, and request history are viewer-relative; social connection grants no information.",
+        "plaintext_boundary": "Granted values remain encrypted through the backend and decrypt only after an explicit reveal in the unlocked client."
+      }
+    },
+    {
       "route": "/pkm",
       "page_file": "app/pkm/page.tsx",
       "physical_page_exists": true,
@@ -8153,7 +8346,8 @@
       },
       "native": {
         "route": "/research",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public research site, part of the marketing site rather than the signed-in product."
       },
       "shell": {
         "app_page_shell": false,
@@ -8205,7 +8399,8 @@
       },
       "native": {
         "route": "/research/protocol",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public research site, part of the marketing site rather than the signed-in product."
       },
       "shell": {
         "app_page_shell": false,
@@ -9047,7 +9242,8 @@
       },
       "native": {
         "route": "/welcome",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Pre-authentication landing page. The native app opens at its own launch surface."
       },
       "shell": {
         "app_page_shell": false,
@@ -9063,5 +9259,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "8a3cc62ababd8676000cee9e350557414ce4742aeab11683b46863604a381bf6"
+  "content_sha256": "9cc1ba2f95a14511a326408385a4b989f03ec62499fe9424d3cb8b819b4d872b"
 }

@@ -218,7 +218,6 @@ export function RiaPicksList({
       null,
     [activeSourceId, availableSources],
   );
-  const displaySource = activeSource ?? availableSources[0] ?? null;
 
   const sectors = useMemo(
     () =>
@@ -350,20 +349,30 @@ export function RiaPicksList({
                         onSourceChange(nextValue);
                       }}
                     >
-                      <SelectTrigger
-                        className={cn(
-                          "h-10 w-full rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
-                          displaySource
-                            ? sourceStateTone(displaySource)
-                            : undefined,
-                        )}
-                      >
+                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]">
                         <SelectValue placeholder="Default list" />
                       </SelectTrigger>
-                      <SelectContent align="end">
+                      <SelectContent
+                        align="end"
+                        position="popper"
+                        className="w-[var(--radix-select-trigger-width)] min-w-[220px]"
+                      >
                         {availableSources.map((source) => (
                           <SelectItem key={source.id} value={source.id}>
-                            {source.label}
+                            <div className="flex items-center justify-between gap-2">
+                              <span>{source.label}</span>
+                              {source.state && source.state !== "ready" ? (
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "px-1.5 py-0 text-[10px] font-semibold uppercase",
+                                    sourceStateTone(source),
+                                  )}
+                                >
+                                  {source.state}
+                                </Badge>
+                              ) : null}
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -527,20 +536,30 @@ export function RiaPicksList({
                       onSourceChange(nextValue);
                     }}
                   >
-                    <SelectTrigger
-                      className={cn(
-                        "h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
-                        displaySource
-                          ? sourceStateTone(displaySource)
-                          : undefined,
-                      )}
-                    >
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]">
                       <SelectValue placeholder="Default list" />
                     </SelectTrigger>
-                    <SelectContent align="end">
+                    <SelectContent
+                      align="end"
+                      position="popper"
+                      className="w-[var(--radix-select-trigger-width)] min-w-[220px]"
+                    >
                       {availableSources.map((source) => (
                         <SelectItem key={source.id} value={source.id}>
-                          {source.label}
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{source.label}</span>
+                            {source.state && source.state !== "ready" ? (
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "px-1.5 py-0 text-[10px] font-semibold uppercase",
+                                  sourceStateTone(source),
+                                )}
+                              >
+                                {source.state}
+                              </Badge>
+                            ) : null}
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>

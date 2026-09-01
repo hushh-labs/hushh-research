@@ -235,7 +235,7 @@ def test_proposal_items_ria_picks_label_matches_catalog():
     assert "picks" in items[0]["description"].lower()
 
 
-def test_information_scope_catalog_requires_an_active_connection_and_filters_private_entries():
+def test_information_scope_catalog_is_connection_independent_and_filters_private_entries():
     svc = ConnectionsService(
         scope_entries_lookup=lambda _owner: [
             {
@@ -269,9 +269,8 @@ def test_information_scope_catalog_requires_an_active_connection_and_filters_pri
     assert result["items"][0]["match_reason"] == "substring_match"
 
     svc._execute_one = lambda _sql, _params=None: None
-    with pytest.raises(ConnectionsError) as exc:
-        svc.get_information_scope_catalog("user-a", "user-b")
-    assert exc.value.code == "CONNECTION_INFORMATION_SCOPE_FORBIDDEN"
+    without_connection = svc.get_information_scope_catalog("user-a", "user-b")
+    assert [entry["scope"] for entry in without_connection["items"]] == ["attr.financial.holdings"]
 
 
 class _RecordingDB:
@@ -1435,6 +1434,7 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
         "items": [
             {
                 "userId": "user-c",
+                "publicPersonRef": None,
                 "displayName": "Cara",
                 "photoUrl": None,
                 "email": None,

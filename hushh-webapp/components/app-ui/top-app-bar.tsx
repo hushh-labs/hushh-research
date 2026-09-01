@@ -287,7 +287,7 @@ function getScrolledRouteTitle(pathname: string): {
     };
   }
   if (pathname === ROUTES.GMAIL) {
-    return { label: "Gmail receipts", icon: Mail, interactive: false as const };
+    return { label: "Gmail", icon: Mail, interactive: false as const };
   }
   if (pathname === ROUTES.PKM) {
     return {

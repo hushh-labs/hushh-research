@@ -507,7 +507,7 @@ export async function executeAgentGatewayAction(
       actionId: input.actionId,
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
-      resultSummary: "Agent could not find that Finance action.",
+      resultSummary: "Agent could not find that action.",
       reason: "missing_action",
     });
   }
@@ -569,7 +569,7 @@ export async function executeAgentGatewayAction(
       resultSummary:
         availability.blocked_guidance ||
         availability.reason ||
-        "That Finance action is not available right now.",
+        "That action is not available right now.",
       reason: availability.status,
     });
   }
@@ -581,7 +581,7 @@ export async function executeAgentGatewayAction(
       label: action.label,
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
-      resultSummary: "That Finance action is not wired for execution yet.",
+      resultSummary: "That action is not wired for execution yet.",
       reason: action.execution_target.status,
     });
   }
@@ -595,7 +595,20 @@ export async function executeAgentGatewayAction(
       routeBefore: routeBefore.pathname,
       routeAfter: action.execution_target.target,
       screenBefore: routeBefore.screen,
-      resultSummary: `${action.label} opened in Finance.`,
+      // The label alone, deliberately -- no destination named.
+      //
+      // This used to say `${label} opened in Finance.` from when this runtime
+      // was Kai-only, so asking for Voice Settings answered "Open Voice
+      // Settings opened in Finance." The action's own `surface_id` is no
+      // better: it names where the action is *authored*, not where it lands,
+      // so route.voice_settings would have claimed "Agents".
+      //
+      // Prefixing instead ("Opened X") does not survive the real labels --
+      // only 39 of 70 route actions start with "Open", and the rest would
+      // read "Opened Share my location" or "Opened Continue". The label is
+      // already an accurate name for what happened, and the card renders it
+      // against a completion tick, which is what supplies the past tense.
+      resultSummary: `${action.label}.`,
       data: {
         target: action.execution_target.target,
         goal_id: action.goal.goal_id,

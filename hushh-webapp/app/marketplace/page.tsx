@@ -35,12 +35,15 @@ import {
   isMarketplaceInvestorConnectable,
   isMarketplaceInvestorShortlistable,
   isPublicSecMarketplaceInvestor,
+  marketplaceInvestorEvidenceLinks,
   marketplaceInvestorActionTarget,
   marketplaceInvestorCardId,
   marketplaceInvestorCurationLabel,
   marketplaceInvestorSourceLabel,
   marketplaceInvestorUserId,
 } from "@/lib/marketplace/investor-discovery";
+import { formatMarketplaceDisplayName } from "@/lib/marketplace/display-name";
+import { resolveMarketplacePrimaryCardLabel } from "@/lib/marketplace/primary-card-label";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { buildMarketplaceConnectionsRoute, buildRiaClientWorkspaceRoute } from "@/lib/navigation/routes";
 import {
@@ -309,7 +312,7 @@ export default function MarketplacePage() {
     return {
       id: marketplaceInvestorCardId(investor),
       kind: "investor",
-      title: investor.display_name,
+      title: formatMarketplaceDisplayName(investor.display_name),
       headline: investor.headline || "Open to advisor connections",
       summary:
         investor.strategy_summary ||
@@ -683,7 +686,7 @@ export default function MarketplacePage() {
       return {
         id: ria.id,
         kind: "ria" as const,
-        title: ria.display_name,
+        title: formatMarketplaceDisplayName(ria.display_name),
         headline: ria.headline || "Advisor profile available",
         summary: ria.strategy_summary || RIA_COPY.connect.summaryFallback,
         metaLine:
@@ -716,7 +719,7 @@ export default function MarketplacePage() {
       return {
         id: investorId,
         kind: "investor" as const,
-        title: investor.display_name,
+        title: formatMarketplaceDisplayName(investor.display_name),
         headline: investor.headline || "Open to advisor connections",
         summary:
           investor.strategy_summary ||
@@ -795,11 +798,8 @@ export default function MarketplacePage() {
   const selectedInvestorAddress = formatEvidenceAddress(
     selectedInvestorEvidence?.business_address
   );
-  const selectedInvestorEvidenceLinks = Array.isArray(selectedInvestorEvidence?.source_urls)
-    ? selectedInvestorEvidence.source_urls
-        .filter((url): url is string => Boolean(url))
-        .slice(0, 3)
-    : [];
+  const selectedInvestorEvidenceLinks =
+    marketplaceInvestorEvidenceLinks(selectedInvestorEvidence);
   const selectedInvestorFormsLabel = formatEvidenceForms(selectedInvestorEvidence?.forms);
   const selectedInvestorCurationLabel = selectedInvestor
     ? marketplaceInvestorCurationLabel(selectedInvestor)
@@ -1131,11 +1131,15 @@ export default function MarketplacePage() {
               </Button>
               <button
                 type="button"
-                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95"
-                aria-label={directoryKind === "investors" ? "Refresh deck" : "Restart deck"}
-                onClick={resetSwipeDeck}
+                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95 disabled:opacity-70"
+                aria-label="Refresh contacts"
+                aria-busy={contactMatchLoading}
+                disabled={contactMatchLoading}
+                onClick={() => void matchContacts()}
               >
-                <RotateCcw className="h-4 w-4" />
+                <RotateCcw
+                  className={cn("h-4 w-4", contactMatchLoading && "animate-spin")}
+                />
               </button>
             </div>
 
@@ -1261,32 +1265,32 @@ export default function MarketplacePage() {
             </div>
           ) : swipeCard ? (
             <div className="px-0 pb-2 pt-1 sm:px-1 sm:pt-2">
-              <div className="relative mx-auto flex w-full max-w-[720px] items-center justify-center pt-1 sm:pt-2">
+              <div className="relative mx-auto flex w-full max-w-[1120px] items-center justify-center pt-1 sm:pt-2">
                 <div className="absolute inset-x-4 top-2 h-[calc(100%-14px)] rounded-[var(--radius-lg)] bg-card/50 opacity-50 sm:inset-x-6 sm:top-3" />
                 <div className="absolute inset-x-2 top-3 h-[calc(100%-10px)] rounded-[var(--radius-lg)] bg-card/70 opacity-70 sm:inset-x-3 sm:top-4" />
                 <div
                   // Opts this card-deck out of any RIA tab-level swipe pager so
                   // its own left/right pass/connect gesture is never double-consumed.
                   data-no-route-swipe
-                  className="relative flex w-full touch-pan-y flex-col justify-between rounded-[var(--radius-lg)] border-0 bg-card p-5 shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] sm:p-6"
+                  data-testid="marketplace-swipe-card"
+                  className="relative flex w-full touch-pan-y flex-col gap-6 rounded-[var(--radius-lg)] border-0 bg-card p-6 shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] sm:p-7"
                   style={{
                     transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${swipeRotation}deg)`,
                     opacity: swipeOpacity,
-                    minHeight: "min(60dvh, 560px)",
                   }}
                   onPointerDown={(event) => {
                     dragStartRef.current = { x: event.clientX, y: event.clientY };
                   }}
                 >
-                  <div className="space-y-5">
-                    <div className="flex items-center gap-4">
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-5">
                       <ProfileAvatar
                         kind={swipeCard.kind}
                         label={swipeCard.title}
                         className="h-20 w-20 shrink-0 rounded-[24px]"
                         riaSurface={isRiaConnectSurface}
                       />
-                      <div className="min-w-0 space-y-2">
+                      <div className="min-w-0 space-y-2.5">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-[22px] font-semibold leading-tight tracking-normal text-foreground sm:text-[24px]">
                             {swipeCard.title}
@@ -1307,10 +1311,10 @@ export default function MarketplacePage() {
                       </div>
                     </div>
 
-                    <div className="rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
+                    <div className="rounded-[var(--radius-md)] bg-background/50 p-5 dark:bg-white/5">
                       <p className="text-[14px] leading-[1.5] text-foreground/86">{swipeCard.summary}</p>
-                      <div className="mt-3 flex flex-wrap items-center gap-3 text-[13px] text-muted-foreground">
-                        <span className="inline-flex items-center gap-2">
+                      <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-2.5">
                           {swipeCard.kind === "ria" ? (
                             <Building2 className="h-4 w-4" />
                           ) : (
@@ -1322,7 +1326,7 @@ export default function MarketplacePage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div data-testid="marketplace-swipe-card-actions" className="grid grid-cols-3 gap-3">
                     <Button
                       variant="none"
                       effect="fade"
@@ -1358,23 +1362,20 @@ export default function MarketplacePage() {
                       }
                     >
                       <span className="truncate">
-                        {swipeCard.isTestProfile
-                          ? swipeCard.kind === "investor" && currentPersona === "ria"
-                            ? "Open workspace"
-                            : "Demo"
-                          : Boolean(discoveryCardUserId(swipeCard)) &&
-                              actionLoadingUserId === discoveryCardUserId(swipeCard)
-                            ? "Connecting..."
-                            : currentPersona === "investor"
-                              ? "Request advisory"
-                              : swipeCard.canConnect
-                                ? "Send request"
-                                : swipeCard.kind === "investor" &&
-                                    isMarketplaceInvestorShortlistable(
-                                      swipeCard.profile as MarketplaceInvestor
-                                    )
-                                  ? "Save lead"
-                                  : "View profile"}
+                        {resolveMarketplacePrimaryCardLabel({
+                          kind: swipeCard.kind,
+                          isTestProfile: swipeCard.isTestProfile,
+                          isActionLoading:
+                            Boolean(discoveryCardUserId(swipeCard)) &&
+                            actionLoadingUserId === discoveryCardUserId(swipeCard),
+                          currentPersona,
+                          canConnect: swipeCard.canConnect,
+                          isInvestorShortlistable:
+                            swipeCard.kind === "investor" &&
+                            isMarketplaceInvestorShortlistable(
+                              swipeCard.profile as MarketplaceInvestor
+                            ),
+                        })}
                       </span>
                     </Button>
                   </div>
@@ -1412,93 +1413,115 @@ export default function MarketplacePage() {
       ) : null}
 
       {!iamUnavailable && view === "list" ? (
-        <div className="grid gap-4 pb-16 md:grid-cols-2 xl:grid-cols-3">
+        <div
+          data-testid="marketplace-client-card-grid"
+          className="grid gap-4 pb-16 md:auto-rows-fr md:grid-cols-2 md:items-stretch xl:grid-cols-3"
+        >
           {activeCards.map((item) => {
             const userId = discoveryCardUserId(item);
             const isPublicSecInvestor =
               item.kind === "investor" &&
               isPublicSecMarketplaceInvestor(item.profile as MarketplaceInvestor);
+            const isInvestorShortlistable =
+              item.kind === "investor" &&
+              isMarketplaceInvestorShortlistable(item.profile as MarketplaceInvestor);
             return (
               <RiaSurface
                 key={`${item.kind}-${item.id}`}
-                className="flex h-full min-h-[286px] flex-col gap-4 rounded-[28px] p-4 sm:p-5"
+                data-testid="marketplace-client-card"
+                className="h-full min-h-[286px] rounded-[28px] p-4 sm:p-5 [&>div]:h-full [&>div]:min-h-0"
               >
-                <div className="flex items-start gap-4">
-                  <ProfileAvatar
-                    kind={item.kind}
-                    label={item.title}
-                    riaSurface={isRiaConnectSurface}
-                  />
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-[15.5px] font-medium leading-[1.24] tracking-normal text-foreground sm:text-[16px]">
-                        {item.title}
-                      </h3>
-                      {item.isTestProfile ? (
-                        <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
-                          Test
-                        </span>
-                      ) : null}
-                      {item.kind === "ria" && item.verificationStatus && !item.isTestProfile ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                          <ShieldCheck className="h-3 w-3" />
-                          Verified
-                        </span>
-                      ) : null}
-                      {isPublicSecInvestor ? (
-                        <span className="rounded-full border border-accent-border bg-accent-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent-strong">
-                          Public SEC
-                        </span>
-                      ) : null}
+                <div className="flex h-full min-h-0 flex-col gap-4">
+                  <div
+                    data-testid="marketplace-client-card-header"
+                    className="flex min-h-[72px] items-start gap-4"
+                  >
+                    <ProfileAvatar
+                      kind={item.kind}
+                      label={item.title}
+                      className="shrink-0"
+                      riaSurface={isRiaConnectSurface}
+                    />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="break-words text-[15.5px] font-medium leading-[1.24] tracking-normal text-foreground sm:text-[16px]">
+                          {item.title}
+                        </h3>
+                        {item.isTestProfile ? (
+                          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                            Test
+                          </span>
+                        ) : null}
+                        {item.kind === "ria" && item.verificationStatus && !item.isTestProfile ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                            <ShieldCheck className="h-3 w-3" />
+                            Verified
+                          </span>
+                        ) : null}
+                        {isPublicSecInvestor ? (
+                          <span className="rounded-full border border-accent-border bg-accent-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent-strong">
+                            Public SEC
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="break-words text-[14px] font-normal leading-[1.45] tracking-normal text-foreground/72">
+                        {item.headline}
+                      </p>
                     </div>
-                    <p className="text-[14px] font-normal leading-[1.45] tracking-normal text-foreground/72">{item.headline}</p>
                   </div>
-                </div>
 
-                <div className="flex-1 rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
-                  <p className="text-[14px] font-normal leading-[1.45] tracking-normal text-foreground/82">{item.summary}</p>
-                  <p className="mt-3 text-[13px] text-muted-foreground">{item.metaLine}</p>
-                </div>
+                  <div
+                    data-testid="marketplace-client-card-body"
+                    className="flex min-h-0 flex-1 flex-col rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5"
+                  >
+                    <p className="break-words text-[14px] font-normal leading-[1.45] tracking-normal text-foreground/82">
+                      {item.summary}
+                    </p>
+                    <p
+                      data-testid="marketplace-client-card-meta"
+                      className="mt-auto min-h-[18px] pt-3 text-[13px] text-muted-foreground"
+                    >
+                      {item.metaLine}
+                    </p>
+                  </div>
 
-                <div className="mt-auto grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
-                  <Button
-                    variant="blue-gradient"
-                    effect="fill"
-                    size="sm"
-                    className="min-w-0 justify-center"
-                    onClick={() => performPrimaryCardAction(item)}
-                    disabled={
-                      (Boolean(userId) && actionLoadingUserId === userId) ||
-                      (Boolean(item.isTestProfile) && item.kind === "ria")
-                    }
+                  <div
+                    data-testid="marketplace-client-card-actions"
+                    className="mt-auto grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2"
                   >
-                    {item.isTestProfile
-                      ? item.kind === "investor" && currentPersona === "ria"
-                        ? "Open workspace"
-                        : "Demo"
-                      : Boolean(userId) && actionLoadingUserId === userId
-                        ? "Connecting..."
-                        : currentPersona === "investor"
-                          ? "Request advisory"
-                          : item.canConnect
-                            ? "Send request"
-                            : item.kind === "investor" &&
-                                isMarketplaceInvestorShortlistable(
-                                  item.profile as MarketplaceInvestor
-                                )
-                              ? "Save lead"
-                              : "View profile"}
-                  </Button>
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    className="min-w-0 justify-center"
-                    onClick={() => openDiscoveryProfile(item)}
-                  >
-                    View details
-                    <ArrowUpRight className="ml-2 h-4 w-4" />
-                  </Button>
+                    <Button
+                      variant="blue-gradient"
+                      effect="fill"
+                      size="sm"
+                      className="min-w-0 justify-center"
+                      onClick={() => performPrimaryCardAction(item)}
+                      disabled={
+                        (Boolean(userId) && actionLoadingUserId === userId) ||
+                        (Boolean(item.isTestProfile) && item.kind === "ria")
+                      }
+                    >
+                      <span className="min-w-0 truncate">
+                        {resolveMarketplacePrimaryCardLabel({
+                          kind: item.kind,
+                          isTestProfile: item.isTestProfile,
+                          isActionLoading: Boolean(userId) && actionLoadingUserId === userId,
+                          currentPersona,
+                          canConnect: item.canConnect,
+                          isInvestorShortlistable,
+                        })}
+                      </span>
+                    </Button>
+                    <Button
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      className="min-w-0 justify-center"
+                      onClick={() => openDiscoveryProfile(item)}
+                    >
+                      <span className="min-w-0 truncate">View details</span>
+                      <ArrowUpRight className="ml-2 h-4 w-4 shrink-0" />
+                    </Button>
+                  </div>
                 </div>
               </RiaSurface>
             );
@@ -1681,10 +1704,15 @@ export default function MarketplacePage() {
                 ) : null}
                 {selectedInvestorEvidenceLinks.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
-                    {selectedInvestorEvidenceLinks.map((url) => (
-                      <Button key={url} asChild variant="none" effect="fade" size="sm">
-                        <a href={url} target="_blank" rel="noopener noreferrer">
-                          SEC source
+                    {selectedInvestorEvidenceLinks.map((source) => (
+                      <Button key={source.id} asChild variant="none" effect="fade" size="sm">
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`${source.label} opens in a new tab`}
+                        >
+                          {source.label}
                           <ArrowUpRight className="ml-2 h-4 w-4" />
                         </a>
                       </Button>

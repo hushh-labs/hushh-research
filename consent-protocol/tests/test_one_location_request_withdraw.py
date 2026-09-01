@@ -224,6 +224,7 @@ def test_the_owner_notification_replaces_the_original_ask() -> None:
     ]
     assert sent, "the owner was never told the ask was taken back"
     assert sent[0]["user_id"] == "user_b"
+    assert sent[0]["body"] == "User A took back location request."
 
 
 # ---------------------------------------------------------------------------

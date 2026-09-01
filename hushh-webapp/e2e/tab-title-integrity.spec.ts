@@ -36,8 +36,7 @@ const WIDTHS = [320, 360, 375, 390, 430, 768, 1280] as const;
  * simply unchecked -- so add to this when adding tabs.
  */
 const TAB_STRIPS: ReadonlyArray<{ surface: string; labels: string[] }> = [
-  { surface: "connect", labels: ["People", "RIAs", "Around you"] },
-  { surface: "connect/around-you", labels: ["Advisors", "Insurance", "Places"] },
+  { surface: "connect", labels: ["Connections", "Circles"] },
 ];
 
 /** The class strings SegmentedTabs emits, read from the component itself. */
@@ -46,7 +45,7 @@ function readSegmentedTabsClasses(): { option: string; label: string } {
     join(process.cwd(), "lib/morphy-ux/ui/segmented-tabs.tsx"),
     "utf8",
   );
-  const option = source.match(/"(press-scale relative isolate flex[^"]+)"/)?.[1];
+  const option = source.match(/"(relative isolate flex[^"]+)"/)?.[1];
   const label = source.match(/"(ui-text-form-label relative[^"]+)"/)?.[1];
   if (!option || !label) {
     throw new Error(
@@ -96,7 +95,7 @@ test.describe("Tab titles never truncate", () => {
         await page.setContent(
           `<!doctype html><html><head><style>${css}</style></head><body>
              <main style="padding:0 16px">
-               <div class="relative grid w-full rounded-full p-1 border bg-[color:var(--app-card-surface-compact)] ${override}"
+               <div class="relative grid w-full rounded-[14px] p-0.5 border-0 bg-[color:var(--app-segmented-track-surface)] ${override}"
                     style="--segmented-mobile-cols:${strip.labels.length};--segmented-desktop-cols:${strip.labels.length};
                            grid-template-columns:repeat(${strip.labels.length},minmax(0,1fr))">
                  ${strip.labels

@@ -349,6 +349,7 @@ not the product owner for live location.
 | POST | `/api/one/location/maps/nearby-places` | VAULT_OWNER Bearer | Return at most 20 operational, de-duplicated Google places inside the fixed 500 m check-in area, with structured name/address/category metadata and server-verified distance ordering. Provider coordinates are used only for server-side radius validation and are not returned. Optional category filters query the same boundary without fan-out; the one-shot point and results are not persisted |
 | POST | `/api/one/location/maps/place-details` | VAULT_OWNER Bearer | Resolve one selected provider place in request memory; place details are not persisted by the Maps route |
 | POST | `/api/one/location/maps/reverse-geocode` | VAULT_OWNER Bearer | Transiently resolve captured coordinates to display copy and an ISO alpha-2 `countryCode`; the service does not persist coordinates or reverse-geocoded output |
+| POST | `/api/one/location/place-ratings/summaries` | VAULT_OWNER Bearer | Non-production/cohort-gated batch projection for at most 25 place ids. Returns only places with at least five current-consent, non-sensitive ratings as `{placeId, average, countBucket}`; never returns authors or exact counts, and responses are `private, no-store` |
 | POST | `/api/one/location/nearby-presence/check-in` | VAULT_OWNER Bearer | Non-production simulation only: capture one fresh foreground point, verify the owner is plausibly at the selected public place (within 500 m, widened by reported accuracy up to a 2 km cap), then persist only that **place's** coordinates as short-lived authenticated ciphertext plus an opaque candidate token, and publish presence for 30, 60, or 120 minutes; the captured point and its accuracy are never persisted; fixed radius 500 m, Connect requests default off |
 | GET | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Non-production simulation only: return the caller's active posture and one stable maximum-20 projection of mutually active check-ins whose independently selected places are at most 500 m apart; never returns peer coordinates, place, distance, contact details, or stable user ids; response is `private, no-store` |
 | DELETE | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Idempotently check the caller out, clear encrypted anchor/index material immediately, and remove them from discovery; available even when discovery is disabled |
@@ -445,7 +446,7 @@ auth-required response.
 | GET    | `/api/ria/clients/{investor_user_id}`                      | Advisor-facing relationship detail, including explicit scoped grants                                                                                                                                   |
 | GET    | `/api/ria/workspace/{investor_user_id}`                    | Advisor workspace over investor-consented data plus relationship-share status                                                                                                                          |
 | GET    | `/api/ria/picks`                                           | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable                                                                                        |
-| POST   | `/api/ria/picks`                                           | Sync an already encrypted `ria.advisor_package` projection to currently authorized explicit Picks share artifacts                                                                                      |
+| POST   | `/api/ria/picks`                                           | Sync the owner PKM-derived `ria.advisor_package`, including its bounded investor debate thesis, to currently authorized explicit Picks share artifacts; the thesis is available only to a selected investor source during a live debate run |
 | GET    | `/api/kai/market/insights/{user_id}`                       | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata                                                                                                            |
 | GET    | `/api/one/connections/directory`                           | Paginated, privacy-filtered Connect directory; display-name search only, with masked email/phone labels when available so same-name candidates remain distinguishable without exposing raw identifiers |
 | GET    | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal                                                                                                                       |
@@ -560,16 +561,17 @@ activated only after its declared MCP tools and operation response contracts
 pass; CRUD descriptors additionally pass an isolated create/read/update/read/
 delete/absent lifecycle with cleanup.
 
-#### Kai Chat
+#### Kai Chat and Agent One AG-UI
 
 | Method | Path                                                  | Description                                                                                                                                                   |
 | ------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/kai/chat`                                       | Conversational Kai endpoint                                                                                                                                   |
-| POST   | `/api/kai/agent/chat/stream`                          | Gemini-backed Agent text chat SSE stream; emits `token` plus live `tool_start` / `tool_waiting` / `tool_result` events and stores encrypted text history only |
-| GET    | `/api/kai/agent/chat/conversations/{user_id}`         | List recent encrypted Agent chat conversations for the vault owner                                                                                            |
-| PATCH  | `/api/kai/agent/chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
-| DELETE | `/api/kai/agent/chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages                                                                      |
-| GET    | `/api/kai/agent/chat/history/{conversation_id}`       | Read decrypted Agent chat history for the authenticated conversation owner                                                                                    |
+| POST   | `/api/one/agent-chat`                                 | Canonical AG-UI `RunAgentInput` endpoint; emits only official run, text, reasoning, tool, state, interrupt, and terminal events; authenticated ADK sessions are encrypted at rest |
+| GET    | `/api/one/agent-chat/capabilities`                    | Official AG-UI capability projection for the request's authenticated or pre-vault runtime tier                                                                       |
+| GET    | `/api/one/agent-chat/conversations/{user_id}`         | List recent encrypted Agent chat conversations for the vault owner                                                                                            |
+| PATCH  | `/api/one/agent-chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
+| DELETE | `/api/one/agent-chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages                                                                      |
+| GET    | `/api/one/agent-chat/history/{conversation_id}`       | Read decrypted Agent chat history for the authenticated conversation owner                                                                                    |
 | POST   | `/api/one/adk/relay-session`                          | Mint a short-lived opaque One ADK live relay ticket over HTTPS so Firebase bearer tokens are not placed in WebSocket URLs                                     |
 | WS     | `/api/one/adk/live`                                   | One ADK live relay WebSocket; bridges the browser wire envelope onto `Runner.run_live` (the only full-duplex voice transport)                                 |
 | GET    | `/api/kai/chat/history/{conversation_id}`             | Conversation history                                                                                                                                          |
@@ -994,7 +996,9 @@ Plugins requiring camelCase transformation: PersonalKnowledgeModel, Kai.
 8. Update app navigation truth when needed: `hushh-webapp/lib/navigation/routes.ts`
 9. Verify route/docs alignment: `bash scripts/ci/docs-parity-check.sh`
 
-See [Architecture: Tri-Flow](./architecture.md#tri-flow-architecture) for the full pattern.
+See [Tri-flow parity](../mobile/tri-flow-parity.md) for the full pattern, the
+declaration contract, and the gates that enforce it. The earlier link targeted
+a nonexistent anchor; the parity document is now the canonical definition.
 
 ---
 

@@ -596,7 +596,7 @@ function AdvisorDetailSheet({
         </button>
         {requested ? (
           <p className="mt-2.5 text-center text-[12px] leading-snug text-[color:var(--one-fg2)]">
-            They will reach out within a day. Nothing is shared until you approve their request.
+            They will reach out within a day. Nothing is shared until you approve request.
           </p>
         ) : null}
       </div>

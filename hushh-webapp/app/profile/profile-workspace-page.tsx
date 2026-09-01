@@ -28,6 +28,7 @@ import {
   MessageCircleQuestion,
   Users,
   Monitor,
+  Laptop,
   Phone,
   Palette,
   RefreshCw,
@@ -4109,6 +4110,14 @@ function ProfilePageContent() {
                 voiceLabel={PROFILE_LABELS.security}
                 voicePurpose="Opens vault, account access, and account deletion controls."
                 onClick={openSecurityPanel}
+              />
+              <SettingsRow
+                icon={Laptop}
+                iconTone="gray"
+                title="Trusted devices"
+                chevron
+                density="compact"
+                onClick={() => router.push(ROUTES.PROFILE_SECURITY_DEVICES)}
               />
               <SettingsRow
                 icon={Users}

@@ -51,6 +51,42 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(config.statusJavaScript.contains("bridge._uiFlowsRoutingOwned === true"))
     }
 
+    func testNativeRouterServesPersonProfileShellForArbitraryPublicRefs() {
+        var router = HushhNativeRouter()
+        router.basePath = "/app/public"
+
+        XCTAssertEqual(
+            router.route(for: "/people/person-ref-scoped/"),
+            "/app/public/people/00000000-0000-4000-8000-000000000001/index.html"
+        )
+        XCTAssertEqual(
+            router.route(for: "/people/person-ref-scoped/index.txt"),
+            "/app/public/people/00000000-0000-4000-8000-000000000001/index.txt"
+        )
+        XCTAssertEqual(
+            router.route(for: "/people/person-ref-scoped.txt"),
+            "/app/public/people/00000000-0000-4000-8000-000000000001/index.txt"
+        )
+        XCTAssertEqual(
+            router.route(for: "/people/person-ref-scoped/__next.people.$d$personRef.txt"),
+            "/app/public/people/00000000-0000-4000-8000-000000000001/__next.people.$d$personRef.txt"
+        )
+    }
+
+    func testNativeRouterLeavesProfileAccessConnectionRouteUnchanged() {
+        var router = HushhNativeRouter()
+        router.basePath = "/app/public"
+
+        XCTAssertEqual(
+            router.route(for: "/one/profile/access/connection"),
+            "/app/public/index.html"
+        )
+        XCTAssertEqual(
+            router.route(for: "/one/profile/access/connection/index.txt"),
+            "/app/public/one/profile/access/connection/index.txt"
+        )
+    }
+
     func testNormalizeBackendUrlRewritesLocalhost() {
         XCTAssertEqual(
             HushhProxyClient.normalizeBackendUrl("http://localhost:8000/"),

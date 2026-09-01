@@ -78,6 +78,7 @@ EXPECTED_WORKFLOW_IDS = [
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
+    "puppy-one-harness",
     "release-readiness",
     "docs-sync",
     "founder-brief-curation",

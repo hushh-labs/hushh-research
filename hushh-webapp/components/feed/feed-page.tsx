@@ -29,7 +29,10 @@ import { FeedRow } from "@/components/feed/feed-row";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   FeedService,
   type FeedItem,
@@ -69,6 +72,38 @@ function groupItemsByDay(
   }
   return groups;
 }
+
+/**
+ * What voice can do while someone is standing on the Feed.
+ *
+ * Derived from the generated action gateway rather than hand-listed, the same
+ * way Location's surfaces do it -- a new Feed action becomes reachable the
+ * moment it is added to the contract, with no second list to remember.
+ *
+ * This screen published nothing at all until now, which mattered more here
+ * than almost anywhere else: connect.accept_request and connect.reject_request
+ * name `one_feed` as their home, so the one screen where "accept request"
+ * is the obvious thing to say was the one screen that never offered it. Both
+ * execute backend-direct, so they always *ran* if the model went looking --
+ * they were simply never suggested.
+ */
+const FEED_VOICE_ACTIONS = listKaiActionsForSurface({ screen: "one_feed" })
+  .filter(
+    (action) =>
+      action.execution_target.status === "wired" &&
+      (action.execution_target.path === "local_handler" ||
+        action.execution_target.path === "route" ||
+        action.execution_target.path === "control") &&
+      action.execution_policy !== "manual_only",
+  )
+  .map((action) => ({
+    id: action.action_id,
+    actionId: action.action_id,
+    label: action.label,
+    // First sentence only: contract `meaning` is multi-sentence prose written
+    // for the model's semantic assessment, not a short one-liner.
+    purpose: action.meaning.split(/(?<=[.!?])\s/)[0] || action.meaning,
+  }));
 
 export function FeedPage() {
   const { user, loading: authLoading } = useAuth();
@@ -161,6 +196,37 @@ function FeedPageSession({
     hasClearableSmsEmergencies,
     clearSmsEmergencies,
   } = useFeedActionables();
+
+  // Counts only -- never who, and never what any item says. The Feed is a list
+  // of other people's names and activity; the only thing voice needs from it is
+  // whether there is anything waiting, which is what makes "accept their
+  // request" a sensible thing to offer here at all.
+  // `connection:` is the id prefix use-feed-actionables gives an incoming
+  // connection request; FeedActionable is a presentation shape and carries no
+  // kind of its own, so the prefix is the only thing that distinguishes one.
+  const pendingConnectionRequestCount = actionables.filter((entry) =>
+    entry.id.startsWith("connection:"),
+  ).length;
+
+  usePublishVoiceSurfaceMetadata(
+    user && !authLoading
+      ? {
+          screenId: "one_feed",
+          title: "Feed",
+          purpose:
+            "Shows recent activity and anything waiting on you, including connection requests you can accept or decline.",
+          spokenSubject: "Feed",
+          actions: FEED_VOICE_ACTIONS,
+          availableActions: FEED_VOICE_ACTIONS.map((action) => action.label),
+          busyOperations: actionablesLoading ? ["feed_actionables_load"] : [],
+          screenMetadata: {
+            pending_connection_request_count: pendingConnectionRequestCount,
+            actionable_count: actionables.length,
+            data_state: actionablesLoading ? "loading" : "loaded",
+          },
+        }
+      : null,
+  );
 
   const {
     data,
@@ -283,6 +349,9 @@ function FeedPageSession({
       ...(data?.items ?? []),
       ...pagination.additionalItems,
     ]) {
+      if (item.source_domain === "connected_systems" && !isLocalCrmBuildEnabled()) {
+        continue;
+      }
       if (seen.has(item.id)) continue;
       if (
         clearedThroughId &&
@@ -441,7 +510,11 @@ function FeedPageSession({
         : "empty-valid";
 
   return (
-    <AppPageShell as="main" width="reading" className="!px-0 pb-24 sm:pb-28">
+    <AppPageShell
+      as="main"
+      width="reading"
+      className="!px-0 pb-[calc(var(--app-screen-footer-pad)+16px)]"
+    >
       <NativeTestBeacon
         routeId="/one/feed"
         marker="native-route-feed"
@@ -453,9 +526,7 @@ function FeedPageSession({
         errorMessage={showColdError ? "Feed activity could not load." : null}
       />
       <div className="mx-auto w-full max-w-[40rem]">
-        {/* No in-body header: the shared top bar owns the "Feed" title + back
-            arrow (see resolveTopShellBreadcrumb). Only the sticky day dividers
-            below travel with the scroll. */}
+        {/* No in-body header: the shared top bar owns the single Feed title. */}
         <AppPageContentRegion>
           {hasLiveActionables ? (
             <section aria-label="Live" className="bg-accent/[0.03]">
@@ -480,20 +551,17 @@ function FeedPageSession({
           ) : null}
 
           {contentLoading && !hasHistory && !hasActionables ? (
-            <div
-              role="status"
-              className="px-4 py-16 text-center text-sm text-muted-foreground"
-            >
-              Loading your feed…
-            </div>
+            <FeedRowsSkeleton />
           ) : null}
 
           {showColdError ? (
             <div
               role="alert"
-              className="flex flex-col items-center gap-3 px-4 py-16 text-center text-sm text-muted-foreground"
+              className="mx-[6px] flex min-h-[116px] flex-col items-center justify-center gap-3 rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-8 text-center"
             >
-              <p>Couldn't load all of your activity.</p>
+              <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                Activity unavailable
+              </p>
               <Button
                 type="button"
                 variant="none"
@@ -529,11 +597,14 @@ function FeedPageSession({
           {showEmpty ? (
             <div
               role="status"
-              className="px-4 py-16 text-center text-sm text-muted-foreground"
+              className="mx-[6px] flex min-h-[116px] flex-col items-center justify-center gap-1 rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-8 text-center"
             >
-              {clearedThroughId
-                ? "No notifications yet."
-                : "You're all caught up."}
+              <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                No activity yet
+              </p>
+              <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                Your recent activity will appear here.
+              </p>
             </div>
           ) : null}
 
@@ -572,7 +643,7 @@ function FeedPageSession({
             ? dayGroups.map((group) => (
                 <section key={group.label} aria-label={group.label}>
                   <SectionLabel>{group.label}</SectionLabel>
-                  <div className="divide-y divide-[color:var(--foundation-hairline)]">
+                  <div className="mx-[6px] divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-none">
                     {group.items.map((item) => (
                       <FeedRow
                         key={item.id}
@@ -617,14 +688,38 @@ function FeedPageSession({
   );
 }
 
-/** Sticky day / section divider that follows the shared readable label scale. */
+/** Day / section divider that follows the shared readable label scale. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <AppSectionLabel
       as="h2"
-      className="sticky top-[var(--top-shell-live-height)] z-10 bg-background/85 px-[6px] pb-2 pt-7 backdrop-blur-md"
+      className="px-[6px] pb-2 pt-7 text-[13px] font-normal leading-[18px] text-[color:var(--app-section-label)]"
     >
       {children}
     </AppSectionLabel>
+  );
+}
+
+function FeedRowsSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading feed"
+      className="mx-[6px] overflow-hidden rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-none"
+    >
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className="grid min-h-[68px] grid-cols-[40px_minmax(0,1fr)_52px] items-center gap-x-3 border-b border-[color:var(--app-separator)] px-4 py-3 last:border-b-0"
+        >
+          <span className="h-10 w-10 rounded-full bg-foreground/[0.07]" />
+          <span className="space-y-2">
+            <span className="block h-3.5 w-2/3 rounded-full bg-foreground/[0.07]" />
+            <span className="block h-3 w-5/6 rounded-full bg-foreground/[0.055]" />
+          </span>
+          <span className="h-3 w-12 rounded-full bg-foreground/[0.055]" />
+        </div>
+      ))}
+    </div>
   );
 }

@@ -63,17 +63,22 @@ describe("the owner's popup", () => {
 
 describe("the requester's popup", () => {
   it("says how much time they were actually given", () => {
+    // Four hours ADDED to a share that had two left, so six in total. The
+    // sentence is about the increment: since #6256 an approved extension tops
+    // the running share up rather than replacing it, and the two numbers are
+    // no longer the same.
     const copy = locationWorkflowNotificationCopy({
       type: "location_access_approved",
       ownerLabel: "Neelesh Meena",
       isExtension: true,
-      grantedDurationHours: 4,
+      grantedDurationHours: 6,
+      addedDurationHours: 4,
       grantedDurationMode: "timed",
       nowMs: NOW,
     });
     expect(copy.title).toBe("More location time approved");
     expect(copy.description).toBe(
-      "Neelesh Meena gave you 4 hours more of their live location.",
+      "Neelesh Meena gave you 4 hours more of live location.",
     );
   });
 
@@ -86,7 +91,7 @@ describe("the requester's popup", () => {
       nowMs: NOW,
     });
     expect(copy.description).toBe(
-      "Neelesh Meena shared their live location with you 1 hour.",
+      "Neelesh Meena shared live location with you 1 hour.",
     );
   });
 
@@ -207,5 +212,190 @@ describe("the in-app path that never touches FCM", () => {
     // than was asked, and the grant is the only number that is true.
     expect(approved?.duration_hours).toBe("4");
     expect(approved?.is_extension).toBe("true");
+  });
+});
+
+
+/**
+ * Approving an extension ADDS to what is running (#6256).
+ *
+ * The server used to resolve "30 min more" as an absolute total and replace
+ * the live grant with it, destroying whatever was left. Now it adds, and the
+ * new total travels beside the increment -- so every line that carries the
+ * word "more" has to read the increment, not the total.
+ */
+describe("what an approved extension says it gave", () => {
+  it("names the time added, not the new total", () => {
+    // A thirty-minute top-up of a two-hour share leaves 2h30m running. Reading
+    // the total here would announce "gave you 2 hours 30 min more" for
+    // thirty minutes of extra access.
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "Neelesh Meena",
+      isExtension: true,
+      grantedDurationHours: 2.5,
+      addedDurationHours: 0.5,
+      grantedDurationMode: "timed",
+      nowMs: NOW,
+    });
+    expect(copy.description).toBe(
+      "Neelesh Meena gave you 30 min more of live location.",
+    );
+  });
+
+  it("never dresses the total up as the amount added", () => {
+    // A push written before this shipped, or a reconciled payload whose two
+    // expiries were not both readable, arrives with no increment. Falling back
+    // to the total would announce a top-up as "4 hours more" when four hours
+    // is what the person now HAS -- the same lie #6256 is about, pointing the
+    // other way. It says the certain thing instead.
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "Neelesh Meena",
+      isExtension: true,
+      grantedDurationHours: 4,
+      grantedDurationMode: "timed",
+      nowMs: NOW,
+    });
+    expect(copy.title).toBe("More location time approved");
+    expect(copy.description).toBe(
+      "Neelesh Meena gave you more location time. You now have 4 hours.",
+    );
+    expect(copy.description).not.toContain("4 hours more");
+  });
+
+  it("does not offer 'more' of a share that never ends", () => {
+    // `grantedLabel` for an open-ended share is the phrase "for as long as you
+    // need", which read as "gave you for as long as you need more of live
+    // location".
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "Neelesh Meena",
+      isExtension: true,
+      grantedDurationMode: "until_stopped",
+      nowMs: NOW,
+    });
+    expect(copy.title).toBe("More location time approved");
+    expect(copy.description).toBe(
+      "Neelesh Meena is now sharing live location until they stop.",
+    );
+  });
+
+  it("leaves a plain approval wording the total, which is what it granted", () => {
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "Neelesh Meena",
+      isExtension: false,
+      grantedDurationHours: 2,
+      addedDurationHours: 0.5,
+      grantedDurationMode: "timed",
+      nowMs: NOW,
+    });
+    expect(copy.description).toBe(
+      "Neelesh Meena shared live location with you 2 hours.",
+    );
+  });
+});
+
+
+/**
+ * The path that runs when the push never arrived.
+ *
+ * Notifications off, app closed, offline, fresh install: the bell is rebuilt
+ * from local state instead of from the FCM payload. It reaches the same copy
+ * function, so it has to carry the same facts -- and after #6256 that includes
+ * how much an approved extension ADDED, which is no longer the same number as
+ * the share's new total.
+ */
+describe("rebuilding an approval the push never delivered", () => {
+  it("measures what the extension added from the two expiries it already has", () => {
+    const payloads = buildOneLocationNotificationPayloads(
+      state({
+        receivedGrants: [
+          {
+            id: "grant_2",
+            ownerUserId: "user_a",
+            recipientUserId: "user_b",
+            status: "active",
+            durationHours: 2.5,
+            durationMode: "timed",
+            // The share ran to 12:00; approving "30 min more" moved it to 12:30.
+            expiresAt: "2026-08-16T12:30:00.000Z",
+          },
+        ],
+        requests: [
+          {
+            id: "request_1",
+            ownerUserId: "user_a",
+            requesterUserId: "user_b",
+            status: "approved",
+            approvedGrantId: "grant_2",
+            requestedDurationHours: 0.5,
+            requestedDurationMode: "timed",
+            extendsGrantId: "grant_1",
+            extendsGrantExpiresAt: "2026-08-16T12:00:00.000Z",
+            isExtension: true,
+          },
+        ],
+      }),
+      "user_b",
+    );
+
+    const approved = payloads.find(
+      (payload) => payload.type === "location_access_approved",
+    );
+    // Half an hour added, two and a half hours in total. Without the first of
+    // those the bell would put the second next to the word "more".
+    expect(approved?.added_duration_hours).toBe("0.5");
+    expect(approved?.duration_hours).toBe("2.5");
+  });
+
+  it("omits the amount rather than guessing when an end is open-ended", () => {
+    const payloads = buildOneLocationNotificationPayloads(
+      state({
+        receivedGrants: [
+          {
+            id: "grant_2",
+            ownerUserId: "user_a",
+            recipientUserId: "user_b",
+            status: "active",
+            durationHours: null,
+            durationMode: "until_stopped",
+            expiresAt: null,
+          },
+        ],
+        requests: [
+          {
+            id: "request_1",
+            ownerUserId: "user_a",
+            requesterUserId: "user_b",
+            status: "approved",
+            approvedGrantId: "grant_2",
+            requestedDurationHours: 0.5,
+            requestedDurationMode: "timed",
+            extendsGrantId: "grant_1",
+            extendsGrantExpiresAt: null,
+            isExtension: true,
+          },
+        ],
+      }),
+      "user_b",
+    );
+
+    const approved = payloads.find(
+      (payload) => payload.type === "location_access_approved",
+    );
+    expect(approved?.added_duration_hours).toBeUndefined();
+    // And the copy that reads it says so without a number.
+    const copy = locationWorkflowNotificationCopy({
+      type: "location_access_approved",
+      ownerLabel: "User A",
+      isExtension: true,
+      grantedDurationMode: "until_stopped",
+      nowMs: NOW,
+    });
+    expect(copy.description).toBe(
+      "User A is now sharing live location until they stop.",
+    );
   });
 });

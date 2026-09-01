@@ -490,6 +490,11 @@ function setupWebServiceWorkerBridge(): void {
       accepted: false,
     };
     window.dispatchEvent(new CustomEvent(FCM_MESSAGE_EVENT, { detail }));
+    // A push IS the server telling us there is new activity. Until this line
+    // the Feed learned about it only from its own 45s timer, so an event that
+    // had already lit up the phone's notification tray could still be missing
+    // from the list the person opened to look at it.
+    dispatchFeedStateChanged("arrived");
     if (message.delivery_id && detail.accepted) {
       const source = event.source as { postMessage?: (value: unknown) => void } | null;
       source?.postMessage?.({
@@ -823,6 +828,7 @@ async function initializeWebFCM(
             detail: payload,
           })
         );
+        dispatchFeedStateChanged("arrived");
       });
       webListenerConfigured = true;
     }
@@ -911,6 +917,7 @@ function setupNativeListeners(): Promise<void> {
               detail: notification,
             })
           );
+          dispatchFeedStateChanged("arrived");
         }),
       );
 

@@ -31,16 +31,14 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     ]);
   });
 
-  it("keeps Location header status copy to the approved shared states", () => {
+  it("keeps Location header status on the shared readiness formatter", () => {
     const source = readSource(
       "components/one-location/redesign/location-redesign-hub.tsx",
     );
 
-    expect(source).toContain('return "Finding location\\u2026";');
-    expect(source).toContain('return "Location blocked";');
-    expect(source).toContain('vm.locationEnabled ? "Location on" : "Location off"');
-    expect(source).not.toContain('return "Finding you\\u2026";');
-    expect(source).not.toContain("locationStatusLabel");
+    expect(source).toContain('return "Finding you\\u2026";');
+    expect(source).toContain("return locationStatusLabel({");
+    expect(source).toContain("accuracyLimited: vm.locationAccuracyLimited");
   });
 
   it("uses shared SectionLabel for People and Links section headings", () => {
@@ -57,9 +55,8 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(hubSource).toContain(
       'id="one-location-connections-heading"',
     );
-    expect(hubSource).toContain("Connections");
-    expect(hubSource).toContain("Temporary link");
-    expect(hubSource).not.toContain("Connections ·");
+    expect(hubSource).toContain("Connections · {vm.recipientPageTotalCount}");
+    expect(hubSource).toContain('title="Temporary link"');
     expect(hubSource).not.toContain("<SectionTitle as=\"h2\">Temporary link");
   });
 
@@ -71,7 +68,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
       "components/one-location/redesign/cards.tsx",
     );
 
-    expect(source).toContain("Active \\u00b7 ${expiresLine}");
+    expect(source).toContain('label.replace(/^Stops in\\b/i, "Expires in")');
     expect(source).toContain(
       "Anyone with this link can see your location until it expires.",
     );
@@ -79,7 +76,6 @@ describe("Profile, Location People, and Location Links consistency contract", ()
       "Anyone with this link can see your location.",
     );
     expect(cardSource).toContain("Revoke link");
-    expect(source).not.toContain('title="Temporary link"');
     expect(source).not.toContain("Live location link");
     expect(source).not.toContain("Stops in 1h");
   });
@@ -102,7 +98,9 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     const css = readSource("app/globals.css");
     const settingsSource = readSource("components/app-ui/settings-ui.tsx");
 
-    expect(css).toContain("--ios-account-card-radius: 17px;");
+    expect(css).toContain(
+      "--ios-account-card-radius: var(--app-radius-lg);",
+    );
     expect(css).toContain(
       "--settings-group-radius: var(--ios-account-card-radius);",
     );

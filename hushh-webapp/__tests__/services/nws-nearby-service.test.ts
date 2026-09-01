@@ -250,6 +250,34 @@ describe("NwsNearbyService.shortlist", () => {
   });
 });
 
+describe("NwsNearbyService.listShortlist", () => {
+  it("reads the advisor's persisted NWS shortlist", async () => {
+    mockApiFetch.mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: "shortlist-1",
+            target_key: "nws:bootstrap_michael_hsing",
+            status: "shortlisted",
+            profile: { displayName: "Michael R. Hsing" },
+            updated_at: "2026-08-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    const entries = await NwsNearbyService.listShortlist({ idToken: "t" });
+
+    expect(requestedUrl()).toBe("/api/ria/nearby/shortlist");
+    expect((mockApiFetch.mock.calls[0][1] as RequestInit).method).toBe("GET");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      target_key: "nws:bootstrap_michael_hsing",
+      status: "shortlisted",
+    });
+  });
+});
+
 describe("filter helpers", () => {
   it("counts every lane, including the ones with nothing in them", () => {
     const counts = laneCounts([

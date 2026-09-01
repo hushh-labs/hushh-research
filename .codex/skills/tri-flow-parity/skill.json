@@ -1,0 +1,59 @@
+{
+  "id": "tri-flow-parity",
+  "role": "spoke",
+  "owner_family": "mobile-native",
+  "primary_scope": "tri-flow-parity",
+  "description": "Use when declaring, reviewing, or enforcing Web/iOS/Android tri-flow parity for a route or feature, including the excluded-route reason contract and the N/A declaration the PR template requires.",
+  "owned_paths": [
+    "hushh-webapp/native-route-inventory.json",
+    "hushh-webapp/scripts/native/verify-native-static-parity.mjs",
+    "docs/reference/mobile/tri-flow-parity.md"
+  ],
+  "non_owned_paths": [
+    "hushh-webapp/ios",
+    "hushh-webapp/android",
+    "frontend"
+  ],
+  "task_types": [
+    "tri-flow-parity",
+    "new-feature-tri-flow"
+  ],
+  "required_reads": [
+    "docs/reference/mobile/tri-flow-parity.md",
+    ".codex/skills/tri-flow-parity/references/reason-contract.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && node scripts/native/verify-native-static-parity.mjs",
+    "cd hushh-webapp && npm run verify:surface-map"
+  ],
+  "verification_bundles": [
+    {
+      "id": "tri-flow-parity",
+      "commands": [
+        "cd hushh-webapp && node scripts/native/verify-native-static-parity.mjs",
+        "cd hushh-webapp && npm run verify:surface-map"
+      ],
+      "tests": [
+        "cd hushh-webapp && node scripts/native/verify-native-static-parity.mjs"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "mobile-native",
+    "mobile-parity-audit",
+    "mobile-plugin-contracts",
+    "frontend-surface-placement",
+    "quality-contracts"
+  ],
+  "adjacent_skills": [
+    "mobile-native",
+    "mobile-parity-audit",
+    "mobile-plugin-contracts",
+    "frontend-surface-placement"
+  ],
+  "risk_tags": [
+    "native-parity-drift",
+    "tri-flow-declaration-drift",
+    "docs-runtime-drift"
+  ]
+}

@@ -30,7 +30,9 @@ from hushh_mcp.services.connection_graph_service import (
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
 )
+from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.services.requester_identity import label_from_identity_row
+from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +76,7 @@ def _iso(value: Any) -> str | None:
 #
 # Static text under our control, never user input -- it is interpolated, not
 # bound, because a bound array would erase those literals from the SQL text.
-_RIA_VERIFIED_STATUS_SQL = "verification_status IN ('active', 'verified', 'finra_verified')"
+_RIA_VERIFIED_STATUS_SQL = RIA_VERIFIED_STATUS_SQL
 
 # Who a directory search is asking about.
 #
@@ -542,12 +544,12 @@ class ConnectionsService:
         domain: str = "",
         limit: int = 20,
     ) -> dict[str, Any]:
-        """Search a connected person's dynamically discoverable ``attr.*`` scopes.
+        """Search a person's dynamically discoverable ``attr.*`` scopes.
 
-        This is deliberately post-connection and metadata-only. A relationship
-        never grants access to values: callers must make a separate, consented
-        request that binds a requester-owned connector key before an encrypted
-        export can exist.
+        Scope metadata is discoverable independently from the social graph.
+        A relationship never grants access to values: callers must make a
+        separate, consented request bound to a requester-owned connector key
+        before an encrypted export can exist.
         """
         from hushh_mcp.consent.scope_generator import rank_scope_matches
 
@@ -557,31 +559,15 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
-        active_connection = self._execute_one(
-            """
-            SELECT id
-            FROM connections
-            WHERE status = 'active'
-              AND user_a_id = LEAST(:viewer, :counterpart)
-              AND user_b_id = GREATEST(:viewer, :counterpart)
-            LIMIT 1
-            """,
-            {"viewer": viewer, "counterpart": counterpart},
-        )
-        if not active_connection:
-            raise ConnectionsError(
-                "CONNECTION_INFORMATION_SCOPE_FORBIDDEN",
-                "Connect with this person before searching their available scopes.",
-                status_code=403,
-            )
-
         safe_entries = [
             {
                 "scope": str(entry.get("scope") or ""),
                 "label": str(entry.get("label") or "") or None,
+                "description": str(entry.get("description") or "") or None,
                 "domain": str(entry.get("domain") or "") or None,
                 "path": str(entry.get("path") or "") or None,
                 "wildcard": bool(entry.get("wildcard")),
+                "sensitivity": str(entry.get("sensitivity") or "") or None,
             }
             for entry in self._scope_entries_lookup(counterpart)
             if isinstance(entry, dict)
@@ -2633,6 +2619,25 @@ class ConnectionsService:
         )
         return {str(row.get("user_id") or "") for row in rows}
 
+    def _public_person_refs(self, user_ids: list[str]) -> dict[str, str]:
+        """Resolve public route addresses for one bounded page of people."""
+        candidates = [uid for uid in {*user_ids} if uid]
+        if not candidates:
+            return {}
+        rows = self._execute_many(
+            """
+            SELECT user_id, public_person_ref
+            FROM actor_profiles
+            WHERE user_id = ANY(CAST(:user_ids AS TEXT[]))
+            """,
+            {"user_ids": candidates},
+        )
+        return {
+            str(row.get("user_id") or ""): str(row.get("public_person_ref") or "")
+            for row in rows
+            if row.get("user_id") and row.get("public_person_ref")
+        }
+
     def search_directory(
         self,
         user_id: str,
@@ -2813,11 +2818,13 @@ class ConnectionsService:
         # name-resolution searches across everyone, and a row that only knew its
         # kind from its tab would go back to being unlabelled there.
         ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
+        public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
 
         return {
             "items": [
                 {
                     "userId": str(p.get("userId") or ""),
+                    "publicPersonRef": public_person_refs.get(str(p.get("userId") or "")),
                     "displayName": p.get("displayName"),
                     "photoUrl": p.get("photoUrl"),
                     "email": p.get("email"),
@@ -2970,10 +2977,12 @@ class ConnectionsService:
         # for the whole list, not one lookup per row; no statement at all when
         # you have no connections.
         ria_user_ids = self._verified_ria_user_ids([str(r.get("user_id") or "") for r in rows])
+        public_person_refs = self._public_person_refs([str(r.get("user_id") or "") for r in rows])
         return [
             {
                 "connectionId": str(r.get("connection_id") or ""),
                 "userId": str(r.get("user_id") or ""),
+                "publicPersonRef": public_person_refs.get(str(r.get("user_id") or "")),
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
                 "createdAt": _iso(r.get("created_at")),
@@ -3058,13 +3067,32 @@ class ConnectionsService:
                   )
                 )
             ),
+            matched AS (
+              -- One rule for every people search; see people_search_sql.py.
+              SELECT *,
+                CASE
+                  WHEN :query = '' THEN 0
+                  WHEN normalized_name ~ :query_prefix_re THEN 0
+                  WHEN normalized_name ~ :query_word_re THEN 1
+                  ELSE 2
+                END AS match_rank
+              FROM filtered
+            ),
+            narrowed AS (
+              SELECT * FROM matched
+              WHERE NOT :query_is_single_char
+                 OR match_rank < 2
+                 OR NOT EXISTS (
+                      SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                    )
+            ),
             total AS (
-              SELECT COUNT(*)::BIGINT AS total_count FROM filtered
+              SELECT COUNT(*)::BIGINT AS total_count FROM narrowed
             ),
             page_rows AS (
               SELECT *
-              FROM filtered
-              ORDER BY normalized_name, user_id, connection_id
+              FROM narrowed
+              ORDER BY match_rank, normalized_name, user_id, connection_id
               OFFSET :offset
               LIMIT :limit
             )
@@ -3089,12 +3117,13 @@ class ConnectionsService:
               ) END AS is_ria
             FROM total
             LEFT JOIN page_rows ON TRUE
-            ORDER BY page_rows.normalized_name, page_rows.user_id,
-                     page_rows.connection_id
+            ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                     page_rows.user_id, page_rows.connection_id
             """,  # nosec B608 - the RIA predicate is a static module constant.
             {
                 "user_id": viewer_id,
                 "query": normalized_query,
+                **people_query_match_params(normalized_query),
                 "audience": normalized_audience,
                 "offset": offset,
                 "limit": normalized_limit,
@@ -3102,10 +3131,14 @@ class ConnectionsService:
         )
         total_count = int((rows[0] if rows else {}).get("total_count") or 0)
         page_rows = [row for row in rows if row.get("connection_id")]
+        public_person_refs = self._public_person_refs(
+            [str(row.get("user_id") or "") for row in page_rows]
+        )
         items = [
             {
                 "connectionId": str(row.get("connection_id") or ""),
                 "userId": str(row.get("user_id") or ""),
+                "publicPersonRef": public_person_refs.get(str(row.get("user_id") or "")),
                 "displayName": row.get("display_name"),
                 "photoUrl": row.get("photo_url"),
                 "createdAt": row.get("created_at"),

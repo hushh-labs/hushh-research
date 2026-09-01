@@ -71,7 +71,7 @@ export type OnboardingCircleInvite = {
  * Someone from the person's own address book who already has One.
  *
  * Deliberately not the same thing as the directory list this flow used to show:
- * that was every Hushh user, so it asked a new person to share their location
+ * that was every Hushh user, so it asked a new person to share location
  * with strangers. These are people whose number is already in their phone.
  */
 export type OnboardingContactMatch = {
@@ -85,7 +85,7 @@ export type OnboardingContactMatch = {
  *
  * Seeing the circle's name, its owner and how many people are already in it is
  * the difference between accepting an invitation and accepting a string. It is
- * also the moment where someone decides whether to share their location with
+ * also the moment where someone decides whether to share location with
  * these people, which is not a decision to make blind.
  */
 export type OnboardingCirclePreview = {
@@ -258,10 +258,10 @@ function OnboardingSkipButton({
         plain
           ? "px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
           : floating
-          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-accent-bright)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
-          : inverse
-            ? "text-white"
-            : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
+            ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-accent-bright)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
+            : inverse
+              ? "text-white"
+              : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
       )}
     >
       Skip
@@ -307,9 +307,9 @@ function OnboardingNavigation({
             ? "text-[#59616c] dark:text-[color:var(--app-label)]"
             : floating
               ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
-            : inverse
-              ? "bg-white/15 text-white"
-              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]",
+              : inverse
+                ? "bg-white/15 text-white"
+                : "bg-black/[0.05] text-[#1f2b3d] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]",
         )}
         aria-label="Go back"
       >
@@ -700,7 +700,7 @@ function CheckInFeatureCard() {
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
-          Check in on spot. Your Circle knows.
+          Check in on the spot and notify your circle
         </p>
       </div>
       <div
@@ -869,7 +869,10 @@ function FeaturesScreen({
         className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-one-feature-scroll
       >
-        <header className="mx-auto mt-5 w-full max-w-[700px] shrink-0" data-one-feature-header>
+        <header
+          className="mx-auto mt-5 w-full max-w-[700px] shrink-0"
+          data-one-feature-header
+        >
           <h1
             className="ui-text-agent-title text-[#111823] dark:!text-[color:var(--app-label)]"
             data-one-feature-heading
@@ -901,7 +904,10 @@ function FeaturesScreen({
           {status}
         </p>
       </div>
-      <div className="mx-auto w-full max-w-[430px] shrink-0 pt-5" data-one-feature-cta>
+      <div
+        className="mx-auto w-full max-w-[430px] shrink-0 pt-5"
+        data-one-feature-cta
+      >
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
@@ -1152,166 +1158,172 @@ function ContactsScreen({
         <OnboardingSkipButton onClick={onSkip} disabled={navigationDisabled} />
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
-          <UserPlus className="h-7 w-7" strokeWidth={2} />
-        </span>
-        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
-          Find your people
-        </h1>
-        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
-          {primed
-            ? "Find contacts already on One."
-            : state.kind === "matched"
-              ? "Connected matches are ready. You can request the rest."
-              : "You can always find people later from the People tab."}
-        </p>
+      <main className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+        <div className="mx-auto flex w-full max-w-[520px] flex-col">
+          <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+            <UserPlus className="h-7 w-7" strokeWidth={2} />
+          </span>
+          <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
+            Find your people
+          </h1>
+          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+            {primed
+              ? "Find people from your contacts already on One."
+              : state.kind === "matched"
+                ? "Connected matches are ready. You can request the rest."
+                : "You can always find people later from the People tab."}
+          </p>
 
-        {primed ? (
-          <>
-            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-              {state.kind === "busy" ? (
-                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
-                  <Loader2 className="h-5 w-5 animate-spin" /> Checking your
-                  contacts
-                </div>
-              ) : (
-                <div className="flex min-h-32 flex-col justify-center gap-3">
-                  {/* Say what happens to the address book before asking for it.
-                      A vague ask on a location product is what makes people
-                      decline, and the decline is permanent on iOS. */}
-                  <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
-                    One sends a protected match code and the last four digits,
-                    not names or full phone numbers. Your contact list is never
-                    stored. A match connects automatically only when that person
-                    has allowed contact connections; otherwise you can choose
-                    whether to send a request.
-                  </p>
-                  <PrimaryButton onClick={onSync} disabled={leaving}>
-                    {source === "google"
-                      ? "Connect Google Contacts"
-                      : "Check my contacts"}
-                  </PrimaryButton>
-                </div>
-              )}
-            </div>
-          </>
-        ) : null}
-
-        {state.kind === "matched" ? (
-          <ul className="mt-6 space-y-2" data-testid="onboarding-contact-matches">
-            {visibleMatches.map((match) => {
-              const added = addedUserIds.includes(match.userId);
-              const adding = addingUserIds.includes(match.userId);
-              const connected = match.connectionStatus === "connected";
-              const requestRequired = match.connectionStatus === "request_required";
-              return (
-                <li
-                  key={match.userId}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
-                >
-                  <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
-                    <span className="min-w-0 truncate">{match.displayName}</span>
-                    {connected ? <ContactSourceBadge /> : null}
-                  </span>
-                  {requestRequired ? (
-                    <button
-                      type="button"
-                      onClick={() => onAdd(match.userId)}
-                      disabled={added || adding || leaving}
-                      className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+          {primed ? (
+            <>
+              <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-white p-6 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+                {state.kind === "busy" ? (
+                  <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+                    <Loader2 className="h-5 w-5 animate-spin" /> Checking your
+                    contacts
+                  </div>
+                ) : (
+                  <div className="flex min-h-28 flex-col items-center justify-center gap-4 text-center">
+                    <p className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                      Connect contacts to see who is already here.
+                    </p>
+                    <PrimaryButton
+                      className="mx-auto max-w-[360px]"
+                      onClick={onSync}
+                      disabled={leaving}
                     >
-                      {adding ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : added ? (
-                        <Check className="h-4 w-4" strokeWidth={2.5} />
-                      ) : null}
-                      {added ? "Requested" : adding ? "Sending" : "Request"}
-                    </button>
-                  ) : (
-                    <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
-                      {connected ? (
-                        <Check className="h-4 w-4 text-emerald-600" />
-                      ) : null}
-                      {connected ? "Connected" : "Not connected"}
+                      Find contacts
+                    </PrimaryButton>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
+
+          {state.kind === "matched" ? (
+            <ul
+              className="mt-6 space-y-2"
+              data-testid="onboarding-contact-matches"
+            >
+              {visibleMatches.map((match) => {
+                const added = addedUserIds.includes(match.userId);
+                const adding = addingUserIds.includes(match.userId);
+                const connected = match.connectionStatus === "connected";
+                const requestRequired =
+                  match.connectionStatus === "request_required";
+                return (
+                  <li
+                    key={match.userId}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
+                      <span className="min-w-0 truncate">
+                        {match.displayName}
+                      </span>
+                      {connected ? <ContactSourceBadge /> : null}
                     </span>
-                  )}
+                    {requestRequired ? (
+                      <button
+                        type="button"
+                        onClick={() => onAdd(match.userId)}
+                        disabled={added || adding || leaving}
+                        className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                      >
+                        {adding ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : added ? (
+                          <Check className="h-4 w-4" strokeWidth={2.5} />
+                        ) : null}
+                        {added ? "Requested" : adding ? "Sending" : "Request"}
+                      </button>
+                    ) : (
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
+                        {connected ? (
+                          <Check className="h-4 w-4 text-emerald-600" />
+                        ) : null}
+                        {connected ? "Connected" : "Not connected"}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+              {visibleMatches.length < matches.length ? (
+                <li className="flex flex-col items-center gap-2 pt-2">
+                  <span className="text-xs text-[#73777f]" aria-live="polite">
+                    Showing {visibleMatches.length} of {matches.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVisibleMatchCount((current) =>
+                        Math.min(current + MATCH_PAGE_SIZE, matches.length),
+                      )
+                    }
+                    className="press-scale min-h-11 rounded-full border border-[#e4e6e9] px-5 text-sm font-semibold dark:border-white/[0.08]"
+                  >
+                    Show more
+                  </button>
                 </li>
-              );
-            })}
-            {visibleMatches.length < matches.length ? (
-              <li className="flex flex-col items-center gap-2 pt-2">
-                <span className="text-xs text-[#73777f]" aria-live="polite">
-                  Showing {visibleMatches.length} of {matches.length}
-                </span>
+              ) : null}
+            </ul>
+          ) : null}
+
+          {state.kind === "none" ? (
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                {state.partial
+                  ? "None of the contacts you shared are on One yet."
+                  : "None of your contacts are on One yet."}
+              </p>
+              <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+                Your circle code is on the next screen — send it to whoever you
+                want here.
+              </p>
+            </div>
+          ) : null}
+
+          {state.kind === "failed" ? (
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                {state.message}
+              </p>
+              {state.canOpenSettings ? (
                 <button
                   type="button"
-                  onClick={() =>
-                    setVisibleMatchCount((current) =>
-                      Math.min(current + MATCH_PAGE_SIZE, matches.length),
-                    )
-                  }
-                  className="press-scale min-h-11 rounded-full border border-[#e4e6e9] px-5 text-sm font-semibold dark:border-white/[0.08]"
+                  onClick={onOpenSettings}
+                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 >
-                  Show more
+                  Open Settings
                 </button>
-              </li>
-            ) : null}
-          </ul>
-        ) : null}
-
-        {state.kind === "none" ? (
-          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
-              {state.partial
-                ? "None of the contacts you shared are on One yet."
-                : "None of your contacts are on One yet."}
-            </p>
-            <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
-              Your circle code is on the next screen — send it to whoever you
-              want here.
-            </p>
-          </div>
-        ) : null}
-
-        {state.kind === "failed" ? (
-          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
-              {state.message}
-            </p>
-            {state.canOpenSettings ? (
-              <button
-                type="button"
-                onClick={onOpenSettings}
-                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-              >
-                Open Settings
-              </button>
-            ) : null}
-            {source === "google" ? (
-              <button
-                type="button"
-                onClick={onSync}
-                disabled={leaving}
-                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-              >
-                Try again
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+              ) : null}
+              {source === "google" ? (
+                <button
+                  type="button"
+                  onClick={onSync}
+                  disabled={leaving}
+                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Try again
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </main>
 
       <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
         {/* Always present, whatever happened above. Declining contacts, finding
             nobody, or a plugin failure must never be a dead end. */}
-        <PrimaryButton
-          onClick={onContinue}
-          disabled={navigationDisabled}
-          inverse={primed && state.kind === "idle"}
-        >
-          {state.kind === "idle" ? "Not now" : "Continue"}
-        </PrimaryButton>
+        <div className="mx-auto w-full max-w-[520px]">
+          <PrimaryButton
+            className={primed && state.kind === "idle" ? "max-w-none" : ""}
+            onClick={onContinue}
+            disabled={navigationDisabled}
+            inverse={primed && state.kind === "idle"}
+          >
+            {state.kind === "idle" ? "Not now" : "Continue"}
+          </PrimaryButton>
+        </div>
       </footer>
     </div>
   );
@@ -1446,197 +1458,201 @@ function ReadyScreen({
             Private until you share.
           </p>
 
-        {/* "Your people show up here once they join." used to sit here, with a
+          {/* "Your people show up here once they join." used to sit here, with a
             dashed empty-seat avatar beside it. The map above and the invite
             card below already say it between them, and a screen a person reads
             in three seconds cannot afford a sentence that only restates its own
             layout. */}
-        <div
-          className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
-          data-testid="one-location-onboarding-invite-card"
-          data-one-ready-code
-        >
-          {loading ? (
-            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
-              <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
-            </div>
-          ) : error ? (
-            <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
-              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
-                {error}
-              </p>
-              <button
-                type="button"
-                onClick={onRetry}
-                className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
-              >
-                Try again
-              </button>
-            </div>
-          ) : invite ? (
-            <>
-              {/* The circle's name, not a sentence wrapped around it. "Bring
+          <div
+            className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+            data-testid="one-location-onboarding-invite-card"
+            data-one-ready-code
+          >
+            {loading ? (
+              <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+                <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
+              </div>
+            ) : error ? (
+              <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
+                <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
+                  {error}
+                </p>
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : invite ? (
+              <>
+                {/* The circle's name, not a sentence wrapped around it. "Bring
                   your people to Ankit's Circle" spent five words introducing
                   the two things directly under it -- a code and a Share
                   button -- which the card's own shape already introduces. */}
-              <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
-                {invite.circleName}
-              </p>
-              <p
-                className={READY_CODE_CLASSNAME}
-                data-testid="one-location-onboarding-invite-code"
-                data-ui-contract="required-copy"
-                data-ui-id="onboarding-invite-code"
-                data-ui-truncation="forbid"
-              >
-                {formattedCode}
-              </p>
-              {/* Kept, shortened. The expiry changes what the person does with
+                <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
+                  {invite.circleName}
+                </p>
+                <p
+                  className={READY_CODE_CLASSNAME}
+                  data-testid="one-location-onboarding-invite-code"
+                  data-ui-contract="required-copy"
+                  data-ui-id="onboarding-invite-code"
+                  data-ui-truncation="forbid"
+                >
+                  {formattedCode}
+                </p>
+                {/* Kept, shortened. The expiry changes what the person does with
                   the code, so it stays; "You can get a fresh one any time" is a
                   reassurance about a screen they have not reached yet. */}
-              <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
-                Expires in 72 hours
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={onCopy}
-                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-                >
-                  {copied ? (
-                    <Check className="h-5 w-5" strokeWidth={2.5} />
-                  ) : (
-                    <Copy className="h-5 w-5" strokeWidth={2} />
-                  )}
-                  {copied ? "Copied" : "Copy"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onShare}
-                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
-                >
-                  <Share2 className="h-5 w-5" strokeWidth={2} />
-                  Share
-                </button>
-              </div>
-            </>
-          ) : (
-            <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
-              {/* Where to get it is the button at the bottom of this screen,
-                  which already says "Open One Location". Saying it again here
-                  is the paragraph this card used to be. */}
-              Your code isn&apos;t ready yet.
-            </p>
-          )}
-        </div>
-
-        {joinEnabled ? (
-          <div className="mt-4" data-testid="onboarding-join-circle">
-            {joinAccepted ? (
-              <p
-                className="flex items-center gap-2 rounded-[20px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-5 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
-                role="status"
-              >
-                <Check
-                  className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
-                  strokeWidth={2.5}
-                />
-                You&apos;ll join {joinPreview?.name ?? "their circle"} after
-                setup.
-              </p>
-            ) : joinPreview ? (
-              <div
-                // Same geometry as the invite card directly above it. These two
-                // stack at the same width, so a 16px inset under a 20px one put
-                // every line of the join card 4px left of the code card's --
-                // a visibly ragged edge down the panel.
-                className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
-                data-testid="onboarding-join-circle-preview"
-              >
-                {/* Name, owner and size before accepting. Deciding whether to
-                    share your location with a group is not a decision anyone
-                    should make against an opaque string. */}
-                <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
-                  {joinPreview.name}
+                <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+                  Expires in 72 hours
                 </p>
-                <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
-                  {joinPreview.ownerDisplayName} &middot;{" "}
-                  {joinPreview.memberCount}{" "}
-                  {joinPreview.memberCount === 1 ? "person" : "people"}
-                </p>
-                {joinPreview.alreadyMember ? (
-                  <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
-                    Already in this circle.
-                  </p>
-                ) : (
+                <div className="mt-4 grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={onAcceptJoinCode}
-                    disabled={joinBusy || leaving}
-                    className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                    onClick={onCopy}
+                    className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                   >
-                    {joinBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : null}
-                    Join {joinPreview.name}
+                    {copied ? (
+                      <Check className="h-5 w-5" strokeWidth={2.5} />
+                    ) : (
+                      <Copy className="h-5 w-5" strokeWidth={2} />
+                    )}
+                    {copied ? "Copied" : "Copy"}
                   </button>
-                )}
-                {/* The only way back. Previewing replaced the input, so without
-                    this a mistyped or wrong code left the person staring at
-                    someone else's circle with no route to try another. */}
-                <button
-                  type="button"
-                  onClick={onClearJoinPreview}
-                  disabled={joinBusy || leaving}
-                  className="press-scale mt-2 inline-flex min-h-11 w-full items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
-                  data-testid="onboarding-join-circle-reset"
-                >
-                  Use a different code
-                </button>
-              </div>
-            ) : (
-              <details className="group" data-testid="onboarding-join-circle-toggle" open={Boolean(joinCode)}>
-                {/* An action, not a question. "Someone sent you a code?" asks
-                    the person to confirm a situation before it offers to do
-                    anything about it; this names what tapping does. */}
-                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
-                  Join with a code
-                </summary>
-                <div className="mt-3 flex gap-2">
-                  <input
-                    value={joinCode}
-                    onChange={(event) => onJoinCodeChange(event.target.value)}
-                    placeholder="Enter their code"
-                    aria-label="Circle code"
-                    autoCapitalize="characters"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-                  />
                   <button
                     type="button"
-                    onClick={onPreviewJoinCode}
-                    disabled={joinBusy || !joinCode.trim() || leaving}
-                    className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                    onClick={onShare}
+                    className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
                   >
-                    {joinBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : null}
-                    Look up
+                    <Share2 className="h-5 w-5" strokeWidth={2} />
+                    Share
                   </button>
                 </div>
-              </details>
-            )}
-            {joinError ? (
-              <p
-                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[color:var(--app-destructive)]"
-                role="status"
-              >
-                {joinError}
+              </>
+            ) : (
+              <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
+                {/* Where to get it is the button at the bottom of this screen,
+                  which already says "Open One Location". Saying it again here
+                  is the paragraph this card used to be. */}
+                Your code isn&apos;t ready yet.
               </p>
-            ) : null}
+            )}
           </div>
-        ) : null}
+
+          {joinEnabled ? (
+            <div className="mt-4" data-testid="onboarding-join-circle">
+              {joinAccepted ? (
+                <p
+                  className="flex items-center gap-2 rounded-[20px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-5 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
+                  role="status"
+                >
+                  <Check
+                    className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
+                    strokeWidth={2.5}
+                  />
+                  You&apos;ll join {joinPreview?.name ?? "their circle"} after
+                  setup.
+                </p>
+              ) : joinPreview ? (
+                <div
+                  // Same geometry as the invite card directly above it. These two
+                  // stack at the same width, so a 16px inset under a 20px one put
+                  // every line of the join card 4px left of the code card's --
+                  // a visibly ragged edge down the panel.
+                  className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+                  data-testid="onboarding-join-circle-preview"
+                >
+                  {/* Name, owner and size before accepting. Deciding whether to
+                    share your location with a group is not a decision anyone
+                    should make against an opaque string. */}
+                  <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
+                    {joinPreview.name}
+                  </p>
+                  <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+                    {joinPreview.ownerDisplayName} &middot;{" "}
+                    {joinPreview.memberCount}{" "}
+                    {joinPreview.memberCount === 1 ? "person" : "people"}
+                  </p>
+                  {joinPreview.alreadyMember ? (
+                    <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+                      Already in this circle.
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onAcceptJoinCode}
+                      disabled={joinBusy || leaving}
+                      className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                    >
+                      {joinBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : null}
+                      Join {joinPreview.name}
+                    </button>
+                  )}
+                  {/* The only way back. Previewing replaced the input, so without
+                    this a mistyped or wrong code left the person staring at
+                    someone else's circle with no route to try another. */}
+                  <button
+                    type="button"
+                    onClick={onClearJoinPreview}
+                    disabled={joinBusy || leaving}
+                    className="press-scale mt-2 inline-flex min-h-11 w-full items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
+                    data-testid="onboarding-join-circle-reset"
+                  >
+                    Use a different code
+                  </button>
+                </div>
+              ) : (
+                <details
+                  className="group"
+                  data-testid="onboarding-join-circle-toggle"
+                  open={Boolean(joinCode)}
+                >
+                  {/* An action, not a question. "Someone sent you a code?" asks
+                    the person to confirm a situation before it offers to do
+                    anything about it; this names what tapping does. */}
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
+                    Join with a code
+                  </summary>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={joinCode}
+                      onChange={(event) => onJoinCodeChange(event.target.value)}
+                      placeholder="Enter their code"
+                      aria-label="Circle code"
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={onPreviewJoinCode}
+                      disabled={joinBusy || !joinCode.trim() || leaving}
+                      className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                    >
+                      {joinBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : null}
+                      Look up
+                    </button>
+                  </div>
+                </details>
+              )}
+              {joinError ? (
+                <p
+                  className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[color:var(--app-destructive)]"
+                  role="status"
+                >
+                  {joinError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {/* The SAME surface as the panel it sits inside, by token rather than
@@ -1656,7 +1672,11 @@ function ReadyScreen({
               reason to record the whole capability as skipped -- the person
               granted permission and saved a place, so finishing is the honest
               outcome. Retrying the code lives inside the card above. */}
-          <PrimaryButton onClick={onContinue} busy={completing} disabled={leaving}>
+          <PrimaryButton
+            onClick={onContinue}
+            busy={completing}
+            disabled={leaving}
+          >
             {completeLabel}
           </PrimaryButton>
         </footer>
@@ -1682,7 +1702,6 @@ function ReadyScreen({
     </div>
   );
 }
-
 
 function initialScreen(startAt: OneLocationOnboardingStart): OnboardingScreen {
   return startAt === "permissions" ? "features" : "welcome";
@@ -1788,9 +1807,9 @@ export function OneLocationOnboardingFlow({
     | { kind: "matched" }
     | { kind: "failed"; message: string; canOpenSettings: boolean }
   >({ kind: "idle" });
-  const [contactMatches, setContactMatches] = useState<OnboardingContactMatch[]>(
-    [],
-  );
+  const [contactMatches, setContactMatches] = useState<
+    OnboardingContactMatch[]
+  >([]);
   const [addedContactIds, setAddedContactIds] = useState<string[]>([]);
   const [addingContactIds, setAddingContactIds] = useState<string[]>([]);
 
@@ -1918,9 +1937,9 @@ export function OneLocationOnboardingFlow({
       setCircleInviteError(
         error instanceof Error && error.message
           ? error.message
-          // The state, not the apology. "Try again" is the button directly
-          // under this line, so the sentence does not have to say it too.
-          : "Couldn't get your code.",
+          : // The state, not the apology. "Try again" is the button directly
+            // under this line, so the sentence does not have to say it too.
+            "Couldn't get your code.",
       );
     } finally {
       circleInviteInFlightRef.current = false;
@@ -1952,11 +1971,11 @@ export function OneLocationOnboardingFlow({
   const handleCopyCircleInvite = useCallback(() => {
     if (!circleInvite) return;
     codeCopiedRef.current = true;
-    void Promise.resolve(
-      onCopyOnboardingCircleCode?.(circleInvite.code),
-    ).catch(() => {
-      /* parent surfaces its own failure toast */
-    });
+    void Promise.resolve(onCopyOnboardingCircleCode?.(circleInvite.code)).catch(
+      () => {
+        /* parent surfaces its own failure toast */
+      },
+    );
     setCircleInviteCopied(true);
     if (circleInviteCopiedTimerRef.current) {
       clearTimeout(circleInviteCopiedTimerRef.current);
@@ -1970,11 +1989,11 @@ export function OneLocationOnboardingFlow({
   const handleShareCircleInvite = useCallback(() => {
     if (!circleInvite) return;
     codeSharedRef.current = true;
-    void Promise.resolve(
-      onShareOnboardingCircleCode?.(circleInvite),
-    ).catch(() => {
-      /* parent surfaces its own failure toast */
-    });
+    void Promise.resolve(onShareOnboardingCircleCode?.(circleInvite)).catch(
+      () => {
+        /* parent surfaces its own failure toast */
+      },
+    );
   }, [circleInvite, onShareOnboardingCircleCode]);
 
   const handleSyncContacts = useCallback(async () => {
@@ -2219,7 +2238,6 @@ export function OneLocationOnboardingFlow({
     setScreen(contactsStepAvailable ? "contacts" : "invite");
   };
 
-
   return (
     <main
       // Onboarding is modal; nothing from the app shell belongs over it. Keep
@@ -2253,9 +2271,11 @@ export function OneLocationOnboardingFlow({
           // rather than leaving side gutters on a device that has none.
           screen === "welcome"
             ? "max-w-none"
-            : screen === "features" || screen === "invite"
+            : screen === "features" ||
+                screen === "contacts" ||
+                screen === "invite"
               ? "max-w-none"
-            : "max-w-[430px] max-[431px]:max-w-none",
+              : "max-w-[430px] max-[431px]:max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
@@ -2318,7 +2338,9 @@ export function OneLocationOnboardingFlow({
             // caller can tell them apart. "Map unavailable" in front of someone
             // who refused Location blames the wrong thing and hides the one
             // thing they could change.
-            mapEmptyLabel={locationBlocked ? "Location is off" : "Map unavailable"}
+            mapEmptyLabel={
+              locationBlocked ? "Location is off" : "Map unavailable"
+            }
             invite={circleInvite}
             loading={circleInviteLoading}
             error={circleInviteError}

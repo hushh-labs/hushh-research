@@ -7,8 +7,8 @@ import {
   CardHeader as MorphyCardHeader,
   CardTitle as MorphyCardTitle,
 } from "@/lib/morphy-ux/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import {
   ChevronDown,
   ChevronUp,
@@ -17,7 +17,6 @@ import {
   Search,
   Heart,
   Calculator,
-  AlertCircle,
 } from "lucide-react";
 import { AgentAnalysisCard } from "../agent-analysis-card";
 import { cn } from "@/lib/morphy-ux";
@@ -102,6 +101,10 @@ export function RoundTabsCard({
   // The displayed tab: the user's pinned choice wins; otherwise follow the
   // live agent, then the local default.
   const selectedTab = userPinned ? currentTab : activeAgent || currentTab;
+  const selectedAgent = AGENT_ORDER.includes(selectedTab as (typeof AGENT_ORDER)[number])
+    ? (selectedTab as (typeof AGENT_ORDER)[number])
+    : "fundamental";
+  const selectedConfig = AGENT_CONFIG[selectedAgent];
 
   const handleTabChange = (val: string) => {
     // A tap always wins and pins, whether or not a live run is streaming, so
@@ -129,7 +132,7 @@ export function RoundTabsCard({
     <MorphyCard
       showRipple={false}
       className={cn(
-        "w-full rounded-2xl border border-border/60 bg-background/70 shadow-[0_8px_24px_rgba(0,0,0,0.14)] transition-all duration-200",
+        "w-full rounded-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-compact)] shadow-[var(--app-card-shadow-standard)] transition-all duration-200",
         className
       )}
     >
@@ -180,78 +183,24 @@ export function RoundTabsCard({
 
       {!isCollapsed && (
         <MorphyCardContent>
-          <Tabs value={selectedTab} onValueChange={handleTabChange} className="w-full">
-            <TabsList className="mb-4 grid h-10 w-full grid-cols-3 items-stretch gap-1">
-              {AGENT_ORDER.map((agent) => {
-                const config = AGENT_CONFIG[agent];
-                const state = agentStates[agent];
-                const isAgentComplete = state?.stage === "complete";
-                const isAgentActive = state?.stage === "active";
-                const isAgentError = state?.stage === "error";
-
-                const hasStatusIndicator =
-                  isAgentComplete || isAgentError || isAgentActive;
-
-                return (
-                  <TabsTrigger
-                    key={agent}
-                    value={agent}
-                    className={cn(
-                      // Center reliably inside the fixed grid cell and keep the
-                      // layout stable between active/inactive. `whitespace-nowrap`
-                      // keeps each label ("Fundamental"/"Sentiment"/"Valuation")
-                      // on one line; the tighter padding + 11px size fit all
-                      // three full labels across a 3-col grid on narrow iPhones
-                      // instead of the previous mid-word "Funda…" truncation.
-                      "flex h-8 min-h-0 w-full min-w-0 items-center justify-center gap-1 whitespace-nowrap px-1 text-center text-[11px] leading-none sm:text-xs",
-                      isAgentComplete &&
-                        "data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300"
-                    )}
-                  >
-                    <span className="min-w-0 truncate">{config.label}</span>
-                    {/* Only reserve the status glyph's width when a status
-                        actually exists, so an idle tab gives its full width to
-                        the label instead of a permanently empty 12px gutter. */}
-                    {hasStatusIndicator ? (
-                      <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center">
-                        {isAgentComplete ? (
-                          <Icon icon={CheckCircle2} size="xs" className="text-emerald-500" />
-                        ) : isAgentError ? (
-                          <Icon icon={AlertCircle} size="xs" className="text-red-500" />
-                        ) : (
-                          <span className="relative flex h-2 w-2">
-                            <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", config.bgDot)} />
-                            <span className={cn("relative inline-flex rounded-full h-2 w-2", config.bgDot)} />
-                          </span>
-                        )}
-                      </span>
-                    ) : null}
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
-
-            {AGENT_ORDER.map((agent) => {
-              const config = AGENT_CONFIG[agent];
-              return (
-                <TabsContent
-                  key={agent}
-                  value={agent}
-                  forceMount
-                  className="mt-0 focus-visible:ring-0 data-[state=inactive]:hidden"
-                >
-                  <AgentAnalysisCard
-                    agentName={`${config.label} Agent`}
-                    icon={config.icon}
-                    color={config.color}
-                    state={agentStates[agent] || { stage: "idle", text: "", thoughts: [] }}
-                    disableStreaming={false}
-                    compactMode
-                  />
-                </TabsContent>
-              );
-            })}
-          </Tabs>
+          <SegmentedTabs
+            value={selectedAgent}
+            onValueChange={handleTabChange}
+            options={AGENT_ORDER.map((agent) => ({
+              value: agent,
+              label: AGENT_CONFIG[agent].label,
+            }))}
+            className="mb-4 w-full"
+            ariaLabel={`${title} analysts`}
+          />
+          <AgentAnalysisCard
+            agentName={`${selectedConfig.label} Agent`}
+            icon={selectedConfig.icon}
+            color={selectedConfig.color}
+            state={agentStates[selectedAgent] || { stage: "idle", text: "", thoughts: [] }}
+            disableStreaming={false}
+            compactMode
+          />
         </MorphyCardContent>
       )}
     </MorphyCard>
