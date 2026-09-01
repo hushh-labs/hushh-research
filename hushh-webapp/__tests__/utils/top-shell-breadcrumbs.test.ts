@@ -616,6 +616,10 @@ describe("top shell breadcrumbs", () => {
     // were removed so this is the ONLY back affordance on those screens.
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
+      // Must equal the flow's own TaskFlowHeader title. A crumb that reads
+      // differently from the screen it names is how a trail stops describing
+      // where you are.
+      ["places-visited", "Places you've been"],
       ["private-check-in", "Private Check-In"],
       // The implementation action id stays sos; the visible product name is shared.
       ["sos", "Save My Soul"],
