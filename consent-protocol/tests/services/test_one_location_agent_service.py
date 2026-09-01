@@ -880,6 +880,16 @@ def test_verified_recipient_directory_sources_from_connections_and_circles() -> 
     assert service.params["owner_user_id"] == "owner"
 
 
+def test_paged_verified_recipient_directory_uses_the_shared_verified_ria_gate() -> None:
+    service = RecipientDirectoryProbe()
+
+    assert service.list_verified_recipients_page(owner_user_id="owner")["items"] == []
+    assert "ria_profiles ria_annotation" in service.sql
+    assert "'finra_verified'" in service.sql
+    assert "page_rows.is_ria" in service.sql
+    assert service.params["owner_user_id"] == "owner"
+
+
 def test_list_verified_recipients_sources_from_connections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -899,6 +909,7 @@ def test_list_verified_recipients_sources_from_connections(
                 "public_key_jwk": "{}",
                 "algorithm": "ECDH-P256-AES256-GCM",
                 "key_created_at": None,
+                "is_ria": True,
             }
         ]
 
@@ -906,8 +917,11 @@ def test_list_verified_recipients_sources_from_connections(
     monkeypatch.setattr(svc, "_apply_kai_circle_recommendations", lambda **kw: kw["recipients"])
     out = svc.list_verified_recipients(owner_user_id="owner")
     assert "FROM connections c" in captured["sql"]
+    assert "ria_profiles ria_annotation" in captured["sql"]
+    assert "'finra_verified'" in captured["sql"]
     assert "a.phone_verified = TRUE" not in captured["sql"]
     assert out and out[0]["userId"] == "friend"
+    assert out[0]["isRia"] is True
 
 
 def test_list_active_owner_grants_is_scoped_to_this_owner_and_active_status(
@@ -2382,6 +2396,15 @@ class FourUserMemoryService(OneLocationAgentService):
             and "grant_id" not in params
         ):
             now = datetime.now(timezone.utc)
+            # Honour the lane predicate, exactly as the revoke fake above does.
+            # Without this the read returns the newest live grant of EITHER
+            # lane, so a test where an SOS share and an ordinary share are both
+            # running cannot tell the two apart -- and the production statement
+            # this stands in for is lane-scoped precisely because that
+            # distinction is the difference between extending a friend's share
+            # and reading an emergency one's hours.
+            lane_scoped = ":is_sos_lane" in sql
+            is_sos_lane = bool(params["is_sos_lane"]) if lane_scoped else None
             live = [
                 grant
                 for grant in self.grants.values()
@@ -2389,6 +2412,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 and grant["recipient_user_id"] == params["recipient_user_id"]
                 and grant["status"] == "active"
                 and (grant.get("expires_at") is None or grant["expires_at"] > now)
+                and (not lane_scoped or self._grant_is_sos_lane(grant) == is_sos_lane)
             ]
             live.sort(key=lambda item: item["created_at"], reverse=True)
             return live[0] if live else None
@@ -3189,6 +3213,29 @@ def test_recipient_payload_masks_email_for_directory_disambiguation() -> None:
     assert payload is not None
     assert payload["maskedEmail"] == "a***y@example.com"
     assert "abdul.secondary@example.com" not in json.dumps(payload)
+
+
+def test_recipient_payload_marks_verified_ria_status() -> None:
+    payload = OneLocationAgentService._recipient_payload(
+        {
+            "user_id": "advisor-user",
+            "display_name": "Ada Advisor",
+            "phone_verified": True,
+            "is_ria": True,
+        }
+    )
+    assert payload is not None
+    assert payload["isRia"] is True
+
+    payload = OneLocationAgentService._recipient_payload(
+        {
+            "user_id": "person-user",
+            "display_name": "Pat Person",
+            "phone_verified": True,
+        }
+    )
+    assert payload is not None
+    assert payload["isRia"] is False
 
 
 def test_directory_candidate_search_filters_before_pagination(

@@ -22,7 +22,12 @@ CONFIG_PATH = Path(".codex/config.toml")
 SKILLS_DIR = Path(".codex/skills")
 WORKFLOWS_DIR = Path(".codex/workflows")
 MIN_AGENT_COUNT = 8
-MAX_AGENT_COUNT = 12
+# Raised from 12 for the wave-2 addition of local_model_judge: the Puppy One
+# harness requires a judge lane that is never the answerer, so on-device model
+# output cannot be graded by any agent that also produces it. This is the
+# intentional validator update the delegation contract requires for expanding
+# the curated baseline; see references/delegation-contract.md.
+MAX_AGENT_COUNT = 13
 EXPECTED_MAX_THREADS = 6
 EXPECTED_MAX_DEPTH = 1
 DEFAULT_RECOVERY_SLOT = 1

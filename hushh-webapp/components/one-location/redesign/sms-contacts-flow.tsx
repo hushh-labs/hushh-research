@@ -329,6 +329,7 @@ export function SmsContactsFlow({
                       <ContactRow
                         label={label}
                         photoUrl={recipient.photoUrl}
+                        verified={Boolean(recipient.isRia)}
                         subtitle={recipientSubtitle(recipient)}
                         fromContacts={recipient.connectedFromContacts}
                         selected={selectedIds.has(recipient.userId)}
@@ -390,6 +391,7 @@ export function SmsContactsFlow({
             <ContactAvatar
               label={pendingRemoval ? recipientLabel(pendingRemoval) : "?"}
               photoUrl={pendingRemoval?.photoUrl}
+              verified={Boolean(pendingRemoval?.isRia)}
               className="h-[52px] w-[52px] rounded-[16px] text-xl"
             />
             <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-semibold !leading-[25px] !tracking-normal">

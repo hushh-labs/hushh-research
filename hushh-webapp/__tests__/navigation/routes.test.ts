@@ -8,6 +8,7 @@ import {
   buildKaiMarketRoute,
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
+  buildPersonProfileRoute,
   buildWelcomeRoute,
   isAnalyticsExemptRoute,
   isCapabilityHandoffTarget,
@@ -22,6 +23,7 @@ import {
   isRiaRoute,
   resolveCapabilityHandoffTarget,
   resolveCompletedSetupCapabilityEntry,
+  resolvePersonRefFromProfilePathname,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -61,6 +63,32 @@ describe("navigation routes", () => {
     );
     expect(buildWelcomeRoute("https://example.com")).toBe(ROUTES.HOME);
     expect(buildWelcomeRoute("//example.com")).toBe(ROUTES.HOME);
+  });
+
+  it("builds person profile routes with a safe origin marker", () => {
+    expect(
+      buildPersonProfileRoute("public person/ref", { from: ROUTES.CONNECT }),
+    ).toBe("/people/public%20person%2Fref?from=%2Fone%2Fconnect");
+    expect(
+      buildPersonProfileRoute("public-person-ref", {
+        from: "https://example.com/one/connect",
+      }),
+    ).toBe("/people/public-person-ref");
+    expect(buildPersonProfileRoute("public-person-ref")).toBe(
+      "/people/public-person-ref",
+    );
+  });
+
+  it("resolves the active person ref from public profile pathnames", () => {
+    expect(resolvePersonRefFromProfilePathname("/people/public-person-ref")).toBe(
+      "public-person-ref",
+    );
+    expect(
+      resolvePersonRefFromProfilePathname(
+        "/people/public%20person%2Fref?from=%2Fone%2Fconnect",
+      ),
+    ).toBe("public person/ref");
+    expect(resolvePersonRefFromProfilePathname("/one/profile/access")).toBeNull();
   });
 
   it("builds canonical nested profile routes while preserving transient query state", () => {
@@ -210,10 +238,14 @@ describe("navigation routes", () => {
   it("defines profile and Connect inside the vault-protected One route family", () => {
     expect(ROUTES.PROFILE).toBe("/one/profile");
     expect(ROUTES.PROFILE_SECURITY).toBe("/one/profile/security");
+    expect(ROUTES.PERSON_PROFILE).toBe("/people/[personRef]");
     expect(ROUTES.CONNECT).toBe("/one/connect");
     expect(ROUTES.CONNECT_SETTINGS).toBe("/one/connect/settings");
     expect(isOnboardingAdmissionExemptRoute(ROUTES.PROFILE)).toBe(true);
     expect(isOnboardingAdmissionExemptRoute(ROUTES.PROFILE_SECURITY)).toBe(
+      true,
+    );
+    expect(isOnboardingAdmissionExemptRoute("/people/person-ref-scoped")).toBe(
       true,
     );
   });

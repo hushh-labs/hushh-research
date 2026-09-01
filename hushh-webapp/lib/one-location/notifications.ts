@@ -648,6 +648,16 @@ export function locationWorkflowNotificationCopy(params: {
   grantedDurationHours?: number | string | null;
   grantedDurationMode?: string | null;
   /**
+   * How much time an approved EXTENSION added, as opposed to the new total.
+   *
+   * Approving "30 min more" on a two-hour share leaves two and a half hours
+   * running (#6256), so `grantedDurationHours` is the total and putting it
+   * next to the word "more" reports a thirty-minute top-up as "2 hours 30 min
+   * more". Absent on notifications written before that fix, where the total
+   * really was what the approval granted.
+   */
+  addedDurationHours?: number | string | null;
+  /**
    * Which lane the notification is about.
    *
    * A person can hold an ordinary share and an SMS/Save-My-Soul share with the
@@ -693,6 +703,17 @@ export function locationWorkflowNotificationCopy(params: {
     params.grantedDurationMode === "until_stopped"
       ? "for as long as you need"
       : formatLocationDurationLabel(params.grantedDurationHours);
+  // The increment an extension added.
+  //
+  // Deliberately NOT falling back to `grantedLabel`. The total and the
+  // increment are different numbers now (#6256), and both delivery paths can
+  // arrive without the increment -- a push written before this shipped, or a
+  // reconciled payload whose two expiries were not both readable. Filling the
+  // gap with the total would announce a thirty-minute top-up of a two-hour
+  // share as "2 hours 30 min more", which is the same class of lie, five times
+  // larger, on the surface most likely to be the only one seen. An extension
+  // with no known increment says so without a number instead.
+  const addedLabel = formatLocationDurationLabel(params.addedDurationHours);
 
   const revokedViaSms =
     normalizeOneLocationShareKind(params.shareKind) === "sos";
@@ -706,10 +727,33 @@ export function locationWorkflowNotificationCopy(params: {
     case "location_access_approved":
       // Name the number. "Approved" alone left the person who asked for four
       // hours with no way to learn they had been given one until it ran out.
-      if (grantedLabel && askFacts.isExtension) {
+      if (
+        askFacts.isExtension &&
+        params.grantedDurationMode === "until_stopped"
+      ) {
+        // An open-ended share cannot be given "more" of anything, and
+        // `grantedLabel` is the phrase "for as long as you need" -- which read
+        // as "gave you for as long as you need more of live location".
         return {
           title: "More location time approved",
-          description: `${ownerLabel} gave you ${grantedLabel} more of live location.`,
+          description: `${ownerLabel} is now sharing live location until they stop.`,
+        };
+      }
+      if (addedLabel && askFacts.isExtension) {
+        return {
+          title: "More location time approved",
+          description: `${ownerLabel} gave you ${addedLabel} more of live location.`,
+        };
+      }
+      if (askFacts.isExtension) {
+        // Extension, increment unknown. Says the useful, certain thing -- how
+        // long they have now -- rather than dressing the total up as the
+        // amount that was added.
+        return {
+          title: "More location time approved",
+          description: grantedLabel
+            ? `${ownerLabel} gave you more location time. You now have ${grantedLabel}.`
+            : `${ownerLabel} gave you more location time.`,
         };
       }
       if (grantedLabel) {

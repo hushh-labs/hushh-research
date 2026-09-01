@@ -827,6 +827,9 @@ export function ConsentNotificationProvider({
         isExtension: String(data.is_extension || "").trim() === "true",
         extendsGrantExpiresAt: data.extends_grant_expires_at || null,
         grantedDurationHours: data.duration_hours || null,
+        // Approving an extension ADDS to the running share, so the total above
+        // is not the amount to put next to "more".
+        addedDurationHours: data.added_duration_hours || null,
         grantedDurationMode: data.duration_mode || null,
         // Which lane ended. Stamped by the service on the revoke payload,
         // because the grant is gone by the time this arrives -- the client

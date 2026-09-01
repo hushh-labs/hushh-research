@@ -337,9 +337,28 @@ describe("SettingsSegmentedTabs", () => {
     expect(root?.className).toContain("rounded-[14px]");
     expect(root?.className).not.toContain("rounded-full");
     expect(active.className).toContain("rounded-[12px]");
-    expect(active.className).toContain("font-normal");
-    expect(active.className).not.toContain("font-semibold");
     expect(active.className).not.toContain("press-scale");
+
+    // One segmented material, shared with the Location strip: a recessed grey
+    // track with no border, and a RAISED pill rather than an outlined one.
+    // The track used to borrow `--app-card-surface-compact` behind a card
+    // border, which put a near-white bordered box around a near-white pill --
+    // the same control as Location's, reading as a different component on the
+    // very next page.
+    expect(root?.className).toContain(
+      "bg-[color:var(--app-segmented-track-surface)]",
+    );
+    expect(root?.className).toContain("border-0");
+    expect(root?.className).not.toContain("var(--app-card-surface-compact)");
+
+    expect(active.className).toContain(
+      "shadow-[var(--app-segmented-active-shadow)]",
+    );
+    expect(active.className).toContain("border-transparent");
+    // Semibold, matching the Location strip's active label. The weight is the
+    // second half of "this one is selected"; the pill is the first.
+    expect(active.className).toContain("font-semibold");
+    expect(active.className).not.toContain("font-normal");
   });
 
   it("disables the whole segmented control while its selection is settling", () => {

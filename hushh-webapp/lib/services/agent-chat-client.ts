@@ -1,6 +1,11 @@
 import { ApiService } from "@/lib/services/api-service";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import {
+  parseAgentActivityExperience,
+  parseAgentToolResultExperience,
+  type AgentStructuredExperience,
+} from "@/lib/agent/agui-structured-experiences";
 
 export type AgentChatMessage = {
   id: string;
@@ -63,9 +68,11 @@ export type AgentChatStreamHandlers = {
   onToolResult?: (payload: AgentChatToolEvent) => void;
   onToken?: (token: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
+  onInterrupt?: (payload: { conversationId: string }) => void;
   onError?: (message: string) => void;
   onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
+  onStructuredExperience?: (experience: AgentStructuredExperience) => void;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -79,6 +86,24 @@ function readString(record: Record<string, unknown>, key: string): string {
 
 const GENERIC_AGENT_CHAT_ERROR =
   "One couldn't complete that response. Please try again.";
+
+const SERVER_TOOL_PRESENTATION: Record<
+  string,
+  { label: string; message: string }
+> = {
+  discover_person_information: {
+    label: "Available information",
+    message: "Checking what this person makes available to request.",
+  },
+  list_my_connections: {
+    label: "Connections",
+    message: "Checking your current connections.",
+  },
+  list_pending_connection_requests: {
+    label: "Connection requests",
+    message: "Checking your pending connection requests.",
+  },
+};
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
   if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
@@ -174,12 +199,21 @@ export async function streamAgentChat(input: {
   });
   let text = "";
   let failure: Error | null = null;
+  let settleTerminalRun: (() => void) | null = null;
+  const terminalRun = new Promise<void>((resolve) => {
+    settleTerminalRun = resolve;
+  });
+  const finishTerminalRun = () => {
+    settleTerminalRun?.();
+    settleTerminalRun = null;
+  };
   const toolNames = new Map<string, string>();
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
     const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
     const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
+    const serverPresentation = SERVER_TOOL_PRESENTATION[name];
     return {
       callId,
       directiveId: null,
@@ -187,10 +221,13 @@ export async function streamAgentChat(input: {
       contextRevision: null,
       expiresAt: null,
       actionId: typeof actionId === "string" ? actionId : null,
-      label: action?.label || name,
+      label: action?.label || serverPresentation?.label || "One task",
       execution: "frontend",
       slots: args,
-      message: action?.meaning || "One requested an app action.",
+      message:
+        action?.meaning ||
+        serverPresentation?.message ||
+        "One is working on your request.",
       requiresConfirmation: action?.execution_policy === "confirm_required",
       trustedActivationRequired: action?.activation_policy === "trusted_activation_required",
       raw: {
@@ -232,32 +269,57 @@ export async function streamAgentChat(input: {
       );
     },
     onToolCallResultEvent: ({ event }) => {
+      const toolName = toolNames.get(event.toolCallId) || "";
       const payload = toolPayload(
         event.toolCallId,
-        toolNames.get(event.toolCallId) || "",
+        toolName,
         toolArgs.get(event.toolCallId) || {},
       );
       payload.raw.result = event.content;
       handlers.onToolResult?.(payload);
+      const experience = parseAgentToolResultExperience(toolName, event.content);
+      if (experience) handlers.onStructuredExperience?.(experience);
+    },
+    onActivitySnapshotEvent: ({ event }) => {
+      const experience = parseAgentActivityExperience(
+        event.activityType,
+        event.content,
+      );
+      if (experience) handlers.onStructuredExperience?.(experience);
+    },
+    onActivityDeltaEvent: ({ event, activityMessage }) => {
+      const experience = parseAgentActivityExperience(
+        activityMessage?.activityType || event.activityType,
+        activityMessage?.content,
+      );
+      if (experience) handlers.onStructuredExperience?.(experience);
     },
     onRunFinishedEvent: (params) => {
       if (params.outcome === "interrupt") {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
         }
+        handlers.onInterrupt?.({ conversationId: threadId });
+        return;
       }
       handlers.onComplete?.({ conversationId: threadId });
+      finishTerminalRun();
     },
     onRunErrorEvent: ({ event }) => {
       failure = new Error(formatAgentChatErrorMessage(event.message || ""));
       handlers.onError?.(failure.message);
+      finishTerminalRun();
     },
     onRunFailed: ({ error }) => {
       failure = new Error(formatAgentChatErrorMessage(error.message || ""));
       handlers.onError?.(failure.message);
+      finishTerminalRun();
     },
   };
-  const abort = () => agent.abortRun();
+  const abort = () => {
+    agent.abortRun();
+    finishTerminalRun();
+  };
   input.signal?.addEventListener("abort", abort, { once: true });
   try {
     await agent.runAgent({
@@ -269,6 +331,7 @@ export async function streamAgentChat(input: {
         screenContext: input.screenContext,
       },
     }, subscriber);
+    await terminalRun;
   } finally {
     input.signal?.removeEventListener("abort", abort);
   }

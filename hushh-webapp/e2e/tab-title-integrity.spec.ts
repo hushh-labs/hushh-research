@@ -95,7 +95,7 @@ test.describe("Tab titles never truncate", () => {
         await page.setContent(
           `<!doctype html><html><head><style>${css}</style></head><body>
              <main style="padding:0 16px">
-               <div class="relative grid w-full rounded-full p-1 border bg-[color:var(--app-card-surface-compact)] ${override}"
+               <div class="relative grid w-full rounded-[14px] p-0.5 border-0 bg-[color:var(--app-segmented-track-surface)] ${override}"
                     style="--segmented-mobile-cols:${strip.labels.length};--segmented-desktop-cols:${strip.labels.length};
                            grid-template-columns:repeat(${strip.labels.length},minmax(0,1fr))">
                  ${strip.labels
