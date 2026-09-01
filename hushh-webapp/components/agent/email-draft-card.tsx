@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, Mail, Send, Sparkles, User, X } from "lucide-react";
+import { Loader2, Mail, Send, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
