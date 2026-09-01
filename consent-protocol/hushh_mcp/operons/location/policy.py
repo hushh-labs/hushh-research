@@ -19,6 +19,15 @@ LOCATION_CAPABILITY_SCOPES = [
     "cap.location.live.request",
     "cap.location.live.revoke",
     "cap.location.live.refer_request",
+    # Nearby check-in and place rating were both declared in `ConsentScope`
+    # without ever reaching this list, so the one place that answers "what can
+    # Location do" under-reported itself by six.
+    "cap.location.nearby.publish",
+    "cap.location.nearby.discover",
+    "cap.location.nearby.revoke",
+    "cap.location.place_rating.publish",
+    "cap.location.place_rating.discover",
+    "cap.location.place_rating.revoke",
 ]
 
 _ALLOWED_SOURCE_PLATFORMS = {"web", "ios", "android", "native", "unknown"}

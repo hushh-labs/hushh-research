@@ -136,3 +136,30 @@ tests/test_contact_discovery_hardening.py
 tests/test_trusted_device_routes.py
 tests/test_trusted_device_heartbeat.py
 tests/quality/test_revocation_persistence.py
+
+# One Location place ratings.
+#
+# The first durable link between a person and a venue this product has ever
+# kept, so the guards below hold the properties that cannot be fixed after
+# launch: a rating is writable only by someone the server recorded at the
+# place; the visit ledger holds the venue only as ciphertext; a rating row
+# carries no author display identity for a future read path to leak; one
+# person gets one vote per place; and no average is published until enough
+# people have rated that the average is not a re-identification of one of them.
+#
+# This manifest is the only pytest invocation in any lane, including the merge
+# queue, so a test absent from it is decoration.
+tests/test_one_location_place_rating_migration.py
+tests/services/test_one_location_place_rating_service.py
+tests/test_one_location_place_rating_consent_scope.py
+
+# Nearby check-in, which place ratings are built on top of.
+#
+# Every file below has existed and been green for as long as the feature has,
+# and not one of them has ever run: none was in this manifest. They are added
+# here because the change above edits the service and the route they cover.
+tests/test_one_location_nearby_presence_migration.py
+tests/test_one_location_nearby_presence_routes.py
+tests/services/test_one_location_nearby_presence_service.py
+tests/test_one_location_nearby_point_contract_migration.py
+tests/test_one_location_nearby_check_in_preferences_migration.py

@@ -915,11 +915,36 @@ class OneLocationNearbyPresenceService:
         *,
         store: NearbyPresenceStore | None = None,
         connections_factory: Callable[[], ConnectionsService] | None = None,
+        place_rating_factory: Callable[[], Any] | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store or PostgresNearbyPresenceStore()
         self._connections_factory = connections_factory or ConnectionsService
+        self._place_rating_factory = place_rating_factory
         self._now = now or (lambda: datetime.now(timezone.utc))
+
+    def _place_ratings(self) -> Any | None:
+        """The rating service, or ``None`` when it cannot be reached.
+
+        Imported lazily and never allowed to raise. Rating is an addition to
+        check-in, not a dependency of it: if this module is missing, misconfigured
+        or throwing, people must still be able to check in and out.
+        """
+        if self._place_rating_factory is not None:
+            try:
+                return self._place_rating_factory()
+            except Exception:  # noqa: BLE001 - see docstring
+                logger.warning("nearby_presence.place_rating_factory_failed", exc_info=True)
+                return None
+        try:
+            from hushh_mcp.services.one_location_place_rating_service import (
+                OneLocationPlaceRatingService,
+            )
+
+            return OneLocationPlaceRatingService()
+        except Exception:  # noqa: BLE001 - see docstring
+            logger.warning("nearby_presence.place_rating_unavailable", exc_info=True)
+            return None
 
     @staticmethod
     def _require_user(user_id: str) -> str:
@@ -962,25 +987,45 @@ class OneLocationNearbyPresenceService:
         of a feature they are using honestly; the roaming attack this closes is
         the deliberate one, and it needs a *readable* previous anchor to be
         detected at all.
+
+        **Checkout used to disarm this guard entirely.** ``checkout()`` NULLs
+        every anchor column, ``_decrypt_anchor`` raises on a NULL algorithm on
+        its first line, and the fail-open above then returned -- so the check-in
+        after any explicit checkout had no continuity check at all, and the loop
+        "check in anywhere, check out, repeat" cost nothing. The visit ledger
+        survives checkout, so it is consulted when the presence anchor cannot be
+        read. The fail-open discipline is unchanged; it simply has a second
+        place to look before giving up.
         """
+
+        previous_lat: Any = None
+        previous_lng: Any = None
+        previous_at: datetime | None = None
 
         try:
             previous = self._store.get_last_presence(owner_user_id)
         except Exception:  # noqa: BLE001 - continuity is a guard, not a gate
-            return
-        if not previous:
-            return
-        try:
-            anchor = _decrypt_anchor(previous)
-        except Exception:  # noqa: BLE001 - see docstring
-            return
+            previous = None
+        if previous:
+            try:
+                anchor = _decrypt_anchor(previous)
+            except Exception:  # noqa: BLE001 - see docstring
+                anchor = None
+            if anchor:
+                previous_lat = anchor.get("latitude")
+                previous_lng = anchor.get("longitude")
+                previous_at = _normalize_optional_timestamp(previous.get("checked_in_at"))
 
-        previous_lat = anchor.get("latitude")
-        previous_lng = anchor.get("longitude")
+        if previous_at is None or not isinstance(previous_lat, (int, float)):
+            fallback = self._last_visit_continuity_point(owner_user_id)
+            if fallback is None:
+                return
+            previous_lat = fallback["latitude"]
+            previous_lng = fallback["longitude"]
+            previous_at = fallback["checkedInAt"]
+
         if not isinstance(previous_lat, (int, float)) or not isinstance(previous_lng, (int, float)):
             return
-
-        previous_at = _normalize_optional_timestamp(previous.get("checked_in_at"))
         if previous_at is None:
             return
 
@@ -1033,6 +1078,10 @@ class OneLocationNearbyPresenceService:
         duration_minutes: int,
         consent_accepted: bool,
         allow_connection_requests: bool,
+        # Google's primary type for the selected place, resolved server-side by
+        # the route. Never persisted on the presence row; used only to decide
+        # whether this place may ever carry a public rating average.
+        place_category: str | None = None,
     ) -> dict[str, Any]:
         owner_user_id = self._require_user(user_id)
         if not consent_accepted:
@@ -1165,6 +1214,24 @@ class OneLocationNearbyPresenceService:
             anchor_cell_epoch=epoch,
             anchor_cell_token=_cell_token(epoch=epoch, x=tile_x, y=tile_y),
         )
+        # Record the visit so the place can be rated after checkout, and so the
+        # continuity guard above has something to read once checkout has wiped
+        # the anchor. Best-effort on purpose: a rating ledger that is down must
+        # never be able to stop somebody checking in.
+        service = self._place_ratings()
+        if service is not None:
+            try:
+                service.record_visit(
+                    user_id=owner_user_id,
+                    place_id=normalized_place_id,
+                    place_label=anchor["label"],
+                    latitude=normalized_place_lat,
+                    longitude=normalized_place_lng,
+                    place_category=place_category,
+                    checked_in_at=now,
+                )
+            except Exception:  # noqa: BLE001 - see comment above
+                logger.warning("nearby_presence.record_visit_failed", exc_info=True)
         return self.get_state(user_id=owner_user_id)
 
     def get_state(self, *, user_id: str) -> dict[str, Any]:
@@ -1246,10 +1313,49 @@ class OneLocationNearbyPresenceService:
             "attendees": attendees,
         }
 
+    def _last_visit_continuity_point(self, owner_user_id: str) -> dict[str, Any] | None:
+        """Continuity input that survives checkout. See the guard's docstring."""
+        service = self._place_ratings()
+        if service is None:
+            return None
+        try:
+            point = service.last_continuity_point(user_id=owner_user_id)
+        except Exception:  # noqa: BLE001 - a guard, not a gate
+            return None
+        if not isinstance(point, dict):
+            return None
+        checked_in_at = _normalize_optional_timestamp(point.get("checkedInAt"))
+        if checked_in_at is None:
+            return None
+        latitude = point.get("latitude")
+        longitude = point.get("longitude")
+        if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
+            return None
+        return {
+            "latitude": float(latitude),
+            "longitude": float(longitude),
+            "checkedInAt": checked_in_at,
+        }
+
     def checkout(self, *, user_id: str) -> dict[str, Any]:
         owner_user_id = self._require_user(user_id)
         self._store.checkout(owner_user_id)
-        return {"presence": None, "attendees": [], "checkedOut": True}
+        # Additive: the sheet uses this to offer the rating step for the place
+        # the person just left. `None` whenever there is nothing rateable, and
+        # never a reason to fail the checkout itself.
+        review_prompt: dict[str, Any] | None = None
+        service = self._place_ratings()
+        if service is not None:
+            try:
+                review_prompt = service.end_visit(user_id=owner_user_id)
+            except Exception:  # noqa: BLE001 - checkout must always succeed
+                logger.warning("nearby_presence.end_visit_failed", exc_info=True)
+        return {
+            "presence": None,
+            "attendees": [],
+            "checkedOut": True,
+            "reviewPrompt": review_prompt,
+        }
 
     def extend(
         self,
