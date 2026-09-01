@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -14,8 +19,15 @@ import type {
   FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
 
-function ActionButton({ action }: { action: FeedActionButton }) {
-  const [busy, setBusy] = useState(false);
+function ActionButton({
+  action,
+  runningActionKey,
+  runAction,
+}: {
+  action: FeedActionButton;
+  runningActionKey: string | null;
+  runAction: (action: FeedActionButton) => Promise<void>;
+}) {
   // Irreversible actions (Deny / Decline / Cancel) require a confirming second
   // tap: the first tap arms the button ("Sure?") and auto-disarms after a few
   // seconds, so a stray tap can't reject a request or abort a running analysis.
@@ -28,66 +40,125 @@ function ActionButton({ action }: { action: FeedActionButton }) {
     };
   }, []);
 
-  const runNow = async () => {
+  const runNow = () => {
     setArmed(false);
     if (disarmTimer.current) clearTimeout(disarmTimer.current);
-    setBusy(true);
-    try {
-      await action.run();
-    } catch {
-      toast.error("That didn't go through. Try again.");
-    } finally {
-      setBusy(false);
-    }
+    void runAction(action);
   };
 
   const showConfirm = action.confirm && armed;
+  const actionsLocked = runningActionKey !== null;
+  const isRunning = runningActionKey === action.key;
+
+  useEffect(() => {
+    if (!actionsLocked || isRunning) return;
+    setArmed(false);
+    if (disarmTimer.current) clearTimeout(disarmTimer.current);
+  }, [actionsLocked, isRunning]);
 
   return (
     <button
       type="button"
-      disabled={action.disabled || busy}
+      disabled={action.disabled || actionsLocked}
       aria-label={
-        action.confirm && !armed ? `${action.label} (tap again to confirm)` : undefined
+        showConfirm
+          ? `Confirm ${action.label}`
+          : action.confirm
+            ? `${action.label} (tap again to confirm)`
+            : undefined
       }
       onClick={(event) => {
         // The row itself may be a link/button; never let an action bubble into it.
         event.stopPropagation();
         event.preventDefault();
-        if (busy) return;
+        if (actionsLocked) return;
         if (action.confirm && !armed) {
           setArmed(true);
           if (disarmTimer.current) clearTimeout(disarmTimer.current);
           disarmTimer.current = setTimeout(() => setArmed(false), 3500);
           return;
         }
-        void runNow();
+        runNow();
       }}
       className={cn(
-        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
         action.tone === "primary" &&
           "bg-accent text-accent-foreground hover:bg-accent/90",
         action.tone === "ghost" &&
           "bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.1]",
         action.tone === "danger" &&
           "bg-foreground/[0.06] text-destructive hover:bg-destructive/10",
-        showConfirm && "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        showConfirm &&
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
       )}
     >
-      {busy ? <Icon icon={Loader2} size="xs" className="animate-spin" /> : null}
+      {isRunning ? (
+        <Icon icon={Loader2} size="xs" className="animate-spin" />
+      ) : null}
       {showConfirm ? "Sure?" : action.label}
     </button>
   );
 }
 
 function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
+  const runningRef = useRef(false);
+  const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
+
+  const runAction = async (action: FeedActionButton) => {
+    // State does not update until React renders again. The ref closes the
+    // same-tick window in which two sibling buttons could both start work.
+    if (runningRef.current) return;
+    runningRef.current = true;
+    setRunningActionKey(action.key);
+    try {
+      await action.run();
+    } catch {
+      toast.error("That didn't go through. Try again.");
+    } finally {
+      runningRef.current = false;
+      setRunningActionKey(null);
+    }
+  };
+
   if (!actions.length) return null;
   return (
     <span className="flex shrink-0 items-center gap-2">
       {actions.map((action) => (
-        <ActionButton key={action.key} action={action} />
+        <ActionButton
+          key={action.key}
+          action={action}
+          runningActionKey={runningActionKey}
+          runAction={runAction}
+        />
       ))}
     </span>
+  );
+}
+
+function initials(value: string): string {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? ""))
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function FeedActionableIdentity({
+  person,
+}: {
+  person: NonNullable<FeedActionable["person"]>;
+}) {
+  return (
+    <Avatar
+      className="h-10 w-10 bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
+      aria-hidden
+      data-testid="feed-actionable-avatar"
+      data-photo-url={person.photoUrl ?? ""}
+    >
+      {person.photoUrl ? <AvatarImage src={person.photoUrl} alt="" /> : null}
+      <AvatarFallback className="bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
+        {initials(person.displayName)}
+      </AvatarFallback>
+    </Avatar>
   );
 }
 
@@ -132,7 +203,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
           that ran straight over the timestamp. The history row two files away
           (feed-row.tsx:63) has always clamped the flex item; this is the same
           shape, one class different. */}
-      <span className="min-w-0 flex-1 truncate">{descriptionBody}</span>
+      <span className="min-w-0 flex-1 line-clamp-2">{descriptionBody}</span>
       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
         {timeLabel}
       </span>
@@ -142,13 +213,18 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   );
 
   const hasActions = item.actions.length > 0;
+  const leading = item.person ? (
+    <FeedActionableIdentity person={item.person} />
+  ) : undefined;
 
   const shared = {
-    icon: item.icon,
-    iconTone: item.iconTone,
+    icon: leading ? undefined : item.icon,
+    iconTone: leading ? undefined : item.iconTone,
+    leading,
     title: item.title,
     description,
     trailing: <ActionButtons actions={item.actions} />,
+    trailingInteractive: hasActions,
     // Actions are sized to their content and carry three separate `shrink-0`s,
     // so on a phone they take the row's width first and leave the text column
     // at literally 0px: "Deny" + "Approve 4 hours more" is 238.5px of a 358px
@@ -157,33 +233,25 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     // Stacking gives the text the full width and the buttons their own line.
     // Only rows that HAVE actions stack; a chevron row is 16px and fine inline.
     stackTrailingOnMobile: hasActions,
+    testId: `feed-actionable-${item.id}`,
   } as const;
 
-  const row = item.href ? (
-    <SettingsRow asChild {...shared} chevron={item.chevron}>
-      <Link
-        href={item.href}
-        prefetch={false}
-        aria-label={`${item.title}. ${item.description}`}
-      />
-    </SettingsRow>
-  ) : (
-    <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect} />
-  );
-
-  // Emergency SMS alerts get a prominent red frame so a safety alert stands out
-  // from routine "Needs you" rows.
-  if (item.emphasis === "emergency") {
-    return (
-      <div
-        role="alert"
-        data-testid="feed-sms-emergency"
-        className="overflow-hidden rounded-2xl border border-destructive/45 bg-destructive/[0.06] ring-1 ring-inset ring-destructive/20"
-      >
-        {row}
-      </div>
+  // A row with inline actions must not also wrap those buttons in a link. For
+  // scoped connections the explicit Review action owns navigation; for an
+  // imperative row SettingsRow renders the primary action and trailing actions
+  // as siblings. Both shapes avoid invalid button-in-link/button DOM.
+  const row =
+    item.href && !hasActions ? (
+      <SettingsRow asChild {...shared} chevron={item.chevron}>
+        <Link
+          href={item.href}
+          prefetch={false}
+          aria-label={`${item.title}. ${item.description}`}
+        />
+      </SettingsRow>
+    ) : (
+      <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect} />
     );
-  }
 
   return row;
 }

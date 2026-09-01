@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -97,6 +97,68 @@ function vm(overrides: Partial<LocationHubViewModel> = {}): LocationHubViewModel
 }
 
 describe("PeopleHub requests sent manage surface", () => {
+  it("uses the Connect avatar renderer for Location people rows", () => {
+    render(
+      <PeopleHub
+        vm={vm({
+          requestedByMe: [],
+          receivedGrants: [],
+          editingGrantId: null,
+          visibleRecipients: [
+            {
+              ...recipient,
+              photoUrl: "https://cdn.example.test/roopmann-location.jpg",
+              isRia: true,
+            },
+          ],
+        })}
+        onAddConnections={vi.fn()}
+        onInvite={vi.fn()}
+        onCreateCircle={vi.fn()}
+        onJoinCircle={vi.fn()}
+        onOpenCircle={vi.fn()}
+        focusedInviteId={null}
+        onDismissFocusedInvite={vi.fn()}
+        onStartShare={vi.fn()}
+      />,
+    );
+
+    const peopleList = screen.getByTestId("one-location-people-list");
+    expect(
+      peopleList.querySelector(
+        '[data-photo-url="https://cdn.example.test/roopmann-location.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      within(peopleList).getByLabelText("Verified advisor"),
+    ).toBeInTheDocument();
+  });
+
+  it("starts Circle content at the shared tab pane top", () => {
+    render(
+      <PeopleHub
+        vm={vm()}
+        onAddConnections={vi.fn()}
+        onInvite={vi.fn()}
+        onCreateCircle={vi.fn()}
+        onJoinCircle={vi.fn()}
+        onOpenCircle={vi.fn()}
+        focusedInviteId={null}
+        onDismissFocusedInvite={vi.fn()}
+        onStartShare={vi.fn()}
+      />,
+    );
+
+    const hub = screen.getByTestId("one-location-people-hub");
+    const sectionStack = hub.firstElementChild as HTMLElement | null;
+    const circles = screen.getByTestId("one-location-named-circles");
+
+    expect(hub).not.toHaveClass("pt-5");
+    expect(hub).not.toHaveClass("sm:pt-9");
+    expect(sectionStack).toHaveClass("space-y-7", "sm:space-y-10");
+    expect(sectionStack?.firstElementChild).toBe(circles);
+  });
+
   it("uses quick extension actions instead of the old duration editor", () => {
     render(
       <PeopleHub
@@ -114,8 +176,24 @@ describe("PeopleHub requests sent manage surface", () => {
 
     expect(screen.getByText("Sharing with you · 42 min left")).toBeTruthy();
     expect(screen.getByText("Ask for more time")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "30 min more" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "2 hours more" })).toBeTruthy();
+
+    // Four additive amounts, in ascending order, every label saying "more".
+    // Shared with step 1 of Request location, which used to render an absolute
+    // "New duration" picker for this same decision -- see
+    // `redesign/request-more-time`.
+    expect(
+      within(screen.getByTestId("one-location-more-time-options"))
+        .getAllByRole("button")
+        .map((button) => button.textContent?.trim()),
+    ).toEqual(["15 min more", "30 min more", "1 hour more", "2 hours more"]);
+
+    // The spoken name names the person too: four buttons reading only
+    // "15 min more" tell a screen reader nothing about whose share they
+    // lengthen. It still opens with the visible label, so the two agree.
+    expect(
+      screen.getByRole("button", { name: "Ask Roopmann V for 30 min more" }),
+    ).toBeTruthy();
+
     expect(screen.getByText("They’ll need to approve.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stop viewing" })).toBeTruthy();
     expect(screen.queryByText("New duration")).toBeNull();
@@ -138,13 +216,24 @@ describe("PeopleHub requests sent manage surface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "30 min more" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ask Roopmann V for 30 min more" }),
+    );
     expect(onRequestMoreTime).toHaveBeenCalledWith({
       ownerUserId: "owner_roopmann",
       grantId: "grant_live",
       ownerLabel: "Roopmann V",
       additionalHours: 0.5,
     });
+
+    // And the reporter's own example -- "pehle 2 hours ka toh 30 minutes more
+    // ya 1 hour" -- names a rung the original pair did not have.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ask Roopmann V for 1 hour more" }),
+    );
+    expect(onRequestMoreTime).toHaveBeenLastCalledWith(
+      expect.objectContaining({ additionalHours: 1 }),
+    );
   });
 
   it("shows pending extension state and keeps Take back wired", () => {

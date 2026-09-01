@@ -9,6 +9,14 @@ name: Dev Pod Lifecycle Drill
 # stops holding. It runs here, on a schedule, independent of any PR, so the
 # guarantee does not depend on someone remembering to run the tests.
 #
+# WHAT GUARDS THE LOGIC: the `--dry-run` this workflow executes IS the guard. It
+# runs the same `_self_test()` -- a state-preserving lifecycle must pass AND a
+# state-losing one must fail -- so a regression in the orchestration turns this
+# scheduled run red on its own. The matching unit test
+# (`tests/test_pod_lifecycle_drill.py`) lives on this pod-architecture development
+# branch, which is its source of record; `main` deliberately does not carry the
+# pod harness, so only the drill script and this workflow are promoted there.
+#
 # THE LIVE DOUBLE-CYCLE IS DELIBERATELY NOT A CI JOB.
 # Running the identical sequence against real Cloud Run + real GCS is the
 # operator path: `pod_lifecycle_drill.py --live --project hushh-pda-dev

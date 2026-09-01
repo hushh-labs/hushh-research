@@ -324,6 +324,11 @@ def main() -> int:
     parser.add_argument("--plaid-redirect-path", default="")
     parser.add_argument("--plaid-redirect-uri", default="")
     parser.add_argument("--plaid-tx-history-days", default="")
+    # Hosted rollouts stay on the compatibility path until their bounded
+    # retention scheduler is installed and verified. The service itself keeps
+    # its read-only semantic default; this generator default is deliberately a
+    # rollout default, not a change to application behavior when the env is
+    # absent.
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the

@@ -76,6 +76,7 @@ describe("contact phone normalization", () => {
       expect(
         resolveContactPhoneRegion({
           deviceRegion: "in",
+          deviceRegionFromNumberPlan: true,
           accountPhoneNumber: "+14155550101",
           localeTag: "en-GB",
         }),

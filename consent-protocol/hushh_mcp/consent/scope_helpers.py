@@ -65,6 +65,17 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "cap.location.live.request": ConsentScope.CAP_LOCATION_LIVE_REQUEST,
         "cap.location.live.revoke": ConsentScope.CAP_LOCATION_LIVE_REVOKE,
         "cap.location.live.refer_request": ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST,
+        # The nearby triple has existed in `ConsentScope` and in
+        # `capability_scopes()` since nearby check-in shipped, but never here --
+        # so every one of them raised `Unknown capability scope` the moment
+        # anything tried to resolve it. Declared but unresolvable is worse than
+        # absent: the scope reads as supported everywhere it is listed.
+        "cap.location.nearby.publish": ConsentScope.CAP_LOCATION_NEARBY_PUBLISH,
+        "cap.location.nearby.discover": ConsentScope.CAP_LOCATION_NEARBY_DISCOVER,
+        "cap.location.nearby.revoke": ConsentScope.CAP_LOCATION_NEARBY_REVOKE,
+        "cap.location.place_rating.publish": ConsentScope.CAP_LOCATION_PLACE_RATING_PUBLISH,
+        "cap.location.place_rating.discover": ConsentScope.CAP_LOCATION_PLACE_RATING_DISCOVER,
+        "cap.location.place_rating.revoke": ConsentScope.CAP_LOCATION_PLACE_RATING_REVOKE,
         "cap.pkm.marketplace.view": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
         "cap.pkm.marketplace.manage": ConsentScope.CAP_PKM_MARKETPLACE_MANAGE,
         "cap.contact.discovery": ConsentScope.CAP_CONTACT_DISCOVERY,
@@ -258,6 +269,48 @@ def get_scope_display_metadata(scope: str) -> dict:
             "label": "Refer Location Request",
             "description": "Allow a recipient to refer another person into an owner approval flow",
             "icon_name": "user-plus",
+            "color_hex": "#0F766E",
+        },
+        # Without these six, `describe_scope` falls through to the title-cased
+        # handle and the consent surface shows a person the string
+        # "Cap Location Nearby Publish" where a sentence belongs.
+        "cap.location.nearby.publish": {
+            "label": "Appear Nearby",
+            "description": "Show your first name to opted-in people at the same place, for up to two hours",
+            "icon_name": "radio",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.nearby.discover": {
+            "label": "See Who Is Nearby",
+            "description": "Read the list of opted-in people checked in at the same place as you",
+            "icon_name": "users-round",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.nearby.revoke": {
+            "label": "Check Out",
+            "description": "Stop appearing nearby and clear the place you checked in at",
+            "icon_name": "log-out",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.publish": {
+            "label": "Rate A Place",
+            "description": (
+                "Save your own star rating for a place you were recorded at. "
+                "Your rating is private to you and counts toward an anonymous average"
+            ),
+            "icon_name": "star",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.discover": {
+            "label": "See Place Ratings",
+            "description": "Read the anonymous average rating for a place, never who rated it",
+            "icon_name": "chart-no-axes-column",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.revoke": {
+            "label": "Delete Your Rating",
+            "description": "Remove your rating and take it out of the place's average",
+            "icon_name": "trash-2",
             "color_hex": "#0F766E",
         },
         "cap.contact.discovery": {

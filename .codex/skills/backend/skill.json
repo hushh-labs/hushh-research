@@ -24,7 +24,8 @@
     "mcp-surface-change",
     "product-agent-development",
     "hushh-consent-mcp-ops",
-    "ria-api-reference"
+    "ria-api-reference",
+    "puppy-one-harness"
   ],
   "required_reads": [
     "consent-protocol/README.md",

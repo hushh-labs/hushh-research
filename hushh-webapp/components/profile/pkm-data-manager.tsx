@@ -34,7 +34,7 @@ import { Input } from "@/components/ui/input";
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/morphy";
 import {
@@ -664,7 +664,7 @@ export function PkmDomainDetailPanel({
                       disabled && "pointer-events-none opacity-60",
                     )}
                   >
-                    <SettingsSegmentedTabs
+                    <SegmentedTabs
                       value={permission.visibilityPosture}
                       onValueChange={(next) =>
                         onTogglePermission(

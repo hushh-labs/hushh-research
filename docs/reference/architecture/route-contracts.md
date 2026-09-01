@@ -60,6 +60,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/register-phone`
 - `/logout`
 - `/agent`
+- `/people/[personRef]`
 - `/one/profile`
 - `/one/profile/regulatory`
 - `/one/profile/account`
@@ -86,6 +87,13 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/support`
 - `/one/profile/support/routing`
 - `/one/profile/support/compose?kind=<support_kind>`
+
+`/people/[personRef]` is the deliberate exception: it is the sole canonical,
+unguessable public person URL and cannot be reduced to a directory or a finite
+identifier set. Web renders it server-side so invalid and suppressed profiles
+produce a non-enumerating `404`. The Capacitor export emits one inert route
+fixture so the shared dynamic client bundle is available; actual profile reads
+use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/profile/receipts`
 - `/one/profile/gmail/oauth/return`
 - `/one/connect`
@@ -102,6 +110,10 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/gmail`
 - `/one/email`
 - `/one/kyc`
+- `/one/location`
+- `/one/location/map`
+- `/one/location/check-in`
+- `/one/location/check-in/hotel?stay=<opaque_stay_id>` — eligibility-gated and fail-closed until a supported hotel stay provider exists
 - `/one/marketplace`
 - `/marketplace`
 - `/marketplace/ria`

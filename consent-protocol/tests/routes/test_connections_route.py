@@ -91,3 +91,34 @@ def test_connections_paging_filters_ria_before_returning_a_bounded_page():
     svc_cls.return_value.list_connections_page.assert_called_once_with(
         "user-a", page=2, limit=100, query="alex", audience="ria"
     )
+
+
+def test_get_voice_preferences_returns_the_stored_default():
+    client = _client()
+    with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
+        svc_cls.return_value.get_voice_preferences.return_value = {
+            "shareScopesFromLastRequest": False,
+            "updatedAt": None,
+        }
+        resp = client.get("/api/one/connect/voice-preferences")
+    assert resp.status_code == 200
+    assert resp.json() == {"preferences": {"shareScopesFromLastRequest": False, "updatedAt": None}}
+    svc_cls.return_value.get_voice_preferences.assert_called_once_with(user_id="user-a")
+
+
+def test_update_voice_preferences_threads_the_owner_and_flag():
+    client = _client()
+    with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
+        svc_cls.return_value.update_voice_preferences.return_value = {
+            "shareScopesFromLastRequest": True,
+            "updatedAt": "2026-08-26T09:00:00+00:00",
+        }
+        resp = client.patch(
+            "/api/one/connect/voice-preferences",
+            json={"share_scopes_from_last_request": True},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["preferences"]["shareScopesFromLastRequest"] is True
+    svc_cls.return_value.update_voice_preferences.assert_called_once_with(
+        user_id="user-a", share_scopes_from_last_request=True
+    )

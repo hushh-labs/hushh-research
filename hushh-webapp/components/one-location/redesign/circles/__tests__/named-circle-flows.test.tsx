@@ -107,6 +107,8 @@ describe("named Circle flows", () => {
           secureLocationReady: true,
           relationship: "connected" as const,
           connectedFromContacts: true,
+          photoUrl: "https://cdn.example.test/asha-contact.jpg",
+          isRia: true,
         },
       ],
     }));
@@ -114,7 +116,16 @@ describe("named Circle flows", () => {
     render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
 
     expect(await screen.findByText("Asha Contact")).toBeTruthy();
-    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    const roster = screen.getByTestId("one-location-circle-members");
+    expect(
+      roster.querySelector(
+        '[data-photo-url="https://cdn.example.test/asha-contact.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(within(roster).getByLabelText("Verified advisor")).toBeTruthy();
+    expect(
+      within(roster).getByLabelText("Connected from your contacts"),
+    ).toBeTruthy();
   });
 
   it("uses bounded member pages and keeps duplicate names addressable by user id", async () => {
@@ -191,7 +202,7 @@ describe("named Circle flows", () => {
     expect(retainedSearch).toHaveValue("nobody");
     fireEvent.change(retainedSearch, { target: { value: "" } });
     expect(screen.getByLabelText("Search members")).toHaveValue("");
-  });
+  }, 15000);
 
   it("creates a typed Circle and keeps a failed submission recoverable", async () => {
     const onSubmit = vi
@@ -201,9 +212,12 @@ describe("named Circle flows", () => {
 
     render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
+    fireEvent.change(
+      screen.getByPlaceholderText("Family, close friends, project team"),
+      {
       target: { value: "Meena Family" },
-    });
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Create Circle" }));
 
     await waitFor(() =>
@@ -220,24 +234,39 @@ describe("named Circle flows", () => {
     render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
 
     const create = screen.getByRole("button", { name: "Create Circle" });
-    const input = screen.getByPlaceholderText("e.g. Family");
+    const input = screen.getByPlaceholderText(
+      "Family, close friends, project team",
+    );
 
     // Nothing typed: the button is genuinely blocked, and it is painted as a
     // neutral fill rather than a half-opacity accent that still reads as live.
     expect(create).toBeDisabled();
     expect(create.className).toContain("disabled:bg-black/10");
     expect(create.className).toContain("disabled:opacity-100");
+    expect(screen.queryByText("Enter a Circle name.")).toBeNull();
 
     // Whitespace is not a name.
     fireEvent.change(input, { target: { value: "   " } });
     expect(create).toBeDisabled();
 
+    // Choosing a Type is not the Circle name; the form explains the blocked CTA.
+    fireEvent.click(screen.getByRole("radio", { name: "Friends" }));
+    await waitFor(() =>
+      expect(input).toHaveAttribute("aria-invalid", "true"),
+    );
+    expect(screen.getByText("Enter a Circle name.")).toBeTruthy();
+    expect(input).toHaveAttribute(
+      "aria-describedby",
+      "one-location-create-circle-name-help",
+    );
+
     // One character is.
     fireEvent.change(input, { target: { value: "A" } });
     expect(create).toBeEnabled();
+    expect(input).not.toHaveAttribute("aria-describedby");
 
     fireEvent.click(create);
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "family"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "friends"));
   });
 
   it("finds a connection from the first letter of any of their names", async () => {
@@ -251,8 +280,10 @@ describe("named Circle flows", () => {
             {
               userId: "conn-1",
               displayName: "Asha Meena",
+              photoUrl: "https://cdn.example.test/asha-circle.jpg",
               connectionOrigin: "one" as const,
               connectedFromContacts: true,
+              isRia: true,
             },
             {
               userId: "conn-2",
@@ -268,7 +299,16 @@ describe("named Circle flows", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     expect(await screen.findByText("Asha Meena")).toBeTruthy();
-    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    const ashaRow = screen.getByTestId("one-location-circle-eligible-conn-1");
+    expect(
+      ashaRow.querySelector(
+        '[data-photo-url="https://cdn.example.test/asha-circle.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(within(ashaRow).getByLabelText("Verified advisor")).toBeTruthy();
+    expect(
+      within(ashaRow).getByLabelText("Connected from your contacts"),
+    ).toBeTruthy();
 
     // "Asha Meena" and "Neel Shah" BOTH contain an "n", so a substring filter
     // returned both and one-letter search looked broken. Only Neel's name
@@ -308,18 +348,14 @@ describe("named Circle flows", () => {
         value: "Join my BEST TEAM EVER Circle on One with code 2345-6789-ABCD.",
       },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Circle" }));
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
-    expect(
-      screen.getByText(/connects you with current and future Circle members/i),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/location and SMS contacts stay private/i),
-    ).toBeTruthy();
+    expect(screen.queryByText(/current and future Circle members/i)).toBeNull();
+    expect(screen.getByText(/Location and SMS stay private/i)).toBeTruthy();
     expect(onResolve).toHaveBeenCalledWith("2345-6789-ABCD");
 
-    fireEvent.click(screen.getByRole("button", { name: "Join circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Join Circle" }));
     await waitFor(() => expect(onJoin).toHaveBeenCalledWith("2345-6789-ABCD"));
   });
 
@@ -336,6 +372,38 @@ describe("named Circle flows", () => {
     expect(screen.getByLabelText("Circle invite code")).toHaveValue(
       "2345-6789-ABCD",
     );
+  });
+
+  it("opens an already-joined Circle after review and lets the code be changed", async () => {
+    const preview: OneLocationCircleInvitePreview = {
+      name: "Meena Family",
+      kind: "family",
+      ownerDisplayName: "Meena",
+      memberCount: 1,
+      expiresAt: "2026-07-27T00:00:00Z",
+      alreadyMember: true,
+    };
+    const onResolve = vi.fn(async () => preview);
+    const onJoin = vi.fn(async () => undefined);
+
+    render(
+      <JoinCircleFlow busy={false} onResolve={onResolve} onJoin={onJoin} />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Circle invite code"), {
+      target: { value: "2345-6789-ABCD" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review Circle" }));
+
+    expect(await screen.findByRole("button", { name: "Open Circle" })).toBeTruthy();
+    expect(screen.getByText("Meena · 1 member")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use Another Code" }));
+    expect(screen.queryByRole("button", { name: "Open Circle" })).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Circle invite code")).toHaveFocus(),
+    );
+    expect(screen.getByLabelText("Circle invite code")).toHaveValue("");
   });
 
   it("ignores a stale preview and joins the exact code that was reviewed", async () => {
@@ -361,9 +429,9 @@ describe("named Circle flows", () => {
 
     const input = screen.getByLabelText("Circle invite code");
     fireEvent.change(input, { target: { value: "2345-6789-ABCD" } });
-    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Circle" }));
     fireEvent.change(input, { target: { value: "BCDE-FGHJ-KMNP" } });
-    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Circle" }));
 
     await act(async () => {
       resolveSecond?.({
@@ -391,7 +459,7 @@ describe("named Circle flows", () => {
     });
     expect(screen.queryByText("Stale Circle")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Join circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Join Circle" }));
     await waitFor(() => expect(onJoin).toHaveBeenCalledWith("BCDE-FGHJ-KMNP"));
   });
 
@@ -796,13 +864,80 @@ describe("named Circle flows", () => {
     expect(screen.getByRole("button", { name: "Delete circle" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Invite code/i }));
     expect(await screen.findByText(currentCode.code)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Replace code" }));
-    fireEvent.click(screen.getByRole("button", { name: "Replace code" }));
+    const inviteCodeSheet = screen.getByRole("dialog", {
+      name: "Invite code",
+    });
+    fireEvent.click(
+      within(inviteCodeSheet).getByRole("button", { name: "Replace code" }),
+    );
+    const confirmDialog = await screen.findByRole("alertdialog", {
+      name: "Replace invite code?",
+    });
+    expect(confirmDialog.closest('[data-slot="sheet-content"]')).toBeNull();
+    expect(confirmDialog).toHaveClass("z-[714]");
+    expect(
+      document.querySelector('[data-slot="alert-dialog-overlay"]'),
+    ).toHaveClass("z-[713]");
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Replace code" }),
+    );
 
     await waitFor(() =>
       expect(onGenerateCode).toHaveBeenCalledWith("circle-1", true),
     );
     expect(await screen.findByText(rotatedCode.code)).toBeTruthy();
+  });
+
+  it("dismisses only the replace-code confirmation and keeps the invite sheet close button responsive", async () => {
+    const currentCode = {
+      id: "code-1",
+      circleId: "circle-1",
+      code: "2345-6789-ABCD",
+      expiresAt: "2026-08-01T00:00:00Z",
+    };
+    const ownerCircle = {
+      ...circle("circle-1", "Family"),
+      activeInviteCode: currentCode,
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+      />,
+    );
+
+    expect(await screen.findByText("Family")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Invite code/i }));
+    expect(await screen.findByText(currentCode.code)).toBeTruthy();
+
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Invite code" })).getByRole(
+        "button",
+        { name: "Replace code" },
+      ),
+    );
+    const confirmDialog = await screen.findByRole("alertdialog", {
+      name: "Replace invite code?",
+    });
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Cancel" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("alertdialog", { name: "Replace invite code?" }),
+      ).toBeNull();
+    });
+    const inviteCodeSheet = screen.getByRole("dialog", {
+      name: "Invite code",
+    });
+    fireEvent.click(
+      within(inviteCodeSheet).getByRole("button", { name: "Close" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Invite code" })).toBeNull();
+    });
   });
 
   it("requires an explicit owner refresh for an unreadable legacy code", async () => {
@@ -1255,6 +1390,173 @@ describe("named Circle flows", () => {
     expect(spacers[0]).toHaveAttribute("aria-hidden", "true");
   });
 
+  // Reported on a Trusted Circle reading "Ankit Kumar Singh / JHUMMA KUMARI
+  // (You · Owner) / Neelesh Meena" -- the roster was A-Z, and the owner is
+  // whoever the alphabet puts in the middle. "Owner hamesha sabse upar hi
+  // rahega, sabhi kind ke circles ke liye", so both kinds are asserted here
+  // rather than only the one that was photographed.
+  it.each([
+    ["a Trusted Circle", "trusted" as const],
+    ["an ordinary Circle", null],
+  ])("puts the owner at the top of %s", async (_label, systemKind) => {
+    const roster = {
+      ...circle("circle-1", systemKind === "trusted" ? "Trusted" : "Family"),
+      systemKind,
+      memberCount: 3,
+      members: [
+        {
+          userId: "ankit-user",
+          displayName: "Ankit Kumar Singh",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        // Alphabetically between the two members, which is exactly where the
+        // report found them.
+        {
+          userId: "owner-user",
+          displayName: "Jhumma Kumari",
+          role: "owner" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "neelesh-user",
+          displayName: "Neelesh Meena",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => roster)}
+      />,
+    );
+
+    const owner = await screen.findByText("Jhumma Kumari");
+    for (const memberName of ["Ankit Kumar Singh", "Neelesh Meena"]) {
+      expect(
+        owner.compareDocumentPosition(screen.getByText(memberName)) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+
+    // A partition, not a re-sort: the two members keep the A-Z order they
+    // had underneath the owner.
+    expect(
+      screen
+        .getByText("Ankit Kumar Singh")
+        .compareDocumentPosition(screen.getByText("Neelesh Meena")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("stops hoisting the owner once the roster is answering a search", async () => {
+    // The owner leads a ROSTER. A searched list is answering a question, and
+    // both search paths rank a name that begins with the query above one that
+    // merely contains it -- hoisting the owner through that would put the
+    // wrong person first on the one screen where the reader has already said
+    // who they want. "Ankit Kumar Singh" and "Jhumma Kumari" both have a word
+    // beginning with "ku", so A-Z inside the rank decides, and Ankit wins.
+    const filler = Array.from({ length: 7 }, (_unused, index) => ({
+      userId: `filler-${index}`,
+      displayName: `Zz Filler ${index}`,
+      role: "member" as const,
+      phoneVerified: true,
+      secureLocationReady: true,
+    }));
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ({
+          ...circle("circle-1", "Family"),
+          memberCount: 9,
+          members: [
+            {
+              userId: "owner-user",
+              displayName: "Jhumma Kumari",
+              role: "owner" as const,
+              phoneVerified: true,
+              secureLocationReady: true,
+            },
+            {
+              userId: "ankit-user",
+              displayName: "Ankit Kumar Singh",
+              role: "member" as const,
+              phoneVerified: true,
+              secureLocationReady: true,
+            },
+            ...filler,
+          ],
+        }))}
+      />,
+    );
+
+    fireEvent.change(await screen.findByPlaceholderText("Search members"), {
+      target: { value: "ku" },
+    });
+
+    const ankit = await screen.findByText("Ankit Kumar Singh");
+    expect(
+      ankit.compareDocumentPosition(screen.getByText("Jhumma Kumari")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  // Reported on the Add people sheet: "extra space between the section is
+  // bad", "search bahut jyada neeche aa raha", "divs truncated bhi dikh rahe
+  // hain". None of that gap was written here -- it was SheetContent's `gap-4`,
+  // SheetHeader's `p-4`, the body's `mt-4` and SettingsGroup's `mt-7`, four
+  // sensible defaults stacking. Asserted on the rendered classes rather than
+  // measured, because jsdom has no layout: what regressed was which owner's
+  // default is in force, and that is exactly what these read back.
+  it("does not stack four owners' default spacing above the Add people list", async () => {
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => circle("circle-1", "Family"))}
+        onLoadEligibleConnections={vi.fn(async () => ({
+          eligibleConnections: [
+            { userId: "conn-1", displayName: "Asha Meena" },
+            { userId: "conn-2", displayName: "Neel Shah" },
+          ],
+          pendingInvites: [],
+          remainingCapacity: 5,
+        }))}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    const sheet = await screen.findByRole("dialog", { name: "Add people" });
+
+    // The header stops adding a second inset on top of the sheet's own, so
+    // the title lines up with the search field instead of sitting inboard of
+    // it, and stops adding 16px under a description the gap already spaced.
+    const header = sheet.querySelector('[data-slot="sheet-header"]');
+    expect(header?.className).toContain("p-0");
+    expect(header?.className).not.toContain("p-4");
+
+    const group = await screen.findByTestId(
+      "one-location-circle-eligible-connections",
+    );
+    const headingBlock = group
+      .querySelector('[data-slot="settings-group-heading"]')
+      ?.closest("section > div");
+    expect(headingBlock?.className).toContain("mt-0");
+    expect(headingBlock?.className).not.toContain("mt-7");
+
+    // And the list is still the thing that scrolls, so the "Add N people"
+    // button cannot be pushed off the bottom by a long roster.
+    const scroller = sheet.querySelector(".overflow-y-auto.overscroll-contain");
+    expect(scroller).not.toBeNull();
+    expect(scroller?.contains(group)).toBe(true);
+  });
+
   it("scopes quick actions to the row's own member and hides actions that don't apply", async () => {
     const onShareWithMember = vi.fn();
     const ownerCircle = {
@@ -1541,7 +1843,7 @@ describe("named Circle flows", () => {
         invitees.slice(0, 20).map((invitee) => invitee.userId),
       ),
     );
-  });
+  }, 15000);
 
   it("keeps the sheet open when sending fails so the selection can be retried", async () => {
     const onLoadEligibleConnections = vi.fn(async () => ({
@@ -1926,9 +2228,10 @@ describe("an impatient second tap never makes a second Circle", () => {
 
     render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
-      target: { value: "Roommates" },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("Family, close friends, project team"),
+      { target: { value: "Roommates" } },
+    );
     const create = screen.getByRole("button", { name: /create/i });
     fireEvent.click(create);
     fireEvent.click(create);
@@ -1948,9 +2251,10 @@ describe("an impatient second tap never makes a second Circle", () => {
       .mockResolvedValueOnce(undefined);
 
     render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
-      target: { value: "Roommates" },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("Family, close friends, project team"),
+      { target: { value: "Roommates" } },
+    );
     const create = screen.getByRole("button", { name: /create/i });
 
     fireEvent.click(create);

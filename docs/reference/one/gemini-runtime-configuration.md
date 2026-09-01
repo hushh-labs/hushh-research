@@ -62,6 +62,11 @@ not published on Vertex, and `gemini-live-2.5-flash-native-audio` (GA, Vertex)
 remains the declared rollback via `AGENT_ONE_ADK_MODEL`. No standalone TTS
 fallback is configured.
 
+UAT currently activates that rehearsed Vertex rollback in the governed deploy
+workflow. This keeps Agent Bar voice available when the separate Gemini
+Developer API prepaid-credit pool is depleted; production retains the authored
+canonical model unless its own release workflow explicitly selects a rollback.
+
 Gemini 3.7 text requests use the global Vertex endpoint and omit legacy
 sampling controls. The runtime retains `thinking_level` for bounded reasoning;
 it does not send `temperature`, `top_p`, `top_k`, `candidate_count`, or

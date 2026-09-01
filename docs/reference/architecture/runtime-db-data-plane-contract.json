@@ -75,6 +75,12 @@
       "job_id": "marketplace_retention_report"
     },
     {
+      "family_id": "one_person_information_requests",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "person_information_request_retention_report"
+    },
+    {
       "family_id": "one_email_kyc_workflow",
       "owner": "iam-consent-governance",
       "mode": "report_only",
@@ -180,14 +186,31 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "agent_chat_conversations",
-        "agent_chat_messages"
+        "agent_chat_messages",
+        "one_adk_sessions"
       ],
-      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly",
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly",
       "retention_policy": "Retain while account exists or until the user deletes an Agent chat conversation.",
       "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
       "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"
+    },
+    {
+      "id": "one_person_information_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_information_request_bundles",
+        "one_information_request_items"
+      ],
+      "primary_access_path": "Authenticated person-profile and Agent One workflows that prepare, create, inspect, cancel, expire, revoke, and export viewer-to-owner consent requests using opaque consumer scope references.",
+      "retention_policy": "Pending bundles persist until resolved or expired; terminal bundle and item metadata remains only for the bounded consent-audit and replay window before compaction.",
+      "deletion_behavior": "Cancel pending bundles before account deletion where possible, then delete bundles and items where the deleting account is requester or owner; canonical consent audit receipts remain governed by their separate audit retention contract.",
+      "trust_boundary": "Stores requester/owner principals, opaque scope references, purpose, duration, status, and timestamps. It stores no requested information values, decrypted exports, vault keys, raw Firebase identifiers in consumer responses, or standing access; a pending request grants nothing.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_request"
     },
     {
       "id": "one_action_directive_authority",
@@ -428,6 +451,7 @@
         "one_location_envelopes",
         "one_location_events",
         "one_location_map_preferences",
+        "one_location_nearby_check_in_preferences",
         "one_location_nearby_presences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
@@ -435,7 +459,8 @@
         "one_location_recipient_keys",
         "one_location_referrals",
         "one_location_sms_contacts",
-        "one_location_share_grants"
+        "one_location_share_grants",
+        "one_location_sos_voice_preferences"
       ],
       "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
@@ -443,6 +468,37 @@
       "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. Standing automatic-approval preferences contain only enabled state, scope, Circle identifier, server activation time, and rule version; every automatic grant locks and revalidates that rule and the current relationship. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
+    },
+    {
+      "id": "one_location_place_rating_visits",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_nearby_visits"
+      ],
+      "primary_access_path": "Short-lived ledger of completed nearby check-in visits, so the place a person just left can be rated and so the check-in travel-continuity guard survives a checkout that clears the presence anchor. The venue is readable only as an AES-256-GCM envelope bound by AAD to its owner, alongside a server-keyed equality token that allows same-venue and distinct-place checks without decryption.",
+      "retention_policy": "Each visit expires seven days after check-in and is deleted by the Location retention purge on its own expires_at, independently of the twelve-hour window used for terminal presence rows.",
+      "deletion_behavior": "Rows cascade on actor_profiles deletion and are also deleted explicitly by the account service for the owning user.",
+      "trust_boundary": "backend_runtime",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user_bounded_by_ttl"
+    },
+    {
+      "id": "one_location_place_ratings",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_place_ratings",
+        "one_location_place_rating_aggregates"
+      ],
+      "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets.",
+      "retention_policy": "A rating is retained while the account exists and is updated in place on a revisit. The aggregate is derived state, recomputed from the surviving rows on every insert, update and delete.",
+      "deletion_behavior": "Ratings cascade on actor_profiles deletion and are deleted explicitly by the account service, which recomputes every affected place aggregate in the same statement -- an average that still counts a deleted rating has not deleted it.",
+      "trust_boundary": "backend_runtime",
+      "plaintext_posture": "provider_place_id_and_label",
+      "expected_row_growth": "low_per_user"
     },
     {
       "id": "one_referral_program",
@@ -552,7 +608,8 @@
         "connection_requests",
         "connections",
         "connection_origins",
-        "contact_sync_lookup_budgets"
+        "contact_sync_lookup_budgets",
+        "connection_voice_preferences"
       ],
       "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, viewer-relative contact_sync provenance, and one or more named Circles. Contact sync requires the target's explicit versioned combined find-and-auto-connect consent, revalidates the submitted digest against the current verified phone, and writes every eligible non-suppressed match as canonical graph projections transactionally. contact_sync_lookup_budgets is the Postgres-authoritative cross-instance abuse-budget seam; SlowAPI is only the outer request-count guard. Named Circle join/accept writes only named_circle origins. The canonical pair remains active while any origin is active.",
       "retention_policy": "Active origins keep their canonical connection active. Revoked canonical connection rows persist for the lifetime of either account because they are the durable disconnect-suppression tombstone that prevents contact sync from resurrecting a relationship; an explicit request/accept may reactivate them. Revoked origins and terminal requests may be compacted under their bounded operational policy without deleting that canonical tombstone. Lookup-budget buckets contain counts only and are pruned after two days on the next sync by that user.",
@@ -569,10 +626,10 @@
       "exact_tables": [
         "trusted_devices"
       ],
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService.",
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, advisory remote-revoke seal telemetry, and advisory liveness heartbeats through TrustedDeviceService.",
       "retention_policy": "Retain active device registrations while the account exists; retain revoked metadata only for bounded security review before compaction.",
       "deletion_behavior": "Delete all device rows on account deletion; explicit device revocation immediately disables new challenges and records the revocation timestamp.",
-      "trust_boundary": "Public P-256 device keys and device metadata only, including PKM device-sync cursors and remote-revoke seal timestamps; never private keys, Firebase tokens, vault passphrases, vault keys, decrypted PKM, or developer credentials.",
+      "trust_boundary": "Public P-256 device keys and device metadata only, including PKM device-sync cursors, remote-revoke seal timestamps, and device-reported liveness heartbeats reduced to an allow-list of runtime scalars (machine identifier, configured model, busy flag, active session count, next cron run); never private keys, Firebase tokens, vault passphrases, vault keys, decrypted PKM, filesystem paths, or developer credentials.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "low_per_user"
     },

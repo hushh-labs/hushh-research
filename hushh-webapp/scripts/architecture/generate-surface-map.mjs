@@ -157,6 +157,39 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/people/[personRef]": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/person-profile-service.ts",
+        service_methods: [
+          "getPublic",
+          "getViewer",
+          "createInformationRequest",
+          "getInformationRequestExports",
+          "cancelInformationRequest",
+          "connect",
+          "cancelConnectionRequest",
+          "removeConnection",
+        ],
+        nextjs_api_route: "/api/{public/people/{personRef},one/{path*}}",
+        nextjs_proxy_file:
+          "app/api/public/people/[personRef]/route.ts; app/api/one/[...path]/route.ts",
+        backend_endpoint_family:
+          "/api/{public/people/*,one/people/*,one/information-requests/*}",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch; native static export emits one non-production route fixture while runtime identity remains the opaque personRef.",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      public_projection:
+        "Signed-out reads expose minimal public identity only and use an unguessable immutable reference.",
+      authenticated_projection:
+        "Relationship, requestable scope metadata, grant metadata, and request history are viewer-relative; social connection grants no information.",
+      plaintext_boundary:
+        "Granted values remain encrypted through the backend and decrypt only after an explicit reveal in the unlocked client.",
+    },
+  },
   "/one/calendar": {
     api_dependencies: [
       {

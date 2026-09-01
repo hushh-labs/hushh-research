@@ -845,15 +845,21 @@ def _compose_agent_lanes_footer(
 
     Returns empty string when:
       - no agent clears `min_score`
-      - too many agents tie within 2 points of the top (ambiguous delegation)
+      - a pack of `limit`+ agents sits within a factor of two of the top score
+        (ambiguous delegation: several lanes are genuinely in contention)
     """
     qualified = [(s, e) for s, e in ranked_agents if s >= min_score]
     if not qualified:
         return ""
-    if len(qualified) >= limit:
-        return ""
+    # Ambiguity is closeness to the top, not the raw count of qualifiers. A
+    # count rule (`len(qualified) >= limit`) used to live here and silenced
+    # clear-cut routes: growing the fleet to 13 agents put a third qualifier at
+    # score 4 under a leader at 11, and the footer vanished from a briefing
+    # whose delegation was not ambiguous at all. The factor-of-two window keeps
+    # suppressing the real packs (12/8/8) while letting a clear leader through
+    # (11/4/4), and unlike an absolute window it scales with the score range.
     top_score = qualified[0][0]
-    close = [e for s, e in qualified if s >= top_score - 2]
+    close = [e for s, e in qualified if s * 2 >= top_score]
     if len(close) >= limit:
         return ""
     out: list[str] = ["\n## Suggested delegation lanes\n"]

@@ -29,6 +29,7 @@ function request(
     requesterUserId: "user_abdul",
     status: "pending",
     requestedAt: new Date(ENABLED_AT_MS + 60_000).toISOString(),
+    expiresAt: "2099-01-01T00:00:00.000Z",
     ...overrides,
   } as OneLocationAccessRequest;
 }
@@ -135,7 +136,7 @@ describe("scope boundaries", () => {
   });
 });
 
-describe("when the owner has paused their location", () => {
+describe("when the owner has paused location", () => {
   it("approves nothing, because pause outranks convenience", () => {
     // "Stop sending my location" cannot coexist with starting a new share.
     expect(select({ paused: true })).toEqual([]);
@@ -163,6 +164,16 @@ describe("requests that are no longer open", () => {
     ).toEqual([]);
     expect(
       select({ pendingRequests: [request({ requestedAt: "whenever" })] }),
+    ).toEqual([]);
+  });
+
+  it("does not schedule a request whose server deadline passed", () => {
+    expect(
+      select({
+        pendingRequests: [
+          request({ expiresAt: "2020-01-01T00:00:00.000Z" }),
+        ],
+      }),
     ).toEqual([]);
   });
 });

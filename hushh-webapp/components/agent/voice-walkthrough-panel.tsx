@@ -10,24 +10,6 @@ import {
 } from "@/lib/interaction/interaction-intent-coordinator";
 
 /**
- * Actions whose handler may attach a `subject` once it resolves who the
- * action is about (see the handlers themselves, and `parseVoiceSubject`).
- * Named here so a solo run of one of these earns the panel for its whole
- * processing time -- the loading beat is exactly what "who is this going
- * to" needs to show before the subject is known, and subject only arrives
- * once the handler has already returned. A step outside this list stays on
- * the original rule: a one-off action already has its own status text in
- * the bar.
- */
-const SUBJECT_CAPABLE_ACTION_IDS = new Set([
-  "connect.send_request",
-  "location.select_share_recipient",
-  "location.select_ask_recipient",
-  "location.share_selected",
-  "location.send_request",
-]);
-
-/**
  * Steps arriving within this long of the previous step's last update are
  * shown as one task even without a shared `goalId` -- an authored journey
  * aside, most multi-action requests are just One calling one action after
@@ -64,6 +46,41 @@ export function currentTaskSteps(runs: readonly ActionRun[]): ActionRun[] {
   return group;
 }
 
+/**
+ * Collapse steps that would render identically, keeping the most recent.
+ *
+ * Asking for the same thing twice -- or one directive arriving twice --
+ * produces two runs the card draws as the same sentence, stacked. That reads
+ * as two things having happened when only one did, and it is worst exactly
+ * where it matters most: a refusal repeated verbatim ("Add at least one
+ * emergency contact before sending an SOS") looks like two separate
+ * failures.
+ *
+ * Keyed on the rendered content, deliberately not on `actionId` alone: one
+ * task can legitimately run the same action over different subjects -- add
+ * Alex to Family, then add Sam to Family -- and those are genuinely separate
+ * steps that must both stay visible.
+ */
+export function collapseRepeatedSteps(steps: readonly ActionRun[]): ActionRun[] {
+  const keyOf = (step: ActionRun) =>
+    [
+      step.actionId,
+      step.message || step.label,
+      step.subject?.name ?? "",
+      step.subject?.detail ?? "",
+    // NUL separator, written as an escape so it is visible in source: it
+    // cannot occur inside any of these fields, so two different splits of
+    // the same characters can never collide into one key and wrongly
+    // collapse two genuinely distinct steps.
+    ].join("\u0000");
+  // Keep the LAST occurrence of each key, so the surviving row carries the
+  // newest phase -- a retry that finally succeeds must not be represented by
+  // the failed attempt that came before it.
+  const lastIndexForKey = new Map<string, number>();
+  steps.forEach((step, index) => lastIndexForKey.set(keyOf(step), index));
+  return steps.filter((step, index) => lastIndexForKey.get(keyOf(step)) === index);
+}
+
 function StepIcon({ phase }: { phase: ActionRun["phase"] }) {
   if (phase === "completed") {
     return <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />;
@@ -77,43 +94,66 @@ function StepIcon({ phase }: { phase: ActionRun["phase"] }) {
   return <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden="true" />;
 }
 
+/**
+ * Wraps rather than truncates. These lines carry the only explanation of what
+ * went wrong -- "Add at least one emergency contact before sending an SOS"
+ * cut to "Add at least one emergency contact before sending..." hides the very
+ * instruction the person needs to act on. The card grows to fit instead.
+ *
+ * `break-words` covers the pathological case an ellipsis used to hide: a
+ * single unbroken token (a long place name, a URL) wider than the card would
+ * otherwise overflow it rather than wrap.
+ */
+const STEP_TEXT_BASE = "min-w-0 flex-1 break-words text-[13px]";
+
 function stepTextClass(phase: ActionRun["phase"]): string {
-  if (phase === "failed" || phase === "blocked") return "truncate text-[13px] text-destructive";
-  if (phase === "cancelled") return "truncate text-[13px] text-muted-foreground";
-  if (phase === "completed") return "truncate text-[13px] text-muted-foreground";
-  return "truncate text-[13px] font-medium text-foreground";
+  if (phase === "failed" || phase === "blocked") {
+    return `${STEP_TEXT_BASE} text-destructive`;
+  }
+  if (phase === "cancelled") return `${STEP_TEXT_BASE} text-muted-foreground`;
+  if (phase === "completed") return `${STEP_TEXT_BASE} text-muted-foreground`;
+  return `${STEP_TEXT_BASE} font-medium text-foreground`;
 }
 
 /**
- * A live list of the steps One is working through, shown alongside the
- * spoken narration when the person has turned on walk-through mode (Voice
- * Settings). Reuses the action-run events that already fire for every
- * action -- solo or part of an authored journey -- rather than requiring a
- * pre-declared multi-step plan: each new call simply appends to, or starts,
- * the visible list.
+ * A card showing the action(s) One just worked through, alongside the
+ * spoken narration. Every action earns its own card this way, not just
+ * multi-step ones -- reuses the action-run events that already fire for
+ * every action, solo or part of an authored journey, rather than requiring
+ * a pre-declared multi-step plan.
  *
- * Deliberately hidden for a single-step task that never touches a person: a
- * one-off action already has its own status text in the bar, and this panel
- * earns its place once there is an actual sequence to follow, or once a
- * subject-capable step gives it something the bar's one-line pill can't show.
+ * `enabled` (Walk-through mode, Voice Settings) controls only whether
+ * *multiple* steps of one task get grouped into a single running panel --
+ * it does not gate whether a card shows at all. A single action's own
+ * result is always worth a card: that is exactly what "who is this going
+ * to" needs to show, and the bar's one-line pill has no room for a name.
  */
 export function VoiceWalkthroughPanel({
   enabled,
   onCancel,
 }: {
+  /** Groups multiple steps of one task into a single panel when true;
+   * when false, each step still gets shown, just one at a time. */
   enabled: boolean;
   /** Aborts whatever the last step is still doing. Only ever called while
    * that step is active -- there is nothing left to abort once it settles. */
   onCancel?: () => void;
 }) {
   const runs = useActionRuns();
-  const group = enabled ? currentTaskSteps(runs) : [];
+  const lastRun = runs[runs.length - 1] ?? null;
+  // Only the grouped path needs collapsing -- the single-step path shows one
+  // run, which cannot repeat itself.
+  const group = enabled
+    ? collapseRepeatedSteps(currentTaskSteps(runs))
+    : lastRun
+      ? [lastRun]
+      : [];
   const last = group[group.length - 1] ?? null;
   const active = last ? !isTerminalActionRunPhase(last.phase) : false;
 
   const [linger, setLinger] = useState(false);
   useEffect(() => {
-    if (!enabled || !last) {
+    if (!last) {
       setLinger(false);
       return;
     }
@@ -128,7 +168,7 @@ export function VoiceWalkthroughPanel({
     // re-running it on every unrelated snapshot would restart the clock on
     // every step of a task still in progress.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, last?.id, last?.phase]);
+  }, [last?.id, last?.phase]);
 
   // Tracks the run explicitly dismissed, by id rather than a plain boolean --
   // cancelling flips `last.phase`, which re-runs the linger effect above and
@@ -138,14 +178,7 @@ export function VoiceWalkthroughPanel({
   const [dismissedId, setDismissedId] = useState<string | null>(null);
   const dismissed = last ? last.id === dismissedId : false;
 
-  // A single step still earns its place here once it either has named who
-  // it is about, or belongs to an action that might -- "who am I sending
-  // this to" is exactly the thing the bar's own one-line status pill has no
-  // room for, and it needs to show WHILE that resolves, not only after.
-  const hasSubject = group.some(
-    (step) => step.subject || SUBJECT_CAPABLE_ACTION_IDS.has(step.actionId),
-  );
-  if (!enabled || !linger || dismissed || (group.length < 2 && !hasSubject)) {
+  if (!linger || dismissed || group.length === 0) {
     return null;
   }
 
@@ -181,17 +214,29 @@ export function VoiceWalkthroughPanel({
       <ul className="flex flex-col gap-2">
         {group.map((step) => (
           <li key={step.id} className="flex flex-col gap-1">
-            <div className="flex items-center gap-2.5">
-              <StepIcon phase={step.phase} />
-              <span className={stepTextClass(step.phase)}>{step.label}</span>
+            {/* items-start, not items-center: the text now wraps to as many
+                lines as it needs, and centring would drift the icon down
+                beside a tall block instead of marking the line it belongs to.
+                The icon's nudge optically centres it on that first line. */}
+            <div className="flex items-start gap-2.5">
+              <span className="mt-0.5 flex">
+                <StepIcon phase={step.phase} />
+              </span>
+              {/* message over label: label is a static per-action-type name
+                  ("Leave a circle"), message is the specific, current
+                  sentence ("Preparing Leave a circle" while running,
+                  "Left Family." once it settles) -- the card's whole job is
+                  showing what actually happened, not just which kind of
+                  action it was. */}
+              <span className={stepTextClass(step.phase)}>{step.message || step.label}</span>
             </div>
             {step.subject ? (
               <div className="ml-[26px] flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium text-foreground">
+                <span className="break-words text-xs font-medium text-foreground">
                   {step.subject.name}
                 </span>
                 {step.subject.detail ? (
-                  <span className="truncate text-[11px] text-muted-foreground">
+                  <span className="break-words text-[11px] text-muted-foreground">
                     {step.subject.detail}
                   </span>
                 ) : null}

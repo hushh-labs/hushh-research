@@ -43,13 +43,22 @@ describe("every Location flow voice can open announces itself", () => {
     });
   });
 
-  it("names the SOS flow, which has nothing else to announce it", () => {
-    // `location.open_sos` is what a spoken SOS request navigates to, and the
-    // navigation is deliberately where it stops. If this label ever goes
+  it("names the emergency flow, which has nothing else to announce it", () => {
+    // `location.open_sos` is what a spoken emergency request navigates to, and
+    // the navigation is deliberately where it stops. If this label ever goes
     // missing, that request becomes completely silent to One rather than
     // merely incomplete.
+    //
+    // The label says SMS, the flow slug still says `sos`. That split is
+    // deliberate and load-bearing: `sos` is the wire value -- the `?action=`
+    // slug, the `share_kind`, the route id -- and renaming it would break
+    // every stored grant and deep link. SMS is what a person is shown, and
+    // this product's own name for it (Save my Soul). The same rule is already
+    // enforced for notification copy by
+    // one-location-sms-revoke-notification.test.ts.
     const sos = flowsFromContracts.find((entry) => entry.flow === "sos");
     expect(sos?.actionId).toBe("location.open_sos");
-    expect(LOCATION_FLOW_LABELS.sos).toBe("Emergency SOS");
+    expect(LOCATION_FLOW_LABELS.sos).toBe("Emergency SMS");
+    expect(LOCATION_FLOW_LABELS.sos).not.toMatch(/SOS/i);
   });
 });

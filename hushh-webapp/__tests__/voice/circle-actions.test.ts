@@ -140,4 +140,32 @@ describe("circle actions are authored and wired", () => {
     expect(actor?.execution_target.path).toBe("local_handler");
     expect(opener?.label).not.toBe(actor?.label);
   });
+
+  it("does not let a bare 'accept'/'decline' collide between a location request and a circle invite (#6085)", () => {
+    // Regression: location.approve_request/decline_request used to own the
+    // bare words "approve"/"decline" outright, while
+    // accept_circle_invite/decline_circle_invite had no bare form at all --
+    // a person looking at a pending circle invite and saying just "decline"
+    // would land on the wrong action (or, for "accept", a true gap: "accept"
+    // and "approve" are not even the same word).
+    const approveRequest = (getKaiActionById("location.approve_request")?.aliases ?? []).map(
+      (a) => a.toLowerCase(),
+    );
+    const declineRequest = (getKaiActionById("location.decline_request")?.aliases ?? []).map(
+      (a) => a.toLowerCase(),
+    );
+    const acceptInvite = (getKaiActionById("location.accept_circle_invite")?.aliases ?? []).map(
+      (a) => a.toLowerCase(),
+    );
+    const declineInvite = (getKaiActionById("location.decline_circle_invite")?.aliases ?? []).map(
+      (a) => a.toLowerCase(),
+    );
+
+    expect(approveRequest).not.toContain("approve");
+    expect(declineRequest).not.toContain("decline");
+    // The circle side gets an explicit form instead of a bare word, resolved
+    // by which item is actually pending in view (see each action's meaning).
+    expect(acceptInvite).toContain("accept the invite");
+    expect(declineInvite).toContain("decline the invite");
+  });
 });

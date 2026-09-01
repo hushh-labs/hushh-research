@@ -15,6 +15,32 @@ steps:
       - |
         set -euo pipefail
 
+        require_non_negative_int() {
+          local name="$1"
+          local value="$2"
+          if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+            echo "${name} must be a non-negative integer, got '${value}'." >&2
+            exit 1
+          fi
+        }
+        require_positive_int() {
+          local name="$1"
+          local value="$2"
+          require_non_negative_int "${name}" "${value}"
+          if [[ "${value}" -lt 1 ]]; then
+            echo "${name} must be at least 1, got '${value}'." >&2
+            exit 1
+          fi
+        }
+        require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
+        require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
+        require_positive_int "_CLOUD_RUN_CONCURRENCY" "${_CLOUD_RUN_CONCURRENCY}"
+        require_positive_int "_CLOUD_RUN_TIMEOUT_SECONDS" "${_CLOUD_RUN_TIMEOUT_SECONDS}"
+        if [[ "${_CLOUD_RUN_MAX_INSTANCES}" -lt "${_CLOUD_RUN_MIN_INSTANCES}" ]]; then
+          echo "_CLOUD_RUN_MAX_INSTANCES must be greater than or equal to _CLOUD_RUN_MIN_INSTANCES." >&2
+          exit 1
+        fi
+
         google_contacts_client_id_file="/workspace/.google-contacts-client-id"
         google_contacts_secret_error="$$(mktemp)"
         trap 'rm -f "$${google_contacts_secret_error}"' EXIT
@@ -180,11 +206,14 @@ steps:
           "--platform=managed"
           "--allow-unauthenticated"
           "--port=8080"
-          "--memory=512Mi"
+          "--memory=${_CLOUD_RUN_MEMORY}"
           "--cpu=1"
-          "--timeout=120"
-          "--max-instances=10"
-          "--min-instances=1"
+          "--timeout=${_CLOUD_RUN_TIMEOUT_SECONDS}"
+          "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
+          "--max=${_CLOUD_RUN_MAX_INSTANCES}"
+          "--min=${_CLOUD_RUN_MIN_INSTANCES}"
+          "--max-instances=${_CLOUD_RUN_MAX_INSTANCES}"
+          "--min-instances=0"
           "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
           "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},HUSSH_TECH_CLIENT_ENABLED=${_HUSHH_TECH_CLIENT_ENABLED},HUSSH_TECH_PROXY_AUDIENCE=${_HUSHH_TECH_PROXY_AUDIENCE},HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000,MAIL_API_ENDPOINT=${_MAIL_API_ENDPOINT}"
           "--set-secrets=${secrets}"
@@ -244,6 +273,11 @@ substitutions:
   # single endpoint serves UAT and production.
   _MAIL_API_ENDPOINT: "https://hushh-mail-api-646258530541.us-central1.run.app"
   _CLOUD_RUN_NO_TRAFFIC: "false"
+  _CLOUD_RUN_MEMORY: "512Mi"
+  _CLOUD_RUN_TIMEOUT_SECONDS: "120"
+  _CLOUD_RUN_CONCURRENCY: "80"
+  _CLOUD_RUN_MIN_INSTANCES: "1"
+  _CLOUD_RUN_MAX_INSTANCES: "10"
   _IMAGE_TAG: v2.1.2
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual

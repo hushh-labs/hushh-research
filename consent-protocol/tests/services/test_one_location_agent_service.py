@@ -4,6 +4,7 @@ import json
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +16,7 @@ from hushh_mcp.services.one_location_agent_service import (
     _DIRECTORY_SEPARATOR_FOLD,
     _DIRECTORY_SEPARATOR_SQL,
     _DIRECTORY_SEPARATORS,
+    LOCATION_REQUEST_EXPIRY_HOURS,
     OneLocationAgentError,
     OneLocationAgentService,
     _contains_plaintext_location_key,
@@ -469,6 +471,131 @@ def test_auto_approve_preference_uses_server_time_version_and_audit(
     assert preference["ruleVersion"] == 4
 
 
+def test_nearby_check_in_preferences_default_visible_true_requests_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Db:
+        def execute_raw(self, _sql: str, _params: dict):
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().get_nearby_check_in_defaults(user_id="user_a")
+
+    assert preference == {
+        "visible": True,
+        "allowConnectionRequests": False,
+        "updatedAt": None,
+    }
+
+
+def test_nearby_check_in_preferences_update_upserts_and_returns_stored_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    updated_at = datetime.now(timezone.utc)
+
+    class Db:
+        def execute_raw(self, sql: str, params: dict):
+            calls.append((sql, dict(params)))
+            if "INSERT INTO one_location_nearby_check_in_preferences" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "visible": False,
+                            "allow_connection_requests": True,
+                            "updated_at": updated_at,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().update_nearby_check_in_defaults(
+        user_id="user_a",
+        visible=False,
+        allow_connection_requests=True,
+    )
+
+    upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "INSERT INTO one_location_nearby_check_in_preferences" in sql
+    )
+    assert "ON CONFLICT (user_id) DO UPDATE SET" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user_a",
+        "visible": False,
+        "allow_connection_requests": True,
+    }
+    assert preference == {
+        "visible": False,
+        "allowConnectionRequests": True,
+        "updatedAt": updated_at.isoformat(),
+    }
+
+
+def test_sos_voice_preference_defaults_to_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Db:
+        def execute_raw(self, _sql: str, _params: dict):
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().get_sos_voice_preference(user_id="user_a")
+
+    assert preference == {
+        "defaultAction": "open",
+        "updatedAt": None,
+    }
+
+
+def test_sos_voice_preference_update_upserts_and_returns_stored_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    updated_at = datetime.now(timezone.utc)
+
+    class Db:
+        def execute_raw(self, sql: str, params: dict):
+            calls.append((sql, dict(params)))
+            if "INSERT INTO one_location_sos_voice_preferences" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "default_action": "trigger",
+                            "updated_at": updated_at,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().update_sos_voice_preference(
+        user_id="user_a",
+        default_action="trigger",
+    )
+
+    upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "INSERT INTO one_location_sos_voice_preferences" in sql
+    )
+    assert "ON CONFLICT (user_id) DO UPDATE SET" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user_a",
+        "default_action": "trigger",
+    }
+    assert preference == {
+        "defaultAction": "trigger",
+        "updatedAt": updated_at.isoformat(),
+    }
+
+
 def test_auto_approve_preference_rejects_a_circle_the_owner_did_not_create(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -754,6 +881,16 @@ def test_verified_recipient_directory_sources_from_connections_and_circles() -> 
     assert service.params["owner_user_id"] == "owner"
 
 
+def test_paged_verified_recipient_directory_uses_the_shared_verified_ria_gate() -> None:
+    service = RecipientDirectoryProbe()
+
+    assert service.list_verified_recipients_page(owner_user_id="owner")["items"] == []
+    assert "ria_profiles ria_annotation" in service.sql
+    assert "'finra_verified'" in service.sql
+    assert "page_rows.is_ria" in service.sql
+    assert service.params["owner_user_id"] == "owner"
+
+
 def test_list_verified_recipients_sources_from_connections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -773,6 +910,7 @@ def test_list_verified_recipients_sources_from_connections(
                 "public_key_jwk": "{}",
                 "algorithm": "ECDH-P256-AES256-GCM",
                 "key_created_at": None,
+                "is_ria": True,
             }
         ]
 
@@ -780,8 +918,11 @@ def test_list_verified_recipients_sources_from_connections(
     monkeypatch.setattr(svc, "_apply_kai_circle_recommendations", lambda **kw: kw["recipients"])
     out = svc.list_verified_recipients(owner_user_id="owner")
     assert "FROM connections c" in captured["sql"]
+    assert "ria_profiles ria_annotation" in captured["sql"]
+    assert "'finra_verified'" in captured["sql"]
     assert "a.phone_verified = TRUE" not in captured["sql"]
     assert out and out[0]["userId"] == "friend"
+    assert out[0]["isRia"] is True
 
 
 def test_list_active_owner_grants_is_scoped_to_this_owner_and_active_status(
@@ -1387,6 +1528,12 @@ class FourUserMemoryService(OneLocationAgentService):
     ):
         yield
 
+    @contextmanager
+    def _event_bound_writer(self):
+        """The in-memory double applies each transition synchronously."""
+
+        yield
+
     def _active_key(self, user_id: str, key_id: str | None = None) -> dict | None:
         matches = [
             key
@@ -1505,6 +1652,53 @@ class FourUserMemoryService(OneLocationAgentService):
             ]
         if "UPDATE one_location_share_grants" in sql and "expires_at <= NOW()" in sql:
             return []
+        if "UPDATE one_location_access_requests AS legacy_request" in sql:
+            now = datetime.now(timezone.utc)
+            user_id = params.get("user_id")
+            repaired: list[dict] = []
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
+            for request in self.requests.values():
+                if request.get("status") != "pending" or request.get("expires_at") is not None:
+                    continue
+                if request.get("referred_by_user_id") is not None:
+                    continue
+                if str(request.get("id") or "") in linked_request_ids:
+                    continue
+                if user_id and user_id not in {
+                    request.get("owner_user_id"),
+                    request.get("requester_user_id"),
+                }:
+                    continue
+                deadline = request["requested_at"] + timedelta(hours=float(params["hours"]))
+                request["expires_at"] = deadline
+                if deadline <= now:
+                    request["status"] = "expired"
+                    request["resolved_at"] = request.get("resolved_at") or deadline
+                repaired.append({"id": request["id"]})
+            return repaired
+        if (
+            "UPDATE one_location_access_requests AS target_request" in sql
+            and "SET status = 'expired'" in sql
+        ):
+            now = datetime.now(timezone.utc)
+            user_id = params.get("user_id")
+            expired: list[dict] = []
+            for request in self.requests.values():
+                if request.get("status") != "pending" or request.get("expires_at") is None:
+                    continue
+                if request["expires_at"] > now:
+                    continue
+                if user_id and user_id not in {
+                    request.get("owner_user_id"),
+                    request.get("requester_user_id"),
+                }:
+                    continue
+                request["status"] = "expired"
+                request["resolved_at"] = request.get("resolved_at") or request["expires_at"]
+                expired.append({"id": request["id"]})
+            return expired[:500]
         if "FROM one_location_recipient_keys" in sql and "encrypted_private_key_jwk" in sql:
             # list_state's own-key lookup (myRecipientKey).
             user_id = params.get("user_id")
@@ -1643,12 +1837,79 @@ class FourUserMemoryService(OneLocationAgentService):
                 if grant["owner_user_id"] == owner or grant["recipient_user_id"] == owner
             ][:100]
         if (
+            "FROM one_location_access_requests req" in sql
+            and "LEFT JOIN actor_identity_cache" in sql
+        ):
+            now = datetime.now(timezone.utc)
+            if "req.owner_user_id = :owner_user_id" in sql:
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if request["owner_user_id"] == params["owner_user_id"]
+                    and request["status"] == "pending"
+                    and (request.get("expires_at") is None or request["expires_at"] > now)
+                ]
+            elif "req.requester_user_id = :requester_user_id" in sql:
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if request["requester_user_id"] == params["requester_user_id"]
+                    and request["status"] == "pending"
+                    and (request.get("expires_at") is None or request["expires_at"] > now)
+                ]
+            else:
+                user_id = params["user_id"]
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if user_id in {request["owner_user_id"], request["requester_user_id"]}
+                ]
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
+            return [
+                {
+                    **request,
+                    "legacy_direct_request": (
+                        request.get("expires_at") is None
+                        and request.get("referred_by_user_id") is None
+                        and str(request.get("id") or "") not in linked_request_ids
+                    ),
+                }
+                for request in sorted(
+                    rows,
+                    key=lambda item: item["requested_at"],
+                    reverse=True,
+                )[:50]
+            ]
+        if (
             "FROM one_location_access_requests" in sql
             and "owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id" in sql
         ):
             owner = params["owner_user_id"]
+            now = datetime.now(timezone.utc)
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
             return [
-                request
+                {
+                    **request,
+                    "status": (
+                        "expired"
+                        if request["status"] == "pending"
+                        and (
+                            request.get("expires_at") is not None
+                            and request["expires_at"] <= now
+                            or request.get("expires_at") is None
+                            and request.get("referred_by_user_id") is None
+                            and str(request.get("id") or "") not in linked_request_ids
+                            and request["requested_at"]
+                            + timedelta(hours=LOCATION_REQUEST_EXPIRY_HOURS)
+                            <= now
+                        )
+                        else request["status"]
+                    ),
+                }
                 for request in sorted(
                     self.requests.values(),
                     key=lambda item: item["requested_at"],
@@ -1894,9 +2155,15 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "pg_advisory_xact_lock" in sql:
+            return {"locked": None}
         if "FROM one_location_auto_approve_preferences" in sql:
             row = self.auto_approve_preferences.get(str(params.get("user_id") or ""))
             return dict(row) if row else None
+        if "FROM one_location_nearby_check_in_preferences" in sql:
+            return None
+        if "FROM one_location_sos_voice_preferences" in sql:
+            return None
         if "AS active_connection" in sql and "AS eligible_circle_id" in sql:
             owner = str(params.get("owner_user_id") or "")
             other = str(params.get("other_user_id") or "")
@@ -1957,8 +2224,12 @@ class FourUserMemoryService(OneLocationAgentService):
             return None
         if "WITH stale_grants AS" in sql and "deleted_grants" in sql:
             hours = float(params.get("hours") or 12)
+            expired_request_hours = float(params.get("expired_request_hours") or 168)
             user_id = params.get("user_id")
             cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+            expired_request_cutoff = datetime.now(timezone.utc) - timedelta(
+                hours=expired_request_hours
+            )
 
             def in_user_scope(row: dict, fields: tuple[str, ...]) -> bool:
                 if not user_id:
@@ -1998,6 +2269,15 @@ class FourUserMemoryService(OneLocationAgentService):
                     (
                         request["status"] in {"approved", "denied", "cancelled"}
                         and (request.get("resolved_at") or request.get("requested_at")) <= cutoff
+                    )
+                    or (
+                        request["status"] == "expired"
+                        and (
+                            request.get("resolved_at")
+                            or request.get("expires_at")
+                            or request.get("requested_at")
+                        )
+                        <= expired_request_cutoff
                     )
                     or request.get("approved_grant_id") in stale_grant_ids
                 )
@@ -2129,6 +2409,17 @@ class FourUserMemoryService(OneLocationAgentService):
                 "deleted_public_submissions": deleted_public_submissions,
                 "deleted_events": deleted_events,
             }
+        if "FROM one_location_events" in sql and "client_operation_id" in sql:
+            for event in self.events.values():
+                if (
+                    event.get("grant_id") == params.get("grant_id")
+                    and event.get("actor_user_id") == params.get("actor_user_id")
+                    and str(event.get("event_type") or "") in sql
+                    and (event.get("metadata") or {}).get("client_operation_id")
+                    == params.get("client_operation_id")
+                ):
+                    return {"id": event["id"]}
+            return None
         if "INSERT INTO one_location_events" in sql:
             event_id = str(uuid.uuid4())
             self.events[event_id] = {
@@ -2233,6 +2524,15 @@ class FourUserMemoryService(OneLocationAgentService):
             and "grant_id" not in params
         ):
             now = datetime.now(timezone.utc)
+            # Honour the lane predicate, exactly as the revoke fake above does.
+            # Without this the read returns the newest live grant of EITHER
+            # lane, so a test where an SOS share and an ordinary share are both
+            # running cannot tell the two apart -- and the production statement
+            # this stands in for is lane-scoped precisely because that
+            # distinction is the difference between extending a friend's share
+            # and reading an emergency one's hours.
+            lane_scoped = ":is_sos_lane" in sql
+            is_sos_lane = bool(params["is_sos_lane"]) if lane_scoped else None
             live = [
                 grant
                 for grant in self.grants.values()
@@ -2240,6 +2540,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 and grant["recipient_user_id"] == params["recipient_user_id"]
                 and grant["status"] == "active"
                 and (grant.get("expires_at") is None or grant["expires_at"] > now)
+                and (not lane_scoped or self._grant_is_sos_lane(grant) == is_sos_lane)
             ]
             live.sort(key=lambda item: item["created_at"], reverse=True)
             return live[0] if live else None
@@ -2292,6 +2593,7 @@ class FourUserMemoryService(OneLocationAgentService):
         if (
             "FROM one_location_access_requests" in sql
             and "requester_user_id = :requester_user_id" in sql
+            and "owner_user_id = :owner_user_id" in sql
         ):
             for request in sorted(
                 self.requests.values(),
@@ -2303,11 +2605,34 @@ class FourUserMemoryService(OneLocationAgentService):
                     and request["requester_user_id"] == params["requester_user_id"]
                     and request["status"] == "pending"
                     and request.get("referred_by_user_id") == params.get("referred_by_user_id")
+                    and (
+                        bool(params.get("has_request_expiry"))
+                        == (request.get("expires_at") is not None)
+                    )
                 ):
-                    return request
+                    return {
+                        **request,
+                        "request_expired": bool(
+                            request.get("expires_at")
+                            and request["expires_at"] <= datetime.now(timezone.utc)
+                        ),
+                    }
+            return None
+        if "UPDATE one_location_access_requests" in sql and "SET status = 'expired'" in sql:
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["status"] == "pending"
+                and request.get("expires_at") is not None
+                and request["expires_at"] <= datetime.now(timezone.utc)
+            ):
+                request["status"] = "expired"
+                request["resolved_at"] = request.get("resolved_at") or request["expires_at"]
+                return request
             return None
         if "INSERT INTO one_location_access_requests" in sql:
             request_id = str(uuid.uuid4())
+            expires_after_hours = params.get("expires_after_hours")
             row = {
                 "id": request_id,
                 "owner_user_id": params["owner_user_id"],
@@ -2316,6 +2641,11 @@ class FourUserMemoryService(OneLocationAgentService):
                 "status": "pending",
                 "message": params.get("message"),
                 "requested_at": datetime.now(timezone.utc),
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=float(expires_after_hours))
+                    if expires_after_hours is not None
+                    else None
+                ),
                 "resolved_at": None,
                 "approved_grant_id": None,
                 "requested_duration_hours": params.get("requested_duration_hours"),
@@ -2338,16 +2668,35 @@ class FourUserMemoryService(OneLocationAgentService):
                 if params.get("ask_changed"):
                     request["request_revision"] = int(request.get("request_revision") or 1) + 1
                     request["requested_at"] = datetime.now(timezone.utc)
+                    if params.get("expires_after_hours") is not None:
+                        request["expires_at"] = datetime.now(timezone.utc) + timedelta(
+                            hours=float(params["expires_after_hours"])
+                        )
                 return request
             return None
         if "FROM one_location_access_requests" in sql:
             request = self.requests.get(params["request_id"])
-            if (
+            actor_matches = bool(
                 request
-                and request["owner_user_id"] == params["owner_user_id"]
-                and request["status"] == "pending"
-            ):
-                return request
+                and (
+                    (
+                        "owner_user_id" in params
+                        and request["owner_user_id"] == params["owner_user_id"]
+                    )
+                    or (
+                        "requester_user_id" in params
+                        and request["requester_user_id"] == params["requester_user_id"]
+                    )
+                )
+            )
+            if actor_matches and request:
+                return {
+                    **request,
+                    "request_expired": bool(
+                        request.get("expires_at")
+                        and request["expires_at"] <= datetime.now(timezone.utc)
+                    ),
+                }
             return None
         if "SET status = 'approved'" in sql:
             request = self.requests[params["request_id"]]
@@ -2365,6 +2714,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 request
                 and request["requester_user_id"] == params["requester_user_id"]
                 and request["status"] == "pending"
+                and (
+                    request.get("expires_at") is None
+                    or request["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 request["status"] = "cancelled"
                 request["resolved_at"] = datetime.now(timezone.utc)
@@ -2376,6 +2729,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 request
                 and request["owner_user_id"] == params["owner_user_id"]
                 and request["status"] == "pending"
+                and (
+                    request.get("expires_at") is None
+                    or request["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 request["status"] = "denied"
                 request["resolved_at"] = datetime.now(timezone.utc)
@@ -2396,6 +2753,22 @@ class FourUserMemoryService(OneLocationAgentService):
                 )
             ):
                 return grant
+            return None
+        if "FROM one_location_referrals" in sql:
+            for referral in sorted(
+                self.referrals.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if (
+                    referral["grant_id"] == params["grant_id"]
+                    and referral["owner_user_id"] == params["owner_user_id"]
+                    and referral["referring_user_id"] == params["referring_user_id"]
+                    and referral["referred_user_id"] == params["referred_user_id"]
+                    and referral["request_id"] == params["request_id"]
+                    and referral["status"] == "pending_owner_approval"
+                ):
+                    return referral
             return None
         if "INSERT INTO one_location_referrals" in sql:
             referral_id = str(uuid.uuid4())
@@ -2440,11 +2813,14 @@ class FourUserMemoryService(OneLocationAgentService):
             and "expires_at > NOW()" in sql
             and "invite_id" in params
         ):
-            # The owner's heartbeat lookup: their own still-live link.
+            # A still-live link, optionally owner-scoped for the heartbeat.
             invite = self.public_invites.get(params["invite_id"])
             if (
                 invite
-                and invite["owner_user_id"] == params["owner_user_id"]
+                and (
+                    "owner_user_id" not in params
+                    or invite["owner_user_id"] == params["owner_user_id"]
+                )
                 and invite["status"] == "active"
                 and invite["expires_at"] > datetime.now(timezone.utc)
             ):
@@ -3023,6 +3399,29 @@ def test_recipient_payload_masks_email_for_directory_disambiguation() -> None:
     assert "abdul.secondary@example.com" not in json.dumps(payload)
 
 
+def test_recipient_payload_marks_verified_ria_status() -> None:
+    payload = OneLocationAgentService._recipient_payload(
+        {
+            "user_id": "advisor-user",
+            "display_name": "Ada Advisor",
+            "phone_verified": True,
+            "is_ria": True,
+        }
+    )
+    assert payload is not None
+    assert payload["isRia"] is True
+
+    payload = OneLocationAgentService._recipient_payload(
+        {
+            "user_id": "person-user",
+            "display_name": "Pat Person",
+            "phone_verified": True,
+        }
+    )
+    assert payload is not None
+    assert payload["isRia"] is False
+
+
 def test_directory_candidate_search_filters_before_pagination(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3550,6 +3949,12 @@ def test_four_user_location_workflow_contract() -> None:
         )
     assert unverified_share.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
 
+    request_event_count = sum(
+        event["event_type"] == "location_access_request" for event in service.events.values()
+    )
+    request_notification_count = sum(
+        item["notification_type"] == "location_access_request" for item in service.notifications
+    )
     direct_request_c = service.request_access(
         requester_user_id=user_c,
         owner_user_id=user_a,
@@ -3562,6 +3967,16 @@ def test_four_user_location_workflow_contract() -> None:
     )
     assert duplicate_request_c["id"] == direct_request_c["id"]
     assert duplicate_request_c["message"] == "Can you share where you are now?"
+    assert (
+        sum(event["event_type"] == "location_access_request" for event in service.events.values())
+        == request_event_count + 1
+    )
+    assert (
+        sum(
+            item["notification_type"] == "location_access_request" for item in service.notifications
+        )
+        == request_notification_count + 1
+    )
 
     approved_c = service.approve_request(
         owner_user_id=user_a,
@@ -3594,6 +4009,30 @@ def test_four_user_location_workflow_contract() -> None:
     )
     assert referral_response["referral"]["status"] == "pending_owner_approval"
     assert referral_response["request"]["status"] == "pending"
+    referral_event_count = sum(
+        event["event_type"] == "location_referral_invite" for event in service.events.values()
+    )
+    referral_notification_count = sum(
+        item["notification_type"] == "location_referral_invite" for item in service.notifications
+    )
+    retried_referral = service.refer_recipient(
+        referring_user_id=user_b,
+        grant_id=grant_b["id"],
+        referred_user_id=user_d,
+    )
+    assert retried_referral["referral"]["id"] == referral_response["referral"]["id"]
+    assert retried_referral["request"]["id"] == referral_response["request"]["id"]
+    assert (
+        sum(event["event_type"] == "location_referral_invite" for event in service.events.values())
+        == referral_event_count
+    )
+    assert (
+        sum(
+            item["notification_type"] == "location_referral_invite"
+            for item in service.notifications
+        )
+        == referral_notification_count
+    )
 
     with pytest.raises(OneLocationAgentError):
         service.view_latest_envelope(recipient_user_id=user_d, grant_id=grant_b["id"])
@@ -3677,6 +4116,79 @@ def test_location_grant_recipient_can_mark_share_revoked() -> None:
     assert already_revoked["status"] == "revoked"
 
 
+def test_event_failure_rolls_back_location_transition_and_suppresses_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = {
+        "id": "00000000-0000-0000-0000-000000000101",
+        "owner_user_id": "user_a",
+        "requester_user_id": "user_b",
+        "status": "pending",
+        "requested_duration_hours": 1,
+        "requested_duration_mode": "timed",
+        "extends_grant_id": None,
+    }
+
+    class _Result:
+        returns_rows = True
+
+        def __init__(self, row: dict | None) -> None:
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.row
+
+        def all(self):
+            return [] if self.row is None else [self.row]
+
+    class _Connection:
+        def execute(self, statement, params):
+            sql = str(statement)
+            if "UPDATE one_location_access_requests AS legacy_request" in sql:
+                return _Result(None)
+            if "SET status = 'denied'" in sql:
+                request["status"] = "denied"
+                return _Result(dict(request))
+            if "INSERT INTO one_location_events" in sql:
+                raise RuntimeError("feed projection failed")
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+    class _Engine:
+        @contextmanager
+        def begin(self):
+            previous_status = request["status"]
+            try:
+                yield _Connection()
+            except Exception:
+                request["status"] = previous_status
+                raise
+
+    service = OneLocationAgentService()
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(engine=_Engine()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_identity_row",
+        lambda user_id: {"user_id": user_id, "display_name": user_id},
+    )
+    monkeypatch.setattr(
+        service, "_send_metadata_notification", lambda **kwargs: sent.append(kwargs)
+    )
+
+    with pytest.raises(RuntimeError, match="feed projection failed"):
+        service.deny_request(owner_user_id="user_a", request_id=request["id"])
+
+    assert request["status"] == "pending"
+    assert sent == []
+
+
 def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
     service = FourUserMemoryService()
     for user_id in ("user_a", "user_b", "user_c"):
@@ -3750,6 +4262,33 @@ def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
     assert service.grants[grant["id"]]["expires_at"] == original_expires_at
 
 
+def test_shorten_grant_reuses_a_client_operation_without_duplicate_event_or_push() -> None:
+    service, grant = _duration_service_with_grant(20)
+    operation_id = "shorten-operation-0001"
+
+    first = service.shorten_grant(
+        caller_user_id="user_b",
+        grant_id=grant["id"],
+        duration_hours=1,
+        client_operation_id=operation_id,
+    )
+    first_expiry = service.grants[grant["id"]]["expires_at"]
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+
+    replay = service.shorten_grant(
+        caller_user_id="user_b",
+        grant_id=grant["id"],
+        duration_hours=1,
+        client_operation_id=operation_id,
+    )
+
+    assert replay["id"] == first["id"]
+    assert service.grants[grant["id"]]["expires_at"] == first_expiry
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
+
+
 def _duration_service_with_grant(duration_hours: float = 0.5):
     """A live user_a -> user_b share, and the service holding it."""
     service = FourUserMemoryService()
@@ -3786,6 +4325,33 @@ def test_owner_may_lengthen_their_own_running_share() -> None:
     assert extended["status"] == "active"
     assert service.grants[grant["id"]]["expires_at"] > original_expires_at
     assert service.grants[grant["id"]]["duration_hours"] == 2
+
+
+def test_set_duration_reuses_a_client_operation_without_resetting_the_clock() -> None:
+    service, grant = _duration_service_with_grant(0.5)
+    operation_id = "duration-operation-0001"
+
+    first = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+        client_operation_id=operation_id,
+    )
+    first_expiry = service.grants[grant["id"]]["expires_at"]
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+
+    replay = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+        client_operation_id=operation_id,
+    )
+
+    assert replay["id"] == first["id"]
+    assert service.grants[grant["id"]]["expires_at"] == first_expiry
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
 
 
 def test_changing_the_duration_keeps_the_same_grant() -> None:
@@ -4561,6 +5127,12 @@ def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.Mon
         return {}
 
     monkeypatch.setattr(svc, "_execute_one", fake_execute_one)
+
+    @contextmanager
+    def fake_event_bound_writer():
+        yield
+
+    monkeypatch.setattr(svc, "_event_bound_writer", fake_event_bound_writer)
 
     result = svc.claim_circle_invite(invite_token="tok", claimant_user_id="claimant-uid")  # noqa: S106
 
@@ -5949,22 +6521,30 @@ def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
     )
     assert grant["shareKind"] == "sos"
     assert grant["shareMessage"] == "Come get me"
-    assert service.notifications == []
+
+    # Scoped to the ALERT. `add_sms_contact` above now tells the contact they
+    # were added -- a different notification, and the whole point of that
+    # change. What this test guards is that the alert itself waits for the
+    # envelope, so a recipient is never told a location is available before one
+    # is readable.
+    def share_alerts() -> list[dict]:
+        return [
+            n for n in service.notifications if n["notification_type"] == "location_share_created"
+        ]
+
+    assert share_alerts() == []
+    assert [n["notification_type"] for n in service.notifications] == ["location_sms_contact_added"]
 
     service.store_encrypted_envelope(
         owner_user_id="user_a",
         grant_id=grant["id"],
         envelope=encrypted_envelope("key-user_b", "ciphertext"),
     )
-    assert len(service.notifications) == 1
-    assert service.notifications[0]["title"] == "Save my Soul"
-    assert service.notifications[0]["body"] == "User A: Come get me"
-    assert service.notifications[0]["data"]["notification_profile"] == (
-        "one_location_sms_emergency"
-    )
-    assert service.notifications[0]["data"]["notification_category"] == (
-        "ONE_LOCATION_SMS_EMERGENCY"
-    )
+    assert len(share_alerts()) == 1
+    assert share_alerts()[0]["title"] == "Save my Soul"
+    assert share_alerts()[0]["body"] == "User A: Come get me"
+    assert share_alerts()[0]["data"]["notification_profile"] == ("one_location_sms_emergency")
+    assert share_alerts()[0]["data"]["notification_category"] == ("ONE_LOCATION_SMS_EMERGENCY")
 
 
 # ---------------------------------------------------------------------------
@@ -6611,6 +7191,24 @@ def test_state_never_reports_auto_approve_off_when_its_authority_read_fails() ->
         UnavailablePreferenceService().list_state(user_id="user_a")
 
 
+def test_state_never_reports_nearby_check_in_defaults_when_its_authority_read_fails() -> None:
+    class UnavailablePreferenceService(FourUserMemoryService):
+        def get_nearby_check_in_defaults(self, *, user_id: str) -> dict:
+            raise RuntimeError(f"nearby check-in preference unavailable for {user_id}")
+
+    with pytest.raises(RuntimeError, match="nearby check-in preference unavailable"):
+        UnavailablePreferenceService().list_state(user_id="user_a")
+
+
+def test_state_never_reports_sos_voice_default_when_its_authority_read_fails() -> None:
+    class UnavailablePreferenceService(FourUserMemoryService):
+        def get_sos_voice_preference(self, *, user_id: str) -> dict:
+            raise RuntimeError(f"sos voice preference unavailable for {user_id}")
+
+    with pytest.raises(RuntimeError, match="sos voice preference unavailable"):
+        UnavailablePreferenceService().list_state(user_id="user_a")
+
+
 def test_a_public_link_cannot_be_asked_to_live_longer_than_an_hour() -> None:
     # Anyone holding this link can watch, which is a different promise from a
     # private share to a named person who can be un-shared. 24 was the private
@@ -6833,3 +7431,347 @@ def test_location_and_connect_read_one_circle_list() -> None:
     assert '"circles": named_circles,' in source
     # Never its own SQL against the Circle tables.
     assert "FROM one_location_circles" not in source
+
+
+class MapStateProbe(OneLocationAgentService):
+    """Capture the marker query `list_map_state` runs, and answer it with one row.
+
+    The row belongs to an owner whose `presence_mode` is the default 'ghost' --
+    which is to say, somebody who has shared privately and has never opened the
+    Ghost control at all. That is the reported case, and it is also the DEFAULT
+    case: the preferences row is created lazily and defaults to ghost, so every
+    first-time private share used to land here.
+    """
+
+    def __init__(self) -> None:
+        self.marker_sql = ""
+
+    def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+        self.marker_sql = sql
+        return [
+            {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "owner_user_id": "ankit",
+                "recipient_user_id": "viewer",
+                "recipient_key_id": "key_viewer",
+                "status": "active",
+                "capability_scopes": json.dumps(["cap.location.live.view"]),
+                "owner_display_name": "Ankit",
+                "map_envelope_id": "00000000-0000-0000-0000-000000000002",
+                "map_envelope_grant_id": "00000000-0000-0000-0000-000000000001",
+                "map_envelope_owner_user_id": "ankit",
+                "map_envelope_recipient_user_id": "viewer",
+                "map_envelope_recipient_key_id": "key_viewer",
+                "map_envelope_algorithm": "ECDH-P256-AES256-GCM",
+                "map_envelope_ciphertext": "ciphertext-only",
+                "map_envelope_iv": "iv",
+                "map_envelope_sender_key": {"kty": "EC"},
+                "map_envelope_captured_at": datetime.now(timezone.utc),
+                "map_envelope_source_platform": "web",
+                "map_envelope_publication_context": "foreground_map_visible",
+                "map_envelope_created_at": datetime.now(timezone.utc),
+                "map_envelope_metadata": {},
+            }
+        ]
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        if "FROM one_location_map_preferences" in sql:
+            return {
+                "presence_mode": "ghost",
+                "renderer_consent_version": "v1",
+                "updated_at": datetime.now(timezone.utc),
+            }
+        return None
+
+
+def test_ghost_mode_does_not_hide_a_private_share_from_the_person_it_was_written_for() -> None:
+    """Reported: "Ankit is sharing his location privately with me but I can not
+    see him on my map."
+
+    The marker query used to require the SHARER's `presence_mode` to be
+    'foreground_private'. That column defaults to 'ghost', so an owner who had
+    created a real grant, for one named person, for a duration they chose, and
+    whose envelope was written and readable, still produced no pin -- while the
+    recipient's Location screen said "sharing with you" a few pixels away.
+
+    The grant is the consent. Ghost Mode is a control over the GENERAL audience
+    -- people who were never handed a share -- and must not reach into an
+    explicit one.
+    """
+    service = MapStateProbe()
+
+    state = service.list_map_state(user_id="viewer")
+
+    # The pin arrives even though the owner is in Ghost Mode.
+    assert len(state["markers"]) == 1
+    assert state["markers"][0]["grant"]["ownerUserId"] == "ankit"
+    assert state["markers"][0]["envelope"]["ciphertext"] == "ciphertext-only"
+
+    # And it arrives because the gate is gone from the query, not because this
+    # probe happened to answer generously.
+    #
+    # Read from the EXECUTABLE statement, with `--` lines stripped: the clause
+    # that was removed is quoted verbatim in the comment that replaced it, so a
+    # naive substring check over the whole string would pass forever whether or
+    # not the JOIN came back.
+    executable = " ".join(
+        line for line in service.marker_sql.splitlines() if not line.strip().startswith("--")
+    )
+    assert "one_location_map_preferences" not in executable
+    assert "presence_mode" not in executable
+
+    # Everything that WAS protecting the recipient still is: the grant has to
+    # be theirs, live, unexpired, and carry a map-visible envelope.
+    assert "g.recipient_user_id = :user_id" in executable
+    assert "g.status = 'active'" in executable
+    assert "g.expires_at IS NULL OR g.expires_at > NOW()" in executable
+    assert "candidate.recipient_user_id = :user_id" in executable
+    assert "candidate.publication_context = 'foreground_map_visible'" in executable
+
+    # The preference is still reported to the client -- the Ghost control still
+    # exists and still means something. It just no longer decides this.
+    assert state["preferences"]["presenceMode"] == "ghost"
+
+
+def test_map_preferences_doc_states_ghost_is_general_visibility_only() -> None:
+    """The rule has one home, and it is next to the column it describes.
+
+    Both halves of this used to be enforced by the same SQL clause, so anybody
+    reading either one alone concluded that Ghost governs private sharing. It
+    does not, and the next person to touch `presence_mode` reads this docstring
+    before they read the marker query.
+    """
+    import inspect
+
+    doc = " ".join((inspect.getdoc(OneLocationAgentService.get_map_preferences) or "").split())
+    assert "GENERAL visibility only" in doc
+    assert "not a switch over private sharing" in doc
+    assert "list_map_state" in doc
+
+
+# ---------------------------------------------------------------------------
+# The share lane must survive the trip to the Feed.
+# ---------------------------------------------------------------------------
+#
+# `share_kind` is the only field separating the SMS (Save my Soul) emergency
+# lane from an ordinary share. It was allowlisted into the Feed payload and
+# read by the renderer, and still never arrived: every `location_share_created`
+# emitter and the expiry sweep built their event metadata by hand and left it
+# out, so an emergency was narrated as "started sharing location".
+#
+# The webapp test that covers the rendering half constructs its metadata by
+# hand, which is exactly why the gap survived review -- it can never observe
+# what the emitters actually write. These are source contracts rather than
+# runtime tests for the same reason: they hold the EMITTERS to carrying the
+# field, which is the half nothing else checks.
+
+_SERVICE_SOURCE = Path(one_location_agent_module.__file__).read_text(encoding="utf-8")
+
+
+def _metadata_block_after(marker: str, *, source: str) -> str:
+    """The literal that follows an event-type marker, up to its closing brace."""
+
+    start = source.index(marker)
+    window = source[start : start + 2000]
+    return window
+
+
+def test_every_share_created_emitter_carries_the_share_lane() -> None:
+    # Three write paths produce this event: the non-enforced branch, the
+    # enforced transaction's raw INSERT, and the with-envelope CTE that the
+    # SMS alert itself uses. All three must stamp the lane.
+    markers = [
+        'event_type="location_share_created"',
+        "CAST(:grant_id AS UUID), 'location_share_created',",
+        "'location_share_created',\n                jsonb_build_object(",
+    ]
+    for marker in markers:
+        assert marker in _SERVICE_SOURCE, f"emitter moved: {marker!r}"
+        block = _metadata_block_after(marker, source=_SERVICE_SOURCE)
+        assert "share_kind" in block, (
+            f"{marker!r} builds Feed metadata without share_kind, so the Feed "
+            "cannot tell an SMS alert from an ordinary share"
+        )
+
+
+def test_expiring_a_share_carries_the_share_lane() -> None:
+    # An 8-hour SMS alert nobody stops is ended by the lazy expiry sweep. That
+    # writer never read the grant's metadata, so the lane was absent from the
+    # domain event itself and no projection could put it back.
+    block = _metadata_block_after('event_type="location_share_expired"', source=_SERVICE_SOURCE)
+    assert "share_kind" in block
+    assert "COALESCE(target_grant.metadata ->> 'share_kind', '')" in _SERVICE_SOURCE, (
+        "the expiry sweep must RETURN the grant's lane for the event to carry it"
+    )
+
+
+def test_revoking_a_share_still_carries_the_share_lane() -> None:
+    # This one was already correct. Pinned so a future edit cannot quietly
+    # bring it back in line with the two that were wrong.
+    block = _metadata_block_after('event_type="location_share_revoked"', source=_SERVICE_SOURCE)
+    assert "share_kind" in block
+
+
+def test_feed_projection_migration_carries_the_share_lane_to_both_audiences() -> None:
+    # Emitting it is only half the trip. Migration 179's two projection
+    # functions build Feed metadata key by key -- deliberately, so nothing is
+    # copied wholesale into a plaintext row -- and neither listed this key, so
+    # both the sender's and the recipient's rows lost it again.
+    migration = (
+        Path(one_location_agent_module.__file__).parents[2]
+        / "db"
+        / "migrations"
+        / "186_feed_share_kind_projection.sql"
+    )
+    sql = migration.read_text(encoding="utf-8")
+
+    assert sql.count("CREATE OR REPLACE FUNCTION") == 2, (
+        "both the owner and recipient projections must be replaced"
+    )
+    # Three share-lifecycle families, two audiences.
+    assert sql.count("'share_kind', share_kind_value") == 6
+    for event in (
+        "location_share_created",
+        "location_share_revoked",
+        "location_share_expired",
+    ):
+        assert event in sql
+
+
+# ---------------------------------------------------------------------------
+# SMS Circle membership must reach both people.
+# ---------------------------------------------------------------------------
+#
+# Being on someone's SMS Circle is the list that receives their Save my Soul
+# alert, so membership decides whether an emergency reaches you at all. It was
+# the one relationship the product changed in total silence: `add_sms_contact`
+# was a lock plus an INSERT and `remove_sms_contact` a bare DELETE -- no event,
+# no Feed row, no push, on either side.
+
+
+def test_adding_an_sms_contact_announces_it() -> None:
+    assert "_record_sms_contact_change" in _SERVICE_SOURCE
+    add_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index("def add_sms_contact(") : _SERVICE_SOURCE.index(
+            "def remove_sms_contact("
+        )
+    ]
+    assert "_record_sms_contact_change(" in add_block, (
+        "adding an SMS contact must announce itself, or the person taking on "
+        "the duty is never told they have it"
+    )
+    assert "added=True" in add_block
+
+
+def test_removing_an_sms_contact_announces_it_only_when_one_went() -> None:
+    remove_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index("def remove_sms_contact(") : _SERVICE_SOURCE.index(
+            "def _record_sms_contact_change("
+        )
+    ]
+    # Guarded on the DELETE actually removing a row: announcing a no-op would
+    # tell somebody they had lost a duty they never held.
+    assert "if removed:" in remove_block
+    assert "added=False" in remove_block
+
+
+def test_the_sms_contact_announcement_reaches_the_contact_too() -> None:
+    block = _SERVICE_SOURCE[_SERVICE_SOURCE.index("def _record_sms_contact_change(") :][:4000]
+    # The domain event carries both labels, because the projection writes a row
+    # for each audience and each one names the OTHER person.
+    assert '"counterpart_label": contact_label' in block
+    assert '"owner_label": owner_label' in block
+    assert "recipient_user_id=contact_user_id" in block
+    # And a push, for the side that is not looking at the app.
+    assert "_send_metadata_notification(" in block
+    assert "user_id=contact_user_id" in block
+    # Never fails the membership change it is announcing.
+    assert "required=False" in block
+    assert "except Exception:" in block
+
+
+def test_sms_contact_events_are_allowed_and_projected_to_both_audiences() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "187_one_location_sms_contact_events.sql").read_text(encoding="utf-8")
+
+    # The audit table constrains its event types, so a new one that is not
+    # added to the CHECK is rejected at write time.
+    assert "one_location_events_event_type_check" in sql
+    for event in ("location_sms_contact_added", "location_sms_contact_removed"):
+        assert event in sql
+
+    # Two rows per transition: the owner's and the contact's.
+    assert sql.count("INSERT INTO feed_events") == 2
+    assert "'feed_audience', 'recipient'" in sql
+    assert "NEW.recipient_user_id <> NEW.owner_user_id" in sql
+    assert "one_location_sms_contact_events_feed_fanout" in sql
+
+    rollback = (
+        migrations / "rollback" / "187_one_location_sms_contact_events.rollback.sql"
+    ).read_text(encoding="utf-8")
+    assert "DROP TRIGGER IF EXISTS one_location_sms_contact_events_feed_fanout" in rollback
+    assert "location_sms_contact_added" not in rollback.split("ADD CONSTRAINT")[1]
+
+
+# ---------------------------------------------------------------------------
+# "Did they actually look?"
+# ---------------------------------------------------------------------------
+#
+# `location_share_viewed` has been written on every envelope read since the
+# feature shipped and was never projected into Feed. The reason it could not
+# simply be projected is volume: a viewer watching a live share polls, so one
+# afternoon writes hundreds of these events.
+
+
+def test_the_viewed_projection_tells_only_the_owner() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+
+    assert "location_share_viewed" in sql
+    # Exactly one row, and it belongs to the owner. "You viewed their location"
+    # is not news to the viewer, and would put their own polling in their Feed.
+    assert sql.count("INSERT INTO feed_events") == 1
+    assert "NEW.owner_user_id," in sql
+    assert "NEW.actor_user_id = NEW.owner_user_id" in sql
+    assert "feed_audience" not in sql
+
+
+def test_the_viewed_projection_collapses_polling_to_one_row_a_day() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+
+    # One row per grant, per viewer, per day, leaning on the unique index
+    # migration 179 added over (user_id, source_domain, event_type,
+    # source_row_id). Without this a single afternoon of watching a live share
+    # would bury every other kind of activity.
+    assert "':viewer:'" in sql
+    assert "'YYYY-MM-DD'" in sql
+    assert "ON CONFLICT DO NOTHING" in sql
+
+
+def test_the_viewer_name_is_resolved_in_the_trigger_not_the_read_path() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+    # The emitting path is a hot read a recipient hits on a timer; it must not
+    # pay for an identity lookup it does not use.
+    assert "FROM actor_identity_cache" in sql
+    viewed_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index('event_type="location_share_viewed"') - 600 :
+    ][:900]
+    assert "counterpart_label" not in viewed_block
+
+    # And the label is sanitised the same way every other projection does it:
+    # never a raw id, a `ria:` handle, a bare UUID, or a 20+ character token.
+    assert "!~* '^ria:'" in sql
+    assert "LENGTH(BTRIM(display_name)) >= 20" in sql
+
+
+def test_the_viewed_projection_can_be_rolled_back() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    rollback = (
+        migrations / "rollback" / "188_feed_location_viewed_projection.rollback.sql"
+    ).read_text(encoding="utf-8")
+    assert "DROP TRIGGER IF EXISTS one_location_viewed_events_feed_fanout" in rollback
+    # Rows already written stay: they are the only record an owner has of who
+    # looked.
+    assert "DELETE FROM feed_events" not in rollback

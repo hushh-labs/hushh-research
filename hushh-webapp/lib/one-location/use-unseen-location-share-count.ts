@@ -8,6 +8,10 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
+  isLocationRequestPending,
+  locationRequestExpiryMs,
+} from "@/lib/one-location/request-expiry";
+import {
   isOneLocationGrantOpened,
   ONE_LOCATION_GRANT_OPENED_EVENT,
   ONE_LOCATION_GRANT_UNWATCHED_EVENT,
@@ -19,7 +23,11 @@ type LocationNotificationState = {
   receivedGrantIds: string[];
   /** Pending access requests where someone is asking to see MY location. */
   pendingIncomingRequests: number;
+  /** Nearest explicit deadline, used to retire the badge without polling. */
+  nextPendingRequestExpiryAtMs: number | null;
 };
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /**
  * App-wide count of location notifications needing your attention, powering the
@@ -60,13 +68,43 @@ export function useUnseenLocationShareCount(): number {
       const receivedGrantIds = (state.receivedGrants ?? [])
         .filter((grant) => grant.status === "active")
         .map((grant) => grant.id);
-      const pendingIncomingRequests = (state.requests ?? []).filter(
+      const requestNowMs = Date.now();
+      const pendingIncoming = (state.requests ?? []).filter(
         (request) =>
-          request.ownerUserId === uid && request.status === "pending",
-      ).length;
-      return { receivedGrantIds, pendingIncomingRequests };
+          request.ownerUserId === uid &&
+          isLocationRequestPending(request, requestNowMs),
+      );
+      const nextPendingRequestExpiryAtMs = pendingIncoming.reduce<
+        number | null
+      >((nearest, request) => {
+        const expiresAt = locationRequestExpiryMs(request);
+        if (expiresAt === null || expiresAt <= requestNowMs) return nearest;
+        return nearest === null ? expiresAt : Math.min(nearest, expiresAt);
+      }, null);
+      return {
+        receivedGrantIds,
+        pendingIncomingRequests: pendingIncoming.length,
+        nextPendingRequestExpiryAtMs,
+      };
     },
   });
+
+  const nextPendingRequestExpiryAtMs =
+    resource.data?.nextPendingRequestExpiryAtMs ?? null;
+  useEffect(() => {
+    if (nextPendingRequestExpiryAtMs === null) return;
+    // One millisecond beyond the inclusive deadline avoids a timer callback
+    // racing the same exact clock value that still produced the cached count.
+    const delay = Math.min(
+      MAX_TIMER_DELAY_MS,
+      Math.max(0, nextPendingRequestExpiryAtMs - Date.now() + 1),
+    );
+    const timeoutId = window.setTimeout(
+      () => setTick((value) => value + 1),
+      delay,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [nextPendingRequestExpiryAtMs]);
 
   useEffect(() => {
     const bump = () => setTick((value) => value + 1);

@@ -48,6 +48,10 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
     NearbyPresenceError,
     OneLocationNearbyPresenceService,
 )
+from hushh_mcp.services.one_location_place_rating_service import (
+    OneLocationPlaceRatingService,
+    PlaceRatingError,
+)
 from hushh_mcp.services.scheduler_identity import (
     SchedulerIdentityError,
     legacy_shared_token_allowed,
@@ -158,6 +162,19 @@ class UpdateAutoApprovePreferenceRequest(_CamelModel):
     circle_id: UUID | None = Field(default=None, alias="circleId")
 
 
+class UpdateNearbyCheckInPreferencesRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    visible: bool
+    allow_connection_requests: bool = Field(alias="allowConnectionRequests")
+
+
+class UpdateSosVoicePreferenceRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    default_action: Literal["open", "trigger"] = Field(alias="defaultAction")
+
+
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
@@ -216,6 +233,13 @@ class ResolveAccessRequest(_CamelModel):
 
 class ShortenGrantRequest(_CamelModel):
     duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+    client_operation_id: str | None = Field(
+        default=None,
+        alias="clientOperationId",
+        min_length=8,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
+    )
 
 
 class SetGrantDurationRequest(_CamelModel):
@@ -230,6 +254,13 @@ class SetGrantDurationRequest(_CamelModel):
         default="timed",
         alias="durationMode",
         pattern="^(timed|until_stopped)$",
+    )
+    client_operation_id: str | None = Field(
+        default=None,
+        alias="clientOperationId",
+        min_length=8,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
     )
 
 
@@ -293,6 +324,7 @@ class CircleMemberPageItem(_CamelModel):
     relationship: str
     can_connect: bool = Field(alias="canConnect")
     connected_from_contacts: bool = Field(alias="connectedFromContacts")
+    is_ria: bool = Field(default=False, alias="isRia")
 
 
 class CircleMembersPageResponse(_CamelModel):
@@ -371,6 +403,12 @@ class NearbyPresenceCheckInRequest(_CamelModel):
     allow_connection_requests: bool = Field(default=False, alias="allowConnectionRequests")
 
 
+class NearbyPresenceExtendRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    increment_minutes: Literal[30, 60] = Field(alias="incrementMinutes")
+
+
 class NearbyConnectionRequest(_CamelModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -379,6 +417,45 @@ class NearbyConnectionRequest(_CamelModel):
         min_length=1,
         max_length=128,
     )
+
+
+class PlaceRatingSubmitRequest(_CamelModel):
+    """A 1-5 star rating for a place the caller was recorded at.
+
+    No note field on purpose. The author's note is written to their own vault,
+    client-side encrypted, and never reaches this server -- a plaintext note
+    attached to a venue and a timestamp is a movement log with commentary.
+
+    `consentVersion` is sent by the client and checked against the server's
+    current version rather than stamped here. A rating is permanent, so a stale
+    client must not be able to save one under a promise it never displayed.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_id: str = Field(alias="placeId", min_length=1, max_length=300)
+    rating: int = Field(ge=1, le=5)
+    consent_version: str = Field(alias="consentVersion", min_length=1, max_length=80)
+    consent_accepted: bool = Field(alias="consentAccepted")
+
+
+class PlaceRatingDeleteRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_id: str = Field(alias="placeId", min_length=1, max_length=300)
+
+
+class PlaceRatingSummariesRequest(_CamelModel):
+    """Anonymous averages for a list of places.
+
+    A POST rather than a GET because the list is a body, not a query string:
+    twenty provider place ids do not belong in a URL, and a place id in a URL
+    is a place id in every access log between here and the browser.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_ids: list[str] = Field(alias="placeIds", min_length=1, max_length=25)
 
 
 def _service() -> OneLocationAgentService:
@@ -391,6 +468,10 @@ def _circle_service() -> OneLocationCircleService:
 
 def _nearby_presence_service() -> OneLocationNearbyPresenceService:
     return OneLocationNearbyPresenceService()
+
+
+def _place_rating_service() -> OneLocationPlaceRatingService:
+    return OneLocationPlaceRatingService()
 
 
 def _user_id(token_data: dict[str, Any]) -> str:
@@ -408,6 +489,11 @@ def _request_fingerprint_hash(request: Request) -> str | None:
 
 
 def _handle_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, PlaceRatingError):
+        return HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        )
     if isinstance(exc, NearbyPresenceError):
         return HTTPException(
             status_code=exc.status_code,
@@ -703,6 +789,73 @@ def update_location_auto_approve_preference(
         raise _handle_error(exc) from exc
 
 
+@router.get("/location/nearby-check-in-preferences")
+def get_location_nearby_check_in_preferences(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the viewer's own Nearby Check-In defaults.
+
+    Separate from `/location/state`, which also carries grants, circles, and
+    recipients -- Voice Settings needs two booleans, and should not pay for
+    the full bulk fetch to render a settings page.
+    """
+    try:
+        return {
+            "preferences": _service().get_nearby_check_in_defaults(user_id=_user_id(token_data))
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/nearby-check-in-preferences")
+def update_location_nearby_check_in_preferences(
+    payload: UpdateNearbyCheckInPreferencesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preferences": _service().update_nearby_check_in_defaults(
+                user_id=_user_id(token_data),
+                visible=payload.visible,
+                allow_connection_requests=payload.allow_connection_requests,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/sos-voice-preference")
+def get_location_sos_voice_preference(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the viewer's own standing default for a bare emergency voice phrase.
+
+    Separate from `/location/state` for the same reason as the Nearby
+    Check-In preferences route -- Voice Settings needs one field, not the
+    full bulk fetch.
+    """
+    try:
+        return {"preference": _service().get_sos_voice_preference(user_id=_user_id(token_data))}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/sos-voice-preference")
+def update_location_sos_voice_preference(
+    payload: UpdateSosVoicePreferenceRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preference": _service().update_sos_voice_preference(
+                user_id=_user_id(token_data),
+                default_action=payload.default_action,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.get("/location/activity")
 def get_location_activity(
     range_key: str = Query(default="30d", alias="range", pattern="^(7d|30d|90d|all)$"),
@@ -727,6 +880,18 @@ def purge_location_retention(request: Request, older_than_hours: float = 12):
         result["nearby_presence"] = _nearby_presence_service().purge_terminal(
             older_than_hours=older_than_hours
         )
+        # Visits carry their own seven-day window, so this deliberately ignores
+        # `older_than_hours` and purges on the row's own `expires_at`.
+        #
+        # Best-effort, like every other rating call reached from a check-in
+        # path. Retention is the job that keeps the rest of Location tidy, and
+        # a rating ledger that cannot be reached -- an environment without the
+        # table, a transient database fault -- must not turn the whole purge
+        # into a 503 and leave everything else uncollected.
+        try:
+            result["place_rating_visits"] = _place_rating_service().purge_expired_visits()
+        except Exception:  # noqa: BLE001 - see comment above
+            logger.warning("one_location.place_rating_visit_purge_failed", exc_info=True)
         return result
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1576,6 +1741,7 @@ async def check_in_nearby(
             duration_minutes=payload.duration_minutes,
             consent_accepted=payload.consent_accepted,
             allow_connection_requests=payload.allow_connection_requests,
+            place_category=str(place.get("primaryType") or "") or None,
         )
         return state
     except GoogleMapsError as exc:
@@ -1624,6 +1790,25 @@ def checkout_nearby(
         raise _handle_error(exc) from exc
 
 
+@router.patch("/location/nearby-presence")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_WRITE)
+def extend_nearby_presence(
+    request: Request,
+    response: Response,
+    payload: NearbyPresenceExtendRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return _nearby_presence_service().extend(
+            user_id=_user_id(token_data),
+            increment_minutes=payload.increment_minutes,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/nearby-presence/connection-request")
 @limiter.limit(RateLimits.ONE_LOCATION_NEARBY_CONNECT)
 def request_nearby_connection(
@@ -1639,6 +1824,128 @@ def request_nearby_connection(
             user_id=_user_id(token_data),
             participant_alias=payload.participant_alias,
         )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# Place ratings
+#
+# Gated by `_require_nearby_presence_simulation` like every other nearby route:
+# a rating cannot exist without a check-in, so it must be dark wherever check-in
+# is. That means production stays dark until the mode and a cohort are both set,
+# which is correct and will be reported as a bug at least once.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/location/place-ratings/pending")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_pending_place_ratings(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Visits the caller could still rate."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return {
+            "pendingRatings": _place_rating_service().list_rateable_visits(
+                user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_place_ratings(
+    request: Request,
+    response: Response,
+    limit: int = Query(default=25, ge=1, le=50),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """The caller's own ratings. Never anybody else's, and never an author id."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return _place_rating_service().list_own_ratings(
+            user_id=_user_id(token_data),
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/place-ratings/summaries")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_place_rating_summaries(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingSummariesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Anonymous per-place averages. Never who rated, never how many exactly."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return {
+            "summaries": _place_rating_service().place_summaries(
+                place_ids=payload.place_ids,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE_DAILY)
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE)
+async def submit_place_rating(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingSubmitRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        service = _place_rating_service()
+        rating = await run_in_threadpool(
+            service.submit_rating,
+            user_id=_user_id(token_data),
+            place_id=payload.place_id,
+            rating=payload.rating,
+            consent_version=payload.consent_version,
+            consent_accepted=payload.consent_accepted,
+        )
+        return {"rating": rating}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE)
+async def delete_place_rating(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingDeleteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        service = _place_rating_service()
+        result = await run_in_threadpool(
+            service.delete_rating,
+            user_id=_user_id(token_data),
+            place_id=payload.place_id,
+        )
+        return result
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1814,6 +2121,7 @@ def shorten_location_grant(
                 caller_user_id=_user_id(token_data),
                 grant_id=grant_id,
                 duration_hours=payload.duration_hours,
+                client_operation_id=payload.client_operation_id,
             )
         }
     except Exception as exc:
@@ -1839,6 +2147,7 @@ def set_location_grant_duration(
                 grant_id=grant_id,
                 duration_hours=payload.duration_hours,
                 duration_mode=payload.duration_mode,
+                client_operation_id=payload.client_operation_id,
             )
         }
     except Exception as exc:

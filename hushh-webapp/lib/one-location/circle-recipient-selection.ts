@@ -83,6 +83,7 @@ export function resolveCircleRecipientSelection(params: {
       recipient: {
         userId,
         displayName: member.displayName,
+        photoUrl: member.photoUrl ?? null,
         phoneVerified: member.phoneVerified,
         keyId: member.keyId!,
         publicKeyJwk: member.publicKeyJwk!,
@@ -91,6 +92,7 @@ export function resolveCircleRecipientSelection(params: {
         keyRegisteredAt: member.keyRegisteredAt,
         canReceiveLocation: true,
         connectedFromContacts: member.connectedFromContacts,
+        isRia: Boolean(member.isRia),
       },
     });
   }
@@ -115,6 +117,28 @@ export function isCircleSelectionFullySelected(
   if (!ready.length) return false;
   const selected = new Set(selectedRecipientIds);
   return ready.every((target) => selected.has(target.recipient.userId));
+}
+
+/**
+ * Counts only selected recipients that belong to this resolved Circle snapshot.
+ *
+ * The share composer may contain extra hand-picked people while a whole Circle
+ * remains selected. Those people belong in the composer-wide total, but never
+ * in the Circle row's own count.
+ */
+export function countSelectedCircleRecipients(
+  selection: CircleRecipientSelection | null | undefined,
+  selectedRecipientIds: readonly string[],
+): number {
+  if (!selection?.ready.length || !selectedRecipientIds.length) return 0;
+
+  const selected = new Set(selectedRecipientIds);
+  const counted = new Set<string>();
+  for (const target of selection.ready) {
+    const userId = target.recipient.userId;
+    if (userId && selected.has(userId)) counted.add(userId);
+  }
+  return counted.size;
 }
 
 export function mergeRecipientsByUserId(
@@ -145,6 +169,8 @@ export function mergeRecipientsByUserId(
           recipient.recommendationReasons ?? existing?.recommendationReasons,
         recommendationSummary:
           recipient.recommendationSummary ?? existing?.recommendationSummary,
+        photoUrl: recipient.photoUrl ?? existing?.photoUrl ?? null,
+        isRia: Boolean(recipient.isRia || existing?.isRia),
       });
     }
   }

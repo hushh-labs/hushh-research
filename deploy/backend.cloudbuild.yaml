@@ -307,6 +307,9 @@ steps:
       - "_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=${_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET}"
       - "_GOOGLE_PRIVATE_KEY_SECRET=${_GOOGLE_PRIVATE_KEY_SECRET}"
       - "_RIA_CLAIM_TEST_EMAILS_SECRET=${_RIA_CLAIM_TEST_EMAILS_SECRET}"
+      - "_CLOUD_RUN_CPU=${_CLOUD_RUN_CPU}"
+      - "_CLOUD_RUN_CONCURRENCY=${_CLOUD_RUN_CONCURRENCY}"
+      - "_AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}"
     id: "deploy-backend"
 
   # Candidate-image GenAI probe under the exact runtime identity. This runs
@@ -350,9 +353,9 @@ steps:
           --region="${_REGION}" \
           --image="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
-          --command="python" \
+          --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1|AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}" \
           ${live_key_secret_flag} \
           --max-retries=0 \
           --task-timeout=90s \
@@ -456,6 +459,9 @@ steps:
 timeout: "1800s"
 
 substitutions:
+  _CLOUD_RUN_CPU: "1"
+  _CLOUD_RUN_CONCURRENCY: "80"
+  _AGENT_ONE_ADK_MODEL: ""
   _INTELLIGENCE_API_BASE_URL_SECRET: ""
   _INTELLIGENCE_API_KEY_SECRET: ""
   _SUPPORT_EMAIL_TEST_TO_SECRET: ""

@@ -608,7 +608,7 @@ export function DurationWheelPicker({
             "min-h-11 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
             openEnded
               ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-              : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
+              : "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
           )}
         >
           Until I stop

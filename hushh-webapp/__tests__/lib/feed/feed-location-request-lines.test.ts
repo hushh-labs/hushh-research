@@ -55,6 +55,9 @@ describe("the owner's side of the exchange", () => {
   });
 
   it("says how much time it gave, not just that it approved", () => {
+    // A row written before #6256: approving an extension replaced the live
+    // share with exactly this amount, so the total WAS what was given and the
+    // line stays true. The fallback exists so history does not go blank.
     const presented = presentFeedItem(
       item({
         event_type: "location_access_approved",
@@ -66,6 +69,59 @@ describe("the owner's side of the exchange", () => {
       }),
     );
     expect(presented.description).toBe("You gave them 4 hours more");
+  });
+
+  it("reports the time an extension ADDED, not the share's new total", () => {
+    // Approving "30 min more" on a two-hour share now leaves 2h30m running
+    // (#6256). Reading `duration_hours` here would report a thirty-minute
+    // top-up as "You gave them 2 hours 30 min more".
+    const presented = presentFeedItem(
+      item({
+        event_type: "location_access_approved",
+        metadata: {
+          counterpart_label: "Ankit",
+          is_extension: true,
+          duration_hours: 2.5,
+          added_duration_hours: 0.5,
+        },
+      }),
+    );
+    expect(presented.description).toBe("You gave them 30 min more");
+  });
+
+  it("does not offer 'more' of a share that never ends", () => {
+    // The push and the bell each grew a branch for this. Without one here the
+    // `|| amount` fallback resolves to the phrase "as long as they need" and
+    // the row reads "You gave them as long as they need more" -- permanently,
+    // because a Feed row is a record rather than a popup.
+    const owner = presentFeedItem(
+      item({
+        event_type: "location_access_approved",
+        metadata: {
+          counterpart_label: "Ankit",
+          is_extension: true,
+          duration_mode: "until_stopped",
+        },
+      }),
+    );
+    expect(owner.description).toBe("You are still sharing until you stop");
+    expect(owner.description).not.toContain("more");
+  });
+
+  it("leaves a fresh approval reporting the total it granted", () => {
+    // Not an extension: there is nothing to have added to, and the total is
+    // the whole of what was given.
+    const presented = presentFeedItem(
+      item({
+        event_type: "location_access_approved",
+        metadata: {
+          counterpart_label: "Ankit",
+          duration_hours: 2,
+          added_duration_hours: 0.5,
+        },
+      }),
+    );
+    expect(presented.description).toBe("You approved sharing for 2 hours");
   });
 
   it("distinguishes declining extra time from declining access outright", () => {
@@ -123,7 +179,7 @@ describe("the requester's side of the same exchange", () => {
       }),
     );
     expect(presented.description).toBe(
-      "Shared their location with you for 4 hours",
+      "Shared location with you for 4 hours",
     );
   });
 
@@ -152,9 +208,7 @@ describe("the requester's side of the same exchange", () => {
       }),
     );
     // Read as a bare "declined", it looks like everything just stopped.
-    expect(presented.description).toBe(
-      "Declined the extra time — your current access is unchanged",
-    );
+    expect(presented.description).toBe("Extra time declined");
   });
 });
 
@@ -168,7 +222,7 @@ describe("rows written before any of this existed", () => {
     expect(
       presentFeedItem(item({ event_type: "location_access_approved" }))
         .description,
-    ).toBe("You approved. Now sharing.");
+    ).toBe("You approved sharing");
   });
 });
 
@@ -185,7 +239,7 @@ describe("shortening", () => {
           metadata: { counterpart_label: "Ankit", reason: "owner_shorten" },
         }),
       ).description,
-    ).toBe("You shortened their location access");
+    ).toBe("You shortened location access");
     expect(
       presentFeedItem(
         item({
@@ -193,6 +247,6 @@ describe("shortening", () => {
           metadata: { counterpart_label: "Ankit", reason: "recipient_shorten" },
         }),
       ).description,
-    ).toBe("Gave back their remaining time early");
+    ).toBe("Gave back remaining time early");
   });
 });

@@ -14,6 +14,10 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
+const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
+  developmentFloorMs: 285_000,
+  overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
+});
 
 function privateResponseHeaders(upstream?: Response): Headers {
   const headers = new Headers({
@@ -57,7 +61,7 @@ function isUpstreamTimeoutError(error: unknown): boolean {
  * read once at module scope and would unbound every JSON route on this proxy
  * at once, which is precisely the blanket behavior being retired.
  */
-function resolveOneUpstreamTimeoutMs(path: string): number | null {
+function resolveOneUpstreamTimeoutMs(path: string, acceptHeader: string | null): number | null {
   if (path === "pod/lifecycle/stream") {
     return null;
   }
@@ -71,6 +75,14 @@ function resolveOneUpstreamTimeoutMs(path: string): number | null {
   // web client's own 60s abort while letting the backend's answer arrive.
   if (path === "runtime/byoc/authorize/complete") {
     return 55_000;
+  }
+  // Streaming routes (agent-chat, any `/stream` endpoint, or a caller that
+  // asks for text/event-stream) hold open far longer than a JSON call, so the
+  // 45s API deadline would sever them mid-body. They get the stream budget.
+  const acceptsEventStream = acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
+  const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");
+  if (acceptsEventStream || isKnownStreamRoute) {
+    return ONE_STREAM_TIMEOUT_MS;
   }
   return ONE_API_TIMEOUT_MS;
 }
@@ -138,7 +150,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers,
       body,
-      signal: resolveUpstreamSignal(request.signal, resolveOneUpstreamTimeoutMs(path)),
+      signal: resolveUpstreamSignal(request.signal, resolveOneUpstreamTimeoutMs(path, acceptHeader)),
     });
 
     // A streamed upstream must be handed through untouched. The JSON path below

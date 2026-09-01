@@ -22,7 +22,7 @@ function ensureVaultKeyHex(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(normalized)) {
     throw new Error(
-      "Vault key in memory is invalid. Unlock vault again and retry.",
+      "Your unlock key is invalid. Unlock again and retry.",
     );
   }
   return normalized;
@@ -49,7 +49,7 @@ function normalizeVaultMethodError(error: unknown): Error {
 
   if (lowered.includes("passphrase wrapper missing")) {
     return new Error(
-      "Passphrase wrapper is missing for this vault. Use passphrase/recovery flow once to repair wrapper enrollment.",
+      "Passphrase is missing. Use passphrase or recovery once to repair it.",
     );
   }
 
@@ -128,7 +128,7 @@ export class VaultMethodService {
       const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
-        throw new Error("Vault key mismatch detected. Unlock vault again.");
+        throw new Error("Key mismatch detected. Unlock again.");
       }
 
       if (params.targetMethod === "passphrase") {
@@ -241,7 +241,7 @@ export class VaultMethodService {
       const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
-        throw new Error("Vault key mismatch detected. Unlock vault again.");
+        throw new Error("Key mismatch detected. Unlock again.");
       }
 
       const nextPassphrase = params.newPassphrase.trim();
@@ -306,7 +306,7 @@ export class VaultMethodService {
       const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
-        throw new Error("Vault key mismatch detected. Unlock vault again.");
+        throw new Error("Key mismatch detected. Unlock again.");
       }
 
       const wrapperId = params.wrapperId ?? "default";

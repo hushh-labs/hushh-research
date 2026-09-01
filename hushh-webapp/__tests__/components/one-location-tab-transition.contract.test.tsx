@@ -241,10 +241,12 @@ function LocationPager({
   activeValue,
   onSelectionChange,
   onSelectionCommit,
+  holdHeightDuringTransition = true,
 }: {
   activeValue: string;
   onSelectionChange?: (value: string) => void;
   onSelectionCommit?: (value: string) => void;
+  holdHeightDuringTransition?: boolean;
 }) {
   return (
     <SwipeViews
@@ -255,6 +257,7 @@ function LocationPager({
       onSelectionCommit={onSelectionCommit}
       viewportMinHeight="0px"
       heightMode="active"
+      holdHeightDuringTransition={holdHeightDuringTransition}
     >
       <div>Now panel</div>
       <div>People panel</div>
@@ -414,6 +417,52 @@ describe("Location tab transition — the viewport never clips a leaving panel",
     });
     expect(root).not.toHaveAttribute("data-swipe-views-height-settling");
     expect(root.style.height).toBe("520px");
+  });
+
+  it("releases the old height floor when route state catches up after a tab press", () => {
+    const view = render(<LocationPager activeValue="now" />);
+    const root = pagerRoot(view.container);
+    expect(root.style.height).toBe("1400px");
+
+    pressTab("people");
+    expect(embla.scrollTo).toHaveBeenCalledWith(1);
+    expect(root.style.height).toBe("1400px");
+
+    // WebKit can visually arrive before the query-backed activeValue reaches
+    // the pager, and then skip the scroll/settle beat the height-floor release
+    // previously depended on.
+    embla.offset = -SLIDE_WIDTH;
+    act(() => {
+      view.rerender(<LocationPager activeValue="people" />);
+    });
+
+    expect(root.style.height).toBe("520px");
+    expect(root).toHaveAttribute("data-swipe-views-height-settling", "true");
+  });
+
+  it("lets short route-backed workspaces opt out of holding a stale tall panel height", () => {
+    const view = render(
+      <LocationPager
+        activeValue="now"
+        holdHeightDuringTransition={false}
+      />,
+    );
+    const root = pagerRoot(view.container);
+    expect(root.style.height).toBe("1400px");
+
+    act(() => {
+      view.rerender(
+        <LocationPager
+          activeValue="people"
+          holdHeightDuringTransition={false}
+        />,
+      );
+    });
+
+    expect(root.style.height).toBe("520px");
+    expect(root).not.toHaveAttribute("data-swipe-views-height-settling");
+    expect(panels(view.container)[0]?.style.maxHeight).toBe("520px");
+    expect(panels(view.container)[0]?.style.overflow).toBe("hidden");
   });
 });
 

@@ -51,11 +51,54 @@ describe("Feed stays live", () => {
     expect(actionables).not.toMatch(/sortAt:[^,\n]*Date\.now\(\)/);
     expect(actionables).toContain("firstSeenAt(");
   });
+
+  it("proves Feed through warm same-session navigation", () => {
+    const verifier = read("scripts/testing/verify-signed-in-routes.mjs");
+
+    expect(verifier).toContain("SAME_SESSION_SHELL_ROUTES = new Set([");
+    expect(verifier).toMatch(
+      /SAME_SESSION_SHELL_ROUTES = new Set\(\[[\s\S]*?"\/one\/feed"/,
+    );
+    expect(verifier).toContain('case "/one/feed":');
+    expect(verifier).toContain('requestAppNavigation(page, "/one/feed")');
+  });
+
+  it("keys the whole Feed session to the authenticated account", () => {
+    const feedPage = read("components/feed/feed-page.tsx");
+
+    expect(feedPage).toContain('key={user?.uid ?? "signed-out"}');
+  });
+
+  it("reports real Feed readiness through the native route beacon", () => {
+    const route = read("app/one/feed/page.tsx");
+    const feedPage = read("components/feed/feed-page.tsx");
+
+    expect(route).not.toContain('dataState="loaded"');
+    expect(feedPage).toContain("const beaconDataState = contentLoading");
+    expect(feedPage).toContain(
+      'errorCode={showColdError ? "FEED_LOAD_FAILED" : null}',
+    );
+  });
+
+  it("keeps Needs you as a plain feed section, not a tinted block", () => {
+    const feedPage = read("components/feed/feed-page.tsx");
+
+    const needsYouSection =
+      feedPage.match(
+        /<section aria-label="Needs you"[\s\S]*?<SectionLabel>Needs you<\/SectionLabel>/,
+      )?.[0] ?? "";
+
+    expect(needsYouSection.length).toBeGreaterThan(0);
+    expect(needsYouSection).not.toContain("bg-accent");
+    expect(needsYouSection).not.toContain("bg-[color:var(--app-accent");
+  });
 });
 
 describe("the ask flow's primary action keeps the action colour", () => {
   it("never repaints Send with the success token", () => {
-    const hub = read("components/one-location/redesign/location-redesign-hub.tsx");
+    const hub = read(
+      "components/one-location/redesign/location-redesign-hub.tsx",
+    );
 
     const sendButton =
       hub.match(
@@ -63,28 +106,45 @@ describe("the ask flow's primary action keeps the action colour", () => {
       )?.[0] ?? "";
     expect(sendButton.length).toBeGreaterThan(0);
     expect(sendButton).toContain("bg-[color:var(--app-accent)]");
-    // Green is a status, and this screen already says it twice — in the banner
-    // above and in each person's row turning to "Asked".
+    // Green is a status, and the outcome is already said twice elsewhere —
+    // the Sonner toast the send raises, and each person's row turning to
+    // "Asked". A third telling on the button would be the one that cannot be
+    // dismissed.
     expect(sendButton).not.toContain("--app-success");
   });
 
   it("re-arms Send from the selection instead of latching it shut", () => {
-    const hub = read("components/one-location/redesign/location-redesign-hub.tsx");
-
-    expect(hub).toContain("sentSelectionRef");
-    expect(hub).toContain("const sent = await vm.onSendRequest(reason)");
-    expect(hub).toContain("setJustSent(sent)");
-    // The latch must not be part of what disables the button, or one send
-    // retires the control for the life of the screen.
-    expect(hub).not.toContain(
-      "disabled={!isRequestFormValid || sendingRequest || justSent}",
+    const hub = read(
+      "components/one-location/redesign/location-redesign-hub.tsx",
     );
+
+    // Reported from the field as "can't send req to rest after 1 cycle".
+    // The guarantee used to be "the latch is cleared when a new person is
+    // picked"; it is now the stronger "there is no latch". `justSent` and the
+    // `sentSelectionRef` that retired it went with the confirmation banner —
+    // see the Request-sent contract in one-location-copy-pass.
+    expect(hub).not.toMatch(/const \[justSent/);
+    expect(hub).not.toMatch(/setJustSent\(/);
+    expect(hub).not.toContain("sentSelectionRef");
+
+    // What Send is allowed to depend on: the current selection, and whether a
+    // send is already in flight. Nothing that outlives one round.
+    expect(hub).toContain(
+      "disabled={!isRequestFormValid || sendingRequest}",
+    );
+    // And the step still advances only on a resolved success, so a failed send
+    // cannot present as a completed one.
+    expect(hub).toContain("const result = await vm.onSendRequest(reason)");
+    expect(hub).toContain("if (result.completed)");
+    expect(hub).toContain("onClose(\"now\")");
   });
 });
 
 describe("quick-action tones come from tokens", () => {
   it("uses the semantic colour variables rather than light-mode hexes", () => {
-    const quickActions = read("components/one-location/redesign/quick-actions.tsx");
+    const quickActions = read(
+      "components/one-location/redesign/quick-actions.tsx",
+    );
 
     expect(quickActions).not.toContain("#34C759");
     expect(quickActions).not.toContain("#FF3B30");

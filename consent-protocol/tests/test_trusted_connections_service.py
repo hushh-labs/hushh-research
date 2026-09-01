@@ -1,3 +1,6 @@
+import json
+from datetime import datetime, timezone
+
 import pytest
 
 from hushh_mcp.services.trusted_connections_service import (
@@ -123,6 +126,27 @@ def test_list_connections_returns_active():
             "createdAt": "2026-07-05T00:00:00Z",
         }
     ]
+
+
+def test_list_connections_stringifies_a_real_driver_datetime():
+    """This service is read in-process by any agent, voice included, whose
+    tool result is serialized with a plain json.dumps -- a raw datetime here
+    crashes the whole live session the same way it did in ConnectionsService."""
+    svc = _service(
+        rows_many={
+            "select": [
+                {
+                    "trusted_user_id": "devA",
+                    "display_name": "Alice",
+                    "label": None,
+                    "created_at": datetime(2026, 7, 5, 0, 0, 0, tzinfo=timezone.utc),
+                }
+            ]
+        }
+    )
+    out = svc.list_connections("owner1")
+    assert out[0]["createdAt"] == "2026-07-05T00:00:00+00:00"
+    json.dumps(out)
 
 
 def test_is_trusted_true_false():

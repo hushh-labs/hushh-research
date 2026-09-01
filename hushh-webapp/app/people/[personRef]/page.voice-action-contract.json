@@ -1,0 +1,82 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_person_profile",
+  "surface_title": "Person profile",
+  "defaults": {
+    "reachability": { "active_personas": ["investor", "ria"] },
+    "speaker_persona": "one",
+    "guard_ids": ["auth_signed_in"]
+  },
+  "actions": [
+    {
+      "action_id": "people.profile.connect",
+      "label": "Connect with this person",
+      "meaning": "Sends a connection request to the person whose profile is open. Connecting does not request or grant any information.",
+      "aliases": ["connect with them", "send a connection request"],
+      "search_keywords": ["connect", "request", "person", "profile"],
+      "reachability": { "routes": ["/people/[personRef]"], "screens": ["one_person_profile"], "hidden_navigable": false, "navigation_prerequisites": [] },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": { "status": "wired", "path": "local_handler", "target": "people.profile.connect" },
+      "control_ids": ["person-profile-connect"],
+      "state_exposure": ["relationship state"]
+    },
+    {
+      "action_id": "people.profile.review_information_request",
+      "label": "Review an information request",
+      "meaning": "Opens the review sheet for the fields already selected on this profile. It does not send the request until the person confirms in the sheet.",
+      "aliases": ["review my request", "request this information"],
+      "search_keywords": ["information", "consent", "request", "review"],
+      "reachability": { "routes": ["/people/[personRef]"], "screens": ["one_person_profile"], "hidden_navigable": false, "navigation_prerequisites": ["At least one requestable field is selected."] },
+      "guard_ids": ["auth_signed_in", "vault_unlocked"],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "local_handler", "target": "people.profile.review_information_request" },
+      "control_ids": ["person-profile-review-information"],
+      "state_exposure": ["selected request field count"]
+    },
+    {
+      "action_id": "people.profile.cancel_connection_request",
+      "label": "Cancel this connection request",
+      "meaning": "Cancels the pending outgoing connection request to the person whose profile is open.",
+      "aliases": ["cancel the connection request", "withdraw my request"],
+      "search_keywords": ["cancel", "withdraw", "connection", "request"],
+      "reachability": { "routes": ["/people/[personRef]"], "screens": ["one_person_profile"], "hidden_navigable": false, "navigation_prerequisites": [] },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": { "status": "wired", "path": "local_handler", "target": "people.profile.cancel_connection_request" },
+      "control_ids": ["person-profile-cancel-connection"],
+      "state_exposure": ["relationship state"]
+    },
+    {
+      "action_id": "people.profile.remove_connection",
+      "label": "Remove this connection",
+      "meaning": "Ends the connection with the person whose profile is open. Existing consent remains governed separately and is not silently changed.",
+      "aliases": ["remove this connection", "disconnect from them"],
+      "search_keywords": ["remove", "disconnect", "connection"],
+      "reachability": { "routes": ["/people/[personRef]"], "screens": ["one_person_profile"], "hidden_navigable": false, "navigation_prerequisites": [] },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": { "status": "wired", "path": "local_handler", "target": "people.profile.remove_connection" },
+      "control_ids": ["person-profile-remove-connection"],
+      "state_exposure": ["relationship state"]
+    },
+    {
+      "action_id": "people.profile.manage_consent",
+      "label": "Manage consent",
+      "meaning": "Opens the Consent Center to review, revoke, or manage access independently from the social connection.",
+      "aliases": ["manage access for this person", "review this person's access"],
+      "search_keywords": ["consent", "access", "manage", "revoke"],
+      "reachability": { "routes": ["/people/[personRef]"], "screens": ["one_person_profile"], "hidden_navigable": false, "navigation_prerequisites": [] },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "local_handler", "target": "people.profile.manage_consent" },
+      "control_ids": ["person-profile-manage-consent"],
+      "state_exposure": ["grant count", "request history count"]
+    }
+  ]
+}

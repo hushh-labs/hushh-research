@@ -1,8 +1,37 @@
+from pydantic_core import PydanticUndefined
+
 from hushh_mcp.agents.onboarding.agent import (
     OnboardingAssessmentV1,
     OnboardingJourneyContext,
     resolve_onboarding_goal,
 )
+from hushh_mcp.services.action_gateway import AVAILABLE_ACTION_IDS_CAP
+
+
+def test_available_action_ids_bound_matches_the_frontend_publisher():
+    """This field's max_length is one half of a cross-language invariant
+    that has no automated sync: hushh-webapp/lib/voice/screen-context-builder.ts's
+    AVAILABLE_ACTION_IDS_CAP must equal this exact number, and its
+    ACTION_ID_SCREEN_SEGMENT_CAP must never exceed it either -- the
+    frontend's own combine-then-cap loop only re-checks the cap while
+    appending the GLOBAL_NAV_ACTION_IDS segment, so a screen-segment cap
+    raised above this bound would let a context array through with MORE
+    than this many ids, which resolve_onboarding_goal then rejects
+    wholesale (a raised ValueError caught in agent_tree.py, surfaced to
+    the person as "the app has not supplied a usable onboarding state
+    yet."). If this number changes, AVAILABLE_ACTION_IDS_CAP must change
+    with it, in the same commit.
+    """
+    field = OnboardingJourneyContext.model_fields["available_action_ids"]
+    max_length = next(
+        (
+            constraint.max_length
+            for constraint in field.metadata
+            if hasattr(constraint, "max_length")
+        ),
+        PydanticUndefined,
+    )
+    assert max_length == AVAILABLE_ACTION_IDS_CAP
 
 
 def test_login_only_permits_explicit_provider_actions_and_requests_choice() -> None:
@@ -316,11 +345,33 @@ def test_setup_progress_is_partitioned_in_authored_order() -> None:
 
     assert goal.setup_completed_ids == ["gmail", "finance"]
     assert goal.setup_remaining_ids == [
+        "calendar",
         "location",
         "email",
         "ria",
         "connected-systems",
     ]
+
+
+def test_hosted_setup_progress_and_actions_do_not_disclose_crm(monkeypatch) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_LOCAL_CRM_ENABLED", "true")
+
+    goal = resolve_onboarding_goal(
+        OnboardingJourneyContext(
+            phase="setup_hub",
+            authenticated=True,
+            setup_capability_ids=[],
+            available_action_ids=["setup.open_connected_systems"],
+            assessment=OnboardingAssessmentV1(
+                intent="execute_visible_action",
+                candidate_action_id="setup.open_connected_systems",
+            ),
+        )
+    )
+
+    assert "connected-systems" not in goal.setup_remaining_ids
+    assert goal.selected_action_id is None
 
 
 def test_conversational_assessment_does_not_force_onboarding() -> None:

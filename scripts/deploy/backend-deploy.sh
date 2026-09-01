@@ -221,6 +221,7 @@ append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_S
 append_optional_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
 append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
+append_optional_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"
 append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
 append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
 append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
@@ -642,7 +643,8 @@ cmd=(
   "--allow-unauthenticated"
   "--port=8080"
   "--memory=1Gi"
-  "--cpu=1"
+  "--cpu=${_CLOUD_RUN_CPU}"
+  "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
   "--timeout=3600"
   "--session-affinity"
   # Service-level limits bound aggregate database fan-out across traffic

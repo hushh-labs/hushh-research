@@ -420,9 +420,7 @@
       "meaning": "Validates the AI access choice, then requires the private vault to be created or unlocked before One opens home.",
       "aliases": [
         "i'm done setting up",
-        "finish setup",
-        "finish setting up",
-        "set up my vault"
+        "finish setup"
       ],
       "search_keywords": [
         "finish",

@@ -36,6 +36,7 @@ Usage:
     )
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -179,6 +180,22 @@ class ConsentDBService:
             except json.JSONDecodeError:
                 return {}
         return {}
+
+    @staticmethod
+    def _iso(value: Any) -> str | None:
+        """Stringify a DB-driver datetime before it leaves this service.
+
+        Consent Center rows reach the live voice agent too; a raw datetime
+        surviving into a tool result crashes the session's plain json.dumps
+        with no result ever reaching the user.
+        """
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return str(value.astimezone(timezone.utc).isoformat())
+        return str(value)
 
     @classmethod
     def _effective_pending_timeout_at(cls, row: Dict[str, Any]) -> int | None:
@@ -373,7 +390,7 @@ class ConsentDBService:
             "requesterWebsiteUrl": metadata.get("requester_website_url"),
             "scope": row.get("scope"),
             "scopeDescription": row.get("scope_description"),
-            "requestedAt": row.get("issued_at"),
+            "requestedAt": cls._iso(row.get("issued_at")),
             "pollTimeoutAt": poll_timeout_at,
             "approvalTimeoutAt": poll_timeout_at,
             "approvalTimeoutMinutes": metadata.get("approval_timeout_minutes"),
@@ -456,7 +473,7 @@ class ConsentDBService:
         if limit:
             query = query.limit(limit)
 
-        response = query.execute()
+        response = await asyncio.to_thread(query.execute)
         rows: List[Dict[str, Any]] = []
         for row in response.data or []:
             row_scope = row.get("scope")
@@ -1086,18 +1103,22 @@ class ConsentDBService:
         device-bound owner capabilities must fail closed when revocation state
         cannot be confirmed.
         """
-        rows = (
-            self._get_db()
-            .table("trusted_devices")
-            .select("device_id")
-            .eq("user_id", user_id)
-            .eq("device_id", device_id)
-            .eq("status", "active")
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
+
+        def query_rows() -> List[Dict[str, Any]]:
+            return (
+                self._get_db()
+                .table("trusted_devices")
+                .select("device_id")
+                .eq("user_id", user_id)
+                .eq("device_id", device_id)
+                .eq("status", "active")
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+
+        rows = await asyncio.to_thread(query_rows)
         return bool(rows)
 
     async def is_token_active(
@@ -1139,7 +1160,9 @@ class ConsentDBService:
                 )
                 if normalized_agent_id:
                     query = query.eq("agent_id", normalized_agent_id)
-                rows = query.order("issued_at", desc=True).limit(1).execute().data or []
+                rows = await asyncio.to_thread(
+                    lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+                )
             except DatabaseExecutionError as exc:
                 if not self._is_missing_internal_access_events_error(exc):
                     raise
@@ -1164,7 +1187,9 @@ class ConsentDBService:
             )
             if normalized_agent_id:
                 query = query.eq("agent_id", normalized_agent_id)
-            rows = query.order("issued_at", desc=True).limit(1).execute().data or []
+            rows = await asyncio.to_thread(
+                lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+            )
 
         if not rows:
             return False
@@ -1475,7 +1500,7 @@ class ConsentDBService:
         # Remove None values
         data = {k: v for k, v in data.items() if v is not None}
 
-        response = db.table("consent_audit").insert(data).execute()
+        response = await asyncio.to_thread(lambda: db.table("consent_audit").insert(data).execute())
 
         # Extract event ID from response
         if response.data and len(response.data) > 0:

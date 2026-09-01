@@ -18,6 +18,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  FormLabel,
+  InputValue,
+  RowDescription,
+  RowLabel,
+} from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { DurationWheelPicker } from "./duration-wheel-picker";
@@ -25,7 +31,7 @@ import { DurationPresetPicker } from "./duration-presets";
 import type { DurationRung } from "./duration-presets";
 
 export const LOCATION_SEARCH_INPUT_CLASSNAME =
-  "h-11 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none";
+  "ui-text-input-value h-11 w-full rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] pl-10 pr-4 text-[color:var(--app-label)] outline-none transition-shadow placeholder:text-[color:var(--app-tertiary-label)] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none";
 
 /**
  * Mirrors the existing page DURATION_OPTIONS so the Select/menu values stay
@@ -50,6 +56,8 @@ export function DurationSelector({
   presentation = "buttons",
   untilStopValue,
   allowUntilStop = true,
+  allowCustom = true,
+  centered = false,
   maxWidthClassName = "max-w-[420px]",
   rungs,
 }: {
@@ -73,6 +81,17 @@ export function DurationSelector({
    * `Number()`, because the sentinel is a non-numeric string.
    */
   allowUntilStop?: boolean;
+  /**
+   * `ladder` only. False drops the `Custom` cell and its scroll wheel, leaving
+   * the timed rungs plus the open-ended row as the whole choice (issue #6228).
+   */
+  allowCustom?: boolean;
+  /**
+   * `ladder` only. Centre the wrapping chip row from `sm` up and let the
+   * open-ended row span the full phone grid, so the control reads as centred
+   * and intentional inside a container much wider than it.
+   */
+  centered?: boolean;
   /**
    * Width cap for the whole group.
    *
@@ -106,9 +125,9 @@ export function DurationSelector({
         // far apart they read.
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           {label ? (
-            <p id={labelId} className="text-sm font-semibold text-foreground">
+            <FormLabel as="p" id={labelId}>
               {label}
-            </p>
+            </FormLabel>
           ) : (
             <span aria-hidden />
           )}
@@ -125,6 +144,8 @@ export function DurationSelector({
           onChange={onChange}
           {...(rungs ? { rungs } : {})}
           allowUntilStop={allowUntilStop}
+          allowCustom={allowCustom}
+          centered={centered}
           labelledBy={label ? labelId : undefined}
           {...(untilStopValue ? { untilStopValue } : {})}
         />
@@ -140,9 +161,11 @@ export function DurationSelector({
           <SelectTrigger
             aria-label={label || "Duration"}
             aria-labelledby={label ? labelId : undefined}
-            className="h-11 w-full rounded-[14px] border-border/70 bg-[color:var(--app-card-surface-compact)] text-sm shadow-none"
+            className="h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none"
           >
-            <SelectValue />
+            <InputValue as="span">
+              <SelectValue />
+            </InputValue>
           </SelectTrigger>
           <SelectContent
             align="start"
@@ -157,20 +180,26 @@ export function DurationSelector({
           </SelectContent>
         </Select>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div
+          className="flex flex-wrap gap-2"
+          role="radiogroup"
+          aria-labelledby={label ? labelId : undefined}
+          aria-label={label ? undefined : "Duration"}
+        >
           {options.map((option) => {
             const active = option.value === value;
             return (
               <button
                 key={option.value}
                 type="button"
-                aria-pressed={active}
+                role="radio"
+                aria-checked={active}
                 onClick={() => onChange(option.value)}
                 className={cn(
-                  "h-9 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
+                  "h-9 rounded-full border px-4 transition-colors touch-manipulation",
                   active
                     ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                    : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
+                    : "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
                 )}
               >
                 {option.label}
@@ -213,7 +242,7 @@ export function LocationTypeSelector({
   return (
     <div className="space-y-2">
       {label ? (
-        <p className="text-sm font-semibold text-foreground">{label}</p>
+        <FormLabel as="p">{label}</FormLabel>
       ) : null}
       <div
         role="radiogroup"
@@ -237,12 +266,12 @@ export function LocationTypeSelector({
               )}
             >
               <span>
-                <span className="block text-sm font-semibold text-foreground">
+                <RowLabel as="span" className="block">
                   {option.title}
-                </span>
-                <span className={cn(MUTED_TEXT, "block")}>
+                </RowLabel>
+                <RowDescription as="span" className={cn(MUTED_TEXT, "block")}>
                   {option.description}
-                </span>
+                </RowDescription>
               </span>
               <span
                 className={cn(
@@ -294,11 +323,7 @@ export function ReasonChips({
   if (presentation === "select") {
     return (
       <div className="space-y-2">
-        {label ? (
-          <p id={labelId} className="text-sm font-semibold text-foreground">
-            {label}
-          </p>
-        ) : null}
+        {label ? <FormLabel as="p" id={labelId}>{label}</FormLabel> : null}
         <Select
           value={value ?? undefined}
           onValueChange={(next) => onChange(next as ReasonValue)}
@@ -306,9 +331,11 @@ export function ReasonChips({
           <SelectTrigger
             aria-label={label || "Reason"}
             aria-labelledby={label ? labelId : undefined}
-            className="h-11 w-full rounded-[14px] border-border/70 bg-[color:var(--app-card-surface-compact)] text-sm shadow-none"
+            className="h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none"
           >
-            <SelectValue placeholder={placeholder} />
+            <InputValue as="span">
+              <SelectValue placeholder={placeholder} />
+            </InputValue>
           </SelectTrigger>
           <SelectContent
             align="start"
@@ -329,7 +356,7 @@ export function ReasonChips({
   return (
     <div className="space-y-2">
       {label ? (
-        <p className="text-sm font-semibold text-foreground">{label}</p>
+        <FormLabel as="p">{label}</FormLabel>
       ) : null}
       <div className="grid grid-cols-2 gap-2">
         {REASON_CHIPS.map((reason) => {
@@ -340,12 +367,12 @@ export function ReasonChips({
               type="button"
               onClick={() => onChange(reason)}
               className={cn(
-                "h-10 rounded-[13px] px-3 text-sm font-semibold transition-colors touch-manipulation",
+                "h-10 rounded-[13px] px-3 transition-colors touch-manipulation",
                 active
                   ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
                   : "bg-[color:var(--app-secondary-system-fill)] text-foreground hover:bg-[color:var(--app-secondary-system-fill)]/80",
-              )}
-            >
+                )}
+              >
               {reason}
             </button>
           );
@@ -369,7 +396,7 @@ export function PersonSearchInput({
 }) {
   return (
     <div className="relative">
-      <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--app-tertiary-label)]" />
       <input
         type="search"
         aria-label={placeholder}

@@ -164,7 +164,7 @@ describe("OneLocationOnboardingFlow", () => {
     }
   });
 
-  it("keeps visual intro canvases full width while dense steps hold one column", () => {
+  it("keeps onboarding canvases full width while dense steps own responsive inner rails", () => {
     // Features used to size off viewport height and widen to 3xl on a large
     // window, so on desktop the panel visibly jumped wider on step two and
     // back again on step three -- the surface changing shape under the person
@@ -184,7 +184,7 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     record("one-location-onboarding-invite");
 
-    expect(widths).toEqual(["none", "none", "max-w-[430px]", "none"]);
+    expect(widths).toEqual(["none", "none", "none", "none"]);
   });
 
   it("keeps the feature step calm, compact, and free of hotel-specific clutter", () => {
@@ -270,7 +270,7 @@ describe("OneLocationOnboardingFlow", () => {
         name: "Stuck waiting in line?",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("Check in on spot. Your Circle knows.")).toBeTruthy();
+    expect(screen.getByText("Check in on the spot and notify your circle")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
         name: "Need help but can’t talk?",
@@ -954,7 +954,7 @@ describe("OneLocationOnboardingFlow", () => {
       // flow. Firing it on mount is what makes people say no; it fires on tap.
       expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
       expect(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       ).toBeTruthy();
       expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
     });
@@ -968,7 +968,7 @@ describe("OneLocationOnboardingFlow", () => {
       openContactsScreen();
 
       fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       );
 
       expect(await screen.findByText("Trusted B")).toBeTruthy();
@@ -997,7 +997,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ onSyncOnboardingContacts, onAddOnboardingContact });
       openContactsScreen();
       fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       );
 
       const addButtons = await screen.findAllByRole("button", { name: "Request" });
@@ -1026,7 +1026,7 @@ describe("OneLocationOnboardingFlow", () => {
       openContactsScreen();
 
       fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       );
 
       expect(await screen.findByText("Connected")).toBeTruthy();
@@ -1047,7 +1047,7 @@ describe("OneLocationOnboardingFlow", () => {
         }),
       });
       openContactsScreen();
-      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
 
       expect(await screen.findByText("Contact 99")).toBeTruthy();
       expect(screen.queryByText("Contact 100")).toBeNull();
@@ -1064,7 +1064,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ onSyncOnboardingContacts });
       openContactsScreen();
       fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       );
 
       expect(
@@ -1081,7 +1081,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ onSyncOnboardingContacts });
       openContactsScreen();
       fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       );
 
       // iOS limited access and the web picker return a hand-picked subset, so
@@ -1103,7 +1103,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ onSyncOnboardingContacts, onOpenContactSettings });
       openContactsScreen();
       fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       );
 
       expect(
@@ -1123,7 +1123,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ onSyncOnboardingContacts });
       openContactsScreen();
       fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
+        screen.getByRole("button", { name: "Find contacts" }),
       );
 
       expect(await screen.findByText("plugin exploded")).toBeTruthy();

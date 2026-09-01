@@ -8,6 +8,8 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 readme = "README.md"
 dependencies = [
+    "ag-ui-adk==0.7.0",
+    "ag-ui-protocol==0.1.21",
     "asyncpg>=0.29.0",
     # Floor raised for the PKCS#7 EnvelopedData Bleichenbacher advisory: below 50.0.0
     # the decryption path leaks an oracle through distinguishable errors and timing.
@@ -194,6 +196,9 @@ follow_imports = "skip"
 module = [
     "hushh_mcp.services.one_location_agent_service",
     "hushh_mcp.services.connections_service",
+    # A pure table plus one classifier. Cheap to check, and its return types are
+    # what `google_maps_service` builds a response contract on.
+    "hushh_mcp.services.place_taxonomy",
 ]
 follow_imports = "normal"
 

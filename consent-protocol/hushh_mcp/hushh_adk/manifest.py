@@ -106,6 +106,16 @@ class RolloutContract(StrictManifestModel):
     rollback: str
 
 
+class EnvironmentAvailabilityContract(StrictManifestModel):
+    """Authored deployment boundary for a product agent or internal child."""
+
+    environments: list[Literal["development", "uat", "production"]] = Field(
+        default_factory=lambda: ["development", "uat", "production"]
+    )
+    loopback_only: bool = False
+    enable_flag: str | None = None
+
+
 class AgentSubagentConfig(StrictManifestModel):
     """Manifest-owned internal ADK specialist.
 
@@ -127,6 +137,9 @@ class AgentSubagentConfig(StrictManifestModel):
     telemetry_namespace: str
     performance: PerformanceContract = Field(default_factory=PerformanceContract)
     rollout: RolloutContract
+    availability: EnvironmentAvailabilityContract = Field(
+        default_factory=EnvironmentAvailabilityContract
+    )
 
 
 class AgentManifestV2(StrictManifestModel):
@@ -165,6 +178,9 @@ class AgentManifestV2(StrictManifestModel):
             kill_switch="HUSHH_AGENT_DISABLED",
             rollback="Disable the agent and restore the prior manifest.",
         )
+    )
+    availability: EnvironmentAvailabilityContract = Field(
+        default_factory=EnvironmentAvailabilityContract
     )
     subagents: list[AgentSubagentConfig] = Field(default_factory=list)
     capabilities: dict[str, Any] = Field(default_factory=dict)

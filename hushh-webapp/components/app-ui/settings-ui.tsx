@@ -112,7 +112,7 @@ function containsInteractiveNode(node: ReactNode): boolean {
   });
 }
 
-export const SettingsSegmentedTabs = SegmentedTabs;
+export { SegmentedTabs };
 
 type SettingsPresentation = {
   separatorInset?: boolean;
@@ -141,16 +141,14 @@ export function SettingsPresentationProvider({
 const SETTINGS_ICON_TONE_CLASSNAME = {
   accent:
     "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
-  blue:
-    "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
+  blue: "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
   purple:
     "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
   green:
     "bg-[rgba(52,199,89,0.12)] text-[#34C759] dark:bg-[rgba(48,209,88,0.20)] dark:text-[#30D158]",
   orange:
     "bg-[rgba(255,159,10,0.12)] text-[#FF9F0A] dark:bg-[rgba(255,159,10,0.20)] dark:text-[#FFD60A]",
-  red:
-    "bg-[rgba(255,59,48,0.12)] text-[#FF3B30] dark:bg-[rgba(255,69,58,0.20)] dark:text-[#FF6961]",
+  red: "bg-[rgba(255,59,48,0.12)] text-[#FF3B30] dark:bg-[rgba(255,69,58,0.20)] dark:text-[#FF6961]",
   // People, circles and private sharing. Added because the tone vocabulary was
   // smaller than the semantics: `accent`, `blue` and `purple` are byte-identical
   // above, so "these are PEOPLE" had no colour of its own and every row that
@@ -163,8 +161,7 @@ const SETTINGS_ICON_TONE_CLASSNAME = {
   // brightens for dark the way --app-warning and --app-destructive do.
   indigo:
     "bg-[color-mix(in_srgb,var(--app-indigo)_12%,transparent)] text-[color:var(--app-indigo)] dark:bg-[color-mix(in_srgb,var(--app-indigo)_20%,transparent)] dark:text-[color:var(--app-indigo)]",
-  gray:
-    "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
+  gray: "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
 } as const;
 
 type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
@@ -172,18 +169,48 @@ type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
 export function SettingsGroup({
   eyebrow,
   title,
+  titleAction,
   description,
+  toolbar,
   children,
   embedded = false,
   separatorInset,
   className,
+  headingClassName,
   shellClassName,
   contentClassName,
+  contentId,
   testId = "settings-group",
 }: {
   eyebrow?: string;
   title?: ReactNode;
+  /**
+   * A control that belongs to this section, shown at the end of the heading
+   * row.
+   *
+   * It renders as a SIBLING of the heading, never inside it. The heading
+   * carries `role="heading"`, and a button placed within one is both invalid
+   * and unusable: a screen reader folds the control's label into the heading's
+   * accessible name, and interactive content inside a heading is not something
+   * assistive tech offers a way to reach.
+   *
+   * Optional, and absent by default -- with nothing passed the heading block
+   * renders exactly the markup it always has, so the other consumers of this
+   * component are untouched.
+   */
+  titleAction?: ReactNode;
   description?: ReactNode;
+  /**
+   * A control that acts on THIS group's rows -- a search field over the list
+   * it filters, for instance. It sits between the heading and the card, so the
+   * heading that names the list and the sentence explaining how to use it are
+   * both read before the control they describe. Placed above the heading, the
+   * field arrived before anything had said what it searched, and the
+   * supporting line ("Search by name.") ended up UNDER the box it was
+   * instructing -- pointing backwards at a control the reader had already
+   * passed.
+   */
+  toolbar?: ReactNode;
   children: ReactNode;
   embedded?: boolean;
   /**
@@ -193,10 +220,28 @@ export function SettingsGroup({
    */
   separatorInset?: boolean;
   className?: string;
+  /**
+   * Tunes the heading block's own spacing.
+   *
+   * The block carries `mt-7` because a settings SCREEN stacks groups down a
+   * page and 28px is what separates one section from the last. Inside a
+   * bottom sheet there is no previous section -- the group is the first thing
+   * under a header that has already introduced it -- so that 28px lands as a
+   * gap between the sheet's own title and the list it is titling. Reported on
+   * the Add people sheet as "search bahut jyada neeche aa raha".
+   *
+   * A caller-supplied class rather than a `compact` boolean: the value that is
+   * wrong here is a margin, and the surfaces that need to change it are the
+   * ones that own their own vertical rhythm.
+   */
+  headingClassName?: string;
   /** Lets a bounded manager make the shared group shell a flex viewport. */
   shellClassName?: string;
   /** Lets a bounded manager make the shared row stack the scroll owner. */
   contentClassName?: string;
+  /** Id for the rows wrapper, so a group can be the panel of a
+   *  disclosure whose `aria-controls` has to name something stable. */
+  contentId?: string;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
@@ -223,6 +268,7 @@ export function SettingsGroup({
             : "divide-y divide-border/60",
           contentClassName,
         )}
+        id={contentId}
         data-inset-separators={resolvedSeparatorInset ? "true" : undefined}
       >
         {children}
@@ -231,35 +277,52 @@ export function SettingsGroup({
   );
 
   return (
-    <section
-      className={cn(
-        "w-full",
-        className,
-      )}
-      data-testid={testId}
-    >
-      {eyebrow || title || description ? (
-        <div className="mb-2 mt-7 space-y-[var(--settings-heading-stack-gap)] px-[6px]">
-          {eyebrow || title ? (
-            <SectionLabel
-              data-slot="settings-group-heading"
-              role="heading"
-              aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
-            >
-              {eyebrow ? (
-                <span>
-                  {eyebrow}
-                </span>
-              ) : null}
-              {title ? <span>{title}</span> : null}
-            </SectionLabel>
+    <section className={cn("w-full", className)} data-testid={testId}>
+      {eyebrow || title || description || titleAction ? (
+        <div
+          className={cn(
+            "mb-2 mt-7 flex items-start justify-between gap-3 px-[6px]",
+            headingClassName,
+          )}
+        >
+          <div className="min-w-0 flex-1 space-y-[var(--settings-heading-stack-gap)]">
+            {eyebrow || title ? (
+              <SectionLabel
+                data-slot="settings-group-heading"
+                role="heading"
+                aria-level={embedded ? 3 : 2}
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
+              >
+                {eyebrow ? <span>{eyebrow}</span> : null}
+                {title ? <span>{title}</span> : null}
+              </SectionLabel>
+            ) : null}
+            {description ? (
+              <RowDescription className="max-w-2xl [overflow-wrap:anywhere]">
+                {description}
+              </RowDescription>
+            ) : null}
+          </div>
+          {titleAction ? (
+            // `shrink-0` so the control keeps its full width and the title
+            // wraps instead -- the reverse squeezes a button until its label
+            // truncates, which is how a section action stops being readable at
+            // 320px.
+            <div className="shrink-0">{titleAction}</div>
           ) : null}
-          {description ? (
-            <RowDescription className="max-w-2xl [overflow-wrap:anywhere]">
-              {description}
-            </RowDescription>
-          ) : null}
+        </div>
+      ) : null}
+      {toolbar ? (
+        <div
+          data-slot="settings-group-toolbar"
+          className={cn(
+            "mb-3",
+            // Without a heading above it there is no `mt-7` to sit under, so
+            // the control would hug whatever preceded the group.
+            !(eyebrow || title || description) && "mt-7",
+          )}
+        >
+          {toolbar}
         </div>
       ) : null}
       {shell}
@@ -455,7 +518,7 @@ export function SettingsRow({
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
       : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]",
     isInteractive &&
-      "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0",
+      "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2",
   );
   const primaryActionClassName = cn(
     "relative isolate min-w-0 overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[background-color,border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -518,9 +581,7 @@ export function SettingsRow({
             />
           </button>
           {trailingContent ? (
-            <div role="presentation">
-              {trailingContent}
-            </div>
+            <div role="presentation">{trailingContent}</div>
           ) : null}
         </div>
       </div>
@@ -600,6 +661,8 @@ export type AdaptiveDetailSurfaceProps = {
   mobilePresentation?: "fullscreen" | "sheet";
   /** Direct-decision sheets may omit a redundant visual X. */
   showCloseButton?: boolean;
+  /** Draggable mobile sheets can use the handle as their only close affordance. */
+  showMobileCloseButton?: boolean;
   desktopMaxWidthClassName?: string;
   desktopMaxWidth?: string;
 };
@@ -619,6 +682,7 @@ export function AdaptiveDetailSurface({
   contentClassName,
   mobilePresentation = "fullscreen",
   showCloseButton = true,
+  showMobileCloseButton = showCloseButton,
   desktopMaxWidthClassName,
   desktopMaxWidth,
 }: AdaptiveDetailSurfaceProps) {
@@ -644,9 +708,9 @@ export function AdaptiveDetailSurface({
       aria-label="Close detail panel"
       onClick={() => onOpenChange(false)}
       className={cn(
-        "group absolute right-3 top-3 z-20 isolate inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full",
-        "border border-transparent bg-[color:var(--app-card-surface-compact)] text-muted-foreground opacity-75",
-        "transition-[opacity,transform,color] duration-200 hover:text-foreground hover:opacity-100 active:scale-[0.97]",
+        "group absolute right-4 top-4 z-20 isolate inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full",
+        "border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]",
+        "transition-[transform,color,background-color] duration-200 hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground active:scale-[0.97]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
       )}
     >
@@ -661,21 +725,19 @@ export function AdaptiveDetailSurface({
         <Sheet open={open} onOpenChange={onOpenChange} modal>
           <SheetContent
             side="bottom"
-            showCloseButton={showCloseButton}
+            showCloseButton={showMobileCloseButton}
             className={cn("gap-0", surfaceClassName, contentClassName)}
             onOpenAutoFocus={(event) => {
               event.preventDefault();
               (event.currentTarget as HTMLElement).focus();
             }}
           >
-            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-3 text-left backdrop-blur-[var(--blur-standard)]">
-              <div className="flex min-w-0 items-center gap-3 pr-10 text-left">
+            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-7 pb-3 text-left backdrop-blur-[var(--blur-standard)]">
+              <div className={cn("flex min-w-0 items-center gap-3 text-left", showMobileCloseButton && "pr-10")}>
                 {leading ? <div className="shrink-0">{leading}</div> : null}
                 <div className="min-w-0 text-left">
                   {eyebrow ? (
-                    <SectionLabel as="p">
-                      {eyebrow}
-                    </SectionLabel>
+                    <SectionLabel as="p">{eyebrow}</SectionLabel>
                   ) : null}
                   <SheetTitle className="ui-text-navigation-title truncate">
                     {title}
@@ -693,7 +755,7 @@ export function AdaptiveDetailSurface({
             </SheetHeader>
             <div
               className={cn(
-                "bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+1rem)] pt-3 sm:px-4 sm:pt-4",
+              "bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+1rem)] pt-1 sm:px-4 sm:pt-2",
                 bodyClassName,
               )}
             >
@@ -725,15 +787,11 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-3 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:pt-6 sm:pb-4 sm:pr-14">
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-2 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:pt-6 sm:pb-3 sm:pr-14">
             <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0 text-left">
-                {eyebrow ? (
-                  <SectionLabel as="p">
-                    {eyebrow}
-                  </SectionLabel>
-                ) : null}
+                {eyebrow ? <SectionLabel as="p">{eyebrow}</SectionLabel> : null}
                 <DrawerTitle className="ui-text-navigation-title truncate">
                   {title}
                 </DrawerTitle>
@@ -747,11 +805,11 @@ export function AdaptiveDetailSurface({
                 </DrawerDescription>
               </div>
             </div>
-            {showCloseButton ? closeButton : null}
+            {showMobileCloseButton ? closeButton : null}
           </DrawerHeader>
           <div
             className={cn(
-              "flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4",
+              "flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-2 sm:px-4 sm:pt-3",
               bodyClassName,
             )}
           >
@@ -784,15 +842,11 @@ export function AdaptiveDetailSurface({
           (e.currentTarget as HTMLElement).focus();
         }}
       >
-        <DialogHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-6 py-4 pr-16 text-left backdrop-blur-[var(--blur-standard)]">
+        <DialogHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-6 pt-4 pb-3 pr-16 text-left backdrop-blur-[var(--blur-standard)]">
           <div className="flex min-w-0 items-center gap-3 text-left">
             {leading ? <div className="shrink-0">{leading}</div> : null}
             <div className="min-w-0 text-left">
-              {eyebrow ? (
-                <SectionLabel as="p">
-                  {eyebrow}
-                </SectionLabel>
-              ) : null}
+              {eyebrow ? <SectionLabel as="p">{eyebrow}</SectionLabel> : null}
               <DialogTitle className="ui-text-navigation-title truncate">
                 {title}
               </DialogTitle>
@@ -810,7 +864,7 @@ export function AdaptiveDetailSurface({
         </DialogHeader>
         <div
           className={cn(
-            "min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5",
+            "min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-2 sm:px-5 sm:pt-2.5",
             bodyClassName,
           )}
         >

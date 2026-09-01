@@ -22,7 +22,7 @@ The settings experience should feel:
 
 ## Canonical Primitives
 
-### `SettingsSegmentedTabs`
+### `SegmentedTabs`
 
 Use for top-level mode switching inside a settings surface.
 

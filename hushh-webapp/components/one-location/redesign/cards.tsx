@@ -27,9 +27,18 @@ import {
   X,
 } from "lucide-react";
 
+import type { ApproveDurationOption } from "@/lib/one-location/approve-duration-options";
 import { cn } from "@/lib/utils";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import {
+  FormLabel,
+  HelperText,
+  MediumRowLabel,
+  RowDescription,
+  RowLabel,
+  StatusText,
+} from "@/components/app-ui/typography";
 import { Button } from "@/components/ui/button";
 import { Avatar, StatusPill } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
@@ -49,6 +58,7 @@ function initialsFrom(name: string): string {
 
 export function TrustedPersonCard({
   name,
+  photoUrl,
   subtitle,
   tone = "ready",
   statusLabel,
@@ -66,6 +76,7 @@ export function TrustedPersonCard({
   expandedContent,
 }: {
   name: string;
+  photoUrl?: string | null;
   subtitle?: string;
   tone?: "ready" | "pending" | "neutral";
   statusLabel?: string;
@@ -106,20 +117,23 @@ export function TrustedPersonCard({
       )}
     >
       <div className="flex items-center gap-3">
-        <Avatar initials={initialsFrom(name)} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} />
         <div className="min-w-0 flex-1">
-          <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
+          <MediumRowLabel
+            as="p"
+            className="break-words [overflow-wrap:anywhere]"
+          >
             {name}
-          </p>
+          </MediumRowLabel>
           {subtitle ? (
-            <p
+            <RowDescription
               className={cn(
                 MUTED_TEXT,
                 "break-words [overflow-wrap:anywhere]",
               )}
             >
               {subtitle}
-            </p>
+            </RowDescription>
           ) : null}
         </div>
 
@@ -181,6 +195,7 @@ export function TrustedPersonCard({
 
 export function ActiveShareCard({
   name,
+  photoUrl,
   expiryLabel,
   metaLabel,
   onStop,
@@ -189,6 +204,7 @@ export function ActiveShareCard({
   extendBusy,
 }: {
   name: string;
+  photoUrl?: string | null;
   expiryLabel: string;
   metaLabel?: string;
   onStop: () => void;
@@ -199,20 +215,22 @@ export function ActiveShareCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
       <div className="flex items-center gap-3">
-        <Avatar initials={initialsFrom(name)} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-base font-semibold text-foreground">
+          <MediumRowLabel as="p" className="truncate">
             Sharing with {name}
-          </p>
-          <p className={cn(MUTED_TEXT, "truncate")}>{expiryLabel}</p>
+          </MediumRowLabel>
+          <RowDescription className={cn(MUTED_TEXT, "truncate")}>
+            {expiryLabel}
+          </RowDescription>
         </div>
         <StatusPill tone="live">Live</StatusPill>
       </div>
       {metaLabel ? (
-        <p className={cn(MUTED_TEXT, "flex items-center gap-1.5")}>
+        <RowDescription className={cn(MUTED_TEXT, "flex items-center gap-1.5")}>
           <Clock3 className="h-3.5 w-3.5" />
           {metaLabel}
-        </p>
+        </RowDescription>
       ) : null}
       <div className="grid grid-cols-2 gap-2">
         <Button
@@ -220,7 +238,7 @@ export function ActiveShareCard({
           size="sm"
           onClick={onStop}
           isLoading={stopBusy}
-          className="h-9 rounded-full text-sm"
+          className="ui-text-button-label h-9 rounded-full"
         >
           Stop sharing
         </Button>
@@ -230,7 +248,7 @@ export function ActiveShareCard({
             size="sm"
             onClick={onExtend}
             isLoading={extendBusy}
-            className="h-9 rounded-full text-sm"
+            className="ui-text-button-label h-9 rounded-full"
           >
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
             Extend
@@ -247,91 +265,184 @@ export function ActiveShareCard({
 
 export function RequestCard({
   name,
+  photoUrl,
   promptLine,
   reason,
   approveLabel = "Approve",
   onApprove,
+  shorterApprovals,
+  isExtension = false,
+  onApproveShorter,
   onDecline,
 }: {
   name: string;
+  photoUrl?: string | null;
   promptLine: string;
   reason?: string;
   approveLabel?: string;
-  onApprove: () => void;
-  onDecline: () => void;
+  onApprove: () => void | boolean | Promise<void | boolean>;
+  /**
+   * Amounts below what was asked, ascending. Empty or omitted when the ask is
+   * already at the floor, or carries no readable amount to be shorter than.
+   *
+   * This replaced a single hard-coded "Allow 1 hour". Reported: "i received
+   * access req for 4 hours ... if i want to edit the time, and want to approve
+   * req for shorter duration i am not allowed to do so". One fixed step is not
+   * a choice, and it disappeared entirely for anything asked at an hour or
+   * less -- so the card's real answer set was "all of it" or "nothing".
+   *
+   * The amounts come from `lib/one-location/approve-duration-options`, which
+   * is also what guarantees none of them is LONGER than the ask.
+   */
+  shorterApprovals?: readonly ApproveDurationOption[];
+  /**
+   * Whether this ask is for MORE time on a share that is already running.
+   *
+   * It only changes words, but the words are the whole meaning of the grid
+   * below. On an extension the server adds the approved amount to what is
+   * still live, so "Or approve for less" would describe a total the owner is
+   * not choosing -- every rung there is an increment, exactly like the primary
+   * button that says "Approve 30 min more".
+   */
+  isExtension?: boolean;
+  onApproveShorter?: (hours: number) => void | boolean | Promise<void | boolean>;
+  onDecline: () => void | boolean | Promise<void | boolean>;
 }) {
-  // Latch the decision on THIS card, the moment it is pressed.
+  // Latch the decision on THIS card once the pressed action settles.
   //
   // Two problems this solves. First, `approveBusy` is derived from one global
   // busy value, so approving a single request put a spinner on EVERY card in
-  // the list. Second, that spinner was held across three sequential server
-  // calls — approve, publish the encrypted point, reload state — none of which
-  // the person is waiting to see. They pressed Approve; the answer is "yes".
+  // the list. Second, a failed approval used to look approved because the card
+  // answered before the callback could report failure.
   //
-  // So the card answers immediately and the work continues behind it. The same
-  // latch blocks a second press, which is what makes the optimism safe.
+  // The per-card pending state blocks double taps without turning the whole
+  // needs-review list into one global spinner.
   const [decision, setDecision] = useState<"approved" | "declined" | null>(null);
-  const decided = decision !== null;
+  // `shorter:<hours>` so only the tapped amount spins, not the whole row.
+  const [pendingDecision, setPendingDecision] = useState<string | null>(null);
+  const decided = decision !== null || pendingDecision !== null;
+  const shorterOptions =
+    onApproveShorter && shorterApprovals?.length ? shorterApprovals : [];
+  const hasShorterApprovals = shorterOptions.length > 0;
+
+  const settleDecision = async (
+    nextDecision: "approved" | "declined",
+    // "approve" | "decline" | `shorter:<hours>` -- a string, because the
+    // shorter amounts are data now rather than one hard-coded rung.
+    pending: string,
+    action: () => void | boolean | Promise<void | boolean>,
+  ) => {
+    if (decided) return;
+    setPendingDecision(pending);
+    try {
+      const result = await action();
+      if (result === false) {
+        setPendingDecision(null);
+        return;
+      }
+      setDecision(nextDecision);
+    } catch {
+      setPendingDecision(null);
+    }
+  };
 
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} size={40} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
         <div className="min-w-0 flex-1">
-          <p className="text-[17px] font-semibold leading-[22px] text-foreground">
+          <MediumRowLabel as="p">
             {name}
-          </p>
-          <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
+          </MediumRowLabel>
+          <RowDescription className={cn(MUTED_TEXT, "mt-0.5")}>
             {promptLine}
-          </p>
+          </RowDescription>
         </div>
       </div>
       {reason ? (
         <div className="mt-3 rounded-[12px] bg-[color:var(--app-card-surface-compact)] px-3 py-2.5">
-          <p className="text-[13px] font-medium leading-[18px] text-muted-foreground">
+          <FormLabel as="p" className={MUTED_TEXT}>
             Reason
-          </p>
-          <p className="mt-0.5 text-[15px] leading-5 text-foreground">
+          </FormLabel>
+          <RowLabel as="p" className="mt-0.5">
             {reason}
-          </p>
+          </RowLabel>
         </div>
       ) : null}
       {decided ? (
-        <p
+        <StatusText
+          as="p"
           role="status"
           className={cn(
-            "mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 text-[14px] font-semibold leading-5",
+            "mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-full px-3",
             decision === "approved"
               ? "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)]"
-              : "bg-[color:var(--app-neutral-fill-strong)] text-muted-foreground dark:bg-white/10",
+              : "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)]",
           )}
         >
           <ShieldCheck className="h-4 w-4" aria-hidden />
           {decision === "approved" ? "Approved" : "Declined"}
-        </p>
+        </StatusText>
       ) : (
-        <div className="mt-3.5 grid grid-cols-1 gap-2.5 min-[430px]:grid-cols-[0.82fr_1.18fr]">
+        <div className="mt-3.5 space-y-2.5">
+          {/* The full ask stays the primary answer: it is what was actually
+              requested, and most of the time it is what gets granted. */}
           <Button
-            onClick={() => {
-              if (decided) return;
-              setDecision("approved");
-              onApprove();
-            }}
+            onClick={() => void settleDecision("approved", "approve", onApprove)}
             disabled={decided}
-            // Deliberately not `isLoading`: the card has already answered. A
-            // spinner here would reintroduce the wait it was pressed to remove.
-            className="order-1 h-11 rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 min-[430px]:order-2"
+            isLoading={pendingDecision === "approve"}
+            className="ui-text-button-label h-11 w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             {approveLabel}
           </Button>
+
+          {hasShorterApprovals ? (
+            <div className="space-y-2">
+              {/* Named, because the complaint was not that the shorter answer
+                  was hard to reach -- it was that nothing on the card said it
+                  existed. Every amount here is less than what was asked. */}
+              <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                {isExtension ? "Or add less" : "Or approve for less"}
+              </p>
+              <div
+                className="grid grid-cols-2 gap-2"
+                data-testid="one-location-approve-shorter"
+              >
+                {shorterOptions.map((option) => {
+                  const key = `shorter:${option.hours}`;
+                  return (
+                    <Button
+                      key={key}
+                      onClick={() =>
+                        void settleDecision("approved", key, () =>
+                          onApproveShorter?.(option.hours),
+                        )
+                      }
+                      disabled={decided}
+                      isLoading={pendingDecision === key}
+                      // The visible label is the amount; the spoken one says
+                      // what pressing it does, because four buttons reading
+                      // only "1 hour" tell a screen reader nothing.
+                      aria-label={
+                        isExtension
+                          ? `Add ${option.label} instead`
+                          : `Approve for ${option.label} instead`
+                      }
+                      className="ui-text-button-label h-11 min-w-0 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80"
+                    >
+                      {option.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <Button
-            onClick={() => {
-              if (decided) return;
-              setDecision("declined");
-              onDecline();
-            }}
+            onClick={() => void settleDecision("declined", "decline", onDecline)}
             disabled={decided}
-            className="order-2 h-11 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[15px] font-semibold leading-5 text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10 min-[430px]:order-1"
+            isLoading={pendingDecision === "decline"}
+            className="ui-text-button-label h-11 w-full rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80"
           >
             Decline
           </Button>
@@ -365,6 +476,7 @@ export type GrantViewStatus = {
 
 export function SharedWithMeCard({
   name,
+  photoUrl,
   statusLine,
   onView,
   onDismiss,
@@ -385,6 +497,7 @@ export function SharedWithMeCard({
   shareLanes,
 }: {
   name: string;
+  photoUrl?: string | null;
   statusLine: ReactNode;
   onView: () => void;
   onDismiss?: () => void;
@@ -444,21 +557,26 @@ export function SharedWithMeCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 rounded-[18px] p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} size={40} />
+        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
         <div className="min-w-0 flex-1">
-          <p className="text-[17px] font-medium leading-[22px] text-foreground">
+          <RowLabel as="p">
             {name}
-          </p>
-          <p className={cn(MUTED_TEXT, "mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] leading-[18px]")}>
+          </RowLabel>
+          <RowDescription
+            className={cn(
+              MUTED_TEXT,
+              "mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5",
+            )}
+          >
             {statusLine}
-          </p>
+          </RowDescription>
         </div>
       </div>
       {shareLanes}
       {address || addressLoading || coordinatesFallback ? (
         <div className="flex items-start gap-1.5">
           <MapPin
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]"
             aria-hidden="true"
           />
           {addressLoading && !address ? (
@@ -467,9 +585,9 @@ export function SharedWithMeCard({
               aria-hidden="true"
             />
           ) : (
-            <p className={cn(MUTED_TEXT, "min-w-0 break-words text-sm")}>
+            <RowDescription className={cn(MUTED_TEXT, "min-w-0 break-words")}>
               {address ?? coordinatesFallback}
-            </p>
+            </RowDescription>
           )}
         </div>
       ) : null}
@@ -479,9 +597,10 @@ export function SharedWithMeCard({
           // as a problem. Nothing is wrong: the share is live and the first
           // point simply has not arrived. `aria-live="polite"` announces it
           // once without interrupting, which is what a status is.
-          <p
+          <RowDescription
+            as="p"
             aria-live="polite"
-            className={cn(MUTED_TEXT, "flex items-start gap-1.5 text-sm")}
+            className={cn(MUTED_TEXT, "flex items-start gap-1.5")}
           >
             <Clock3
               className="mt-0.5 h-3.5 w-3.5 shrink-0"
@@ -490,7 +609,7 @@ export function SharedWithMeCard({
             <span className="min-w-0 break-words">
               Waiting for their first update…
             </span>
-          </p>
+          </RowDescription>
         ) : (
           // Five hand-mixed hexes stood here. #ff9f0a is the iOS DARK-mode
           // orange used as a light-mode literal, and the 0.08 wash sat under
@@ -510,14 +629,15 @@ export function SharedWithMeCard({
                 className={cn("mt-0.5 h-4 w-4 shrink-0", warningRole.glyph)}
                 aria-hidden="true"
               />
-              <p
+              <HelperText
+                as="p"
                 className={cn(
-                  "min-w-0 break-words text-[12.5px] font-medium leading-snug [overflow-wrap:anywhere]",
+                  "min-w-0 break-words [overflow-wrap:anywhere]",
                   warningRole.glyph,
                 )}
               >
                 {viewStatus.message}
-              </p>
+              </HelperText>
             </div>
             {onAskReshare ? (
               <Button
@@ -540,7 +660,7 @@ export function SharedWithMeCard({
       {canTogglePreview ? (
         <button
           type="button"
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-full text-[15px] font-semibold leading-[20px] text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60"
+          className="ui-text-button-label inline-flex min-h-11 items-center gap-1.5 rounded-full text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60"
           aria-label={
             isPreviewExpanded
               ? `Collapse shared location from ${name}`
@@ -582,14 +702,15 @@ export function SharedWithMeCard({
         </div>
       </div>
       {message ? (
-        <p
+        <RowDescription
+          as="p"
           className={cn(
             MUTED_TEXT,
-            "rounded-[12px] bg-[color:var(--app-neutral-fill)] px-3 py-2 text-[14px] leading-[19px]",
+            "rounded-[12px] bg-[color:var(--app-neutral-fill)] px-3 py-2",
           )}
         >
           “{message}”
-        </p>
+        </RowDescription>
       ) : null}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         {canOpenMap ? (
@@ -597,7 +718,7 @@ export function SharedWithMeCard({
             asChild
             variant="ghost"
             size="sm"
-            className="h-11 rounded-full px-0 text-[15px] font-semibold text-[color:var(--app-accent)] hover:bg-transparent hover:text-[color:var(--app-accent-deep)]"
+            className="ui-text-button-label h-11 rounded-full px-0 text-[color:var(--app-accent)] hover:bg-transparent hover:text-[color:var(--app-accent-deep)]"
           >
             <a
               href={mapHref}
@@ -605,7 +726,7 @@ export function SharedWithMeCard({
               rel="noopener noreferrer"
               aria-label="Open shared location in Google Maps"
             >
-              Open in Maps
+              Open in Google Maps
               <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
             </a>
           </Button>
@@ -616,7 +737,7 @@ export function SharedWithMeCard({
             onClick={onRemove}
             disabled={removeBusy}
             aria-label={`Remove ${name} from Shared with me`}
-            className="inline-flex min-h-11 items-center justify-center rounded-full text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+            className="ui-text-button-label inline-flex min-h-11 items-center justify-center rounded-full text-[color:var(--app-destructive)] transition-colors hover:text-[color:var(--app-destructive)]/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
           >
             {removeBusy ? "Stopping…" : "Stop viewing"}
           </button>
@@ -685,28 +806,29 @@ export function TemporaryLinkCard({
         </span>
         <div className="min-w-0 flex-1">
           {title ? (
-            <p className="text-[17px] font-semibold leading-[22px] text-foreground">
+            <MediumRowLabel as="p">
               {title}
-            </p>
+            </MediumRowLabel>
           ) : null}
-          <p
+          <RowDescription
             className={cn(
-              "flex items-center gap-2 text-[15px] leading-5 text-muted-foreground",
+              MUTED_TEXT,
+              "flex items-center gap-2",
               title ? "mt-1" : "mt-0.5",
             )}
           >
             <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--app-success)]" />
             {statusLine}
-          </p>
-          <p className="mt-2 text-[15px] leading-5 text-muted-foreground">
+          </RowDescription>
+          <RowDescription className={cn(MUTED_TEXT, "mt-2")}>
             {description}
-          </p>
+          </RowDescription>
         </div>
       </div>
       <div className="grid grid-cols-1 gap-2 min-[340px]:grid-cols-2">
         <Button
           onClick={onShare}
-          className="h-12 rounded-[15px] bg-[color:var(--app-accent)] text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          className="ui-text-button-label h-12 rounded-[15px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
           <Share2 className="mr-1.5 h-4 w-4" />
           Share
@@ -716,7 +838,7 @@ export function TemporaryLinkCard({
           onClick={handleCopy}
           disabled={copyBusy}
           aria-busy={copyBusy || undefined}
-          className="h-12 rounded-[15px] text-[15px] font-semibold leading-5"
+          className="ui-text-button-label h-12 rounded-[15px]"
         >
           <Copy className="mr-1.5 h-4 w-4" />
           {copyBusy ? "Copying…" : copyLabel}
@@ -727,7 +849,7 @@ export function TemporaryLinkCard({
           type="button"
           onClick={onRevoke}
           disabled={revokeBusy}
-          className="min-h-11 w-full text-left text-[15px] font-semibold leading-5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+          className="ui-text-button-label min-h-11 w-full text-left text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
         >
           {revokeBusy ? "Revoking…" : "Revoke link"}
         </button>
@@ -763,11 +885,11 @@ export function DeviceReadinessCard({
 }) {
   const iconWrap =
     tone === "ready"
-      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+      ? "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)]"
       : tone === "warning"
-        ? "bg-amber-500/15 text-amber-600 dark:text-amber-300"
+        ? "bg-[color:var(--app-warning)]/12 text-[color:var(--app-warning)]"
         : tone === "blocked"
-          ? "bg-red-500/15 text-red-600 dark:text-red-300"
+          ? "bg-[color:var(--app-destructive)]/12 text-[color:var(--app-destructive)]"
           : "bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]";
   return (
     <div className="space-y-3">
@@ -785,8 +907,8 @@ export function DeviceReadinessCard({
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold text-foreground">{title}</p>
-          <p className={MUTED_TEXT}>{description}</p>
+          <MediumRowLabel as="p">{title}</MediumRowLabel>
+          <RowDescription className={MUTED_TEXT}>{description}</RowDescription>
         </div>
       </div>
       <div className="grid gap-2">
@@ -796,7 +918,7 @@ export function DeviceReadinessCard({
             size="sm"
             onClick={onRefresh}
             isLoading={refreshBusy}
-            className="h-10 w-full rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            className="ui-text-button-label h-10 w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             {!refreshBusy ? <RefreshCw className="mr-2 h-4 w-4" /> : null}
             {refreshLabel}
@@ -808,7 +930,7 @@ export function DeviceReadinessCard({
             size="sm"
             onClick={onAction}
             isLoading={actionBusy}
-            className="h-10 w-full rounded-full text-sm"
+            className="ui-text-button-label h-10 w-full rounded-full"
           >
             {!actionBusy ? <ExternalLink className="mr-2 h-4 w-4" /> : null}
             {actionLabel}
@@ -832,12 +954,12 @@ export function ActivityReceiptCard({
 }) {
   return (
     <div className={cn(SUBCARD_SURFACE, "flex items-start gap-3 p-3")}>
-      <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
+      <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
         <ShieldCheck className="h-3.5 w-3.5" />
       </span>
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-        <p className={MUTED_TEXT}>{detail}</p>
+        <MediumRowLabel as="p">{title}</MediumRowLabel>
+        <RowDescription className={MUTED_TEXT}>{detail}</RowDescription>
       </div>
     </div>
   );

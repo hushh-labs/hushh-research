@@ -33,11 +33,6 @@ const GMAIL_CONNECT_COMPLETE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
   developmentFloorMs: 30_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_CONNECT_COMPLETE_TIMEOUT_MS",
 });
-const AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, {
-  developmentFloorMs: 120_000,
-  overrideEnvKey: "HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS",
-});
-
 function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
 }
@@ -153,9 +148,6 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 }
 
 function resolveKaiUpstreamTimeoutMs(path: string): number | null {
-  if (path === "agent/chat/stream") {
-    return AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS;
-  }
   if (path === "gmail/receipts-memory/preview") {
     return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;
   }

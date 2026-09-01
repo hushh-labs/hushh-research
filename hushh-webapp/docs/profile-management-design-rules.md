@@ -12,7 +12,7 @@ Profile is a management surface, not a dashboard.
 
 - Use a single grouped settings-style index for Profile-scale navigation.
 - Use disclosure rows that drill into focused detail panels instead of broad peer tabs.
-- Use `SettingsSegmentedTabs` only for local state switches, not for primary page IA.
+- Use `SegmentedTabs` only for local state switches, not for primary page IA.
 - Do not introduce KPI or dashboard summary grids on Profile by default.
 - Default management pages should prefer:
   - hero identity or context

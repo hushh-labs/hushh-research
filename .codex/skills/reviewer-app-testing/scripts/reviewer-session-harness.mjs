@@ -16,7 +16,62 @@ const CRITICAL_REVIEWER_API_PATHS = [
   "/api/one/connections",
   "/api/notifications/register",
   "/api/pkm",
+  "/api/one/agent-chat",
 ];
+
+const READ_ONLY_SAFE_POST_PATHS = new Set([
+  "/api/app-config/review-mode/session",
+  "/api/vault/bootstrap-state",
+  "/api/vault/pre-vault-state",
+  "/api/consent/vault-owner-token",
+]);
+
+function requestPathname(request) {
+  return endpointPath(request.url());
+}
+
+function installReadOnlyMutationGuard(context) {
+  const blockedMutations = [];
+  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true") {
+    return {
+      assertNoBlockedMutation() {},
+      policy: "explicit_mutation_authorized",
+    };
+  }
+
+  void context.route("**/*", async (route) => {
+    const request = route.request();
+    const method = request.method().toUpperCase();
+    const pathname = requestPathname(request);
+    if (
+      !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
+      READ_ONLY_SAFE_POST_PATHS.has(pathname)
+    ) {
+      await route.continue();
+      return;
+    }
+
+    blockedMutations.push(`${method} ${pathname || "(unknown path)"}`);
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "REVIEWER_READ_ONLY_MUTATION_BLOCKED",
+        message: "Read-only reviewer rehearsal blocked a state-changing request.",
+      }),
+    });
+  });
+
+  return {
+    assertNoBlockedMutation() {
+      if (blockedMutations.length === 0) return;
+      throw new Error(
+        `Read-only reviewer rehearsal blocked state-changing request(s): ${blockedMutations.join(", ")}. Fix the app's test/read-only posture or use an isolated fixture with explicit mutation authority.`,
+      );
+    },
+    policy: "read_only",
+  };
+}
 
 async function waitForValue(readValue, label, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -76,6 +131,7 @@ export async function createReviewerSessionHarness({
     let vaultState = null;
     let ownerToken = "";
     let firebaseBearer = "";
+    let identityToken = "";
     const criticalApiFailures = [];
     const responsePromises = new Set();
     // Two DISTINCT tokens, each read only off its own allowlisted routes so one
@@ -101,6 +157,10 @@ export async function createReviewerSessionHarness({
       }
       if (firebaseBearerPaths.some((prefix) => pathname.startsWith(prefix))) {
         firebaseBearer = authorization.slice(7);
+        return;
+      }
+      if (pathname.startsWith("/api/one/connections")) {
+        identityToken = authorization.slice(7);
       }
     });
     page.on("response", (response) => {
@@ -134,6 +194,9 @@ export async function createReviewerSessionHarness({
       firebaseBearer() {
         return firebaseBearer;
       },
+      async identityToken() {
+        return waitForValue(() => identityToken, "reviewer identity token", timeoutMs);
+      },
       async vaultState() {
         const state = await waitForValue(() => vaultState, "encrypted vault state", timeoutMs);
         await Promise.all([...responsePromises]);
@@ -155,7 +218,7 @@ export async function createReviewerSessionHarness({
   // at `authenticated` and drive the visible "Set a lock" dialog itself. Insisting on
   // `vault_unlocked` there would fail every genuinely fresh run, which is exactly the
   // journey a first-run rehearsal exists to walk.
-  async function waitForUnlock(page, unlockTimeoutMs = timeoutMs, { requireVaultUnlocked = true } = {}) {
+  async function waitForUnlock(page, readOnlyGuard, unlockTimeoutMs = timeoutMs, { requireVaultUnlocked = true } = {}) {
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
     const unlockInput = page.locator("#unlock-passphrase");
     // The submit control renders "Unlock" (and "Unlocking..." while busy). This
@@ -193,6 +256,7 @@ export async function createReviewerSessionHarness({
       }, reviewerUid);
 
     while (Date.now() < deadline) {
+      readOnlyGuard.assertNoBlockedMutation();
       const bootstrap = await safeBootstrapState();
       if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
       // First-run: signed in as the right person, off the login screen, and the
@@ -296,6 +360,7 @@ export async function createReviewerSessionHarness({
       const page = await context.newPage();
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
+      const readOnlyGuard = installReadOnlyMutationGuard(context);
       const capture = attachMemoryOnlyCapture(page);
       // With no vault to open, handing the bridge a passphrase makes its auto-unlock
       // run and report `vault_error` (it refuses to CREATE a vault for a fixture).
@@ -306,7 +371,7 @@ export async function createReviewerSessionHarness({
         await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
           waitUntil: "domcontentloaded",
         });
-        await waitForUnlock(page, attemptTimeoutMs, { requireVaultUnlocked });
+        await waitForUnlock(page, readOnlyGuard, attemptTimeoutMs, { requireVaultUnlocked });
         // The bridge reports `vault_unlocked` while /login is still resolving
         // its redirect. Returning here hands the caller a page with a pending
         // navigation that silently clobbers their first navigateInApp, which
@@ -318,7 +383,7 @@ export async function createReviewerSessionHarness({
           undefined,
           { timeout: attemptTimeoutMs }
         );
-        return { context, page, capture };
+        return { context, page, capture, readOnlyGuard };
       } catch (error) {
         lastError = error;
         await context.close().catch(() => undefined);
@@ -336,6 +401,7 @@ export async function createReviewerSessionHarness({
     const challengeTimeoutMs = Math.min(timeoutMs, 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
+    const readOnlyGuard = installReadOnlyMutationGuard(context);
     const capture = attachMemoryOnlyCapture(page);
     try {
       // Authenticate the canonical reviewer through the test bridge, but do
@@ -348,6 +414,7 @@ export async function createReviewerSessionHarness({
       const unlockInput = page.locator("#unlock-passphrase");
       const deadline = Date.now() + challengeTimeoutMs;
       while (Date.now() < deadline) {
+        readOnlyGuard.assertNoBlockedMutation();
         capture.assertNoCriticalApiFailures("visible vault challenge");
         if (await unlockInput.isVisible().catch(() => false)) return;
         await page.waitForTimeout(250);

@@ -78,7 +78,7 @@ import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/profile/settings-ui";
 import {
   Accordion,
@@ -633,7 +633,7 @@ function AccessWorkspace({
         ) : null}
 
         <div className="space-y-5">
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={workspaceTab}
             onValueChange={(value) =>
               setWorkspaceTab(

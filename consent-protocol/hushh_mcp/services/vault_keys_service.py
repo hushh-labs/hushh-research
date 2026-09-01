@@ -141,6 +141,22 @@ class VaultKeysService:
         return "".join(text.split())
 
     @staticmethod
+    def _iso(value: Any) -> Optional[str]:
+        """Stringify a DB-driver datetime before it leaves this service.
+
+        Defensive: postgrest normally returns timestamps as strings already,
+        but a raw datetime reaching a live-voice tool result would crash the
+        session's plain json.dumps with no result ever reaching the user.
+        """
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return str(value.astimezone(timezone.utc).isoformat())
+        return str(value)
+
+    @staticmethod
     def _normalize_method(method: Optional[str]) -> str:
         normalized = (VaultKeysService._clean_text(method) or "").lower()
         if normalized not in ALLOWED_METHODS:
@@ -875,7 +891,7 @@ class VaultKeysService:
                     "passkeyDeviceLabel": self._clean_text(
                         row.get("passkey_device_label"), allow_none=True
                     ),
-                    "passkeyLastUsedAt": row.get("passkey_last_used_at"),
+                    "passkeyLastUsedAt": self._iso(row.get("passkey_last_used_at")),
                 }
             )
 

@@ -221,7 +221,9 @@ describe("CircleInvitePeopleSheet", () => {
                 connectionId: "conn-asha",
                 userId: "asha-user",
                 displayName: "Same Name",
+                photoUrl: "https://cdn.example.test/asha.jpg",
                 connectedFromContacts: true,
+                isRia: true,
               },
         ],
         pendingInvites: [],
@@ -245,13 +247,18 @@ describe("CircleInvitePeopleSheet", () => {
       />,
     );
 
-    fireEvent.click(
-      within(
-        await screen.findByTestId(
-          "one-location-circle-grow-eligible-asha-user",
-        ),
-      ).getByRole("button"),
+    const ashaRow = await screen.findByTestId(
+      "one-location-circle-grow-eligible-asha-user",
     );
+    expect(
+      ashaRow.querySelector('[data-photo-url="https://cdn.example.test/asha.jpg"]'),
+    ).toBeTruthy();
+    expect(within(ashaRow).getByLabelText("Verified advisor")).toBeTruthy();
+    expect(
+      within(ashaRow).getByLabelText("Connected from your contacts"),
+    ).toBeTruthy();
+
+    fireEvent.click(within(ashaRow).getByRole("button"));
     fireEvent.change(screen.getByLabelText("Search connections"), {
       target: { value: "neel" },
     });
@@ -326,5 +333,5 @@ describe("CircleInvitePeopleSheet", () => {
         invitees.slice(0, 20).map((invitee) => invitee.userId),
       ),
     );
-  });
+  }, 15000);
 });

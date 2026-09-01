@@ -67,6 +67,16 @@ class ConsentScope(str, Enum):
     CAP_LOCATION_NEARBY_DISCOVER = "cap.location.nearby.discover"
     CAP_LOCATION_NEARBY_REVOKE = "cap.location.nearby.revoke"
 
+    # ==================== PLACE RATING CAPABILITIES ====================
+    # Rating a place the caller was recorded at. These authorize the only
+    # durable person-to-venue link in One Location, so they are deliberately
+    # separate from the nearby triple above: holding a nearby scope must never
+    # imply permission to leave a permanent record of having been somewhere.
+    # Not externally requestable.
+    CAP_LOCATION_PLACE_RATING_PUBLISH = "cap.location.place_rating.publish"
+    CAP_LOCATION_PLACE_RATING_DISCOVER = "cap.location.place_rating.discover"
+    CAP_LOCATION_PLACE_RATING_REVOKE = "cap.location.place_rating.revoke"
+
     # ==================== CONTACT DISCOVERY ====================
     # Matching an address book against the user directory. Declared here so the
     # capability has a name the consent surface can show and an audit row can
@@ -268,6 +278,9 @@ class ConsentScope(str, Enum):
             cls.CAP_LOCATION_NEARBY_PUBLISH,
             cls.CAP_LOCATION_NEARBY_DISCOVER,
             cls.CAP_LOCATION_NEARBY_REVOKE,
+            cls.CAP_LOCATION_PLACE_RATING_PUBLISH,
+            cls.CAP_LOCATION_PLACE_RATING_DISCOVER,
+            cls.CAP_LOCATION_PLACE_RATING_REVOKE,
             cls.CAP_PKM_MARKETPLACE_VIEW,
             cls.CAP_PKM_MARKETPLACE_MANAGE,
         ]

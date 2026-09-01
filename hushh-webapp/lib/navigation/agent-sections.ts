@@ -1,4 +1,4 @@
-import { LayoutDashboard } from "lucide-react";
+import { Laptop, LayoutDashboard } from "lucide-react";
 
 import {
   ONE_CAPABILITIES,
@@ -123,6 +123,24 @@ const RIA_WORKSPACE_SECTION: AgentSection = {
   voiceRouteActionId: "route.ria_home",
 };
 
+// Puppy One is the agent running on the owner's own machine. It is authored
+// here rather than in ONE_CAPABILITIES because it has no consent-protocol
+// agent lane: there is no backend specialist to route to, only a local runtime
+// reached over loopback. It earns its own section rather than a mode of the
+// One chat because it is a different agent, with a different model and a
+// different memory, doing its work on hardware the owner owns.
+const PUPPY_WORKSPACE_SECTION: AgentSection = {
+  id: "puppy",
+  label: "Puppy One",
+  href: ROUTES.ONE_PUPPY,
+  icon: lucideCapabilityIcon(Laptop),
+  routeFamily: "one",
+  bottomNavScope: "one",
+  screenId: "one_puppy",
+  controlId: "top_agent_section_puppy",
+  voiceRouteActionId: "route.one_puppy",
+};
+
 // Finance onboarding is still a Finance surface even though its route lives
 // under `/one/setup`. Without these aliases the shared dropdown falls back to
 // the root One selection while a person is completing Finance preferences or
@@ -201,6 +219,7 @@ export function getAgentSections(): readonly AgentSection[] {
   } else {
     sections.push(RIA_WORKSPACE_SECTION);
   }
+  sections.push(PUPPY_WORKSPACE_SECTION);
   // One is the relationship-level app and the first destination in the
   // selector. Specialist apps follow it; the durable internal id stays
   // `agents` for generated voice/action compatibility.

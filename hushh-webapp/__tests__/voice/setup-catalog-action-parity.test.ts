@@ -29,7 +29,7 @@ describe("setup catalog voice parity", () => {
       "ria",
       "connected-systems",
     ]);
-    expect(ONE_SETUP_CAPABILITIES).toHaveLength(7);
+    expect(ONE_SETUP_CAPABILITIES).toHaveLength(6);
     expect(ROUTE_SETUP_CAPABILITY_IDS).toBe(ONE_SETUP_CAPABILITY_IDS);
     expect(
       CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
@@ -40,18 +40,28 @@ describe("setup catalog voice parity", () => {
       "Identity checks",
       "Set up your money",
       "Set up your advisor profile",
-      "Connect your CRM",
+    ]);
+    const visibleSetupActionIds = new Set([
+      "setup.open_connections",
+      ...ONE_SETUP_CAPABILITIES.map((capability) => capability.setupActionId),
     ]);
     expect(
       hubContract.actions
-        .filter((action) => action.action_id.startsWith("setup.open_"))
+        .filter((action) => visibleSetupActionIds.has(action.action_id))
         .map((action) => action.label),
     ).toEqual([
       "Set up your cloud",
       "Choose your AI",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
-    expect(actions.get("setup.open_connections")?.execution_target).toMatchObject({
+    expect(
+      hubContract.actions.some(
+        (action) => action.action_id === "setup.open_connected_systems",
+      ),
+    ).toBe(true);
+    expect(
+      actions.get("setup.open_connections")?.execution_target,
+    ).toMatchObject({
       status: "wired",
       path: "route",
       target: "/one/setup/connections",
@@ -80,7 +90,7 @@ describe("setup catalog voice parity", () => {
     expect(
       hubContract.actions
         .map((action) => action.action_id)
-        .filter((actionId) => actionId.startsWith("setup.open_")),
+        .filter((actionId) => orderedHubActionIds.includes(actionId)),
     ).toEqual(orderedHubActionIds);
 
     const setupRoute = routeLayoutContract.find(
@@ -97,7 +107,9 @@ describe("setup catalog voice parity", () => {
     const gmailConnectAction = gmailSetupContract.actions.find(
       (action) => action.action_id === "setup.connect_gmail",
     );
-    expect(gmailConnectAction?.reachability.routes).toEqual(["/one/setup/gmail"]);
+    expect(gmailConnectAction?.reachability.routes).toEqual([
+      "/one/setup/gmail",
+    ]);
     expect(gmailConnectAction?.execution_target).toMatchObject({
       status: "wired",
       path: "local_handler",

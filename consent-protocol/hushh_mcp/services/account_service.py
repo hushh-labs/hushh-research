@@ -190,6 +190,39 @@ class AccountService:
                 WHERE owner_user_id = :user_id
                 """
             ),
+            "one_location_nearby_visits": text(
+                """
+                DELETE FROM one_location_nearby_visits
+                WHERE owner_user_id = :user_id
+                """
+            ),
+            # Deleting the rows is not the whole deletion: an average that still
+            # counts a departed person's rating has not forgotten them. The
+            # aggregate for every place they rated is recomputed from what is
+            # left, in the same pass.
+            "one_location_place_ratings": text(
+                """
+                WITH removed AS (
+                  DELETE FROM one_location_place_ratings
+                  WHERE author_user_id = :user_id
+                  RETURNING place_id
+                ), touched AS (
+                  SELECT DISTINCT place_id FROM removed
+                )
+                UPDATE one_location_place_rating_aggregates AS agg
+                SET
+                  rating_count = COALESCE(fresh.rating_count, 0),
+                  rating_sum = COALESCE(fresh.rating_sum, 0),
+                  updated_at = NOW()
+                FROM touched
+                LEFT JOIN LATERAL (
+                  SELECT COUNT(*) AS rating_count, SUM(rating) AS rating_sum
+                  FROM one_location_place_ratings
+                  WHERE place_id = touched.place_id AND aggregatable
+                ) AS fresh ON TRUE
+                WHERE agg.place_id = touched.place_id
+                """
+            ),
             "one_location_sms_contacts": text(
                 """
                 DELETE FROM one_location_sms_contacts
@@ -310,6 +343,7 @@ class AccountService:
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "feed_events": text("DELETE FROM feed_events WHERE user_id = :user_id"),
             "vault_key_wrappers": text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
             "world_model_index_v2": text(
                 "DELETE FROM world_model_index_v2 WHERE user_id = :user_id"
@@ -1081,6 +1115,8 @@ class AccountService:
             "one_location_auto_approve_preferences",
             "one_location_events",
             "one_location_nearby_presences",
+            "one_location_nearby_visits",
+            "one_location_place_ratings",
             "one_location_sms_contacts",
             "one_location_referrals",
             "one_location_public_invite_submissions",
@@ -1097,6 +1133,9 @@ class AccountService:
             "one_location_envelopes",
             "one_location_share_grants",
             "one_location_recipient_keys",
+            # Feed is a derived projection. Clear it after every source table so
+            # present or future source-cleanup fan-out cannot recreate a row.
+            "feed_events",
         ):
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
             results[table_name] = True
@@ -1267,6 +1306,8 @@ class AccountService:
             "one_location_auto_approve_preferences": False,
             "one_location_events": False,
             "one_location_nearby_presences": False,
+            "one_location_nearby_visits": False,
+            "one_location_place_ratings": False,
             "one_location_sms_contacts": False,
             "one_location_referrals": False,
             "one_location_access_requests": False,
@@ -1288,6 +1329,7 @@ class AccountService:
             "trusted_devices": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
+            "feed_events": False,
             "runtime_persona_state": False,
             "vault_key_wrappers": False,
             "vault_keys": False,
@@ -1495,6 +1537,10 @@ class AccountService:
                     "one_location_auto_approve_preferences",
                     "one_location_events",
                     "one_location_nearby_presences",
+                    "one_location_nearby_visits",
+                    "one_location_place_ratings",
+                    "one_location_nearby_visits",
+                    "one_location_place_ratings",
                     "one_location_sms_contacts",
                     "one_location_referrals",
                     "one_location_public_invite_submissions",
@@ -1512,6 +1558,8 @@ class AccountService:
                     "one_location_share_grants",
                     "one_location_recipient_keys",
                     "one_wallet_cards",
+                    # Last derived-data cleanup, before the identity/vault spine.
+                    "feed_events",
                 ):
                     self._delete_user_rows_if_table_exists(
                         conn,

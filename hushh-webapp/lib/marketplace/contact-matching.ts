@@ -115,21 +115,28 @@ export async function buildMarketplaceContactLookups(options?: {
 
   const region = resolveContactPhoneRegion({
     deviceRegion: result.defaultRegion,
+    // Android is the only source whose region comes from the number plan; see
+    // `resolveContactPhoneRegion` for why iOS cannot supply one and why
+    // ranking a locale above the account's own number silently loses matches.
+    deviceRegionFromNumberPlan: result.sourcePlatform === "android",
     accountPhoneNumber: options?.accountPhoneNumber,
   });
 
   // Normalize once per unique number, while retaining which local contact rows
   // referenced it. The correlation table never leaves this process.
-  const candidatesByNumber = new Map<string, {
-    e164: string;
-    last4: string;
-    isMobile: boolean;
-    firstSeenIndex: number;
-  }>();
+  const candidatesByNumber = new Map<
+    string,
+    {
+      e164: string;
+      last4: string;
+      isMobile: boolean;
+      firstSeenIndex: number;
+    }
+  >();
   const contactNumbers = new Map<string, Set<string>>();
   const selfOnlyContactKeys = new Set<string>();
   const accountPhoneE164 = options?.accountPhoneNumber
-    ? normalizeContactPhone(options.accountPhoneNumber, region)?.e164 ?? null
+    ? (normalizeContactPhone(options.accountPhoneNumber, region)?.e164 ?? null)
     : null;
   const localContacts = result.contacts.map((contact, index) => ({
     contactKey: `${String(contact.id || "contact")}:${index + 1}`,
@@ -217,8 +224,8 @@ export async function buildMarketplaceContactLookups(options?: {
     return {
       ...contact,
       lookupIds: normalizedNumbers
-      .map((number) => lookupIdByNumber.get(number))
-      .filter((lookupId): lookupId is string => Boolean(lookupId)),
+        .map((number) => lookupIdByNumber.get(number))
+        .filter((lookupId): lookupId is string => Boolean(lookupId)),
       coverageComplete: normalizedNumbers.every((number) =>
         selectedNumbers.has(number),
       ),

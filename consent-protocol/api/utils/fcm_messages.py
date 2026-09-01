@@ -10,6 +10,18 @@ ONE_LOCATION_SMS_EMERGENCY_PROFILE = "one_location_sms_emergency"
 ONE_LOCATION_SMS_EMERGENCY_CATEGORY = "ONE_LOCATION_SMS_EMERGENCY"
 ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL = "one_location_sms_emergency_v1"
 ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND = "one_location_sms_alarm.wav"
+ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES: frozenset[str] = frozenset(
+    {
+        "location_share_revoked",
+        "location_share_shortened",
+        "location_share_duration_changed",
+        "location_share_expired",
+        "location_access_request_withdrawn",
+        "location_circle_code_joined",
+        "location_circle_member_invite_accepted",
+    }
+)
+ALERT_PRESENTATION_DATA_KEYS: frozenset[str] = frozenset({"title", "body", "image"})
 
 
 def _webpush_link(request_url: str) -> str | None:
@@ -43,12 +55,23 @@ def _webpush_link(request_url: str) -> str | None:
 
 def _is_one_location_sms_emergency(data: dict[str, str]) -> bool:
     profile = str(data.get("notification_profile") or "").strip().lower()
+    category = str(data.get("notification_category") or "").strip().upper()
+    share_kind = str(data.get("share_kind") or "").strip().lower()
     if profile == ONE_LOCATION_SMS_EMERGENCY_PROFILE:
         return True
-    return (
-        str(data.get("type") or "").strip().lower() == "location_share_created"
-        and str(data.get("share_kind") or "").strip().lower() == "sos"
-    )
+    if category == ONE_LOCATION_SMS_EMERGENCY_CATEGORY:
+        return True
+    return share_kind == "sos"
+
+
+def _is_one_location_feed_only_transport(
+    normalized_type: str,
+    *,
+    data: dict[str, str],
+) -> bool:
+    if normalized_type == "location_share_revoked" and _is_one_location_sms_emergency(data):
+        return False
+    return normalized_type in ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES
 
 
 def build_push_message(
@@ -66,6 +89,25 @@ def build_push_message(
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
     is_sms_emergency = _is_one_location_sms_emergency(data)
+    force_feed_only_transport = _is_one_location_feed_only_transport(
+        normalized_type,
+        data=data,
+    )
+    show_alert = bool(show_alert) and not force_feed_only_transport
+    if force_feed_only_transport:
+        data = {
+            key: value
+            for key, value in data.items()
+            if key.strip().lower() not in ALERT_PRESENTATION_DATA_KEYS
+        }
+    # Presentation is part of the transport contract, not something a client
+    # should infer from missing title/body fields. In particular, consent
+    # bookkeeping events are intentionally data-only and must never be turned
+    # into a generic browser notification by a background service worker.
+    message_data = {
+        **data,
+        "notification_presentation": "alert" if show_alert else "silent",
+    }
     notification = messaging.Notification(title=title, body=body) if show_alert else None
 
     webpush = None
@@ -87,18 +129,20 @@ def build_push_message(
         )
 
     android = None
-    if normalized_platform == "android" and show_alert and is_sms_emergency:
+    if normalized_platform == "android" and show_alert:
         android = messaging.AndroidConfig(
             priority="high",
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
-                channel_id=ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL,
+                channel_id=(
+                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL if is_sms_emergency else None
+                ),
                 tag=notification_tag,
-                ticker="Emergency SMS alert",
-                priority="max",
-                visibility="public",
-                vibrate_timings_millis=[0, 240, 120, 240, 120, 520],
+                ticker="Emergency SMS alert" if is_sms_emergency else None,
+                priority="max" if is_sms_emergency else None,
+                visibility="public" if is_sms_emergency else None,
+                vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
             ),
         )
 
@@ -125,7 +169,7 @@ def build_push_message(
                     ),
                     thread_id=notification_tag,
                 ),
-                custom_data=data,
+                **message_data,
             ),
         )
     elif normalized_platform == "ios":
@@ -139,13 +183,13 @@ def build_push_message(
                     content_available=True,
                     thread_id=notification_tag,
                 ),
-                custom_data=data,
+                **message_data,
             ),
         )
 
     return messaging.Message(
         token=token,
-        data=data,
+        data=message_data,
         notification=notification,
         webpush=webpush,
         apns=apns,

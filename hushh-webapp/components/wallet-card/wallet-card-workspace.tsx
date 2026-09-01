@@ -29,6 +29,7 @@ import {
   buildSmartDefaultDraft,
   draftFromPayload,
   draftToPayload,
+  getWalletCardPreferredField,
   hasValidationErrors,
   validateDraft,
   type WalletCardDraft,
@@ -95,9 +96,13 @@ export function WalletCardWorkspace() {
   const [visitorPreview, setVisitorPreview] = useState<VisitorPreviewState>({
     status: "idle",
   });
-  const [previewOrigin, setPreviewOrigin] = useState<"setup" | "manage">("setup");
+  const [previewOrigin, setPreviewOrigin] = useState<"setup" | "manage">(
+    "setup",
+  );
   const [saving, setSaving] = useState(false);
-  const [busyAction, setBusyAction] = useState<WalletCardManageAction | null>(null);
+  const [busyAction, setBusyAction] = useState<WalletCardManageAction | null>(
+    null,
+  );
 
   // Every stage swaps in place on one pathname, so the shell's pathname-keyed
   // reset never fires and the previous stage's scroll offset carries over.
@@ -133,7 +138,9 @@ export function WalletCardWorkspace() {
   const adoptCard = useCallback(
     (next: WalletCardRecord | null) => {
       setCard(next);
-      setShareLink(userId ? WalletCardService.readShareLink(userId, next) : null);
+      setShareLink(
+        userId ? WalletCardService.readShareLink(userId, next) : null,
+      );
     },
     [userId],
   );
@@ -142,7 +149,10 @@ export function WalletCardWorkspace() {
     if (!vaultOwnerToken || !userId) return;
     setStage("loading");
     try {
-      const state = await WalletCardService.getCard({ vaultOwnerToken, userId });
+      const state = await WalletCardService.getCard({
+        vaultOwnerToken,
+        userId,
+      });
       if (!state.enabled) {
         setStage("unavailable");
         return;
@@ -221,19 +231,31 @@ export function WalletCardWorkspace() {
     setStage("edit");
   }, [card, smartDefaults.fullName]);
 
-  const onDraftChange = useCallback((key: keyof WalletCardDraft, value: string) => {
-    setDraft((current) =>
-      key === "preferredContact"
-        ? { ...current, preferredContact: value as WalletCardPreferredContact }
-        : { ...current, [key]: value },
-    );
-    setErrors((current) => {
-      if (!(key in current)) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  }, []);
+  const onDraftChange = useCallback(
+    (key: keyof WalletCardDraft, value: string) => {
+      const activePreferredField = getWalletCardPreferredField(
+        draft.preferredContact,
+      ).key;
+      setDraft((current) =>
+        key === "preferredContact"
+          ? {
+              ...current,
+              preferredContact: value as WalletCardPreferredContact,
+            }
+          : { ...current, [key]: value },
+      );
+      setErrors((current) => {
+        if (!(key in current) && key !== activePreferredField) return current;
+        const next = { ...current };
+        delete next[key];
+        if (key === "preferredContact" || key === activePreferredField) {
+          delete next.preferredContact;
+        }
+        return next;
+      });
+    },
+    [draft.preferredContact],
+  );
 
   const submitDraft = useCallback(async () => {
     if (!vaultOwnerToken || !userId) return;
@@ -269,7 +291,9 @@ export function WalletCardWorkspace() {
       void loadVisitorPreview();
     } catch (error) {
       if (error instanceof WalletCardPayloadError) {
-        toast.error("Some of this information can't be shared. Check the fields above.");
+        toast.error(
+          "Some of this information can't be shared. Check the fields above.",
+        );
         return;
       }
       toast.error(WALLET_CARD_OWNER_COPY.saveFailed);
@@ -285,7 +309,9 @@ export function WalletCardWorkspace() {
       // The service verifies the pass builds before handing the URL to the OS,
       // so a missing signing certificate surfaces as product copy here instead
       // of a raw error page in Safari.
-      const result = await WalletCardService.addToAppleWallet(shareLink.shareToken);
+      const result = await WalletCardService.addToAppleWallet(
+        shareLink.shareToken,
+      );
       if (result.state === "opened") {
         setStage("success");
         return;
@@ -334,10 +360,14 @@ export function WalletCardWorkspace() {
     setBusyAction(confirm);
     try {
       if (confirm === "pause") {
-        adoptCard(await WalletCardService.pauseCard({ vaultOwnerToken, userId }));
+        adoptCard(
+          await WalletCardService.pauseCard({ vaultOwnerToken, userId }),
+        );
         toast.success(WALLET_CARD_OWNER_COPY.paused);
       } else if (confirm === "resume") {
-        adoptCard(await WalletCardService.resumeCard({ vaultOwnerToken, userId }));
+        adoptCard(
+          await WalletCardService.resumeCard({ vaultOwnerToken, userId }),
+        );
         toast.success(WALLET_CARD_OWNER_COPY.resumed);
       } else if (confirm === "rotate") {
         const result = await WalletCardService.rotateShareToken({
@@ -393,17 +423,37 @@ export function WalletCardWorkspace() {
           setConfirm(action);
       }
     },
-    [addToWallet, copyLinkAction, loadVisitorPreview, shareLinkAction, startEdit],
+    [
+      addToWallet,
+      copyLinkAction,
+      loadVisitorPreview,
+      shareLinkAction,
+      startEdit,
+    ],
   );
 
   const header = useMemo(() => {
     if (stage === "edit" && !card) {
       return WALLET_CARD_COPY.setupIntro;
     }
+    if (stage === "edit" && card) {
+      return {
+        title: "Edit Wallet Profile",
+        description: "Choose what people see after a scan.",
+      };
+    }
+    if (stage === "preview") {
+      return {
+        title: WALLET_CARD_OWNER_COPY.previewTitle,
+        description: WALLET_CARD_OWNER_COPY.previewDescription,
+      };
+    }
     if (stage === "success") {
       return WALLET_CARD_COPY.success;
     }
-    return card ? WALLET_CARD_COPY.entryAfterSetup : WALLET_CARD_COPY.entryBeforeSetup;
+    return card
+      ? WALLET_CARD_COPY.entryAfterSetup
+      : WALLET_CARD_COPY.entryBeforeSetup;
   }, [card, stage]);
 
   const dataState =
@@ -419,14 +469,16 @@ export function WalletCardWorkspace() {
 
   return (
     <PkmSettingsShell
-      eyebrow={WALLET_CARD_OWNER_COPY.eyebrow}
       title={header.title}
       description={header.description}
+      innerClassName="mx-auto max-w-[580px]"
     >
       <NativeTestBeacon
         routeId="/one/wallet-card"
         marker="native-route-one-wallet-card"
-        authState={authLoading ? "pending" : user ? "authenticated" : "anonymous"}
+        authState={
+          authLoading ? "pending" : user ? "authenticated" : "anonymous"
+        }
         dataState={dataState}
       />
 
@@ -640,7 +692,9 @@ export function WalletCardWorkspace() {
         open={confirm !== null}
         title={confirm ? WALLET_CARD_CONFIRMATIONS[confirm].title : ""}
         body={confirm ? WALLET_CARD_CONFIRMATIONS[confirm].body : ""}
-        confirmLabel={confirm ? WALLET_CARD_CONFIRMATIONS[confirm].confirmLabel : ""}
+        confirmLabel={
+          confirm ? WALLET_CARD_CONFIRMATIONS[confirm].confirmLabel : ""
+        }
         destructive={confirm === "remove" || confirm === "rotate"}
         busy={busyAction !== null}
         onConfirm={() => void runConfirmedAction()}

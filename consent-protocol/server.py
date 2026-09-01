@@ -85,6 +85,9 @@ REQUIRED_RUNTIME_TABLES = (
     "one_location_circle_member_invites",
     "connection_scope_proposals",
     "connection_scope_proposal_events",
+    "one_information_request_bundles",
+    "one_information_request_items",
+    "one_adk_sessions",
 )
 
 

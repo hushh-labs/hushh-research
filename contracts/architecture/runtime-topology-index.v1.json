@@ -665,12 +665,13 @@
       "data_class": "personal_encrypted",
       "exact_tables": [
         "agent_chat_conversations",
-        "agent_chat_messages"
+        "agent_chat_messages",
+        "one_adk_sessions"
       ],
       "id": "agent_chat_encrypted_memory",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly"
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
     },
     {
       "data_class": "reference",
@@ -1025,6 +1026,7 @@
         "one_location_envelopes",
         "one_location_events",
         "one_location_map_preferences",
+        "one_location_nearby_check_in_preferences",
         "one_location_nearby_presences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
@@ -1032,7 +1034,8 @@
         "one_location_recipient_keys",
         "one_location_referrals",
         "one_location_sms_contacts",
-        "one_location_share_grants"
+        "one_location_share_grants",
+        "one_location_sos_voice_preferences"
       ],
       "id": "one_location_agent",
       "lifecycle_status": "current",
@@ -1050,6 +1053,38 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "one_location_nearby_visits"
+      ],
+      "id": "one_location_place_rating_visits",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Short-lived ledger of completed nearby check-in visits, so the place a person just left can be rated and so the check-in travel-continuity guard survives a checkout that clears the presence anchor. The venue is readable only as an AES-256-GCM envelope bound by AAD to its owner, alongside a server-keyed equality token that allows same-venue and distinct-place checks without decryption."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_location_place_ratings",
+        "one_location_place_rating_aggregates"
+      ],
+      "id": "one_location_place_ratings",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_information_request_bundles",
+        "one_information_request_items"
+      ],
+      "id": "one_person_information_requests",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated person-profile and Agent One workflows that prepare, create, inspect, cancel, expire, revoke, and export viewer-to-owner consent requests using opaque consumer scope references."
     },
     {
       "data_class": "workflow_state",
@@ -1246,7 +1281,7 @@
       "id": "trusted_device_registry",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService."
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, advisory remote-revoke seal telemetry, and advisory liveness heartbeats through TrustedDeviceService."
     },
     {
       "data_class": "workflow_state",
@@ -1254,7 +1289,8 @@
         "connection_requests",
         "connections",
         "connection_origins",
-        "contact_sync_lookup_budgets"
+        "contact_sync_lookup_budgets",
+        "connection_voice_preferences"
       ],
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
@@ -2250,8 +2286,10 @@
           "consent.chat.turn",
           "location.chat.turn",
           "route.one_agents",
+          "route.one_feed",
           "route.one_location",
-          "route.one_pkm"
+          "route.one_pkm",
+          "route.voice_settings"
         ],
         "delegate_agent_ids": [
           "agent_location",
@@ -2316,9 +2354,11 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "connect.accept_request",
           "connect.cancel_request",
           "connect.open_nearby",
           "connect.open_people",
+          "connect.reject_request",
           "connect.remove_connection",
           "connect.search_people",
           "connect.send_request",
@@ -2500,9 +2540,12 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "refresh_trigger": "foreground push/action signal, visible focus/resume, and 45-second visible polling; explicit retry forces",
         "resource_classes": [
-          "unknown"
+          "notification_activity",
+          "consent_list",
+          "location_state",
+          "connection_requests"
         ]
       },
       "implementation_override": null,
@@ -3170,6 +3213,8 @@
           "location.approve_request",
           "location.change_share_duration",
           "location.chat.turn",
+          "location.checkout_nearby",
+          "location.confirm_nearby_check_in",
           "location.create_circle",
           "location.decline_circle_invite",
           "location.decline_request",
@@ -3177,6 +3222,7 @@
           "location.delete_saved_location",
           "location.find_contacts",
           "location.leave_circle",
+          "location.nearby_check_in",
           "location.open_active_shares",
           "location.open_ask",
           "location.open_check_in",
@@ -3207,6 +3253,7 @@
           "location.send_request",
           "location.set_auto_share",
           "location.share_selected",
+          "location.sos_default",
           "location.stop_share",
           "location.stop_sos",
           "location.trigger_sos",
@@ -3236,9 +3283,35 @@
       "route_mode": "hidden",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "location.confirm_nearby_check_in",
+          "location.nearby_check_in"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.location.check-in"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/location/check-in/hotel/page.tsx",
+      "pathname": "/one/location/check-in/hotel",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.check-in.hotel"
       }
     },
     {
@@ -3308,6 +3381,8 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "location.confirm_nearby_check_in",
+          "location.nearby_check_in",
           "location.open_check_in",
           "location.open_map"
         ],
@@ -3834,7 +3909,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.voice_settings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.preferences"
       }
@@ -3857,7 +3934,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.voice_settings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.preferences.device"
       }
@@ -3880,7 +3959,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.voice_settings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.preferences.gemini"
       }
@@ -3903,7 +3984,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.voice_settings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.preferences.kai"
       }
@@ -3926,7 +4009,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.voice_settings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.preferences.voice"
       }
@@ -3949,7 +4034,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.voice_settings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.preferences.voice.changelog"
       }
@@ -3972,7 +4059,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.voice_settings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.preferences.voice.examples"
       }
@@ -4243,6 +4332,29 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.support.routing"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/puppy/page.tsx",
+      "pathname": "/one/puppy",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.puppy"
       }
     },
     {
@@ -4623,6 +4735,53 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.wallet.card"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/{public/people/*,one/people/*,one/information-requests/*}",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch; native static export emits one non-production route fixture while runtime identity remains the opaque personRef.",
+          "nextjs_api_route": "/api/{public/people/{personRef},one/{path*}}",
+          "nextjs_proxy_file": "app/api/public/people/[personRef]/route.ts; app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/person-profile-service.ts",
+          "service_methods": [
+            "getPublic",
+            "getViewer",
+            "createInformationRequest",
+            "getInformationRequestExports",
+            "cancelInformationRequest",
+            "connect",
+            "cancelConnectionRequest",
+            "removeConnection"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-person-profile",
+      "page_file": "app/people/[personRef]/page.tsx",
+      "pathname": "/people/[personRef]",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "people.profile.cancel_connection_request",
+          "people.profile.connect",
+          "people.profile.manage_consent",
+          "people.profile.remove_connection",
+          "people.profile.review_information_request"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.people.person_profile"
       }
     },
     {
@@ -5224,28 +5383,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "91aed3ed1868d4120c6ba74ce5aecd155e7cc15953c9f574dba8de729280987e",
-    "agent_registry": "986f51c99eb5adee75ae5ed00b630a64f9e3b7c8d419b1d0b29802bf31e133d6",
-    "cache_manifest": "5c0cef6f3707fcdec16c21c1c174da03860ecd4dfb6380f8f70a25a67e143583",
-    "data_plane": "4d591e262b3447047b83b1b367b418777a5225b147a11acf77ff5edcfbf09971",
+    "action_gateway": "b40c9f1be47d0b8baccc83179f57d49e876f5e7d753ef485c8ea1fcbf2f7e5b6",
+    "agent_registry": "3a6c3d56685154e8c754d904ca91a40774cc6558a70b39561579fb998dd33f92",
+    "cache_manifest": "9bd65a366452ddb90db13763086f9a340d335c8dcc280ce2a3d6ba5ad1412e6e",
+    "data_plane": "c533c60dc6f40e8962956e992722b06ed2f7a14db9189836087775d684d3b024",
     "in_process_dispatch": "a921011a2127245cae09bc9375cec4d22d0e3b00d31a4f1146daedbc1d379c8a",
-    "one_specialist_tools": "91046655f19b6c84fa76f27faa3309b7f28887aec26cae65e2b3fa6843f389e4",
-    "route_index": "b0811b166be626f82a033e9a3a6698b1c779ffc47eded5bfc5ac7f11b5928788",
-    "route_layout": "001652122672225f27e20bb346294a3768f3abc733be2727e941df3164be05b5",
-    "surface_map": "3b21f64868fabe9b118cc405769492c60ab9042a426a22cb92f8cd179e7cb533",
+    "one_specialist_tools": "376cf3193426e923607c74d060cdfe4678e6661dc22042b25f34a36c89e5bbfa",
+    "route_index": "ebb492dc734caeb9f7648a4b7454c68d5ea6e7b29d79406de12eee04a76adcbf",
+    "route_layout": "78f72abbbdef036bb0410292c5eb2cebfd97f233b663736395dc8614d9ae2d05",
+    "surface_map": "68828893fb6433ffe385c14b9d6cb878a3ced8453420e998488ce6812b690950",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 187,
+    "actions": 200,
     "agents": 19,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 6,
     "one_specialist_tools": 5,
-    "physical_routes": 135,
+    "physical_routes": 138,
     "semantic_routes": 14,
-    "table_families": 58
+    "table_families": 61
   }
 }

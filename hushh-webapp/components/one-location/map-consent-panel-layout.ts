@@ -57,6 +57,22 @@ export const MAP_CONSENT_PANEL_CLASSNAME =
 export const MAP_CONSENT_PANEL_BOTTOM_PADDING =
   "calc(1.25rem + env(safe-area-inset-bottom))";
 
+/**
+ * Heading row geometry for the icon and title.
+ *
+ * Kept in the shared layout contract so the browser fixture compiles the exact
+ * row utilities the product surface renders. Otherwise the fixture can render
+ * the right HTML but miss the flex utility in its generated CSS.
+ */
+export const MAP_CONSENT_HEADING_ROW_CLASSNAME = "flex items-center gap-2";
+
+/** The icon sizing used beside the heading. */
+export const MAP_CONSENT_HEADING_ICON_CLASSNAME =
+  "h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]";
+
+/** The title styling used in the consent panel heading. */
+export const MAP_CONSENT_HEADING_TITLE_CLASSNAME = "text-xl font-semibold";
+
 /** Tailwind's `md:` breakpoint -- where the sheet becomes a centred dialog. */
 export const MAP_CONSENT_PANEL_DIALOG_MIN_WIDTH_PX = 768;
 

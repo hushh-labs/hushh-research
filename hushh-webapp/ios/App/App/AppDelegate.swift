@@ -6,6 +6,9 @@ import FirebaseMessaging
 import GoogleSignIn
 import UserNotifications
 import AVFoundation
+#if canImport(AppIntents)
+import AppIntents
+#endif
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -15,13 +18,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private static let consentDenyAction = "CONSENT_DENY"
     private static let emergencySmsNotificationCategory = "ONE_LOCATION_SMS_EMERGENCY"
     private static let emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"
-    private static let emergencySmsProfile = "one_location_sms_emergency"
     private static let emergencySmsSound = "one_location_sms_alarm.wav"
 
     var window: UIWindow?
     private let nativeTestConfig = NativeTestConfiguration()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+#if canImport(AppIntents)
+        if #available(iOS 16.0, *) {
+            HusshOneAppShortcuts.updateAppShortcutParameters()
+        }
+#endif
         // Ensure Firebase is initialized once for native plugins and auth flows.
         // `FirebaseApp.app()` logs an error when no default app exists, even
         // when that is the normal first-launch state. Inspect the registry so
@@ -39,9 +46,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
 
-        // Configure the delegate so notification presentation and tap handling work
-        // after the app explicitly requests permission from the notification init flow.
-        UNUserNotificationCenter.current().delegate = self
         prepareEmergencySmsSound()
         registerNotificationCategories()
         Messaging.messaging().delegate = self
@@ -103,6 +107,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
         logNotificationSettings(context: "applicationDidBecomeActive")
+        OneVoiceInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
+        OneSystemActionInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
@@ -127,46 +133,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
-}
-
-// MARK: - UNUserNotificationCenterDelegate
-extension AppDelegate: UNUserNotificationCenterDelegate {
-    // Handle foreground notifications (app is open)
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                willPresent notification: UNNotification,
-                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        print(
-            "📬 [AppDelegate] Foreground notification received while appState=\(UIApplication.shared.applicationState.debugLabel)"
-        )
-        let profile = String(
-            describing: notification.request.content.userInfo["notification_profile"] ?? ""
-        ).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if profile == Self.emergencySmsProfile {
-            // The shared Capacitor UI renders the assertive red emergency card and
-            // plays its three-pulse alarm. Suppress the duplicate iOS foreground
-            // banner/sound while retaining the badge; background delivery still
-            // uses the APNs category and generated custom sound.
-            completionHandler([.badge])
-            return
-        }
-        // Present as a real system notification even while the app is active.
-        completionHandler([.banner, .list, .sound, .badge])
-    }
-    
-    // Handle notification taps
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                didReceive response: UNNotificationResponse,
-                                withCompletionHandler completionHandler: @escaping () -> Void) {
-        print("👆 [AppDelegate] Notification action performed: \(response.actionIdentifier)")
-
-        print("📦 [AppDelegate] Notification response received")
-        logNotificationSettings(context: "didReceiveNotificationResponse")
-        
-        // The Capacitor FCM plugin will handle the navigation
-        // via the notificationActionPerformed listener
-        
-        completionHandler()
-    }
 }
 
 // MARK: - MessagingDelegate

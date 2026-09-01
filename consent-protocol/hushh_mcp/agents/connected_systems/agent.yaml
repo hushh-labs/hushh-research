@@ -18,6 +18,11 @@ surfaces:
   web: true
   not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
 telemetry_namespace: agent.connected_systems
+availability:
+  environments:
+    - development
+  loopback_only: true
+  enable_flag: HUSHH_LOCAL_CRM_ENABLED
 subagents:
   - id: crm_schema_mapper
     name: CRM Schema Mapper
@@ -71,3 +76,8 @@ subagents:
       kill_switch: CONNECTED_SYSTEMS_SCHEMA_MAPPER_ENABLED
       strategy: canary
       rollback: Disable the schema mapper; keep the CRM in catalogue-only mode until its mapping is available.
+    availability:
+      environments:
+        - development
+      loopback_only: true
+      enable_flag: HUSHH_LOCAL_CRM_ENABLED

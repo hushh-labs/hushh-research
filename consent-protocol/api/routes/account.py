@@ -436,6 +436,57 @@ async def trusted_device_seal_ack(
     return result
 
 
+class TrustedDeviceHeartbeatRequest(BaseModel):
+    """Runtime telemetry a live device reports. Every field is optional and
+    advisory; unknown fields are dropped by the service allow-list."""
+
+    machine_id: str | None = Field(default=None, max_length=120)
+    current_model: str | None = Field(default=None, max_length=120)
+    agent_version: str | None = Field(default=None, max_length=120)
+    busy: bool | None = None
+    active_sessions: int | None = Field(default=None, ge=0, le=10_000)
+    next_cron_at: int | None = Field(default=None, ge=0)
+
+
+@router.post("/trusted-devices/{device_id}/heartbeat")
+async def trusted_device_heartbeat(
+    device_id: str,
+    payload: TrustedDeviceHeartbeatRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Liveness heartbeat from a running trusted device.
+
+    Answers "is this agent reachable right now?", which last_synced_at cannot:
+    that column only advances when the device pulls the sync channel, so a
+    running-but-idle agent reads as stale.
+
+    Firebase-authed, matching the own-device status read: the device keeps a
+    user-level session, and a heartbeat grants nothing, so it needs no device
+    signature. Purely advisory telemetry -- the server stamps its own timestamp,
+    updates only an active row so a revoked device can never appear live, and
+    enforcement never consults it. Trust stays decided by status and
+    is_trusted_device_active.
+    """
+    snapshot = payload.model_dump(exclude_none=True) if payload is not None else {}
+    try:
+        await run_in_threadpool(
+            TrustedDeviceService().record_heartbeat,
+            user_id=firebase_uid,
+            device_id=device_id,
+            snapshot=snapshot,
+        )
+    except Exception:
+        logger.exception("trusted_device.heartbeat_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_STATUS_UNAVAILABLE",
+                "message": "Trusted-device status is temporarily unavailable.",
+            },
+        ) from None
+    return {"recorded": True, "server_time_ms": int(time.time() * 1000)}
+
+
 @router.post("/trusted-devices/{device_id}/challenge")
 async def create_trusted_device_challenge(
     device_id: str,

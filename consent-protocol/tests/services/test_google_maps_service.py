@@ -235,7 +235,7 @@ async def test_nearby_places_all_sweeps_every_category_bucket(monkeypatch):
     place_ids = [place["placeId"] for place in result]
 
     assert None in seen_included_types
-    assert len(seen_included_types) == len(gms._NEARBY_PLACE_CATEGORY_TYPES) + 1
+    assert len(seen_included_types) == len(gms._NEARBY_SWEEP_TYPES) + 1
     # Both hotels survive the cafe flood, and the one with no primaryType does
     # not get silently dropped.
     assert "hotel-1" in place_ids
@@ -249,7 +249,7 @@ async def test_nearby_places_all_sweeps_every_category_bucket(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_nearby_places_files_a_generic_venue_under_the_chip_that_found_it(
+async def test_nearby_places_files_a_venue_it_cannot_describe_under_more(
     monkeypatch,
 ):
     """An `establishment`-only venue must still be reachable from its chip.
@@ -284,7 +284,14 @@ async def test_nearby_places_files_a_generic_venue_under_the_chip_that_found_it(
     result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
 
     assert [place["placeId"] for place in result] == ["generic-hotel"]
-    assert result[0]["categories"] == ["hotels_stays"]
+    # Under "More", not under "Hotels".
+    #
+    # It used to be filed under whichever sweep returned it, so that a venue
+    # Google describes only as `establishment` would not vanish behind the
+    # Hotels chip. The same rule put a lounge there, because the hotels sweep is
+    # what happened to find it -- which is the reported defect. The place is
+    # still reachable, from the chip that means "we could not tell".
+    assert result[0]["categories"] == ["other"]
 
 
 @pytest.mark.asyncio
@@ -362,7 +369,9 @@ async def test_nearby_places_still_rejects_address_records_without_primary_type(
     result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
 
     assert [place["placeId"] for place in result] == ["named-venue"]
-    assert result[0]["categories"] == []
+    # Never `[]`. An empty list is a row the client's filter drops from every
+    # chip, so the venue was visible under "All" and unfindable afterwards.
+    assert result[0]["categories"] == ["other"]
 
 
 @pytest.mark.asyncio
@@ -1069,3 +1078,131 @@ async def test_search_directory_category_also_writes_through_to_redis(monkeypatc
     )
     assert cache_key in fake.store
     assert fake.set_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_does_not_file_a_lounge_under_hotels(monkeypatch):
+    """The reported row, end to end through the merge.
+
+    "Mishra Lounge" arrived on the Hotels sweep carrying Google's own `lodging`
+    type, and the drawer filed it under Hotels twice over -- once because
+    `lodging` was a hotels type outright, and once because the hotels request is
+    what returned it. A precise type wins now, and the request does not vote at
+    all.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        included = body.get("includedTypes")
+        if included and "hotel" in included:
+            return httpx.Response(
+                200,
+                json={
+                    "places": [
+                        _hotel(
+                            "mishra-lounge",
+                            name="Mishra Lounge",
+                            lat=37.4276,
+                            primaryType="lounge_bar",
+                            types=["lounge_bar", "lodging", "establishment"],
+                            primaryTypeDisplayName={"text": "Lounge bar"},
+                        )
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
+
+    assert [place["placeId"] for place in result] == ["mishra-lounge"]
+    assert result[0]["categories"] == ["food_drink"]
+    assert "hotels_stays" not in result[0]["categories"]
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_reaches_a_temple_and_files_it_under_worship(monkeypatch):
+    """Neither half of this worked before.
+
+    A temple was in no sweep bucket, so it was only ever returned by the
+    unfiltered pass, and it matched no chip, so it disappeared behind the first
+    tap. In Prayagraj that is a larger hole than the one that was reported.
+    """
+
+    seen_included_types: list[list[str] | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        included = body.get("includedTypes")
+        seen_included_types.append(included)
+        if included and "hindu_temple" in included:
+            return httpx.Response(
+                200,
+                json={
+                    "places": [
+                        _hotel(
+                            "temple",
+                            name="Hanuman Mandir",
+                            lat=37.4276,
+                            primaryType="hindu_temple",
+                            types=["hindu_temple", "place_of_worship", "establishment"],
+                            primaryTypeDisplayName={"text": "Hindu temple"},
+                        )
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
+
+    assert any(included and "hindu_temple" in included for included in seen_included_types), (
+        "no sweep bucket asks Google for a temple"
+    )
+    assert [place["placeId"] for place in result] == ["temple"]
+    assert result[0]["categories"] == ["worship"]
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_never_shows_the_word_lodging(monkeypatch):
+    """Two of the five reported rows were correct and only worded badly.
+
+    A "Residency" or a "lodge" IS a place you pay to sleep in, and Google often
+    knows no more precise type for one. What made the list look wrong was its
+    subtitle: "Lodging" is a classification, in a vocabulary nobody outside the
+    Places API speaks.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        included = body.get("includedTypes")
+        if included and "hotel" in included:
+            return httpx.Response(
+                200,
+                json={
+                    "places": [
+                        _hotel(
+                            "anil-residency",
+                            name="Anil Residency",
+                            lat=37.4276,
+                            primaryType="lodging",
+                            types=["lodging", "establishment"],
+                            primaryTypeDisplayName={"text": "Lodging"},
+                        )
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
+
+    # Still a place to stay -- the chip was never the problem here.
+    assert result[0]["categories"] == ["hotels_stays"]
+    assert result[0]["category"] == "Place to stay"

@@ -79,7 +79,7 @@ describe("OneLocationService", () => {
     });
 
     await expect(OneLocationService.listRecipients("vault-token")).resolves.toEqual([
-      { userId: "user_b", displayName: "Person B" },
+      { userId: "user_b", displayName: "Person B", isRia: false },
     ]);
     expect(mockApiJson).toHaveBeenCalledWith("/api/one/location/recipients", {
       headers: { Authorization: "Bearer vault-token" },
@@ -88,7 +88,14 @@ describe("OneLocationService", () => {
 
   it("reads recipient pages without changing the legacy complete-list contract", async () => {
     mockApiJson.mockResolvedValueOnce({
-      items: [{ userId: "user_51", displayName: "Same", connectedFromContacts: true }],
+      items: [
+        {
+          userId: "user_51",
+          displayName: "Same",
+          connectedFromContacts: true,
+          isRia: true,
+        },
+      ],
       page: 2,
       hasMore: true,
       totalCount: 5000,
@@ -106,13 +113,41 @@ describe("OneLocationService", () => {
       { headers: { Authorization: "Bearer vault-token" } },
     );
     expect(page).toMatchObject({ page: 2, hasMore: true, totalCount: 5000 });
-    expect(page.items[0]).toMatchObject({ connectedFromContacts: true });
+    expect(page.items[0]).toMatchObject({
+      connectedFromContacts: true,
+      isRia: true,
+    });
+  });
+
+  it("normalizes RIA status on Circle detail member rows", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      circle: {
+        id: "circle-1",
+        name: "Family",
+        members: [
+          { userId: "member-1", displayName: "Ada Advisor", isRia: true },
+          { userId: "member-2", displayName: "Pat Person" },
+        ],
+      },
+    });
+
+    const circle = await OneLocationService.getCircle({
+      vaultOwnerToken: "vault-token",
+      circleId: "circle-1",
+    });
+
+    expect(circle.members.map((member) => member.isRia)).toEqual([true, false]);
   });
 
   it("uses overview, member pages, eligible pages, and summary-only Trusted reads", async () => {
     mockApiJson
       .mockResolvedValueOnce({ circle: { id: "circle-1", name: "Family" } })
-      .mockResolvedValueOnce({ items: [], page: 2, hasMore: true, totalCount: 5000 })
+      .mockResolvedValueOnce({
+        items: [{ userId: "member-1", displayName: "Member One", isRia: true }],
+        page: 2,
+        hasMore: true,
+        totalCount: 5000,
+      })
       .mockResolvedValueOnce({
         eligibleConnections: [],
         pendingInvites: [],
@@ -127,7 +162,7 @@ describe("OneLocationService", () => {
       vaultOwnerToken: "vault-token",
       circleId: "circle-1",
     });
-    await OneLocationService.listCircleMembersPage({
+    const membersPage = await OneLocationService.listCircleMembersPage({
       vaultOwnerToken: "vault-token",
       circleId: "circle-1",
       page: 2,
@@ -152,6 +187,7 @@ describe("OneLocationService", () => {
       "/api/one/location/circles/circle-1/eligible-connections?page=2&limit=50&query=same",
       "/api/one/location/circles/trusted?summaryOnly=true",
     ]);
+    expect(membersPage.items[0]).toMatchObject({ isRia: true });
   });
 
   it("stores encrypted envelopes without plaintext coordinates", async () => {
@@ -256,6 +292,36 @@ describe("OneLocationService", () => {
     expect(mockApiJson.mock.calls[0]?.[0]).not.toContain("/location/shared");
   });
 
+  it("carries stable operation ids on repeatable duration mutations", async () => {
+    mockApiJson
+      .mockResolvedValueOnce({ grant: { id: "grant_1" } })
+      .mockResolvedValueOnce({ grant: { id: "grant_1" } });
+
+    await OneLocationService.shortenGrant({
+      vaultOwnerToken: "vault-token",
+      grantId: "grant_1",
+      durationHours: 1,
+      clientOperationId: "shorten-operation-0001",
+    });
+    await OneLocationService.setGrantDuration({
+      vaultOwnerToken: "vault-token",
+      grantId: "grant_1",
+      durationHours: 2,
+      durationMode: "timed",
+      clientOperationId: "duration-operation-0001",
+    });
+
+    expect(JSON.parse(String(mockApiJson.mock.calls[0]?.[1]?.body))).toEqual({
+      durationHours: 1,
+      clientOperationId: "shorten-operation-0001",
+    });
+    expect(JSON.parse(String(mockApiJson.mock.calls[1]?.[1]?.body))).toEqual({
+      durationHours: 2,
+      durationMode: "timed",
+      clientOperationId: "duration-operation-0001",
+    });
+  });
+
   it("keeps the grant id escaped ahead of the allow_empty query", async () => {
     // The grant id is path data and the flag is query data; a grant id that
     // contains a delimiter must not be able to smuggle in extra parameters.
@@ -327,6 +393,52 @@ describe("OneLocationService", () => {
         }),
       },
     );
+  });
+
+  it("reads Nearby Check-In preferences from the dedicated endpoint", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      preferences: {
+        visible: true,
+        allowConnectionRequests: false,
+        updatedAt: null,
+      },
+    });
+
+    const preferences = await OneLocationService.getNearbyCheckInPreferences(
+      "vault-token",
+    );
+
+    expect(mockApiJson.mock.calls[0]?.[0]).toBe(
+      "/api/one/location/nearby-check-in-preferences",
+    );
+    expect(preferences).toEqual({
+      visible: true,
+      allowConnectionRequests: false,
+      updatedAt: null,
+    });
+  });
+
+  it("writes Nearby Check-In preferences to the dedicated endpoint", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      preferences: {
+        visible: false,
+        allowConnectionRequests: true,
+        updatedAt: "2026-08-26T09:00:00.000Z",
+      },
+    });
+
+    await OneLocationService.updateNearbyCheckInPreferences({
+      vaultOwnerToken: "vault-token",
+      visible: false,
+      allowConnectionRequests: true,
+    });
+
+    const body = JSON.parse(String(mockApiJson.mock.calls[0]?.[1]?.body));
+    expect(mockApiJson.mock.calls[0]?.[0]).toBe(
+      "/api/one/location/nearby-check-in-preferences",
+    );
+    expect(mockApiJson.mock.calls[0]?.[1]?.method).toBe("PATCH");
+    expect(body).toEqual({ visible: false, allowConnectionRequests: true });
   });
 
   it("updates the server-owned all-contacts rule", async () => {

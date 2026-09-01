@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { MapPin, Siren } from "lucide-react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { MapPin } from "lucide-react";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
@@ -19,36 +19,40 @@ function actionable(overrides: Partial<FeedActionable> = {}): FeedActionable {
 }
 
 describe("FeedActionableRow", () => {
-  it("wraps an emergency SMS alert in a prominent red alert frame", () => {
+  it("renders emergency SMS with the sender avatar instead of a separate alert icon", () => {
     render(
       <FeedActionableRow
         item={actionable({
-          icon: Siren,
-          iconTone: "red",
           emphasis: "emergency",
-          title: "Mom triggered an SOS",
+          title: "Mom sent an SMS",
           description: "Emergency SMS — sharing live location with you now.",
+          person: {
+            displayName: "Mom",
+            photoUrl: "https://cdn.example.test/mom.jpg",
+          },
           href: "/one/location?grantId=g1&open=1&section=shared",
           chevron: true,
         })}
       />,
     );
 
-    const frame = screen.getByTestId("feed-sms-emergency");
-    expect(frame).toHaveAttribute("role", "alert");
-    expect(frame).toHaveClass("border-destructive/45");
-    expect(screen.getByText("Mom triggered an SOS")).toBeInTheDocument();
+    const avatar = screen.getByTestId("feed-actionable-avatar");
+    expect(avatar).toHaveAttribute(
+      "data-photo-url",
+      "https://cdn.example.test/mom.jpg",
+    );
+    expect(screen.queryByTestId("feed-sms-emergency")).toBeNull();
+    expect(screen.getByText("Mom sent an SMS")).toBeInTheDocument();
   });
 
   it("shows a small green live dot before the description on a live SOS card only", () => {
     const { container: liveContainer } = render(
       <FeedActionableRow
         item={actionable({
-          icon: Siren,
-          iconTone: "red",
           emphasis: "emergency",
-          title: "Mom triggered an SOS",
+          title: "Mom sent an SMS",
           description: "Emergency SMS - Sent.",
+          person: { displayName: "Mom", photoUrl: null },
         })}
       />,
     );
@@ -57,10 +61,9 @@ describe("FeedActionableRow", () => {
     const { container: revokedContainer } = render(
       <FeedActionableRow
         item={actionable({
-          icon: Siren,
-          iconTone: "red",
-          title: "Mom triggered an SOS",
+          title: "Mom sent an SMS",
           description: "Emergency SMS - Revoked",
+          person: { displayName: "Mom", photoUrl: null },
         })}
       />,
     );
@@ -74,14 +77,132 @@ describe("FeedActionableRow", () => {
     expect(screen.getByText("Routine row")).toBeInTheDocument();
   });
 
-  it("renders a revoked SOS card as a plain row (no frame) but keeps the Siren/red icon signal", () => {
+  it("keeps trailing actions outside a whole-row button or link", () => {
+    const action = {
+      key: "review",
+      label: "Review",
+      tone: "primary" as const,
+      run: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <FeedActionableRow
+        item={actionable({
+          href: "/one/consents",
+          actions: [action],
+        })}
+      />,
+    );
+
+    expect(container.querySelector("a button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Review" })).toBeInTheDocument();
+
+    rerender(
+      <FeedActionableRow
+        item={actionable({
+          href: null,
+          onSelect: vi.fn(),
+          actions: [{ ...action, key: "cancel", label: "Cancel" }],
+        })}
+      />,
+    );
+
+    expect(container.querySelector("button button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("keeps the destructive action in the accessible confirmation name", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          actions: [
+            {
+              key: "decline",
+              label: "Decline",
+              tone: "danger",
+              confirm: true,
+              run: vi.fn(),
+            },
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Decline (tap again to confirm)",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Confirm Decline" }),
+    ).toHaveTextContent("Sure?");
+  });
+
+  it("locks sibling actions synchronously while one action is in flight", async () => {
+    let resolveApprove: (() => void) | undefined;
+    const approve = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveApprove = resolve;
+        }),
+    );
+    const deny = vi.fn().mockResolvedValue(undefined);
+    render(
+      <FeedActionableRow
+        item={actionable({
+          actions: [
+            {
+              key: "approve",
+              label: "Approve",
+              tone: "primary",
+              run: approve,
+            },
+            {
+              key: "deny",
+              label: "Deny",
+              tone: "danger",
+              confirm: true,
+              run: deny,
+            },
+          ],
+        })}
+      />,
+    );
+    const approveButton = screen.getByRole("button", { name: "Approve" });
+    const denyButton = screen.getByRole("button", {
+      name: "Deny (tap again to confirm)",
+    });
+
+    fireEvent.click(denyButton);
+    expect(denyButton).toHaveTextContent("Sure?");
+
+    act(() => {
+      approveButton.click();
+      denyButton.click();
+    });
+
+    expect(approve).toHaveBeenCalledOnce();
+    expect(deny).not.toHaveBeenCalled();
+    expect(approveButton).toBeDisabled();
+    expect(denyButton).toBeDisabled();
+    expect(denyButton).toHaveTextContent("Deny");
+
+    await act(async () => {
+      resolveApprove?.();
+      await Promise.resolve();
+    });
+
+    expect(approveButton).not.toBeDisabled();
+    expect(denyButton).not.toBeDisabled();
+  });
+
+  it("renders a revoked SOS card as a plain row with sender initials", () => {
     const { container } = render(
       <FeedActionableRow
         item={actionable({
-          icon: Siren,
-          iconTone: "red",
-          title: "Mom triggered an SOS",
+          title: "Mom sent an SMS",
           description: "Emergency SMS - Revoked",
+          person: { displayName: "Mom", photoUrl: null },
           href: "/one/location?grantId=g1&open=1&section=shared",
           chevron: true,
           // No `emphasis` — this is the confirmed "downgrade to plain row" behavior.
@@ -90,10 +211,9 @@ describe("FeedActionableRow", () => {
     );
 
     expect(screen.queryByTestId("feed-sms-emergency")).toBeNull();
-    expect(screen.getByText("Mom triggered an SOS")).toBeInTheDocument();
-    expect(
-      container.querySelector('[data-icon-tone="red"]'),
-    ).not.toBeNull();
+    expect(screen.getByText("Mom sent an SMS")).toBeInTheDocument();
+    expect(screen.getByTestId("feed-actionable-avatar")).toHaveTextContent("M");
+    expect(container.querySelector('[data-icon-tone="red"]')).toBeNull();
   });
 
   describe("time label", () => {
@@ -106,7 +226,7 @@ describe("FeedActionableRow", () => {
       vi.useRealTimers();
     });
 
-    it("shows the formatted day/time label when displayTimestamp is set", () => {
+    it("shows the formatted local time label when displayTimestamp is set", () => {
       render(
         <FeedActionableRow
           item={actionable({
@@ -116,7 +236,7 @@ describe("FeedActionableRow", () => {
         />,
       );
 
-      expect(screen.getByText(/^Today - 03:45\s?PM$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^03:45\s?PM$/i)).toBeInTheDocument();
     });
 
     it("shows no time label when displayTimestamp is null", () => {
@@ -130,7 +250,9 @@ describe("FeedActionableRow", () => {
     });
 
     it("shows no time label when displayTimestamp is absent", () => {
-      render(<FeedActionableRow item={actionable({ title: "No time field" })} />);
+      render(
+        <FeedActionableRow item={actionable({ title: "No time field" })} />,
+      );
 
       expect(screen.queryByText(/Today -|Yesterday -/i)).toBeNull();
     });
@@ -146,7 +268,7 @@ describe("FeedActionableRow", () => {
         />,
       );
 
-      expect(screen.getByText(/^Today - 03:45\s?PM$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^03:45\s?PM$/i)).toBeInTheDocument();
       expect(screen.getByText("Row description")).toBeInTheDocument();
     });
   });

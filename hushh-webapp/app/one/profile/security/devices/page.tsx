@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Laptop, Loader2, Trash2 } from "lucide-react";
 
 import {
@@ -9,6 +9,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,13 +22,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { formatRelativeTime } from "@/lib/format/relative-time";
+import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
-import {
-  deriveSyncDisplay,
-  type SyncTone,
-} from "@/lib/trusted-device/sync-display";
+import { CACHE_KEYS } from "@/lib/services/cache-service";
+import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
 
 interface TrustedDevice {
   device_id: string;
@@ -41,43 +40,42 @@ interface TrustedDevice {
   revoked_at?: number | null;
   last_synced_at?: number | null;
   sealed_at?: number | null;
+  // Added by migration 189; a fresh value is the only evidence the agent is
+  // actually running, which last_synced_at can never establish.
+  last_heartbeat_at?: number | null;
+  heartbeat?: { current_model?: string; busy?: boolean } | null;
 }
-
-const _SYNC_TONE_CLASS: Record<SyncTone, string> = {
-  active: "text-foreground",
-  neutral: "text-foreground",
-  muted: "text-muted-foreground",
-};
 
 export default function TrustedDevicesPage() {
   const { user } = useAuth();
-  const [devices, setDevices] = useState<TrustedDevice[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pendingRevocation, setPendingRevocation] =
     useState<TrustedDevice | null>(null);
   const [revoking, setRevoking] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
+  // Cache-first: a warm cache paints the list immediately and the refresh runs
+  // in the background, so revisiting this screen never shows a blocking spinner
+  // over data we already hold. Revoking force-refreshes through the same
+  // resource so the cache can never serve a device the server just revoked.
+  const devicesResource = useStaleResource<TrustedDevice[]>({
+    cacheKey: CACHE_KEYS.TRUSTED_DEVICES(user?.uid || "anonymous"),
+    enabled: Boolean(user),
+    resourceLabel: "trusted-devices",
+    load: async () => {
       const response = await ApiService.listTrustedDevices();
       const payload = await response.json();
-      if (!response.ok)
+      if (!response.ok) {
         throw new Error(payload?.detail?.message || "Devices unavailable.");
-      setDevices(Array.isArray(payload.devices) ? payload.devices : []);
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Devices unavailable.");
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
+      }
+      return Array.isArray(payload.devices) ? payload.devices : [];
+    },
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const devices = devicesResource.data ?? [];
+  // Only a cold load with nothing cached may block; a background refresh must
+  // never hide list content that is already on screen.
+  const loading = devicesResource.loading && devicesResource.data === null;
+  const visibleError = error || devicesResource.error || "";
 
   async function revoke(deviceId: string) {
     if (!user) return;
@@ -92,7 +90,8 @@ export default function TrustedDevicesPage() {
         return;
       }
       setPendingRevocation(null);
-      await load();
+      setError("");
+      await devicesResource.refresh({ force: true });
     } finally {
       setRevoking(false);
     }
@@ -124,61 +123,43 @@ export default function TrustedDevicesPage() {
             <Loader2 className="size-4 animate-spin" /> Loading devices…
           </div>
         ) : null}
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <div className="space-y-3">
-          {devices.map((device) => {
-            const sync = deriveSyncDisplay(device, nowMs);
-            const connected = formatRelativeTime(device.created_at, nowMs);
-            const lastActive = formatRelativeTime(device.last_used_at, nowMs);
-            const meta = [
-              device.platform,
-              connected ? `Connected ${connected}` : "",
-              lastActive ? `Last active ${lastActive}` : "",
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return (
-              <article
-                className="flex items-center gap-4 rounded-2xl border bg-card p-4"
-                key={device.device_id}
-              >
-                <div className="flex size-10 items-center justify-center rounded-xl bg-muted">
-                  <Laptop className="size-5" aria-hidden />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-sm font-medium">
-                    {device.device_name}
-                  </h2>
-                  <p
-                    className={`mt-1 truncate text-xs font-medium ${_SYNC_TONE_CLASS[sync.tone]}`}
-                  >
-                    {sync.label}
-                  </p>
-                  {meta ? (
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {meta}
-                    </p>
-                  ) : null}
-                </div>
-                {device.status === "active" ? (
-                  <Button
-                    aria-label={`Unlink ${device.device_name}`}
-                    onClick={() => setPendingRevocation(device)}
-                    size="icon"
-                    variant="ghost"
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                ) : null}
-              </article>
-            );
-          })}
-          {!loading && devices.length === 0 ? (
-            <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No trusted devices are connected.
-            </p>
-          ) : null}
-        </div>
+        {visibleError ? (
+          <p className="text-sm text-destructive">{visibleError}</p>
+        ) : null}
+        {devices.length > 0 ? (
+          <SettingsGroup separatorInset>
+            {devices.map((device) => {
+              const sync = deriveSyncDisplay(device, nowMs);
+              const isActive = device.status === "active";
+              return (
+                <SettingsRow
+                  key={device.device_id}
+                  icon={Laptop}
+                  title={device.device_name}
+                  description={sync.label}
+                  trailing={
+                    isActive ? (
+                      <Button
+                        aria-label={`Unlink ${device.device_name}`}
+                        onClick={() => setPendingRevocation(device)}
+                        size="icon"
+                        variant="ghost"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    ) : undefined
+                  }
+                  trailingInteractive={isActive}
+                />
+              );
+            })}
+          </SettingsGroup>
+        ) : null}
+        {!loading && devices.length === 0 ? (
+          <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+            No trusted devices are connected.
+          </p>
+        ) : null}
       </AppPageContentRegion>
       <AlertDialog
         open={pendingRevocation !== null}

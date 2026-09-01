@@ -1,8 +1,6 @@
-#!/usr/bin/env node
-
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +31,46 @@ const CAPABILITY_GUARD_COVERAGE_PATH = path.resolve(
   WEBAPP_ROOT,
   "contracts/kai/capability-guard-coverage.v1.json",
 );
+
+// Mirrors GLOBAL_NAV_ACTION_IDS in hushh-webapp/lib/voice/screen-context-builder.ts.
+// There is no automated cross-file sync for this; bump both together. Used only to
+// decide alias-collision risk below -- a global-nav id can appear alongside any
+// screen's own actions, so it always counts as co-occurring with everything.
+const GLOBAL_NAV_ACTION_IDS = new Set([
+  "route.one_agents",
+  "route.kai_home",
+  "route.ria_home",
+  "route.profile",
+  "route.one_location",
+  "route.one_pkm",
+  "route.consents",
+  "route.profile_connected_systems",
+  "route.voice_settings",
+  "route.one_feed",
+]);
+
+// Alias collisions the guard below is allowed to ignore. Empty, and meant to
+// stay that way: an entry here is a known-broken pair kept only long enough
+// for a follow-up PR to resolve it, never a permanent exemption. The 12
+// pre-existing pairs seeded when this guard was introduced (#6081-#6085) were
+// all retired in the PR that emptied this set -- each resolved by removing the
+// shared alias from whichever action had the weaker claim to it, so a bare
+// phrase now resolves to exactly one action.
+const KNOWN_ALIAS_COLLISIONS = new Set([]);
+
+// The frontend gateway parser (lib/voice/kai-action-gateway.ts) only knows
+// how to keep an action whose execution_target.path is one of these -- any
+// other value makes it drop the whole action, silently, everywhere (#6122:
+// location.find_contacts and ria.clients.switch_to_nearby vanished this way
+// for a release before anyone noticed). Failing the build here means a
+// typo'd or newly-invented path is caught at authoring time instead.
+const KNOWN_EXECUTION_TARGET_PATHS = new Set([
+  "kai_command",
+  "voice_tool",
+  "route",
+  "local_handler",
+  "control",
+]);
 
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
 const AGENT_PERSONAS = new Set([
@@ -423,6 +461,17 @@ function normalizeExecutionTarget(raw, actionId) {
         `${actionId}: wired execution_target requires path and target`,
       );
     }
+    if (!KNOWN_EXECUTION_TARGET_PATHS.has(pathValue)) {
+      throw new Error(
+        `${actionId}: execution_target.path "${pathValue}" is not one of ` +
+          `${[...KNOWN_EXECUTION_TARGET_PATHS].join(", ")} -- the frontend ` +
+          `gateway parser silently drops the entire action for an ` +
+          `unrecognized path (see kai-action-gateway.ts's ` +
+          `validateExecutionTarget). Add the new path to ` +
+          `KNOWN_EXECUTION_TARGET_PATHS here and to the matching union in ` +
+          `kai-action-gateway.ts if it is genuinely new.`,
+      );
+    }
     const normalized = {
       status,
       path: pathValue,
@@ -801,6 +850,65 @@ async function readContracts() {
   };
 }
 
+// A bare alias owned by two actions is not just noisy: the backend ranker
+// (consent-protocol/hushh_mcp/one_adk/action_tools.py `_relevance_score`)
+// scores a full-phrase exact alias match at +90, well clear of label (+20) or
+// meaning (+5) -- so whichever action happens to own a shared alias wins
+// outright, and no amount of better `meaning` text on the other side can
+// out-argue it. This only matters when both actions could plausibly be in
+// the same per-turn candidate set at once; two actions on unrelated,
+// never-co-visible screens sharing a word is not a real routing risk.
+function validateAliasCollisions(actions) {
+  const wired = actions.filter(
+    (action) => action.execution_target?.status === "wired",
+  );
+  const ownersByAlias = new Map();
+  for (const action of wired) {
+    for (const alias of action.aliases) {
+      const key = alias.trim().toLowerCase();
+      if (!key) continue;
+      if (!ownersByAlias.has(key)) ownersByAlias.set(key, []);
+      ownersByAlias.get(key).push(action);
+    }
+  }
+
+  const canCoOccur = (a, b) => {
+    if (a.surface_id === b.surface_id) return true;
+    if (GLOBAL_NAV_ACTION_IDS.has(a.action_id) || GLOBAL_NAV_ACTION_IDS.has(b.action_id)) {
+      return true;
+    }
+    const aScreens = new Set(a.reachability?.screens || []);
+    return (b.reachability?.screens || []).some((screen) => aScreens.has(screen));
+  };
+
+  const offenders = [];
+  for (const [alias, owners] of ownersByAlias) {
+    if (owners.length < 2) continue;
+    for (let i = 0; i < owners.length; i += 1) {
+      for (let j = i + 1; j < owners.length; j += 1) {
+        const [a, b] = [owners[i], owners[j]].sort((x, y) =>
+          x.action_id.localeCompare(y.action_id),
+        );
+        if (!canCoOccur(a, b)) continue;
+        const collisionKey = `${alias}::${a.action_id}::${b.action_id}`;
+        if (KNOWN_ALIAS_COLLISIONS.has(collisionKey)) continue;
+        offenders.push(`"${alias}": ${a.action_id} vs ${b.action_id}`);
+      }
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new Error(
+      "Alias collision(s) between actions that can appear in the same turn " +
+        "(same surface, shared reachable screen, or global nav):\n  " +
+        offenders.join("\n  ") +
+        "\nMove or remove the alias from one action, or -- only if this is a " +
+        "genuine, deliberate, low-stakes overlap -- add it to " +
+        "KNOWN_ALIAS_COLLISIONS in this file with a one-line reason.",
+    );
+  }
+}
+
 async function validateCapabilityGuardCoverage(contracts) {
   const raw = JSON.parse(
     await fs.readFile(CAPABILITY_GUARD_COVERAGE_PATH, "utf8"),
@@ -873,6 +981,7 @@ async function main() {
   const checkOnly = args.has("--check");
 
   const contracts = await readContracts();
+  validateAliasCollisions(contracts.actions);
   await validateCapabilityGuardCoverage(contracts);
   const gatewayPayload = createGatewayPayload(contracts);
   const gatewayText = `${JSON.stringify(gatewayPayload, null, 2)}\n`;
@@ -898,7 +1007,20 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+// Only auto-run when executed directly (`node generate-kai-action-gateway.mjs`),
+// not when imported by a test -- importing this module must not perform file
+// I/O or throw as a side effect of loading it.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
+
+export {
+  validateAliasCollisions,
+  KNOWN_ALIAS_COLLISIONS,
+  GLOBAL_NAV_ACTION_IDS,
+  normalizeExecutionTarget,
+  KNOWN_EXECUTION_TARGET_PATHS,
+};

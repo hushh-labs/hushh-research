@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { EmblaCarouselType } from "embla-carousel";
 import useEmblaCarousel from "embla-carousel-react";
 
@@ -49,6 +55,48 @@ const SWIPE_VIEWPORT_MIN_HEIGHT =
  */
 const ARRIVED_TOLERANCE_PX = 3;
 
+export function clampSwipePosition(
+  position: number,
+  optionCount: number,
+): number {
+  const upperBound = Math.max(0, optionCount - 1);
+  if (!Number.isFinite(position)) return 0;
+  return Math.min(Math.max(position, 0), upperBound);
+}
+
+/**
+ * Embla intentionally rubber-bands beyond its first and last snap. That motion
+ * is useful in a free carousel, but a route-owned workspace has no content
+ * beyond those boundaries: exposing the empty transform also pulls the shared
+ * tab indicator outside its visual rail. Clamp only true edge overflow while
+ * leaving every in-range drag and snap untouched.
+ */
+function clampRenderedSwipeBounds(
+  api: EmblaCarouselType,
+  optionCount: number,
+): void {
+  const engine = api.internalEngine?.();
+  const slideWidth = engine?.slideRects?.[0]?.width;
+  const rendered = engine?.offsetLocation?.get?.();
+  if (
+    !engine ||
+    typeof slideWidth !== "number" ||
+    slideWidth <= 0 ||
+    typeof rendered !== "number" ||
+    optionCount < 1
+  ) {
+    return;
+  }
+  const lowerBound = -((optionCount - 1) * slideWidth);
+  const clamped = Math.min(0, Math.max(lowerBound, rendered));
+  if (Math.abs(clamped - rendered) < 0.5) return;
+  engine.target.set(clamped);
+  engine.location.set(clamped);
+  engine.offsetLocation.set(clamped);
+  engine.previousLocation.set(clamped);
+  engine.translate.to(clamped);
+}
+
 function isNestedHorizontalScrollTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
@@ -94,7 +142,9 @@ function scrollToIndexSafely(
   const slideRects = engine?.slideRects;
   const slideWidth = slideRects?.[0]?.width;
   const hasReliableWidth =
-    typeof slideWidth === "number" && slideWidth > 0 && Boolean(slideRects?.length);
+    typeof slideWidth === "number" &&
+    slideWidth > 0 &&
+    Boolean(slideRects?.length);
 
   // The engine's `limit` (its scroll bounds) is captured at construction from
   // the same stale measurement as scrollSnaps, and has no public setter. Its
@@ -105,8 +155,6 @@ function scrollToIndexSafely(
   // because the animation loop kept fighting it back within the old bound.
   // Disabling it is safe here: the bound it would otherwise protect is wrong
   // for the carousel's real content, not a legitimate edge.
-  engine?.scrollBounds?.toggleActive?.(false);
-
   if (engine && hasReliableWidth) {
     const expected = slideRects.map((_, i) => -(i * slideWidth));
     const current = engine.scrollSnaps;
@@ -114,7 +162,12 @@ function scrollToIndexSafely(
       current.length !== expected.length ||
       expected.some((value, i) => Math.abs((current[i] ?? NaN) - value) > 1);
     if (isStale) {
+      engine.scrollBounds?.toggleActive?.(false);
       current.splice(0, current.length, ...expected);
+    } else {
+      // A previous stale-measurement repair may have disabled the bound. Once
+      // Embla has rebuilt a truthful limit, restore its normal guard.
+      engine.scrollBounds?.toggleActive?.(true);
     }
   }
 
@@ -150,7 +203,10 @@ function scrollToIndexSafely(
  * fall back to Embla's own counter when the geometry isn't available yet
  * (e.g. before first layout).
  */
-function resolveVisualIndex(api: EmblaCarouselType, optionsLength: number): number {
+function resolveVisualIndex(
+  api: EmblaCarouselType,
+  optionsLength: number,
+): number {
   const engine = api.internalEngine?.();
   const slideWidth = engine?.slideRects?.[0]?.width;
   const rendered = engine?.offsetLocation?.get?.();
@@ -192,6 +248,12 @@ interface SwipeViewsProps {
    * layout. Compact task panes can opt into the active pane's measured height.
    */
   heightMode?: "max" | "active";
+  /**
+   * Hold the outgoing pane's height while it slides away so tall content is
+   * not clipped mid-transition. Short route-backed workspaces can opt out when
+   * stale height is worse than clipping.
+   */
+  holdHeightDuringTransition?: boolean;
   className?: string;
 }
 
@@ -205,13 +267,24 @@ export function SwipeViews({
   panelInset = "none",
   viewportMinHeight = SWIPE_VIEWPORT_MIN_HEIGHT,
   heightMode = "max",
+  holdHeightDuringTransition = true,
   className,
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
-    (emblaApi: EmblaCarouselType, event: Event) =>
-      !isNestedHorizontalScrollTarget(event.target) &&
-      !isNestedSwipeViewsTarget(event.target, emblaApi.rootNode()),
-    [],
+    (emblaApi: EmblaCarouselType, event: Event) => {
+      if (
+        isNestedHorizontalScrollTarget(event.target) ||
+        isNestedSwipeViewsTarget(event.target, emblaApi.rootNode())
+      ) {
+        return false;
+      }
+      // Boundary panes use the small release gesture below. Letting Embla own
+      // their pointer-down enables its elastic transform before direction is
+      // known, which exposes empty canvas beyond the first/last pane.
+      const index = resolveVisualIndex(emblaApi, options.length);
+      return index > 0 && index < options.length - 1;
+    },
+    [options.length],
   );
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: false,
@@ -240,7 +313,9 @@ export function SwipeViews({
     // width-accurate against ANY resize cause while still ignoring the
     // per-slide entries that caused the original hitch.
     watchResize: (emblaApiInstance, entries) =>
-      entries.some((entry) => entry.target === emblaApiInstance.containerNode()),
+      entries.some(
+        (entry) => entry.target === emblaApiInstance.containerNode(),
+      ),
     watchDrag,
   });
   const panels = useMemo(() => React.Children.toArray(children), [children]);
@@ -249,7 +324,9 @@ export function SwipeViews({
     options.findIndex((option) => option.value === activeValue),
   );
   const panelNodesRef = useRef<Record<string, HTMLDivElement | null>>({});
-  const [activePanelHeight, setActivePanelHeight] = useState<number | null>(null);
+  const [activePanelHeight, setActivePanelHeight] = useState<number | null>(
+    null,
+  );
   const isDraggingRef = useRef(false);
   // True from the moment a tapped pane starts moving until Embla settles on it.
   // Together with `isDraggingRef` this is what the strip reads as "the pager
@@ -279,10 +356,61 @@ export function SwipeViews({
   // but still needs the CURRENT selection whenever it does fire.
   const activeValueRef = useRef(activeValue);
   const optionsRef = useRef(options);
+  const edgePointerStartRef = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     activeValueRef.current = activeValue;
     optionsRef.current = options;
   }, [activeValue, options]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    const root = emblaApi.rootNode();
+    const onPointerDownCapture = (event: PointerEvent) => {
+      if (
+        isNestedHorizontalScrollTarget(event.target) ||
+        isNestedSwipeViewsTarget(event.target, root)
+      ) {
+        edgePointerStartRef.current = null;
+        return;
+      }
+      edgePointerStartRef.current = { x: event.clientX, y: event.clientY };
+    };
+    const onPointerUpCapture = (event: PointerEvent) => {
+      const start = edgePointerStartRef.current;
+      edgePointerStartRef.current = null;
+      if (!start) return;
+      const deltaX = event.clientX - start.x;
+      const deltaY = event.clientY - start.y;
+      if (Math.abs(deltaX) < 48 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+      const currentIndex = optionsRef.current.findIndex(
+        (option) => option.value === activeValueRef.current,
+      );
+      const lastIndex = optionsRef.current.length - 1;
+      const targetIndex =
+        currentIndex === 0 && deltaX < 0
+          ? 1
+          : currentIndex === lastIndex && deltaX > 0
+            ? lastIndex - 1
+            : null;
+      if (targetIndex === null) return;
+      const target = optionsRef.current[targetIndex];
+      if (!target) return;
+      onSelectionChange?.(target.value);
+      onSelectionCommit?.(target.value);
+    };
+    const clearPointer = () => {
+      edgePointerStartRef.current = null;
+    };
+    root.addEventListener("pointerdown", onPointerDownCapture, true);
+    root.addEventListener("pointerup", onPointerUpCapture, true);
+    root.addEventListener("pointercancel", clearPointer, true);
+    return () => {
+      root.removeEventListener("pointerdown", onPointerDownCapture, true);
+      root.removeEventListener("pointerup", onPointerUpCapture, true);
+      root.removeEventListener("pointercancel", clearPointer, true);
+      edgePointerStartRef.current = null;
+    };
+  }, [emblaApi, onSelectionChange, onSelectionCommit]);
 
   /**
    * The viewport height, in `heightMode="active"`, follows the SELECTED pane.
@@ -320,11 +448,14 @@ export function SwipeViews({
     // precisely in order to release the floor.
     if (measuredValueRef.current !== activeValue) {
       measuredValueRef.current = activeValue;
-      if (renderedHeightRef.current !== null) {
+      if (holdHeightDuringTransition && renderedHeightRef.current !== null) {
         heightFloorRef.current = Math.max(
           heightFloorRef.current ?? 0,
           renderedHeightRef.current,
         );
+        setHeightSettling(false);
+      } else {
+        heightFloorRef.current = null;
         setHeightSettling(false);
       }
     }
@@ -336,7 +467,8 @@ export function SwipeViews({
         frame = 0;
         const measured = Math.ceil(activeNode.scrollHeight);
         const floor = heightFloorRef.current;
-        const nextHeight = floor === null ? measured : Math.max(measured, floor);
+        const nextHeight =
+          floor === null ? measured : Math.max(measured, floor);
         renderedHeightRef.current = nextHeight;
         setActivePanelHeight((current) =>
           current === nextHeight ? current : nextHeight,
@@ -360,8 +492,7 @@ export function SwipeViews({
       if (frame) window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [activeValue, heightMode, heightSettleTick]);
-
+  }, [activeValue, heightMode, heightSettleTick, holdHeightDuringTransition]);
 
   // Embla measures the container and slides synchronously at init, but only
   // attaches its own ResizeObserver a frame later. A width change inside that
@@ -396,7 +527,8 @@ export function SwipeViews({
 
       const engine = api.internalEngine?.();
       const engineWidth = engine?.containerRect?.width;
-      const widthChanged = lastWidth !== -1 && Math.abs(width - lastWidth) > 0.5;
+      const widthChanged =
+        lastWidth !== -1 && Math.abs(width - lastWidth) > 0.5;
       const engineIsStale =
         typeof engineWidth === "number" && Math.abs(engineWidth - width) > 1;
       lastWidth = width;
@@ -434,7 +566,8 @@ export function SwipeViews({
         typeof belongsAt === "number" &&
         Math.abs(targetAt - belongsAt) > 1;
 
-      if (!widthChanged && !engineIsStale && !slideCountStale && !misaligned) return;
+      if (!widthChanged && !engineIsStale && !slideCountStale && !misaligned)
+        return;
 
       // Re-measure only when the measurement is the thing at fault; reInit()
       // preserves whatever index the engine believes it is on, which may
@@ -474,7 +607,10 @@ export function SwipeViews({
       const scrollProgress = emblaApi.scrollProgress?.();
       const position =
         typeof scrollProgress === "number" && Number.isFinite(scrollProgress)
-          ? scrollProgress * Math.max(0, options.length - 1)
+          ? clampSwipePosition(
+              scrollProgress * Math.max(0, options.length - 1),
+              options.length,
+            )
           : resolveVisualIndex(emblaApi, options.length);
       setTopShellTabSwipeState(
         tabSetId,
@@ -571,9 +707,17 @@ export function SwipeViews({
       scrollToSelection(emblaApi, targetIdx);
     } else if (!isDraggingRef.current && !hasMovedSincePointerDownRef.current) {
       setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
+      releaseHeightFloor();
     }
     lastReportedValueRef.current = activeValue;
-  }, [emblaApi, activeValue, options, scrollToSelection, tabSetId]);
+  }, [
+    emblaApi,
+    activeValue,
+    options,
+    releaseHeightFloor,
+    scrollToSelection,
+    tabSetId,
+  ]);
 
   // Publish selection at Embla's `select` point. Waiting for `settle` made
   // query-backed tabs look stale on iOS and delayed the visible panel state.
@@ -681,7 +825,10 @@ export function SwipeViews({
       const targetIndex = options.findIndex(
         (option) => option.value === selection.value,
       );
-      if (targetIndex < 0 || targetIndex === resolveVisualIndex(emblaApi, options.length))
+      if (
+        targetIndex < 0 ||
+        targetIndex === resolveVisualIndex(emblaApi, options.length)
+      )
         return;
       // A top-tab press starts the compositor motion immediately. Waiting for
       // Next searchParams made the tab ink update first and the pane lag behind.
@@ -703,6 +850,7 @@ export function SwipeViews({
   useEffect(() => {
     if (!emblaApi) return;
     const onScroll = () => {
+      clampRenderedSwipeBounds(emblaApi, options.length);
       const position = syncTabIndicator();
       if (typeof position !== "number") return;
       if (Math.abs(position - activeIndex) > 0.001) {
@@ -757,7 +905,13 @@ export function SwipeViews({
       isAnimatingRef.current = false;
       hasMovedSincePointerDownRef.current = false;
     };
-  }, [activeIndex, emblaApi, releaseHeightFloor, syncTabIndicator]);
+  }, [
+    activeIndex,
+    emblaApi,
+    options.length,
+    releaseHeightFloor,
+    syncTabIndicator,
+  ]);
 
   return (
     <div
@@ -794,6 +948,13 @@ export function SwipeViews({
         {options.map((option, index) => {
           const isActive = index === activeIndex;
           const safeValue = option.value.replace(/[^a-zA-Z0-9_-]/g, "-");
+          const inactiveHeightClamp =
+            heightMode === "active" &&
+            !holdHeightDuringTransition &&
+            !isActive &&
+            activePanelHeight !== null
+              ? { maxHeight: activePanelHeight, overflow: "hidden" }
+              : null;
           return (
             <div
               key={option.value}
@@ -821,7 +982,10 @@ export function SwipeViews({
                 panelInset === "page" &&
                   "px-[var(--page-inline-gutter-standard)]",
               )}
-              style={{ minHeight: "inherit" }}
+              style={{
+                minHeight: "inherit",
+                ...inactiveHeightClamp,
+              }}
             >
               {/* Every panel stays mounted, so a backgrounded one must not
                   publish itself as the screen the person is on. */}

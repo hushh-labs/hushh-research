@@ -800,8 +800,8 @@ textarea {
   --ios-account-title-line: var(--type-page-title-line);
   --ios-account-title-weight: 700;
   --ios-account-title-tracking: normal;
-  --ios-account-description-size: 15px;
-  --ios-account-description-line: 20.7px;
+  --ios-account-description-size: var(--type-row-description-size);
+  --ios-account-description-line: var(--type-row-description-line);
   --ios-account-section-header-size: 15px;
   --ios-account-section-header-line: 20px;
   --ios-account-regular-weight: var(--foundation-body-weight);
@@ -815,7 +815,7 @@ textarea {
   --ios-account-tab-label-line: 13.75px;
   --ios-account-card-margin-inline: 0px;
   --ios-account-card-outer-offset: 0px;
-  --ios-account-card-radius: 24px;
+  --ios-account-card-radius: var(--app-radius-lg);
   --ios-account-card-leading-inset: 20px;
   --ios-account-row-min-height: 58px;
   --ios-account-row-vertical-pad: 11px;
@@ -1018,9 +1018,9 @@ textarea {
   /* ── Apple iCloud card contract ───────────────────────────────── */
   /* Shared app card contract */
   --theme-color-boxShadow: rgba(120, 120, 128, 0.16);
-  --app-card-radius-compact: 24px;
-  --app-card-radius-standard: 24px;
-  --app-card-radius-feature: 24px;
+  --app-card-radius-compact: 16px;
+  --app-card-radius-standard: 18px;
+  --app-card-radius-feature: 20px;
   --app-card-surface-data: #f7f7fa;
   --app-card-surface-compact: #fcfcfd;
   --app-card-surface-default: #ffffff;
@@ -1031,16 +1031,29 @@ textarea {
   --app-card-surface-sticky-header-solid: #f6f7fb;
   --app-card-border-standard: rgba(60, 60, 67, 0.09);
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
-  --app-card-shadow-standard: 0 4px 18px rgba(0, 0, 0, 0.04);
-  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.05);
+  --app-card-shadow-standard: none;
+  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.04);
   --app-list-row-surface: color-mix(
     in srgb,
     var(--app-card-surface-default-solid) 90%,
     transparent
   );
-  --app-segmented-active-surface: #ffffff;
-  --app-segmented-active-foreground: #000000;
-  --app-segmented-active-border: #000000;
+  /* One segmented-control material, shared by every segmented strip.
+     Location's top strip drew a grey track with a white sliding pill; every
+     `SegmentedTabs` drew a near-white track with a bordered pill. Same control,
+     two materials, and the difference read as two different components on the
+     Location and Connect pages. These tokens are now that one material, and the
+     track token is what the shared component reads instead of the generic card
+     surface it had been borrowing. */
+  --app-segmented-track-surface: var(--app-neutral-fill);
+  --app-segmented-active-surface: var(--app-card-surface-default-solid);
+  /* Not the accent. A segmented control marks the selection with the PILL --
+     a second signal in accent tint is what tab bars use, and using both makes
+     a segmented strip read as a tab bar. See the scoped `[role="tab"]` rule
+     further down, which is where Location was getting blue from. */
+  --app-segmented-active-foreground: var(--app-label);
+  --app-segmented-active-border: transparent;
+  --app-segmented-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   --app-shell-surface-bg: var(--app-glass-surface);
   --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.9);
   --app-shell-surface-border: var(--app-glass-border);
@@ -1071,8 +1084,8 @@ textarea {
   --app-secondary-surface: #2c2c2e;
   --app-elevated-surface: #2c2c2e;
   --app-label: #f5f5f7;
-  --app-secondary-label: rgba(235, 235, 245, 0.6);
-  --app-section-label: rgba(235, 235, 245, 0.6);
+  --app-secondary-label: rgba(235, 235, 245, 0.72);
+  --app-section-label: rgba(235, 235, 245, 0.72);
   --app-tertiary-label: rgba(235, 235, 245, 0.3);
   --app-quaternary-label: rgba(235, 235, 245, 0.18);
   --app-separator: rgba(84, 84, 88, 0.65);
@@ -1356,7 +1369,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="account"] [data-slot="settings-group-shell"],
 [data-profile-stack-screen="panel:account"] [data-slot="settings-group-shell"],
 .profile-account-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: 22px;
+  --settings-group-radius: var(--ios-account-card-radius);
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -1739,11 +1752,11 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-meta {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body);
-  font-size: 15px !important;
+  font-size: var(--type-row-description-size) !important;
   margin-top: 0 !important;
   font-weight: 400;
   letter-spacing: 0 !important;
-  line-height: 20px !important;
+  line-height: var(--type-row-description-line) !important;
 }
 
 .profile-home-meta svg {
@@ -1791,7 +1804,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: 22px;
+  --settings-group-radius: var(--ios-account-card-radius);
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -2112,6 +2125,32 @@ html.kb-open .ambient-chrome-mask--bottom {
   /* A reading gap only. The scroll root reserves the fixed bottom bars — see
      --app-page-content-bottom-gap. */
   padding-bottom: var(--app-page-content-bottom-gap);
+}
+
+.one-agent-launcher-grid {
+  --one-agent-icon-size: clamp(54px, 15.2vw, 62px);
+  --one-agent-cell-height: clamp(86px, 23vw, 98px);
+  --one-agent-column-gap: clamp(8px, 3vw, 16px);
+  --one-agent-row-gap: clamp(8px, 2.3vh, 18px);
+}
+
+.one-agent-launcher-grid-inner {
+  column-gap: var(--one-agent-column-gap);
+  row-gap: var(--one-agent-row-gap);
+}
+
+@media (max-height: 620px) {
+  .one-agent-launcher-grid {
+    --one-agent-icon-size: 52px;
+    --one-agent-cell-height: 84px;
+  }
+}
+
+@media (min-width: 768px) {
+  .one-agent-launcher-grid {
+    --one-agent-icon-size: 62px;
+    --one-agent-cell-height: 98px;
+  }
 }
 
 /* Sparse screens (empty states, short lists) let their height fit content
@@ -3578,7 +3617,7 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
   --secondary: #2c2c2e;
   --secondary-foreground: #f5f5f7;
   --muted: #2c2c2e;
-  --muted-foreground: rgba(235, 235, 245, 0.6);
+  --muted-foreground: rgba(235, 235, 245, 0.72);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);
   --destructive: #ff453a;
@@ -3668,9 +3707,9 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
 
   /* Dark: shared app card contract */
   --theme-color-boxShadow: rgba(0, 0, 0, 0.65);
-  --app-card-radius-compact: 24px;
-  --app-card-radius-standard: 24px;
-  --app-card-radius-feature: 24px;
+  --app-card-radius-compact: 16px;
+  --app-card-radius-standard: 18px;
+  --app-card-radius-feature: 20px;
   --app-card-surface-data: var(--app-primary-surface);
   --app-card-surface-compact: var(--app-primary-surface);
   --app-card-surface-default: var(--app-primary-surface);
@@ -3683,9 +3722,14 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
   --app-card-border-strong: rgba(255, 255, 255, 0.18);
   --app-card-shadow-standard: none;
   --app-card-shadow-feature: none;
-  --app-segmented-active-surface: var(--app-neutral-fill-strong);
-  --app-segmented-active-foreground: #ffffff;
-  --app-segmented-active-border: #ffffff;
+  --app-segmented-track-surface: var(--app-neutral-fill);
+  /* The raised pill has to read as raised against a dark track, and a shadow
+     alone cannot do that in dark mode -- so here the lift comes from the
+     surface being lighter than the track, not from the shadow. */
+  --app-segmented-active-surface: var(--app-card-surface-default-solid);
+  --app-segmented-active-foreground: var(--app-label);
+  --app-segmented-active-border: transparent;
+  --app-segmented-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --app-shell-surface-bg: var(--app-glass-surface);
   --app-shell-surface-bg-hover: rgba(48, 48, 52, 0.96);
   --app-shell-surface-border: rgba(255, 255, 255, 0.08);
@@ -3698,8 +3742,8 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
 @media (max-width: 639px) {
   html.light,
   .light {
-    --app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);
-    --shadow-md: 0 8px 22px 0 rgba(120, 120, 128, 0.16);
+    --app-card-shadow-standard: none;
+    --shadow-md: 0 6px 18px 0 rgba(120, 120, 128, 0.08);
   }
 
   html.dark,
@@ -6188,8 +6232,24 @@ body[data-persona-surface="ria"] {
   color: var(--app-label) !important;
 }
 
+/* Accent marks the selection on an UNDERLINE tab bar, where there is no other
+   signal -- Consent Center, RIA, Finance. A segmented strip already marks it
+   with the raised pill, and tinting the label too gave Location's `Now /
+   People / Links` a blue active label while Connect's identical control sat
+   dark, because Connect's label class forces `--app-label`. Two components,
+   two global rules, opposite results, and neither component's own colour ever
+   applied: both lost to these `!important` declarations.
+
+   Scoped by the strip's own `data-top-shell-tab-set`, which `TopShellTabs`
+   already writes, so the underline arm is untouched. */
 [role="tab"][aria-selected="true"] :is(.ui-text-agent-tab-label) {
   color: var(--app-accent) !important;
+}
+
+[data-top-shell-tab-set="location"]
+  [role="tab"][aria-selected="true"]
+  :is(.ui-text-agent-tab-label) {
+  color: var(--app-label) !important;
 }
 
 [role="tab"][aria-selected="false"] :is(.ui-text-agent-tab-label) {

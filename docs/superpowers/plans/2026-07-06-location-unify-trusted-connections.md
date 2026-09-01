@@ -573,18 +573,26 @@ git commit -s -m "feat(location): stop seeding trusted contacts on post-unlock"
 
 ## Task 7: Add `propose_check_in` agent tool (backend)
 
+> **Historical note (2026-08-26):** `propose_check_in` and the Location Agent
+> tool it describes were later retired -- Nearby Check-In shipped as its own
+> generated action gateway surface instead, and this specialist's tool no
+> longer exists. The test file this task creates,
+> consent-protocol/tests/test_location_chat_check_in_directive.py, was
+> deleted along with it. Left as historical record; do not follow this task
+> as current instructions.
+
 **Files:**
 - Modify: `consent-protocol/hushh_mcp/agents/location/tools.py` — add `propose_check_in` after `propose_sos_panic` (~234) and add to `V2_LOCATION_TOOLS` (~528)
 - Modify: `consent-protocol/hushh_mcp/agents/location/agent.yaml` — add the tool binding + a system-instruction line
 - Modify: `consent-protocol/hushh_mcp/services/location_chat_service.py` — add its `FunctionDeclaration` (after 360), add to `_QUERY_TOOL_NAMES` (65-79), map it in `_directive_from_tool` (after 675), add a `check_in` branch to `_build_client_action` (after 735), add `("check_in","completed")`/`("check_in","cancelled")` to `_ACTION_RESULT_TEMPLATES` (94-102), and add `"check_in"` to the `_handle_action_result` state-change set (766-770)
-- Test: `consent-protocol/tests/test_location_chat_check_in_directive.py` (mirror `tests/test_location_chat_sos_directive.py`)
+- Test: consent-protocol/tests/test_location_chat_check_in_directive.py (mirror `tests/test_location_chat_sos_directive.py`)
 
 **Interfaces:**
 - Produces: agent tool `propose_check_in(duration_hours: float, note: str | None = None)` → `{"proposed": "check_in", "durationHours": hours, "note": note}`; a `check_in` clientAction `{id, type:"check_in", durationHours, note, summary}`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `consent-protocol/tests/test_location_chat_check_in_directive.py`:
+Create consent-protocol/tests/test_location_chat_check_in_directive.py:
 
 ```python
 import pytest

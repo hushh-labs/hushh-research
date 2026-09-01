@@ -37,7 +37,8 @@ export const WALLET_CARD_COPY = {
    */
   privacyAssurance: {
     title: "You choose what shows",
-    description: "Only what you pick is visible. Change or switch it off anytime.",
+    description:
+      "Only what you pick is visible. Change or switch it off anytime.",
   },
   /** Entry point shown once a Wallet Profile exists. */
   entryAfterSetup: {
@@ -62,15 +63,12 @@ export const WALLET_CARD_COPY = {
  * place so the setup and management screens never drift apart.
  */
 export const WALLET_CARD_OWNER_COPY = {
-  eyebrow: "One / Wallet Profile",
-  onlyThisInformation: "Only this information will be shared.",
-  optionalDisclosure: "Choose what people can see",
-  optionalDisclosureHint:
-    "Optional. Everything here is off until you fill it in, and you can change it later.",
-  recommendedGroupTitle: "Shared by default",
+  optionalDisclosure: "More details",
   fromYourProfile: "From your Hussh profile",
-  reviewPrimaryAction: "Continue to preview",
+  createProfile: "Create profile",
+  saveChanges: "Save changes",
   previewTitle: "Preview",
+  previewDescription: "Check what people will see after a scan.",
   walletPreviewTitle: "Wallet preview",
   walletPreviewHint: "How your pass looks in Apple Wallet.",
   visitorPreviewTitle: "What a visitor sees",
@@ -100,8 +98,10 @@ export const WALLET_CARD_OWNER_COPY = {
     "Your share link isn't stored on this device, so the QR can't be shown here. Rotate QR access to create a new link — the current QR stops working.",
   vaultLocked: "Unlock your vault to set up your Wallet Profile.",
   featureUnavailable: "Wallet Profile isn't available on this account yet.",
-  loadFailed: "We couldn't load your Wallet Profile. Please try again in a moment.",
-  saveFailed: "We couldn't save your Wallet Profile. Please try again in a moment.",
+  loadFailed:
+    "We couldn't load your Wallet Profile. Please try again in a moment.",
+  saveFailed:
+    "We couldn't save your Wallet Profile. Please try again in a moment.",
   shareFailed: "Sharing isn't supported on this device. Copy the link instead.",
   linkCopied: "Link copied.",
   saved: "Saved.",

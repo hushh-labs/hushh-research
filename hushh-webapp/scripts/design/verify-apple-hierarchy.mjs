@@ -112,9 +112,9 @@ for (const [token, value] of [
   ["--type-agent-tab-label-line", "20px"],
   ["--type-agent-tab-label-weight", "500"],
   ["--type-agent-tab-label-tracking", "normal"],
-  ["--app-card-radius-compact", "24px"],
-  ["--app-card-radius-standard", "24px"],
-  ["--app-card-radius-feature", "24px"],
+  ["--app-card-radius-compact", "16px"],
+  ["--app-card-radius-standard", "18px"],
+  ["--app-card-radius-feature", "20px"],
 ]) {
   if (!globals.includes(`${token}: ${value};`)) {
     failures.push(`app/globals.css: ${token} must stay ${value}`);
@@ -170,7 +170,6 @@ for (const repoPath of [
   "components/app-ui/stream-progress-panel.tsx",
   "components/app-ui/section-toc.tsx",
   "lib/morphy-ux/ui/surface-primitives.tsx",
-  "lib/morphy-ux/ui/filter-chip.tsx",
   "lib/morphy-ux/ui/segmented-tabs.tsx",
   "lib/morphy-ux/ui/segmented-pill.tsx",
   "components/dashboard/one-agent-roster.tsx",

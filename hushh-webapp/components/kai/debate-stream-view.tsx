@@ -53,6 +53,7 @@ export interface AgentState {
   stage: "idle" | "active" | "complete" | "error";
   text: string;
   thoughts: string[];
+  statusMessage?: string;
   error?: string;
   // Rich data from agent_complete
   recommendation?: string;
@@ -1043,7 +1044,10 @@ export function DebateStreamView({
             activeRoundRef.current = 2;
             setActiveRound(2);
           }
-          updateAgentState(r, (data.agent || "").toString(), { stage: "active" });
+          updateAgentState(r, (data.agent || "").toString(), {
+            stage: "active",
+            statusMessage: sanitizeStatusMessage(data.message),
+          });
           break;
         }
         case "agent_token": {
@@ -1073,6 +1077,7 @@ export function DebateStreamView({
           const r = resolveRoundForEnvelope(data);
           updateAgentState(r, (data.agent || "").toString(), {
             stage: "complete",
+            statusMessage: "Analysis complete",
             text: toInvestorStreamText(data.summary || ""),
             thoughts: [],
             recommendation: optionalString(data.recommendation),

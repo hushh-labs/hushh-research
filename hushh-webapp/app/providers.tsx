@@ -27,6 +27,9 @@ import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
+import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
+import { SiriOneActionHandoff } from "@/components/agent/siri-one-action-handoff";
+import { SiriOneEntityIndexPublisher } from "@/components/agent/siri-one-entity-index-publisher";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
 import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
@@ -51,6 +54,7 @@ import {
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { recordDestinationEntry } from "@/lib/navigation/section-back-origin";
+import { isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
 import {
   ROUTES,
   isFoundationPublicRoute,
@@ -70,6 +74,8 @@ import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
 import {
+  acknowledgeInternalAppNavigation,
+  consumePendingInternalAppNavigation,
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
 } from "@/lib/utils/browser-navigation";
@@ -160,11 +166,22 @@ function AppShellFrame({ children }: ProvidersProps) {
       locationAction === "circle-detail");
   const focusedSosChromeFlow =
     shellPathname === ROUTES.ONE_LOCATION && locationAction === "sos";
+  const focusedConnectCircleChromeFlow =
+    shellPathname === ROUTES.CONNECT &&
+    isFocusedConnectCircleTask(
+      searchParams?.get("tab") ?? null,
+      searchParams?.get("action") ?? null,
+    );
   // Focused query-scoped Location flows clear the bottom command/navigation
   // stack while keeping the top shell route context.
-  const bottomChromeHidden = hidesPersistentChrome || focusedSosChromeFlow;
+  const bottomChromeHidden =
+    hidesPersistentChrome ||
+    focusedSosChromeFlow ||
+    focusedConnectCircleChromeFlow;
   const effectiveHideCommandBar =
-    chromeState.hideCommandBar || focusedLocationChromeFlow;
+    chromeState.hideCommandBar ||
+    focusedLocationChromeFlow ||
+    focusedConnectCircleChromeFlow;
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
@@ -345,8 +362,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   useEffect(() => {
     const handleInternalNavigation = (event: Event) => {
       const customEvent = event as CustomEvent<InternalAppNavigationRequest>;
+      acknowledgeInternalAppNavigation(customEvent.detail);
       const href = String(customEvent.detail?.href || "").trim();
-      if (!href.startsWith("/")) {
+      if (!href.startsWith("/") || href.startsWith("//")) {
         return;
       }
       const replace = Boolean(customEvent.detail?.replace);
@@ -372,6 +390,15 @@ function AppShellFrame({ children }: ProvidersProps) {
       INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
       handleInternalNavigation,
     );
+    const pendingNavigation = consumePendingInternalAppNavigation();
+    if (pendingNavigation) {
+      handleInternalNavigation(
+        new CustomEvent<InternalAppNavigationRequest>(
+          INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+          { detail: pendingNavigation },
+        ),
+      );
+    }
     return () => {
       window.removeEventListener(
         INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
@@ -462,6 +489,9 @@ function AppShellFrame({ children }: ProvidersProps) {
         <VaultProvider>
           <AgentRuntimeStateProvider>
             <AgentPopoverProvider>
+              <SiriOneVoiceHandoff />
+              <SiriOneActionHandoff />
+              <SiriOneEntityIndexPublisher />
               <NativeTestRouter />
               <NativeTestBootstrap />
               <NativeTestRouteStatus />

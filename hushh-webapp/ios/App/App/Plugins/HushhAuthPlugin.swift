@@ -52,6 +52,11 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         ]
         SecItemDelete(query as CFDictionary)
         HusshIMessageSessionStore.shared.clearSilently()
+        OneVoiceInvocationCoordinator.shared.cancelPending(outcome: "sign_out")
+        OneSystemActionInvocationCoordinator.shared.cancelAll(
+            outcome: "sign_out",
+            clearEntityIndex: true
+        )
     }
 
     private func keychainSet(_ value: String, forKey key: String) {
@@ -383,6 +388,11 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         keychainDelete("hushh_user_email_verified")
         keychainDelete("hushh_user_phone_number")
         HusshIMessageSessionStore.shared.clearSilently()
+        OneVoiceInvocationCoordinator.shared.cancelPending(outcome: "sign_out")
+        OneSystemActionInvocationCoordinator.shared.cancelAll(
+            outcome: "sign_out",
+            clearEntityIndex: true
+        )
         
         print("✅ [\(TAG)] Signed out")
         call.resolve()

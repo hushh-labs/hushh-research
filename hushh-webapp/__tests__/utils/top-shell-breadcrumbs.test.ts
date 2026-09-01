@@ -7,7 +7,9 @@ describe("top shell breadcrumbs", () => {
     expect(
       resolveTopShellBreadcrumb(
         "/one/kai",
-        new URLSearchParams("tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA"),
+        new URLSearchParams(
+          "tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA",
+        ),
       ),
     ).toEqual({
       backHref: "/one/kai?tab=analysis",
@@ -46,7 +48,37 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       hideBack: false,
-      items: [{ label: "One", href: "/one" }, { label: "Connect" }],
+      items: [{ label: "One" }],
+    });
+  });
+
+  it("uses focused Connect Circle titles with a back label to Circles", () => {
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connect",
+        new URLSearchParams("tab=circles&action=create-circle"),
+      ),
+    ).toEqual({
+      backHref: "/one/connect?tab=circles",
+      backLabel: "Back to Circles",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "Create a Circle" }],
+    });
+
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connect",
+        new URLSearchParams("tab=circles&action=join-circle"),
+      ),
+    ).toEqual({
+      backHref: "/one/connect?tab=circles",
+      backLabel: "Back to Circles",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "Join a Circle" }],
     });
   });
 
@@ -267,10 +299,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "RIA", href: "/one/setup" },
-        { label: "Claim profile" },
-      ],
+      items: [{ label: "RIA", href: "/one/setup" }, { label: "Claim profile" }],
     });
   });
 
@@ -295,7 +324,12 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Setup", href: "/one/setup" },
-        { label: "CRM" },
+        {
+          label:
+            process.env.NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED === "true"
+              ? "CRM"
+              : "Connected Systems",
+        },
       ],
     });
 
@@ -362,14 +396,14 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one/setup");
   });
 
-  it("treats the PKM agent lab as a profile privacy surface", () => {
+  it("treats the PKM agent lab as a Memory surface", () => {
     expect(resolveTopShellBreadcrumb("/one/profile/pkm-agent-lab")).toEqual({
-      backHref: "/one/profile/access",
+      backHref: "/one/profile/my-data",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/one/profile/access" },
-        { label: "Privacy", href: "/one/profile/access" },
+        { label: "Profile", href: "/one/profile/my-data" },
+        { label: "Memory", href: "/one/profile/my-data" },
         { label: "PKM Agent" },
       ],
     });
@@ -386,10 +420,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/location",
       width: "profile",
       align: "center",
-      items: [
-        { label: "Location", href: "/one/location" },
-        { label: "Profile" },
-      ],
+      items: [{ label: "Location", href: "/one/location" }],
     });
 
     const fromGmail = new URLSearchParams();
@@ -398,7 +429,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/gmail",
       width: "profile",
       align: "center",
-      items: [{ label: "Gmail", href: "/one/gmail" }, { label: "Profile" }],
+      items: [{ label: "Gmail", href: "/one/gmail" }],
     });
 
     // No origin → the historic default (back to the One dashboard) is preserved.
@@ -406,7 +437,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: "/one" }, { label: "Profile" }],
+      items: [{ label: "One", href: "/one" }],
     });
 
     // Unsafe / protocol-relative origins are rejected → One dashboard fallback.
@@ -431,6 +462,64 @@ describe("top shell breadcrumbs", () => {
     expect(config?.items?.[0]).toEqual({
       label: "Profile",
       href: "/one/profile?from=%2Fone%2Flocation",
+    });
+  });
+
+  it("keeps Connect as the origin for a person profile opened from Connect", () => {
+    const fromConnect = new URLSearchParams();
+    fromConnect.set("from", "/one/connect");
+
+    expect(
+      resolveTopShellBreadcrumb("/people/person-ref-scoped", fromConnect),
+    ).toEqual({
+      backHref: "/one/connect",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Connect", href: "/one/connect" },
+        { label: "Profile" },
+      ],
+    });
+
+    const unsafeOrigin = new URLSearchParams();
+    unsafeOrigin.set("from", "//evil.example/one/connect");
+    expect(
+      resolveTopShellBreadcrumb("/people/person-ref-scoped", unsafeOrigin),
+    ).toBeNull();
+  });
+
+  it("nests the connection detail under Memory → Sharing", () => {
+    const connectionParams = new URLSearchParams();
+    connectionParams.set("id", "c-scoped");
+
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/profile/access/connection",
+        connectionParams,
+      ),
+    ).toEqual({
+      backHref: "/one/profile/access",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Memory", href: "/one/profile/my-data" },
+        { label: "Sharing", href: "/one/profile/access" },
+        { label: "Connection detail" },
+      ],
+    });
+  });
+
+  it("returns the Memory → Sharing sub-view to the Memory panel", () => {
+    expect(resolveTopShellBreadcrumb("/one/profile/access")).toEqual({
+      backHref: "/one/profile/my-data",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Memory", href: "/one/profile/my-data" },
+        { label: "Sharing" },
+      ],
     });
   });
 
@@ -573,6 +662,10 @@ describe("top shell breadcrumbs", () => {
     // were removed so this is the ONLY back affordance on those screens.
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
+      // Must equal the flow's own TaskFlowHeader title. A crumb that reads
+      // differently from the screen it names is how a trail stops describing
+      // where you are.
+      ["places-visited", "Places you've been"],
       ["private-check-in", "Private Check-In"],
       // The implementation action id stays sos; the visible product name is shared.
       ["sos", "Save My Soul"],
@@ -580,7 +673,7 @@ describe("top shell breadcrumbs", () => {
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.
       ["share", "Share location"],
-      ["ask", "Request location"],
+      ["ask", "Ask for location"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
       ["settings", "Settings"],
@@ -883,13 +976,45 @@ describe("top shell breadcrumbs", () => {
     // An unrecognized view value must not deepen into the Debate crumb; it stays
     // a plain three-crumb Picks with Back to RIA.
     expect(
-      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=garbage")),
+      resolveTopShellBreadcrumb(
+        "/ria/picks",
+        new URLSearchParams("view=garbage"),
+      ),
     ).toEqual(barePicks);
 
     // The Picks debate match is case-sensitive (view === "debate"), so a
     // capitalized value is treated as unknown rather than the debate sub-view.
     expect(
-      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
+      resolveTopShellBreadcrumb(
+        "/ria/picks",
+        new URLSearchParams("view=Debate"),
+      ),
     ).toEqual(barePicks);
+  });
+
+  it("gives the wallet card a way back to the row that opened it", () => {
+    // It had no entry at all, so the resolver returned null and the top shell
+    // rendered no breadcrumb -- leaving the screen with no way out. The Back
+    // control inside the workspace is a stage control between steps of the
+    // pass flow, present in only one stage, so it never served as the exit.
+    expect(resolveTopShellBreadcrumb("/one/wallet-card")).toEqual({
+      backHref: "/one/profile/account",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Account", href: "/one/profile/account" },
+        { label: "Apple Wallet" },
+      ],
+    });
+  });
+
+  it("sends the wallet card back to Account, the panel it is reached from", () => {
+    // profile-workspace-page.tsx pushes this route from the Apple Wallet row
+    // inside the Account panel. Backing out to bare /one/profile would land
+    // somebody a level above the row they tapped.
+    const config = resolveTopShellBreadcrumb("/one/wallet-card");
+    expect(config?.backHref).toBe("/one/profile/account");
+    expect(config?.backHref).not.toBe("/one/profile");
   });
 });

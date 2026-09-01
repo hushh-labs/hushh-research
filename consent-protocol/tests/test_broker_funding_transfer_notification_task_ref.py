@@ -22,11 +22,15 @@ calls BrokerFundingService.create_transfer, which queues the notification.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
 from hushh_mcp.services import broker_funding_service as bf_module
-from hushh_mcp.services.broker_funding_service import get_broker_funding_service
+from hushh_mcp.services.broker_funding_service import (
+    BrokerFundingService,
+    get_broker_funding_service,
+)
 
 
 def _install_fake_sender(service):
@@ -115,3 +119,51 @@ async def test_non_notifiable_change_schedules_nothing():
 
     assert len(bf_module._transfer_notification_tasks) == 0
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_funding_notification_uses_stable_cross_platform_identity(monkeypatch):
+    class _Db:
+        def execute_raw(self, _sql, _params):
+            return SimpleNamespace(
+                error=None,
+                data=[
+                    {"token": "android-token", "platform": "android"},
+                    {"token": "android-token", "platform": "android"},
+                    {"token": "ios-token", "platform": "ios"},
+                    {"token": "web-token", "platform": "web"},
+                ],
+            )
+
+    service = BrokerFundingService()
+    service._db = _Db()
+    monkeypatch.setattr(
+        "api.utils.firebase_admin.ensure_firebase_admin",
+        lambda: (True, None),
+    )
+    from firebase_admin import messaging
+
+    sent = []
+    monkeypatch.setattr(messaging, "send", lambda message: sent.append(message) or "ok")
+
+    await service._send_transfer_status_notification(
+        user_id="user-1",
+        transfer_id="transfer-1",
+        user_facing_status="completed",
+        raw_status="SETTLED",
+        amount_text="100.00",
+        direction="INCOMING",
+        failure_reason=None,
+    )
+
+    assert len(sent) == 3
+    assert {message.data["message_id"] for message in sent} == {
+        "funding-transfer:transfer-1:completed"
+    }
+    assert {message.data["notification_presentation"] for message in sent} == {"alert"}
+    android = next(message for message in sent if message.android is not None)
+    ios = next(message for message in sent if message.apns is not None)
+    web = next(message for message in sent if message.webpush is not None)
+    assert android.android.notification.tag == "funding-transfer:transfer-1"
+    assert ios.apns.payload.aps.thread_id == "funding-transfer:transfer-1"
+    assert web.webpush.notification.tag == "funding-transfer:transfer-1"
