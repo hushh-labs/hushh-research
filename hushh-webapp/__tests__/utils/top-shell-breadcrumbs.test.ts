@@ -294,7 +294,7 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Setup", href: "/one/setup" },
-        { label: "CRM" },
+        { label: "Connected Systems" },
       ],
     });
 

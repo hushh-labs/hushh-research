@@ -57,8 +57,6 @@ export const REQUEST_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
   { value: "1", label: "1 hour" },
   { value: "2", label: "2 hours" },
-  { value: "4", label: "4 hours" },
-  { value: "8", label: "8 hours" },
 ];
 
 /**

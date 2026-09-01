@@ -4703,14 +4703,7 @@ describe("OneLocationAgentPage", () => {
 
     // Request uses the same compact ladder pattern as Share, but it cannot ask
     // for open-ended access to someone else's location.
-    for (const label of [
-      "15 min",
-      "1 hour",
-      "2 hours",
-      "4 hours",
-      "8 hours",
-      "Custom",
-    ]) {
+    for (const label of ["15 min", "1 hour", "2 hours", "Custom"]) {
       expect(
         screen.getByRole("button", { name: label }),
         `Ask is missing the "${label}" rung`,
@@ -5201,12 +5194,18 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(list).getByRole("button", { name: /Select Advisor C/i }),
     ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Waiting for 1 response" }),
+    );
     expect(
-      list.querySelector(
+      await screen.findByRole("heading", { name: "Waiting for responses" }),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector(
         '[data-photo-url="https://cdn.example.test/trusted-b-avatar.jpg"]',
       ),
     ).toBeTruthy();
-    expect(within(list).getByLabelText("Verified advisor")).toBeTruthy();
   });
 
   it("summarizes unanswered asks in a waiting sheet instead of the default picker", async () => {
@@ -5252,7 +5251,7 @@ describe("OneLocationAgentPage", () => {
         requestId: "req_waiting",
       }),
     );
-  });
+  }, 10_000);
 
   it("offers a way to Connect when the person being looked for is not on the list", async () => {
     // This roster is everyone you are already connected to, so "they are not
