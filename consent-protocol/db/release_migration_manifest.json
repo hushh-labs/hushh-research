@@ -162,7 +162,8 @@
     "187_one_location_sms_contact_events.sql",
     "188_feed_location_viewed_projection.sql",
     "189_trusted_device_heartbeat.sql",
-    "190_one_location_place_ratings.sql"
+    "190_one_location_place_ratings.sql",
+    "191_one_location_access_request_expiry.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -278,7 +279,8 @@
       "187_one_location_sms_contact_events.sql",
       "188_feed_location_viewed_projection.sql",
       "189_trusted_device_heartbeat.sql",
-      "190_one_location_place_ratings.sql"
+      "190_one_location_place_ratings.sql",
+      "191_one_location_access_request_expiry.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

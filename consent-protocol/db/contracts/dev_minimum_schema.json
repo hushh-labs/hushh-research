@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 190,
+  "expected_migration_version": 191,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_pkm_domain_summary",

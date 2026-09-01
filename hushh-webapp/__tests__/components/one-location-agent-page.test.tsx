@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { ROUTES } from "@/lib/navigation/routes";
 import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navigation";
 
@@ -1434,6 +1435,7 @@ describe("OneLocationAgentPage", () => {
           requesterUserId: "user_b",
           status: "pending",
           requestedAt: "2026-05-20T07:30:00.000Z",
+          expiresAt: "2099-05-20T07:30:00.000Z",
         },
       ],
     });
@@ -1469,6 +1471,7 @@ describe("OneLocationAgentPage", () => {
           status: "pending",
           message: "School pickup",
           requestedAt: "2026-05-20T07:30:00.000Z",
+          expiresAt: "2099-05-20T07:30:00.000Z",
           requestedDurationHours: 1,
           requestedDurationMode: "timed",
         },
@@ -1520,6 +1523,7 @@ describe("OneLocationAgentPage", () => {
       status: "pending" as const,
       message: "Running late",
       requestedAt: "2026-05-20T07:30:00.000Z",
+      expiresAt: "2099-05-20T07:30:00.000Z",
       requestedDurationHours: 4,
       requestedDurationMode: "timed",
     };
@@ -1616,6 +1620,7 @@ describe("OneLocationAgentPage", () => {
           requesterUserId: "user_b",
           status: "pending",
           requestedAt: "2026-05-20T07:30:00.000Z",
+          expiresAt: "2099-05-20T07:30:00.000Z",
         },
       ],
     });
@@ -1913,6 +1918,7 @@ describe("OneLocationAgentPage", () => {
         requesterDisplayName: "Trusted B",
         status: "pending",
         requestedAt: "2026-08-24T09:01:00.000Z",
+        expiresAt: "2099-08-24T09:01:00.000Z",
         requestedDurationHours: 1,
         requestedDurationMode: "timed",
       },
@@ -1923,6 +1929,7 @@ describe("OneLocationAgentPage", () => {
         requesterDisplayName: "Investor D",
         status: "pending",
         requestedAt: "2026-08-24T09:02:00.000Z",
+        expiresAt: "2099-08-24T09:02:00.000Z",
         requestedDurationHours: 1,
         requestedDurationMode: "timed",
       },
@@ -2015,6 +2022,7 @@ describe("OneLocationAgentPage", () => {
       requesterDisplayName: "Trusted B",
       status: "pending",
       requestedAt: "2026-08-24T09:01:00.000Z",
+      expiresAt: "2099-08-24T09:01:00.000Z",
       requestedDurationHours: 1,
       requestedDurationMode: "timed",
     };
@@ -4738,8 +4746,12 @@ describe("OneLocationAgentPage", () => {
     ).toEqual(["15 min", "1 hour", "2 hours", "Custom"]);
 
     // Removed from the face of the ladder, not from the lane.
-    expect(within(ladder).queryByRole("button", { name: "4 hours" })).toBeNull();
-    expect(within(ladder).queryByRole("button", { name: "8 hours" })).toBeNull();
+    expect(
+      within(ladder).queryByRole("button", { name: "4 hours" }),
+    ).toBeNull();
+    expect(
+      within(ladder).queryByRole("button", { name: "8 hours" }),
+    ).toBeNull();
 
     // And Custom still reaches them: one deliberate tap, then the wheel.
     fireEvent.click(within(ladder).getByRole("button", { name: "Custom" }));
@@ -4949,6 +4961,7 @@ describe("OneLocationAgentPage", () => {
           requesterUserId: "user_a",
           status: "pending",
           requestedAt: "2026-05-20T07:30:00.000Z",
+          expiresAt: "2099-05-20T07:30:00.000Z",
         },
       ],
     });
@@ -4964,6 +4977,38 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getAllByText("Trusted B").length).toBeGreaterThan(0);
     expect(screen.queryByText("user_b")).toBeNull();
     expect(screen.queryByText("request_1")).toBeNull();
+  });
+
+  it("does not keep calling a request Pending after its deadline", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_expired_client_side",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "pending",
+          requestedAt: new Date(Date.now() - 3_600_000).toISOString(),
+          expiresAt: new Date(Date.now() - 1).toISOString(),
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    await screen.findByRole("heading", { name: "Requests sent" });
+
+    expect(screen.getByText("Request expired")).toBeInTheDocument();
+    expect(screen.getByText("Expired")).toBeInTheDocument();
+    expect(screen.queryByText("Pending")).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Take back your request to Trusted B",
+      }),
+    ).toBeNull();
   });
 
   it("lets the requester delete a live (approved) request they sent", async () => {
@@ -6527,6 +6572,103 @@ describe("OneLocationAgentPage", () => {
     }
   }, 15000);
 
+  it("keeps the recipient identity and new duration across an older in-flight refresh", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      const initialState = locationState();
+      const updatedState = {
+        ...initialState,
+        ownerGrants: initialState.ownerGrants.map((grant) => ({
+          ...grant,
+          durationMode: "until_stopped",
+          durationHours: null,
+          expiresAt: null,
+        })),
+      };
+      mockSetGrantDuration.mockResolvedValueOnce({
+        id: "grant_1",
+        status: "active",
+        durationMode: "until_stopped",
+        durationHours: null,
+        expiresAt: null,
+      });
+
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      const callsBeforeRefresh = mockGetState.mock.calls.length;
+      let resolveOlderRefresh!: (
+        state: ReturnType<typeof locationState>,
+      ) => void;
+      mockGetState
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveOlderRefresh = resolve;
+            }),
+        )
+        .mockResolvedValueOnce(updatedState);
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
+            detail: { source: "one_location_notification" },
+          }),
+        );
+      });
+      await waitFor(() =>
+        expect(mockGetState.mock.calls.length).toBeGreaterThan(
+          callsBeforeRefresh,
+        ),
+      );
+
+      const card = await screen.findByTestId("one-location-live-share");
+      fireEvent.click(
+        within(card).getByTestId("one-location-live-share-change-time"),
+      );
+      const editor = await screen.findByTestId(
+        "one-location-live-share-duration-editor",
+      );
+      fireEvent.click(
+        within(editor).getByRole("button", { name: "Until I stop" }),
+      );
+      fireEvent.click(
+        within(editor).getByTestId("one-location-live-share-duration-save"),
+      );
+
+      await waitFor(() => expect(mockSetGrantDuration).toHaveBeenCalled());
+      const optimisticCard = await screen.findByTestId(
+        "one-location-live-share",
+      );
+      expect(
+        within(optimisticCard).getByText("Sharing with Trusted B"),
+      ).toBeInTheDocument();
+      expect(
+        within(optimisticCard).getByText("Until you stop"),
+      ).toBeInTheDocument();
+
+      await act(async () => {
+        resolveOlderRefresh(initialState);
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(mockGetState.mock.calls.length).toBeGreaterThanOrEqual(
+          callsBeforeRefresh + 2,
+        ),
+      );
+      const reconciledCard = screen.getByTestId("one-location-live-share");
+      expect(
+        within(reconciledCard).getByText("Sharing with Trusted B"),
+      ).toBeInTheDocument();
+      expect(
+        within(reconciledCard).getByText("Until you stop"),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
+
   it("offers four common lengths and the open-ended row, one tap each", async () => {
     // The report (issue #6228): Change time showed too many near-identical
     // choices -- 15 min / 1 hour / 2 hours / 4 hours / 8 hours / Custom /
@@ -6550,6 +6692,16 @@ describe("OneLocationAgentPage", () => {
         "one-location-live-share-duration-editor",
       );
 
+      const dialog = screen.getByRole("dialog", { name: "Change time" });
+      expect(
+        within(dialog).queryByText("Set a new end time for this share."),
+      ).toBeNull();
+      expect(within(editor).getByText("Share for")).toBeInTheDocument();
+      expect(within(editor).queryByText("New time")).toBeNull();
+      expect(
+        document.querySelector('[data-slot="dialog-overlay"]'),
+      ).toHaveClass("backdrop-blur-[8px]");
+
       for (const label of [
         "15 min",
         "1 hour",
@@ -6572,7 +6724,9 @@ describe("OneLocationAgentPage", () => {
       // One tap on a rung is the whole interaction -- no drag, no confirm
       // step of its own before Save.
       await act(async () => {
-        fireEvent.click(within(editor).getByRole("button", { name: "2 hours" }));
+        fireEvent.click(
+          within(editor).getByRole("button", { name: "2 hours" }),
+        );
       });
       await act(async () => {
         fireEvent.click(
@@ -6595,6 +6749,35 @@ describe("OneLocationAgentPage", () => {
       vi.useRealTimers();
     }
   }, 15000);
+
+  it("restores focus to Change time and describes the modal without visible repetition", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      const card = await screen.findByTestId("one-location-live-share");
+      const changeTime = within(card).getByTestId(
+        "one-location-live-share-change-time",
+      );
+      fireEvent.click(changeTime);
+
+      const dialog = await screen.findByRole("dialog", { name: "Change time" });
+      const description = within(dialog).getByText(
+        "Choose how long this live location share should continue.",
+      );
+      expect(description).toHaveClass("sr-only");
+      expect(within(dialog).queryByText("Dialog content")).toBeNull();
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(changeTime).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("remembers the running share on the device, and only ids and times", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

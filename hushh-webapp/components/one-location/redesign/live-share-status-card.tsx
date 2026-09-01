@@ -172,7 +172,7 @@ export function LiveShareStatusCard({
    * then wanting 45 meant ending the share and starting it again, which is a
    * different share to the person watching.
    */
-  onChangeDuration?: () => void;
+  onChangeDuration?: (trigger: HTMLButtonElement) => void;
   /** Opens the existing share composer while a share is already live. */
   onShareMore?: () => void;
   /** Fired once when the countdown reaches zero, so the page can reconcile. */
@@ -399,7 +399,10 @@ export function LiveShareStatusCard({
           <Button
             variant="ghost"
             size="sm"
-            onClick={runChildAction(onChangeDuration)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onChangeDuration(event.currentTarget);
+            }}
             className={cn(
               LIVE_SHARE_ACTION_CLASSNAME,
               "mx-auto text-[color:var(--app-accent)]",

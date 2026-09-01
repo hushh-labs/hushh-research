@@ -86,4 +86,66 @@ describe("OneLocationStateResource", () => {
       OneLocationStateResource.peek(userId)?.data.smsContactUserIds,
     ).toEqual([]);
   });
+
+  it("merges a duration response without losing identity or accepting an older refresh", async () => {
+    const userId = "location-resource-owner";
+    const initial = {
+      recipients: [],
+      ownerGrants: [
+        {
+          id: "grant_1",
+          ownerUserId: userId,
+          recipientUserId: "friend",
+          recipientDisplayName: "Trusted Friend",
+          recipientKeyId: "key_friend",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: ["cap.location.live.view"],
+          durationMode: "timed",
+          durationHours: 1,
+          expiresAt: "2026-09-01T09:00:00.000Z",
+        },
+      ],
+    } as unknown as OneLocationState;
+    OneLocationStateResource.write(userId, initial);
+
+    let resolveStale!: (state: OneLocationState) => void;
+    const staleLoad = OneLocationStateResource.load(
+      userId,
+      () =>
+        new Promise<OneLocationState>((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+
+    expect(
+      OneLocationStateResource.mergeOwnerGrant(userId, {
+        id: "grant_1",
+        status: "active",
+        durationMode: "until_stopped",
+        durationHours: null,
+        expiresAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      OneLocationStateResource.peek(userId)?.data.ownerGrants[0],
+    ).toMatchObject({
+      id: "grant_1",
+      recipientUserId: "friend",
+      recipientDisplayName: "Trusted Friend",
+      recipientKeyId: "key_friend",
+      durationMode: "until_stopped",
+      expiresAt: null,
+    });
+
+    resolveStale(initial);
+    await staleLoad;
+    expect(
+      OneLocationStateResource.peek(userId)?.data.ownerGrants[0],
+    ).toMatchObject({
+      recipientDisplayName: "Trusted Friend",
+      durationMode: "until_stopped",
+      expiresAt: null,
+    });
+  });
 });

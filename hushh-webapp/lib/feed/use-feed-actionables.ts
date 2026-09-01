@@ -23,6 +23,7 @@ import {
   CacheService,
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import {
   locationApproveActionLabel,
   locationAskPromptLine,
@@ -177,9 +178,10 @@ function consentSummary(entry: ConsentCenterEntry): string {
 export function isIncomingLocationRequestActionable(
   request: OneLocationAccessRequest,
   userId: string,
+  nowMs = Date.now(),
 ): boolean {
   return (
-    request.status === "pending" &&
+    isLocationRequestPending(request, nowMs) &&
     request.ownerUserId === userId &&
     request.requesterUserId !== userId
   );

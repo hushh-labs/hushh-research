@@ -1,4 +1,7 @@
-import type { OneLocationState } from "@/lib/one-location/types";
+import type {
+  OneLocationGrant,
+  OneLocationState,
+} from "@/lib/one-location/types";
 import {
   CACHE_KEYS,
   CACHE_TTL,
@@ -53,6 +56,35 @@ export const OneLocationStateResource = {
       ...snapshot.data,
       smsContactUserIds,
     });
+    return true;
+  },
+
+  /**
+   * Publish an authoritative grant mutation without discarding identity fields
+   * added by the state projection.
+   *
+   * Duration endpoints can return only the mutable grant columns at runtime.
+   * Invalidating before the write also fences off a state load that began
+   * before the mutation, so it cannot later restore the old duration.
+   */
+  mergeOwnerGrant(
+    userId: string,
+    grant: Pick<OneLocationGrant, "id"> & Partial<OneLocationGrant>,
+    fallbackState?: OneLocationState,
+  ): boolean {
+    const current = this.peek(userId)?.data ?? fallbackState;
+    if (!current) return false;
+
+    let matched = false;
+    const ownerGrants = current.ownerGrants.map((row) => {
+      if (row.id !== grant.id) return row;
+      matched = true;
+      return { ...row, ...grant };
+    });
+    if (!matched) return false;
+
+    this.invalidate(userId);
+    this.write(userId, { ...current, ownerGrants });
     return true;
   },
 

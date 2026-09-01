@@ -50,6 +50,26 @@ export function formatLocationRemaining(
   return hours === 1 ? "1 more hour" : `${hours} more hours`;
 }
 
+/**
+ * "45 min", "1h 30m", "3 hours" -- a neutral amount that callers can
+ * truthfully place before `left`. Unlike `formatLocationRemaining`, this must
+ * never imply an extension: a running first share has time left, not time
+ * "more" than some unstated baseline.
+ */
+export function formatLocationTimeLeft(
+  untilMs: number,
+  nowMs: number,
+): string | null {
+  const remainingMs = untilMs - nowMs;
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
+  const totalMinutes = Math.ceil(remainingMs / 60_000);
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (minutes) return `${hours}h ${minutes}m`;
+  return hours === 1 ? "1 hour" : `${hours} hours`;
+}
+
 /** Milliseconds for an ISO timestamp, or null when missing/unparseable. */
 export function locationTimestampMs(
   value: string | null | undefined,
@@ -64,7 +84,7 @@ export type LocationAskFacts = {
   isExtension: boolean;
   /** "3 hours", "as long as they need", or "" when no amount was named. */
   amountLabel: string;
-  /** "45 more min" left on the share being extended, when known. */
+  /** "45 min" left on the share being extended, when known. */
   remainingLabel: string;
 };
 
@@ -89,7 +109,7 @@ export function locationAskFacts(
     remainingLabel:
       expiresAtMs === null
         ? ""
-        : (formatLocationRemaining(expiresAtMs, nowMs) ?? ""),
+        : (formatLocationTimeLeft(expiresAtMs, nowMs) ?? ""),
   };
 }
 
