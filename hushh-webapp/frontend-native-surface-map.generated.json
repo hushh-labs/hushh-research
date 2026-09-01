@@ -488,7 +488,8 @@
       },
       "native": {
         "route": "/blog",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public marketing content. The native shell ships the signed-in product; the public site is web."
       },
       "shell": {
         "app_page_shell": false,
@@ -540,7 +541,8 @@
       },
       "native": {
         "route": "/blog/[slug]",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public marketing content. The native shell ships the signed-in product; the public site is web."
       },
       "shell": {
         "app_page_shell": false,
@@ -641,7 +643,8 @@
       },
       "native": {
         "route": "/circle/join",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Invite landing opened from a shared link. The link arrives in a browser, and the flow hands off to the app rather than being rendered by it."
       },
       "shell": {
         "app_page_shell": true,
@@ -891,7 +894,8 @@
       },
       "native": {
         "route": "/developers",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public developer documentation, part of the marketing site rather than the signed-in product."
       },
       "shell": {
         "app_page_shell": false,
@@ -1631,7 +1635,8 @@
       "native": {
         "route": "/kai/optimize",
         "classification": "excluded-compatibility-redirect",
-        "legacyAlias": true
+        "legacyAlias": true,
+        "reason": "Compatibility redirect to the canonical Kai route. Redirect targets carry the parity obligation, not the redirects."
       },
       "shell": {
         "app_page_shell": false,
@@ -2196,7 +2201,8 @@
       },
       "native": {
         "route": "/oauth/authorize",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "OAuth authorization must complete in a system browser. Providers reject embedded webviews, so a native surface would break the flow rather than improve it."
       },
       "shell": {
         "app_page_shell": false,
@@ -2328,7 +2334,8 @@
       },
       "native": {
         "route": "/one/calendar",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "GAP, not a permanent exclusion. Calendar is a first-class One agent and should have a native surface; it does not have one yet. Excluding it hides that. Revisit before the next native release."
       },
       "shell": {
         "app_page_shell": false,
@@ -3503,7 +3510,8 @@
       },
       "native": {
         "route": "/one/kai/optimize",
-        "classification": "excluded-compatibility-redirect"
+        "classification": "excluded-compatibility-redirect",
+        "reason": "Compatibility redirect to the canonical Kai route. Redirect targets carry the parity obligation, not the redirects."
       },
       "shell": {
         "app_page_shell": false,
@@ -5408,7 +5416,8 @@
       },
       "native": {
         "route": "/one/profile/google/oauth/return",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "OAuth return leg. It exists to receive a system-browser redirect and hand control back; there is nothing for a native surface to render."
       },
       "shell": {
         "app_page_shell": false,
@@ -5460,7 +5469,8 @@
       },
       "native": {
         "route": "/one/profile/integrations",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Redirect kept for existing bookmarks; it resolves to the Calendar agent, which carries the parity obligation."
       },
       "shell": {
         "app_page_shell": false,
@@ -5711,7 +5721,8 @@
       },
       "native": {
         "route": "/one/profile/pkm-agent-lab",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Operator lab surface for inspecting agent runs, not a product surface. Not shipped to app users."
       },
       "shell": {
         "app_page_shell": false,
@@ -6944,7 +6955,11 @@
           "out_of_scope_behavior": "Answer naturally without inventing a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/puppy",
+        "classification": "excluded-web-only",
+        "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+      },
       "shell": {
         "app_page_shell": true,
         "page_header": true,
@@ -7129,7 +7144,8 @@
       },
       "native": {
         "route": "/one/setup/calendar",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
       },
       "shell": {
         "app_page_shell": false,
@@ -8383,7 +8399,8 @@
       },
       "native": {
         "route": "/research",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public research site, part of the marketing site rather than the signed-in product."
       },
       "shell": {
         "app_page_shell": false,
@@ -8435,7 +8452,8 @@
       },
       "native": {
         "route": "/research/protocol",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Public research site, part of the marketing site rather than the signed-in product."
       },
       "shell": {
         "app_page_shell": false,
@@ -9277,7 +9295,8 @@
       },
       "native": {
         "route": "/welcome",
-        "classification": "excluded-web-only"
+        "classification": "excluded-web-only",
+        "reason": "Pre-authentication landing page. The native app opens at its own launch surface."
       },
       "shell": {
         "app_page_shell": false,
@@ -9293,5 +9312,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "f06e2642f4dcfa7ec0ee35eec546f4b224ef62116b9ce813802989ab494b9b6d"
+  "content_sha256": "42d8bbbbcf7f5e56e390f33d00c97897d0395a3254b31d83b698e7edc9489514"
 }
