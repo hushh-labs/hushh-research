@@ -35,12 +35,15 @@ import {
   isMarketplaceInvestorConnectable,
   isMarketplaceInvestorShortlistable,
   isPublicSecMarketplaceInvestor,
-  marketplaceInvestorEvidenceLinks,
   marketplaceInvestorActionTarget,
   marketplaceInvestorCardId,
   marketplaceInvestorCurationLabel,
+  marketplaceInvestorEvidenceLinks,
   marketplaceInvestorSourceLabel,
   marketplaceInvestorUserId,
+  marketplaceSavedInvestorLeadFromAction,
+  marketplaceSavedInvestorLeadsFromActions,
+  type MarketplaceSavedInvestorLead,
 } from "@/lib/marketplace/investor-discovery";
 import { formatMarketplaceDisplayName } from "@/lib/marketplace/display-name";
 import { resolveMarketplacePrimaryCardLabel } from "@/lib/marketplace/primary-card-label";
@@ -225,6 +228,7 @@ export default function MarketplacePage() {
   const [passedRiaIds, setPassedRiaIds] = useState<string[]>([]);
   const [passedInvestorIds, setPassedInvestorIds] = useState<string[]>([]);
   const [shortlistedInvestorIds, setShortlistedInvestorIds] = useState<string[]>([]);
+  const [savedInvestorLeads, setSavedInvestorLeads] = useState<MarketplaceSavedInvestorLead[]>([]);
   const [contactMatches, setContactMatches] = useState<MarketplaceContactMatch[]>([]);
   const [contactMatchLoading, setContactMatchLoading] = useState(false);
   const [contactMatchError, setContactMatchError] = useState<string | null>(null);
@@ -393,11 +397,13 @@ export default function MarketplacePage() {
           .filter((item) => item.status === "shortlisted")
           .map((item) => String(item.target_key || "").trim())
           .filter(Boolean);
+        const savedLeads = marketplaceSavedInvestorLeadsFromActions(actions);
 
         setPassedInvestorIds((current) => Array.from(new Set([...current, ...passed])));
         setShortlistedInvestorIds((current) =>
           Array.from(new Set([...current, ...shortlisted])),
         );
+        setSavedInvestorLeads(savedLeads);
       } catch (error) {
         console.warn("[Marketplace] Could not load persisted investor deck actions", error);
       }
@@ -430,6 +436,30 @@ export default function MarketplacePage() {
       }
     },
     [user]
+  );
+
+  const forgetInvestorDeckDecision = useCallback(
+    (kind: "shortlisted", investorId: string) => {
+      if (!user || typeof window === "undefined") return;
+      const normalizedId = investorId.trim();
+      if (!normalizedId) return;
+      const key = `marketplace:ria:${user.uid}:${
+        kind === "shortlisted" ? "shortlisted-investors" : "passed-investors"
+      }`;
+      try {
+        const current = JSON.parse(window.localStorage.getItem(key) || "[]");
+        const ids = Array.isArray(current)
+          ? current.map((item) => String(item || "").trim()).filter(Boolean)
+          : [];
+        window.localStorage.setItem(
+          key,
+          JSON.stringify(ids.filter((item) => item !== normalizedId)),
+        );
+      } catch {
+        window.localStorage.setItem(key, "[]");
+      }
+    },
+    [user],
   );
 
   useEffect(() => {
@@ -668,9 +698,13 @@ export default function MarketplacePage() {
       .filter((item) => item.kind === "investor")
       .map((item) => item.profile as MarketplaceInvestor);
     return new Map(
-      [...investors, ...contactInvestors].map((item) => [marketplaceInvestorCardId(item), item])
+      [
+        ...investors,
+        ...contactInvestors,
+        ...savedInvestorLeads.map((lead) => lead.investor),
+      ].map((item) => [marketplaceInvestorCardId(item), item])
     );
-  }, [contactMatches, investors]);
+  }, [contactMatches, investors, savedInvestorLeads]);
 
   const advisorCards = useMemo<DiscoveryCard[]>(() => {
     return rias.map((ria) => {
@@ -925,13 +959,24 @@ export default function MarketplacePage() {
   const shortlistInvestor = useCallback(async (investor: MarketplaceInvestor) => {
     const investorId = marketplaceInvestorCardId(investor);
     try {
-      await persistInvestorAction(investor, "shortlist", { gesture: "right_swipe_or_save" });
+      const actionRecord = await persistInvestorAction(investor, "shortlist", {
+        gesture: "right_swipe_or_save",
+      });
+      const savedLead = actionRecord
+        ? marketplaceSavedInvestorLeadFromAction(actionRecord)
+        : null;
       setShortlistedInvestorIds((current) =>
         current.includes(investorId) ? current : [...current, investorId]
       );
       setPassedInvestorIds((current) =>
         current.includes(investorId) ? current : [...current, investorId]
       );
+      if (savedLead) {
+        setSavedInvestorLeads((current) => [
+          savedLead,
+          ...current.filter((lead) => lead.id !== savedLead.id),
+        ]);
+      }
       rememberInvestorDeckDecision("shortlisted", investorId);
       rememberInvestorDeckDecision("passed", investorId);
       toast.success("Investor lead saved. Saved to the database-backed RIA deck shortlist.");
@@ -939,6 +984,22 @@ export default function MarketplacePage() {
       toast.error(error instanceof Error ? error.message : "Could not save investor lead");
     }
   }, [persistInvestorAction, rememberInvestorDeckDecision]);
+
+  const removeSavedInvestorLead = useCallback(async (lead: MarketplaceSavedInvestorLead) => {
+    try {
+      await persistInvestorAction(lead.investor, "pass", { gesture: "remove_saved_lead" });
+      setSavedInvestorLeads((current) => current.filter((item) => item.id !== lead.id));
+      setShortlistedInvestorIds((current) => current.filter((item) => item !== lead.id));
+      setPassedInvestorIds((current) =>
+        current.includes(lead.id) ? current : [...current, lead.id]
+      );
+      forgetInvestorDeckDecision("shortlisted", lead.id);
+      rememberInvestorDeckDecision("passed", lead.id);
+      toast.success("Saved lead removed from the RIA deck.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not remove saved lead");
+    }
+  }, [forgetInvestorDeckDecision, persistInvestorAction, rememberInvestorDeckDecision]);
 
   const openDiscoveryProfile = useCallback((card: DiscoveryCard) => {
     if (card.kind === "investor") {
@@ -1249,6 +1310,89 @@ export default function MarketplacePage() {
           </RiaSurface>
         ) : null}
 
+      {!iamUnavailable && isRiaConnectSurface && directoryKind === "investors" && view === "list" ? (
+        <RiaSurface data-testid="marketplace-saved-leads" className="space-y-4 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                RIA Deck
+              </p>
+              <h2 className="mt-1 text-[17px] font-semibold leading-snug tracking-normal text-foreground">
+                Saved investor leads
+              </h2>
+            </div>
+            <span className="rounded-full bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground dark:bg-white/5">
+              {savedInvestorLeads.length}
+            </span>
+          </div>
+
+          {savedInvestorLeads.length === 0 ? (
+            <p className="text-sm leading-6 text-muted-foreground">
+              Save investor leads from Marketplace to keep them here for follow-up.
+            </p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {savedInvestorLeads.map((lead) => {
+                const sourceLabel = marketplaceInvestorSourceLabel(lead.investor);
+                const curationLabel = marketplaceInvestorCurationLabel(lead.investor);
+                return (
+                  <div
+                    key={lead.id}
+                    className="rounded-[var(--radius-md)] bg-background/55 p-4 dark:bg-white/5"
+                  >
+                    <div className="flex min-w-0 items-start gap-3">
+                      <ProfileAvatar
+                        kind="investor"
+                        label={lead.investor.display_name}
+                        className="h-10 w-10 shrink-0"
+                        riaSurface={isRiaConnectSurface}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <h3 className="break-words text-sm font-semibold leading-5 text-foreground">
+                          {formatMarketplaceDisplayName(lead.investor.display_name)}
+                        </h3>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                          {lead.investor.headline ||
+                            lead.investor.strategy_summary ||
+                            "Saved investor lead"}
+                        </p>
+                        <p className="mt-2 line-clamp-1 text-xs text-muted-foreground">
+                          {[curationLabel, sourceLabel, lead.investor.location_hint]
+                            .filter(Boolean)
+                            .join(" - ") || "RIA Deck lead"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        className="min-w-0 justify-center"
+                        onClick={() => setSelectedProfile({ kind: "investor", id: lead.id })}
+                      >
+                        View details
+                        <ArrowUpRight className="ml-2 h-4 w-4 shrink-0" />
+                      </Button>
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        className="min-w-0 justify-center"
+                        onClick={() => void removeSavedInvestorLead(lead)}
+                      >
+                        <X className="mr-2 h-4 w-4 shrink-0" />
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </RiaSurface>
+      ) : null}
+
       {iamUnavailable ? (
         <RiaSurface className="border-dashed border-amber-500/40 bg-amber-500/5 p-4">
           <p className="text-sm text-muted-foreground">
@@ -1375,6 +1519,9 @@ export default function MarketplacePage() {
                             isMarketplaceInvestorShortlistable(
                               swipeCard.profile as MarketplaceInvestor
                             ),
+                          isInvestorShortlisted:
+                            swipeCard.kind === "investor" &&
+                            shortlistedInvestorIds.includes(swipeCard.id),
                         })}
                       </span>
                     </Button>
@@ -1508,6 +1655,9 @@ export default function MarketplacePage() {
                           currentPersona,
                           canConnect: item.canConnect,
                           isInvestorShortlistable,
+                          isInvestorShortlisted:
+                            item.kind === "investor" &&
+                            shortlistedInvestorIds.includes(item.id),
                         })}
                       </span>
                     </Button>

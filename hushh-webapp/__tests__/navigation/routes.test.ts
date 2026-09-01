@@ -116,9 +116,14 @@ describe("navigation routes", () => {
     expect(
       buildProfileRoute({ panel: "my-data", detail: "domain:finance" }),
     ).toBe("/one/profile/my-data/domain?key=finance");
+    // Sharing and its per-connection detail are sub-views of the unified Memory
+    // panel but keep the legacy /one/profile/access URLs for deep-link parity.
     expect(
-      buildProfileRoute({ panel: "access", detail: "connection:abc 123" }),
+      buildProfileRoute({ panel: "my-data", detail: "connection:abc 123" }),
     ).toBe("/one/profile/access/connection?id=abc+123");
+    expect(buildProfileRoute({ panel: "my-data", detail: "sharing" })).toBe(
+      "/one/profile/access",
+    );
     expect(
       buildProfileRoute({
         panel: "support",
@@ -155,7 +160,14 @@ describe("navigation routes", () => {
         "/one/profile",
         "tab=privacy&detail=connection:abc",
       ),
-    ).toEqual({ panel: "access", detail: "connection:abc" });
+    ).toEqual({ panel: "my-data", detail: "connection:abc" });
+    expect(resolveProfileRouteState("/one/profile/access")).toEqual({
+      panel: "my-data",
+      detail: "sharing",
+    });
+    expect(
+      resolveProfileRouteState("/one/profile/access/connection", "id=abc"),
+    ).toEqual({ panel: "my-data", detail: "connection:abc" });
     expect(resolveProfileRouteState("/one/profile/regulatory")).toEqual({
       panel: null,
       detail: null,

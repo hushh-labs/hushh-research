@@ -100,7 +100,6 @@ export function resolveSmsContactsBackAction(
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "account") return "Account";
   if (panel === "my-data") return "Memory";
-  if (panel === "access") return "Access & sharing";
   if (panel === "connected-systems") return "Connected Systems";
   if (panel === "preferences") return "Preferences";
   if (panel === "security") return "Security";
@@ -165,6 +164,7 @@ function profileDetailLabel(detail: string | null): string | null {
   if (!detail) return null;
   if (detail.startsWith("domain:")) return "Domain detail";
   if (detail.startsWith("connection:")) return "Connection detail";
+  if (detail === "sharing") return "Sharing";
   if (detail === "appearance") return "Appearance";
   if (detail === "kai-preferences") return "Finance preferences";
   if (detail === "gemini") return "Gemini";
@@ -1115,15 +1115,36 @@ function resolveTopShellBreadcrumbInner(
     pathname === `${ROUTES.PROFILE}/pkm` ||
     pathname === `${ROUTES.PROFILE}/pkm-agent-lab`
   ) {
-    const privacyHref = profilePanelHref("access");
+    const memoryHref = profilePanelHref("my-data");
     return {
-      backHref: privacyHref,
+      backHref: memoryHref,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: privacyHref },
-        { label: "Privacy", href: privacyHref },
+        { label: "Profile", href: memoryHref },
+        { label: "Memory", href: memoryHref },
         { label: "PKM Agent" },
+      ],
+    };
+  }
+
+  // The per-connection revoke detail sits one level below the Memory → Sharing
+  // sub-view, deeper than the generic panel/detail breadcrumb can express.
+  if (pathname === ROUTES.PROFILE_ACCESS_CONNECTION) {
+    const memoryHref = profilePanelHref("my-data");
+    const sharingHref = buildProfileRoute({
+      panel: "my-data",
+      detail: "sharing",
+    });
+    return {
+      backHref: sharingHref,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Memory", href: memoryHref },
+        { label: "Sharing", href: sharingHref },
+        { label: "Connection detail" },
       ],
     };
   }

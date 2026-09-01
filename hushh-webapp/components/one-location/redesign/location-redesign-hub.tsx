@@ -3484,7 +3484,7 @@ export function PeopleHub({
   );
 
   return (
-    <div className="pt-5 sm:pt-9" data-testid="one-location-people-hub">
+    <div data-testid="one-location-people-hub">
       <div className="space-y-7 sm:space-y-10">
         <CirclesSection
           circles={vm.circles}
