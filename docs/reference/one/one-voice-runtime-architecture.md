@@ -41,6 +41,27 @@ flowchart TD
 
 ## Current Truth
 
+### Siri/App Shortcut entry adapter
+
+On iOS 16 and later, `TalkToHusshOneIntent` is an entry adapter into this
+runtime, not a second voice runtime. Siri or App Shortcuts foregrounds the
+UIKit/Capacitor app and enqueues one five-minute metadata-only invocation:
+`{id, kind, source, createdAt, expiresAt}`. The native bridge retains that
+request through ordinary cold launch and Hussh sign-in, then the app-level
+handoff waits for foreground visibility, restored authentication, resolved
+route context, the redacted runtime snapshot, and the persistent Agent Bar
+owner. The Agent Bar alone acquires the existing voice lease, microphone,
+Gemini Live transport, relay ticket, WebSocket, context, consent, capture, and
+playback paths.
+
+The adapter does not forward Siri's utterance, force a route, require vault
+unlock, or create an action id. A signed-in but locked account begins in the
+existing `signed_locked` tier, where sensitive tools continue to fail closed.
+Invocation ids are coalesced and claimed exactly once; a transport failure
+reveals the existing Talk to One control as a tap fallback but fails the
+automatic-start release gate. Android and web deliberately report this Apple
+system surface as unsupported/no pending invocation.
+
 ### Route orchestration index
 
 `contracts/kai/one-route-orchestration-index.v1.json` is generated from the

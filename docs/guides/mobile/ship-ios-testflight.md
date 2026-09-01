@@ -37,6 +37,7 @@ NODE_OPTIONS=--max-old-space-size=8192 npm run ios:prepare:uat   # cap:build + c
 NEXT_BUILD = max(asc_latest_build(MARKETING_VERSION), pbxproj CURRENT_PROJECT_VERSION) + 1
 
 xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -clonedSourcePackagesDirPath …
+xcodebuild test -project ios/App/App.xcodeproj -scheme App -only-testing:AppTests  # blocks upload on native unit failures
 xcodebuild archive        -allowProvisioningUpdates -authenticationKey{Path,ID,IssuerID} CURRENT_PROJECT_VERSION=$NEXT_BUILD
 xcodebuild -exportArchive -exportOptionsPlist ios/ExportOptions/AppStoreConnect.plist  # destination=upload → TestFlight
 ```
@@ -133,7 +134,8 @@ names into this runbook, and never infer production authority from UAT authoriza
 
 ## Verify (don't stop at "workflow green")
 
-1. Read the run's job summary: SHA, resolved marketing version and build number, upload vs dry run.
+1. Confirm the native `AppTests` release gate passed, then read the run's job summary: SHA,
+   resolved marketing version and build number, upload vs dry run.
 2. For a real run, confirm the resolved version/build appears in **TestFlight** for internal
    testers after Apple finishes processing (a few minutes), already compliant.
 3. On device: the TestFlight build boots against **UAT** backend — asserted by

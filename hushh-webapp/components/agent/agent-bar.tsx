@@ -50,7 +50,12 @@ import {
   getAgentVoiceStatusLabel,
   useAgentVoiceState,
 } from "@/lib/agent/agent-voice-state";
-import { AGENT_CONVERSATION_REQUEST_EVENT } from "@/lib/agent/agent-voice-settings";
+import {
+  AGENT_CONVERSATION_REQUEST_EVENT,
+  acknowledgeAgentConversation,
+  markAgentConversationOwnerReady,
+  type AgentConversationRequest,
+} from "@/lib/agent/agent-voice-settings";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { validateMorphyAxAssessment } from "@/lib/morphy-ax";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
@@ -372,6 +377,25 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
+  // A system invocation can only request this existing owner. Correlation
+  // metadata stays in memory until the Live transport either listens or fails.
+  const externalStartRequestRef = useRef<AgentConversationRequest | null>(null);
+  const finishExternalStart = useCallback((outcome: "accepted" | "failed") => {
+    const request = externalStartRequestRef.current;
+    if (!request?.requestId || request.source !== "siri_app_shortcut") return;
+    externalStartRequestRef.current = null;
+    acknowledgeAgentConversation({
+      source: "siri_app_shortcut",
+      requestId: request.requestId,
+      outcome,
+    });
+    if (outcome === "failed") {
+      snapKaiBottomChromeVisible();
+      console.info(
+        `[SIRI_ONE_VOICE] state=fallback_shown request_id=${request.requestId} source=siri_app_shortcut outcome=failed`,
+      );
+    }
+  }, []);
 
   // Test-only dispatch entry point: invokes the same pure execution boundary a
   // real Gemini tool-call reaches, but skips the confirmation card and journey
@@ -586,6 +610,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         if (status !== "idle") {
           setVoiceStatus(status, event.message ?? null, eventOptions);
         }
+        if (status === "listening") {
+          finishExternalStart("accepted");
+        }
         return;
       }
       if (event.type === "input_level") {
@@ -611,6 +638,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         erroredRef.current = true;
         lastErrorResumableRef.current = event.resumable === true;
         setVoiceStatus("error", event.message, eventOptions);
+        finishExternalStart("failed");
         return;
       }
       if (event.type === "assistant_text") {
@@ -1307,6 +1335,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       switchPersona,
       user?.uid,
       vaultOwnerToken,
+      finishExternalStart,
     ],
   );
 
@@ -1597,16 +1626,32 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     );
   }, [abandonPendingConfirmation, pathname]);
 
-  const startConversation = useCallback(async () => {
+  const startConversation = useCallback(async (externalRequest?: AgentConversationRequest) => {
+    const isSiriRequest =
+      externalRequest?.source === "siri_app_shortcut" &&
+      Boolean(externalRequest.requestId);
     // Toggle off when a session (live OR an error still on screen) exists.
     if (voiceLeaseRef.current && !liveClientRef.current && !conversationActive) {
       // A second native tap while credentials are resolving is the same start
       // request, not a toggle. Coalesce it so one mic/socket survives.
+      if (isSiriRequest) {
+        externalStartRequestRef.current = externalRequest ?? null;
+      }
       return;
     }
     if (liveClientRef.current || erroredRef.current || conversationActive) {
+      if (isSiriRequest) {
+        externalStartRequestRef.current = externalRequest ?? null;
+        finishExternalStart(
+          liveClientRef.current || conversationActive ? "accepted" : "failed",
+        );
+        return;
+      }
       stopConversation();
       return;
+    }
+    if (isSiriRequest) {
+      externalStartRequestRef.current = externalRequest ?? null;
     }
     const lease = appInteractionCoordinator.acquireVoiceLease({
       owner: "one_live",
@@ -1626,6 +1671,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       setVoiceStatus("error", "Your Gemini key is unavailable. Open Connections settings.");
       lease.release("missing_runtime_credential");
       voiceLeaseRef.current = null;
+      finishExternalStart("failed");
       return;
     }
     if (runtimeConnection.transport === "vertex_api_key") {
@@ -1636,6 +1682,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       );
       lease.release("unsupported_voice_transport");
       voiceLeaseRef.current = null;
+      finishExternalStart("failed");
       return;
     }
     erroredRef.current = false;
@@ -1686,7 +1733,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       runtimeVertexLocation: runtimeConnection.vertexLocation,
       resumptionHandle,
       voiceName: readVoicePreferences(user?.uid).voiceName,
-    });
+    }).catch(() => finishExternalStart("failed"));
   }, [
     conversationActive,
     runtime?.oneVoiceContextSnapshot,
@@ -1698,6 +1745,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     vaultKey,
     user?.uid,
     setVoiceStatus,
+    finishExternalStart,
   ]);
 
   // Retrying from an error is stop-then-start, but not in the same tick:
@@ -1777,14 +1825,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   );
 
   useEffect(() => {
-    const handleConversationRequest = () => {
-      void startConversation();
+    const handleConversationRequest = (event: Event) => {
+      const request = (event as CustomEvent<AgentConversationRequest>).detail;
+      void startConversation(
+        request?.source === "siri_app_shortcut" ? request : undefined,
+      );
     };
     window.addEventListener(
       AGENT_CONVERSATION_REQUEST_EVENT,
       handleConversationRequest,
     );
+    const markUnavailable = markAgentConversationOwnerReady();
     return () => {
+      markUnavailable();
       window.removeEventListener(
         AGENT_CONVERSATION_REQUEST_EVENT,
         handleConversationRequest,

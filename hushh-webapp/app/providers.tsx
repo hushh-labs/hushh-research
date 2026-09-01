@@ -27,6 +27,7 @@ import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
+import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
 import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
@@ -474,6 +475,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         <VaultProvider>
           <AgentRuntimeStateProvider>
             <AgentPopoverProvider>
+              <SiriOneVoiceHandoff />
               <NativeTestRouter />
               <NativeTestBootstrap />
               <NativeTestRouteStatus />

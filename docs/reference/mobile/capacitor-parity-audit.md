@@ -214,6 +214,10 @@ Native parity for authenticated flows now includes the verified phone mandate af
 - `/register-phone` is a contract route even though it bypasses the standard shell.
 - One Voice/Kai compatibility surfaces require native microphone permission metadata:
   `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
+- Siri/App Shortcuts is an explicit iOS system-surface specialization. Its
+  `HushhVoiceInvocation` bridge exposes metadata-only pending/claim/complete
+  handoff methods on iOS; Android and web return unsupported/no pending
+  invocation and do not create a parallel assistant integration.
 - One Location Agent requires foreground-only location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,
   `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on
