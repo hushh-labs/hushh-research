@@ -2884,7 +2884,7 @@ class ConnectionsService:
             """
             SELECT c.id AS connection_id,
                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
-                   a.display_name, a.photo_url, c.created_at,
+                   a.display_name, a.photo_url, a.email, c.created_at,
                    EXISTS (
                      SELECT 1
                      FROM connection_origins contact_origin
@@ -2916,6 +2916,7 @@ class ConnectionsService:
                 "userId": str(r.get("user_id") or ""),
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
+                "email": r.get("email"),
                 "createdAt": _iso(r.get("created_at")),
                 "isRia": str(r.get("user_id") or "") in ria_user_ids,
                 "connectedFromContacts": bool(r.get("connected_from_contacts")),
@@ -2952,7 +2953,7 @@ class ConnectionsService:
                   WHEN connection.user_a_id = :user_id THEN connection.user_b_id
                   ELSE connection.user_a_id
                 END AS user_id,
-                identity.display_name, identity.photo_url, connection.created_at,
+                identity.display_name, identity.photo_url, identity.email, connection.created_at,
                 LOWER(BTRIM(COALESCE(
                   NULLIF(identity.display_name, ''),
                   CASE
@@ -3010,7 +3011,7 @@ class ConnectionsService:
             )
             SELECT
               page_rows.connection_id, page_rows.user_id,
-              page_rows.display_name, page_rows.photo_url,
+              page_rows.display_name, page_rows.photo_url, page_rows.email,
               page_rows.created_at, page_rows.normalized_name,
               total.total_count,
               CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
@@ -3048,6 +3049,7 @@ class ConnectionsService:
                 "userId": str(row.get("user_id") or ""),
                 "displayName": row.get("display_name"),
                 "photoUrl": row.get("photo_url"),
+                "email": row.get("email"),
                 "createdAt": row.get("created_at"),
                 "isRia": bool(row.get("is_ria")),
                 "connectedFromContacts": bool(row.get("connected_from_contacts")),

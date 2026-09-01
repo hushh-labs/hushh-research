@@ -41,6 +41,7 @@ export interface ConnectionSummaryEntry {
   userId: string;
   displayName: string | null;
   photoUrl: string | null;
+  email?: string | null;
   createdAt: string | null;
   /**
    * Whether this connection holds a verified RIA profile — the same
