@@ -509,6 +509,14 @@ describe("Connect — People", () => {
     expect(await screen.findByText("Current Person")).toBeTruthy();
     expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1);
 
+    // My connections is a disclosure now, closed on arrival. Refresh only
+    // exists against a list you can see -- a refresh control over a collapsed
+    // panel reloads something nobody is looking at.
+    expect(screen.queryByRole("button", { name: "Refresh contacts" })).toBeNull();
+    fireEvent.click(
+      screen.getByTestId("connect-my-connections-toggle"),
+    );
+
     // Refresh is a control, not part of the heading text. It used to be a
     // child of the `title` node, which SettingsGroup renders inside an element
     // carrying `role="heading"` -- a button there is folded into the heading's
@@ -1870,10 +1878,87 @@ describe("Connect — the phone-width geometry QA reported", () => {
       '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
     );
     expect(list).toBeTruthy();
+
+    // Closed on arrival, which is the point: twelve people no longer push the
+    // search field -- the reason the screen exists -- below the fold.
+    expect(list!.className).toContain("hidden");
+    expect(list!.className).not.toContain("max-h-[232px]");
+
+    fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
+
+    // Opened, it is the same scroll region it always was.
+    expect(list!.className).not.toContain("hidden");
     expect(list!.className).toContain("max-h-[232px]");
     expect(list!.className).toContain("overflow-y-auto");
     expect(list!.className).toContain("overscroll-contain");
     expect(list!.className).toContain("sm:max-h-[320px]");
+  });
+
+  it("puts Sync with the directory picker and Select on the directory", async () => {
+    /**
+     * Reported: "the positioning of the select button and sync button got
+     * interchanged".
+     *
+     * They were, and the giveaway is what each acts on. Sync fills the People
+     * directory from the address book, so it belongs beside the control that
+     * says WHICH directory you are looking at. Select turns that directory's
+     * rows into checkboxes, so it belongs on the directory's own header --
+     * not a scroll away, above a list it does not touch.
+     */
+    render(<ConnectPageClient />);
+    await screen.findByPlaceholderText("Search people");
+
+    const stickyHeader = screen.getByTestId("connect-sticky-header");
+    const directoryGroup = screen
+      .getByRole("button", { name: "Select people" })
+      .closest("section");
+
+    // Sync is up with the picker.
+    expect(
+      stickyHeader.contains(
+        screen.getByRole("button", { name: "Sync contacts" }),
+      ),
+    ).toBe(true);
+    // ...and Select is not.
+    expect(
+      stickyHeader.contains(
+        screen.getByRole("button", { name: "Select people" }),
+      ),
+    ).toBe(false);
+    // Select sits on the directory it acts on.
+    expect(directoryGroup).toBeTruthy();
+    expect(
+      directoryGroup!.contains(
+        screen.getByRole("button", { name: "Select people" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("opens My connections only when asked, and says so to a screen reader", async () => {
+    // "Connections wala ek accordion tab ki tarah ho jo click krne pe he open
+    // ho ... currently it looks long for me." A disclosure, so the state has to
+    // be announced rather than only drawn -- a chevron is not an affordance to
+    // anyone who cannot see it.
+    render(<ConnectPageClient />);
+    await screen.findByPlaceholderText("Search people");
+
+    const toggle = screen.getByTestId("connect-my-connections-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute(
+      "aria-controls",
+      "connect-my-connections-panel",
+    );
+    // The panel it names exists whether or not it is showing, so the reference
+    // is never dangling.
+    expect(
+      document.getElementById("connect-my-connections-panel"),
+    ).not.toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
   it("asks for the search field in two words", async () => {
@@ -2190,7 +2275,7 @@ describe("Connect — Circles", () => {
     mocks.searchParams = new URLSearchParams("tab=circles");
     render(<ConnectPageClient />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Connections" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Connections" }));
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
@@ -2211,7 +2296,7 @@ describe("Connect — Circles", () => {
       screen.getByRole("button", { name: "Cancel selecting people" }),
     ).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Circles" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Circles" }));
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");

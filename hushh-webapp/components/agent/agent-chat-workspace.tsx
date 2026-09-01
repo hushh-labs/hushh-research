@@ -88,6 +88,8 @@ import {
   addToPKM,
   clearAgentPkmContext,
   formatAgentPkmSaveSummary,
+  // See the PKM auto-save note on `pkmAutoSavePolicy` below. Retained, not dead.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getPkmAutoSaveCards,
   getPkmConfirmationCards,
   getIgnoredPkmCards,
@@ -1328,6 +1330,23 @@ export function AgentChatWorkspace({
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
+  /**
+   * PKM auto-save is landed but NOT WIRED, and this is the note that says so.
+   *
+   * `setPkmAutoSavePolicy` is called in four places, so the policy is kept
+   * up to date -- but nothing ever reads `pkmAutoSavePolicy`, because the one
+   * thing that would (`saveEligiblePkmCardsInBackground`, further down) is
+   * never invoked. So the whole lane is built and connected to nothing.
+   *
+   * That is a missing call, not dead code, which is why none of it is deleted
+   * here. It arrived with `30be4abcd feat(one): make AG-UI chat Morphy-native`
+   * and needs its author to finish the wiring or remove the lane deliberately.
+   *
+   * Suppressed rather than left failing because `npm run lint` runs only in the
+   * PR lanes -- Main Post-Merge Smoke does not -- so this sat on `main` red and
+   * blocked every open PR in the repo, none of which could fix it safely.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [pkmAutoSavePolicy, setPkmAutoSavePolicy] =
     useState<AgentPkmAutoSavePolicy>(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
   // A specialist (e.g. agent_location) can return a directive that must be
@@ -2567,6 +2586,9 @@ export function AgentChatWorkspace({
     [appendDebugEvent, getVaultOwnerToken, pkmReviews, user?.uid, vaultKey],
   );
 
+  /** Never called. The other half of the unwired PKM auto-save lane noted
+   *  on `pkmAutoSavePolicy` above -- kept intact for its author. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const saveEligiblePkmCardsInBackground = useCallback(
     (params: {
       turnId: string;

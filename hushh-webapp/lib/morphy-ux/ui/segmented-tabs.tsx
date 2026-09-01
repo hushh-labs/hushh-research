@@ -36,7 +36,13 @@ export function SegmentedTabs({
       role="tablist"
       aria-label={ariaLabel}
       className={cn(
-        "relative grid min-h-11 w-full rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5 [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        "relative grid min-h-11 w-full rounded-[14px] p-0.5 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        // One material with the Location strip: a recessed grey track, no
+        // border. It used to borrow `--app-card-surface-compact` (#fcfcfd) and
+        // a card border, which put a near-white bordered box around a
+        // near-white pill -- the same control as Location's, reading as a
+        // different component on the very next page.
+        "border-0 bg-[color:var(--app-segmented-track-surface)] shadow-none",
         className
       )}
       style={
@@ -84,9 +90,12 @@ export function SegmentedTabs({
               if (next.value !== value) onValueChange(next.value);
             }}
             className={cn(
-              "relative isolate flex min-h-10 min-w-0 items-center justify-center overflow-hidden rounded-[8px] border border-transparent px-3 py-2 text-center transition-[background-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:px-4",
+              "relative isolate flex min-h-10 min-w-0 items-center justify-center overflow-hidden rounded-[12px] border border-transparent px-3 py-2 text-center transition-[background-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:px-4",
               isActive
-                ? "z-10 bg-[color:var(--app-card-surface-default-solid)] font-semibold text-[color:var(--app-label)] shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
+                ? // Raised, not outlined. `font-semibold` matches the Location
+                  // strip's active label; the colour comes from the label
+                  // class, which forces `--app-label` either way.
+                  "z-10 border-transparent bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[var(--app-segmented-active-shadow)]"
                 : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
               disabled && "cursor-not-allowed opacity-60"
             )}
