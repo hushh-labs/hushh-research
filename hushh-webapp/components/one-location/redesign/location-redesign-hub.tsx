@@ -122,6 +122,7 @@ import type {
 } from "@/lib/one-location/types";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import {
+  countSelectedCircleRecipients,
   isCircleSelectionFullySelected,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
@@ -4490,6 +4491,10 @@ function ShareFlow({
     vm.selectedShareCircleSelection,
     vm.selectedRecipientIds,
   );
+  const selectedShareCircleRecipientCount = countSelectedCircleRecipients(
+    vm.selectedShareCircleSelection,
+    vm.selectedRecipientIds,
+  );
 
   // Step 2 of 2 — "Details" and the old separate "Consent check" merged.
   //
@@ -4700,6 +4705,9 @@ function ShareFlow({
               const selected =
                 vm.selectedShareCircleSelection?.circle.id === circle.id &&
                 shareCircleFullySelected;
+              const circleSelectionDescription = selected
+                ? `${selectedShareCircleRecipientCount} selected`
+                : circleMemberCountLabel(circle.memberCount);
               const circleRole = roleClasses("people");
               return (
                 <SettingsRow
@@ -4708,7 +4716,7 @@ function ShareFlow({
                   disabled={vm.busy === "shareCircle"}
                   onClick={() => void vm.onSelectShareCircle(circle.id)}
                   ariaPressed={selected}
-                  ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle`}
+                  ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle, ${circleSelectionDescription}`}
                   leading={
                     <span
                       className={cn(
@@ -4724,9 +4732,7 @@ function ShareFlow({
                   description={
                     vm.busy === "shareCircle"
                       ? "Loading…"
-                      : selected
-                        ? `${selectedReady.length} selected`
-                        : circleMemberCountLabel(circle.memberCount)
+                      : circleSelectionDescription
                   }
                   trailing={<SelectionDot selected={selected} />}
                 />
