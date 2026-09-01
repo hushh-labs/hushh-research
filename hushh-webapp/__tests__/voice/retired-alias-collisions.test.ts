@@ -22,7 +22,10 @@ function aliases(actionId: string): string[] {
 
 function expectOwnedBy(alias: string, winner: string, loser: string) {
   expect(aliases(winner), `${winner} should own "${alias}"`).toContain(alias);
-  expect(aliases(loser), `${loser} should no longer claim "${alias}"`).not.toContain(alias);
+  expect(
+    aliases(loser),
+    `${loser} should no longer claim "${alias}"`,
+  ).not.toContain(alias);
 }
 
 describe("Connect's generic phrases resolve to the global nav action", () => {
@@ -38,8 +41,12 @@ describe("Connect's generic phrases resolve to the global nav action", () => {
   );
 
   it("location.add_connections keeps its own dead-end phrasing", () => {
-    expect(aliases("location.add_connections")).toContain("i have no connections");
-    expect(aliases("location.add_connections")).toContain("no one to share with");
+    expect(aliases("location.add_connections")).toContain(
+      "i have no connections",
+    );
+    expect(aliases("location.add_connections")).toContain(
+      "no one to share with",
+    );
   });
 });
 
@@ -79,12 +86,20 @@ describe('"open analysis history" belongs to the direct route', () => {
 
 describe('"open ria workspace" belongs to the real home, not the compat route', () => {
   it("resolves to route.ria_home", () => {
-    expectOwnedBy("open ria workspace", "route.ria_home", "route.ria_workspace_compat");
+    expectOwnedBy(
+      "open ria workspace",
+      "route.ria_home",
+      "route.ria_workspace_compat",
+    );
   });
 
   it("the compat route keeps its explicit legacy aliases", () => {
-    expect(aliases("route.ria_workspace_compat")).toContain("open legacy ria workspace");
-    expect(aliases("route.ria_workspace_compat")).toContain("open client workspace link");
+    expect(aliases("route.ria_workspace_compat")).toContain(
+      "open legacy ria workspace",
+    );
+    expect(aliases("route.ria_workspace_compat")).toContain(
+      "open client workspace link",
+    );
   });
 });
 
@@ -117,13 +132,12 @@ describe("a bare, direct Location phrase beats the conversational catch-all", ()
 });
 
 describe('"not now" is not owned by any single setup skip step', () => {
-  // All seven setup.skip_* actions declared it. Pairwise detection only
+  // Every visible setup.skip_* action declared it. Pairwise detection only
   // flagged calendar/gmail, but a generic dismissal word no single one of
   // seven peers can claim is ambiguous wherever two are reachable at once --
   // and skip_calendar and skip_gmail both list the "one_setup" hub screen.
   const SKIP_ACTIONS = [
     "setup.skip_calendar",
-    "setup.skip_connected_systems",
     "setup.skip_email",
     "setup.skip_finance",
     "setup.skip_gmail",
@@ -139,8 +153,13 @@ describe('"not now" is not owned by any single setup skip step', () => {
     // Nothing became unreachable: each still answers to a phrase that names
     // the thing being skipped.
     for (const actionId of SKIP_ACTIONS) {
-      const own = aliases(actionId).filter((alias) => alias.startsWith("skip "));
-      expect(own.length, `${actionId} lost all of its specific aliases`).toBeGreaterThan(0);
+      const own = aliases(actionId).filter((alias) =>
+        alias.startsWith("skip "),
+      );
+      expect(
+        own.length,
+        `${actionId} lost all of its specific aliases`,
+      ).toBeGreaterThan(0);
     }
   });
 });

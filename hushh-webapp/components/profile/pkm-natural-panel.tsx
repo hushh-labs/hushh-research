@@ -10,7 +10,7 @@ import {
   type MemorySharingPosture,
   type MemorySharingState,
 } from "@/components/profile/pkm-memory-detail";
-import { SettingsGroup, SettingsRow, SettingsSegmentedTabs } from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow, SegmentedTabs } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -1052,7 +1052,7 @@ export function PkmNaturalPanel({
     <>
       {nativeBeacon}
       <div className="space-y-4">
-        <SettingsSegmentedTabs
+        <SegmentedTabs
           value={workspaceTab}
           onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
           options={MEMORY_WORKSPACE_TABS}

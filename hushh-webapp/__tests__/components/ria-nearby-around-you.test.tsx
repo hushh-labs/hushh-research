@@ -329,13 +329,14 @@ describe("filters only offer what exists", () => {
 
     // The reviewed release grades every record B. Offering A would return an
     // empty screen — the same dead-option trap the empty lane chips had.
-    expect(screen.getByRole("button", { name: /^B$/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^A$/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^C$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^B$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /^A$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /^C$/ })).not.toBeInTheDocument();
 
-    // Two now: the lane chip plus the confidence "All", which always stands
-    // because it can never come back empty.
-    expect(screen.getAllByRole("button", { name: /^All$/ })).toHaveLength(2);
+    // The lane chip remains an action while the canonical confidence selector
+    // exposes its own "All" option with tab semantics.
+    expect(screen.getAllByRole("button", { name: /^All$/ })).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: /^All$/ })).toBeInTheDocument();
   });
 });
 

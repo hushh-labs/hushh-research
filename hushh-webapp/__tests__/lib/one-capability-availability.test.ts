@@ -23,7 +23,7 @@ describe("One capability availability", () => {
     expect(isOneCapabilityEnabled(calendar)).toBe(true);
   });
 
-  it("includes Gmail and Calendar in setup and the agent selector", () => {
+  it("includes Gmail and Calendar while hiding local-only CRM", () => {
     expect(ONE_SETUP_CAPABILITIES.map((capability) => capability.id)).toEqual([
       "gmail",
       "calendar",
@@ -31,10 +31,12 @@ describe("One capability availability", () => {
       "email",
       "finance",
       "ria",
-      "connected-systems",
     ]);
     expect(getAgentSections().map((section) => section.id)).toEqual(
       expect.arrayContaining(["gmail", "calendar"]),
+    );
+    expect(getAgentSections().map((section) => section.id)).not.toContain(
+      "connected-systems",
     );
   });
 });

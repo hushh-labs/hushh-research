@@ -9,6 +9,7 @@ import {
 import {
   KAI_COMMAND_BAR_OPEN_EVENT,
   KAI_COMMAND_BAR_TOGGLE_EVENT,
+  type KaiCommandBarOpenRequest,
 } from "@/lib/navigation/kai-command-bar-events";
 import type { VoiceCapabilityStateV1 } from "@/lib/voice/capability-projection";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
@@ -48,9 +49,14 @@ export function KaiSearchBar({
   }>;
 }) {
   const [open, setOpen] = useState(false);
+  const [openRequest, setOpenRequest] = useState<KaiCommandBarOpenRequest>({});
 
   useEffect(() => {
-    const openPalette = () => setOpen(true);
+    const openPalette = (event: Event) => {
+      const request = (event as CustomEvent<KaiCommandBarOpenRequest>).detail;
+      setOpenRequest(request && typeof request === "object" ? request : {});
+      setOpen(true);
+    };
     const togglePalette = () => setOpen((current) => !current);
     window.addEventListener(KAI_COMMAND_BAR_OPEN_EVENT, openPalette);
     window.addEventListener(KAI_COMMAND_BAR_TOGGLE_EVENT, togglePalette);
@@ -63,7 +69,12 @@ export function KaiSearchBar({
   return (
     <KaiCommandPalette
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setOpenRequest({});
+      }}
+      intent={openRequest.intent}
+      initialQuery={openRequest.initialQuery}
       onSelectAction={onSelectAction}
       onSubmitPrompt={onSubmitPrompt}
       appRuntimeState={appRuntimeState}

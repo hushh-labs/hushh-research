@@ -408,7 +408,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(within(savedPanel).queryByRole("switch")).toBeNull();
     expect(within(savedPanel).queryByTestId("memory-auto-save-row")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     const toggle = await screen.findByRole("switch", {
       name: "Turn automatic memory saving on",
     });
@@ -427,7 +427,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
   it("keeps the review-first Add flow intact", async () => {
     await openMainScreen();
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
 
     const note = await screen.findByRole("textbox", { name: "Memory note" });
     fireEvent.change(note, { target: { value: "I prefer morning flights whenever possible." } });

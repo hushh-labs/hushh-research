@@ -2275,7 +2275,7 @@ describe("Connect — Circles", () => {
     mocks.searchParams = new URLSearchParams("tab=circles");
     render(<ConnectPageClient />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Connections" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Connections" }));
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
@@ -2296,7 +2296,7 @@ describe("Connect — Circles", () => {
       screen.getByRole("button", { name: "Cancel selecting people" }),
     ).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Circles" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Circles" }));
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
