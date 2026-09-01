@@ -21,11 +21,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { pkmMemoryRowLabels, type PkmMemoryCard } from "@/lib/pkm/pkm-memory-cards";
 
 export type MemorySharingState = "loading" | "private" | "shared" | "unavailable";
+
+/**
+ * The two real encrypted-PKM sharing postures for a memory's scope. `null` means
+ * the scope's posture could not be resolved (no materialized share bundle, or the
+ * manifest failed to load) — the in-place control then fails closed rather than
+ * guessing.
+ */
+export type MemorySharingPosture = "private" | "consent_required" | null;
 
 function sharingRowValue(state: MemorySharingState): string {
   switch (state) {
@@ -49,29 +58,38 @@ function sharingRowValue(state: MemorySharingState): string {
 export function PkmMemoryDetail({
   card,
   sharingState,
+  sharingPosture,
+  sharingBusy,
+  sharingError,
   canMutate,
   saving,
   deleting,
   actionError,
   onBack,
-  onOpenSharing,
+  onSharingChange,
+  onSharingOpenChange,
   onSave,
   onForget,
 }: {
   card: PkmMemoryCard;
   sharingState: MemorySharingState;
+  sharingPosture: MemorySharingPosture;
+  sharingBusy: boolean;
+  sharingError: string | null;
   canMutate: boolean;
   saving: boolean;
   deleting: boolean;
   actionError: string | null;
   onBack: () => void;
-  onOpenSharing: () => void;
+  onSharingChange: (nextPosture: "private" | "consent_required") => void;
+  onSharingOpenChange?: (open: boolean) => void;
   onSave: (nextValue: string) => void;
   onForget: () => void;
 }) {
   const { primary, secondary } = pkmMemoryRowLabels(card);
   const [editOpen, setEditOpen] = useState(false);
   const [forgetOpen, setForgetOpen] = useState(false);
+  const [sharingOpen, setSharingOpen] = useState(false);
   const [editValue, setEditValue] = useState(card.value);
   const busy = saving || deleting;
 
@@ -82,6 +100,17 @@ export function PkmMemoryDetail({
   useEffect(() => {
     setEditValue(card.value);
   }, [card.id, card.value]);
+
+  // A new memory starts with its own sharing sheet closed.
+  useEffect(() => {
+    setSharingOpen(false);
+  }, [card.id]);
+
+  function changeSharingOpen(open: boolean) {
+    if (sharingBusy) return;
+    setSharingOpen(open);
+    onSharingOpenChange?.(open);
+  }
 
   return (
     <div className="space-y-7" data-pkm-detail-panel="true" data-pkm-memory-detail="true">
@@ -106,7 +135,7 @@ export function PkmMemoryDetail({
       <SettingsGroup separatorInset testId="memory-detail-meta">
         <SettingsRow
           title="Sharing"
-          onClick={onOpenSharing}
+          onClick={() => changeSharingOpen(true)}
           ariaLabel="Open sharing settings"
           trailing={
             <span className="flex items-center gap-1 text-[15px] text-muted-foreground">
@@ -187,6 +216,67 @@ export function PkmMemoryDetail({
             >
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={sharingOpen} onOpenChange={changeSharingOpen}>
+        <DialogContent
+          showCloseButton={false}
+          className="gap-4 sm:max-w-[380px]"
+          data-pkm-memory-sharing-sheet="true"
+        >
+          <DialogHeader>
+            <DialogTitle>Sharing</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm font-medium text-foreground">{primary}</p>
+
+          {sharingPosture === null ? (
+            <p className="text-sm text-muted-foreground">
+              Sharing controls for this memory aren’t available right now. Refresh and try again.
+            </p>
+          ) : (
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">Ask before sharing</p>
+                <p className="text-sm text-muted-foreground">
+                  {sharingPosture === "consent_required"
+                    ? "One asks for your approval before sharing this with anyone."
+                    : "This stays private. One never offers it, even when someone asks."}
+                </p>
+              </div>
+              <Switch
+                checked={sharingPosture === "consent_required"}
+                disabled={sharingBusy}
+                onCheckedChange={(enabled) =>
+                  onSharingChange(enabled ? "consent_required" : "private")
+                }
+                aria-label={
+                  sharingPosture === "consent_required"
+                    ? "Make this memory private"
+                    : "Ask before sharing this memory"
+                }
+              />
+            </div>
+          )}
+
+          {sharingBusy ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Updating sharing choices…
+            </p>
+          ) : null}
+          {sharingError ? <p className="text-sm text-destructive">{sharingError}</p> : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              effect="fade"
+              disabled={sharingBusy}
+              onClick={() => changeSharingOpen(false)}
+            >
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>
