@@ -956,6 +956,23 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
+  /**
+   * "My connections" is a disclosure, closed until asked for.
+   *
+   * Reported: "Connections wala ek accordion tab ki tarah ho jo click krne pe
+   * he open ho ... currently it looks long for me".
+   *
+   * It was two stacked lists of people on one screen -- the ones you already
+   * know, and the ones you are looking for -- and the first one pushed the
+   * second below the fold on a phone even though the second is what the screen
+   * is FOR. Searching is the reason someone opens Connect; reviewing who you
+   * already have is the occasional visit.
+   *
+   * Closed by default rather than remembering the last state: the default is
+   * the answer to "what is this screen for", and it should not drift per
+   * person. The scroll region it had is unchanged and simply lives inside now.
+   */
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const connectionsHeading = isAdvisorTab
     ? `My RIAs (${connectionsTotalCount})`
     : `My connections (${connectionsTotalCount})`;
@@ -2437,27 +2454,43 @@ export default function ConnectPageClient() {
                       ) : null}
                     </div>
                   )}
-                  {tab !== "nearby" ? (
+                  {/*
+                    Sync sits with the directory PICKER, and Select sits on the
+                    directory itself. They were the other way round.
+
+                    Reported as "the positioning of the select button and sync
+                    button got interchanged", and the reason it read that way is
+                    what each one acts on. Sync fills the People directory from
+                    the address book -- it belongs beside the control that says
+                    WHICH directory you are looking at. Select turns that
+                    directory's rows into checkboxes, so it belongs on the
+                    directory's own header, next to the rows it changes, rather
+                    than a scroll away above a list it does not touch.
+
+                    Same gate it carried below: People only. An advisor is found
+                    by their verified profile, not by being in your phone, and
+                    `available` is false on a desktop browser with no Google
+                    client configured -- the one case where there is genuinely
+                    nothing to read.
+                  */}
+                  {!isAdvisorTab && contactSync.available ? (
                     <Button
                       type="button"
                       variant="none"
-                      effect="fill"
+                      effect="fade"
                       size="sm"
-                      showRipple={false}
-                      className={CONNECT_SELECT_TOGGLE_CLASSNAME}
-                      disabled={loading || people.length === 0}
-                      aria-label={
-                        isSelectionMode
-                          ? "Cancel selecting people"
-                          : "Select people"
-                      }
-                      onClick={() => {
-                        setIsSelectionMode((current) => !current);
-                        setSelectedPeople(new Map());
-                        setShowLimitBanner(false);
-                      }}
+                      aria-label="Sync contacts"
+                      aria-busy={contactSync.syncing}
+                      title="Sync contacts"
+                      disabled={contactSync.syncing}
+                      onClick={() => void contactSync.sync()}
+                      className={CONNECT_INLINE_BUTTON_CLASSNAME}
                     >
-                      {isSelectionMode ? "Cancel" : "Select"}
+                      <BookUser
+                        aria-hidden="true"
+                        className="mr-1.5 h-3.5 w-3.5"
+                      />
+                      {contactSync.syncing ? "Syncing\u2026" : "Sync contacts"}
                     </Button>
                   ) : null}
                 </div>
@@ -2481,10 +2514,37 @@ export default function ConnectPageClient() {
                 ) : (
                   <div className="space-y-4 sm:space-y-5">
                     <SettingsGroup
+                      // The heading IS the toggle, which is what a disclosure
+                      // is -- so it carries `aria-expanded` and `aria-controls`
+                      // and the group's own `title` stays a plain label rather
+                      // than becoming a second thing to press.
+                      //
+                      // `<button>` inside `title` would be the mistake the
+                      // `titleAction` note below records: a control rendered
+                      // inside a `role="heading"` node is folded into the
+                      // heading's accessible name and never offered as a
+                      // control. So the button IS the title node, and the
+                      // heading role moves onto it.
                       title={
-                        <span className="min-w-0 truncate">
-                          {connectionsHeading}
-                        </span>
+                        <button
+                          type="button"
+                          data-testid="connect-my-connections-toggle"
+                          aria-expanded={connectionsOpen}
+                          aria-controls="connect-my-connections-panel"
+                          onClick={() => setConnectionsOpen((open) => !open)}
+                          className="-mx-1 flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-[10px] px-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                        >
+                          <span className="min-w-0 truncate">
+                            {connectionsHeading}
+                          </span>
+                          <ChevronDown
+                            aria-hidden="true"
+                            className={cn(
+                              "h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)] transition-transform duration-200 ease-out motion-reduce:transition-none",
+                              connectionsOpen && "rotate-180",
+                            )}
+                          />
+                        </button>
                       }
                       // Refresh sits in `titleAction`, not inside `title`. It used
                       // to be a child of the title node, which `SettingsGroup`
@@ -2494,6 +2554,7 @@ export default function ConnectPageClient() {
                       // announced as "Your connections Refresh contacts", and the
                       // button itself was never offered as something to press.
                       titleAction={
+                        connectionsOpen ? (
                         <Button
                           type="button"
                           variant="none"
@@ -2514,13 +2575,21 @@ export default function ConnectPageClient() {
                             )}
                           />
                         </Button>
+                        ) : null
                       }
                       separatorInset
-                      contentClassName={
-                        sortedConnections.length > 0
+                      // Collapsed, the group is its header and nothing else --
+                      // `hidden` rather than unmounting, so the scroll position
+                      // and any in-flight row state survive a close/open, and
+                      // the panel keeps a stable node for `aria-controls` to
+                      // point at whether or not it is showing.
+                      contentClassName={cn(
+                        !connectionsOpen && "hidden",
+                        connectionsOpen && sortedConnections.length > 0
                           ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
-                          : undefined
-                      }
+                          : undefined,
+                      )}
+                      contentId="connect-my-connections-panel"
                       testId="connect-my-connections-group"
                     >
                       {sortedConnections.length === 0 ? (
@@ -2687,29 +2756,40 @@ export default function ConnectPageClient() {
                         // where there is genuinely nothing to read. Hiding it
                         // there is kinder than a button that exists only to
                         // explain that it cannot work.
+                        // Select acts on THESE rows, so it sits on their
+                        // header rather than a scroll away in the sticky bar.
+                        // `titleAction`, not inside `title`, for the reason the
+                        // connections group above documents: a control rendered
+                        // inside a `role="heading"` node is folded into the
+                        // heading's accessible name and never offered as
+                        // something to press.
+                        // No `nearby` guard: that tab short-circuits to its own
+                        // directories component well above this node, so the
+                        // type here is already narrowed to People | RIAs.
                         titleAction={
-                          !isAdvisorTab && contactSync.available ? (
+                          <>
                             <Button
                               type="button"
                               variant="none"
-                              effect="fade"
+                              effect="fill"
                               size="sm"
-                              aria-label="Sync contacts"
-                              aria-busy={contactSync.syncing}
-                              title="Sync contacts"
-                              disabled={contactSync.syncing}
-                              onClick={() => void contactSync.sync()}
-                              className={CONNECT_INLINE_BUTTON_CLASSNAME}
+                              showRipple={false}
+                              className={CONNECT_SELECT_TOGGLE_CLASSNAME}
+                              disabled={loading || people.length === 0}
+                              aria-label={
+                                isSelectionMode
+                                  ? "Cancel selecting people"
+                                  : "Select people"
+                              }
+                              onClick={() => {
+                                setIsSelectionMode((current) => !current);
+                                setSelectedPeople(new Map());
+                                setShowLimitBanner(false);
+                              }}
                             >
-                              <BookUser
-                                aria-hidden="true"
-                                className="mr-1.5 h-3.5 w-3.5"
-                              />
-                              {contactSync.syncing
-                                ? "Syncing\u2026"
-                                : "Sync contacts"}
+                              {isSelectionMode ? "Cancel" : "Select"}
                             </Button>
-                          ) : null
+                          </>
                         }
                         description={
                           isSelectionMode ? (
