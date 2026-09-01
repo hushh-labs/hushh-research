@@ -94,6 +94,11 @@ COPY --from=builder /app/public ./public
 # Copy static assets
 COPY --from=builder /app/.next/static ./.next/static
 
+# Read every server chunk before binding the Cloud Run port. This makes an
+# image-layer/filesystem EIO a startup failure instead of an intermittent 500
+# or 120-second timeout on the first request that lazily loads that chunk.
+COPY --from=builder /app/scripts/runtime/verify-server-chunks.mjs ./scripts/runtime/verify-server-chunks.mjs
+
 # Normalize the supported standalone layouts so Cloud Run always has one
 # canonical entrypoint and any nested standalone path still resolves assets.
 RUN set -eux; \
@@ -123,5 +128,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
-# Start the canonical normalized standalone server.
-CMD ["node", "server.js"]
+# Verify the immutable runtime image, then start the canonical server.
+CMD ["sh", "-c", "node scripts/runtime/verify-server-chunks.mjs && exec node server.js"]

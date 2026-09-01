@@ -251,6 +251,8 @@ steps:
         require_non_negative_int "_DB_SQLALCHEMY_MAX_OVERFLOW" "${_DB_SQLALCHEMY_MAX_OVERFLOW}"
         require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
         require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
+        require_positive_int "_CLOUD_RUN_CPU" "${_CLOUD_RUN_CPU}"
+        require_positive_int "_CLOUD_RUN_CONCURRENCY" "${_CLOUD_RUN_CONCURRENCY}"
         if [[ "${_DB_POOL_MAX_SIZE}" -lt "${_DB_POOL_MIN_SIZE}" ]]; then
           echo "_DB_POOL_MAX_SIZE must be greater than or equal to _DB_POOL_MIN_SIZE." >&2
           exit 1
@@ -316,8 +318,9 @@ steps:
           "--allow-unauthenticated"
           "--port=8080"
           "--memory=1Gi"
-          "--cpu=1"
+          "--cpu=${_CLOUD_RUN_CPU}"
           "--timeout=3600"
+          "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
           "--session-affinity"
           "--max=${_CLOUD_RUN_MAX_INSTANCES}"
           "--min=${_CLOUD_RUN_MIN_INSTANCES}"
@@ -593,6 +596,8 @@ substitutions:
   _DB_POOL_ACQUIRE_TIMEOUT_SECONDS: "60"
   _CLOUD_RUN_MIN_INSTANCES: "1"
   _CLOUD_RUN_MAX_INSTANCES: "5"
+  _CLOUD_RUN_CPU: "1"
+  _CLOUD_RUN_CONCURRENCY: "80"
   _RUNTIME_ENVIRONMENT: ""
   # Direct backend builds remain conservative. The UAT workflow explicitly
   # overrides this from its authoritative changed-SHA verification plan.
