@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useState,
   useMemo,
   useRef,
   type CSSProperties,
@@ -71,13 +72,26 @@ export function TopShellTabs({
     tabSet.tabs.findIndex((tab) => tab.value === selectedValue),
   );
   // A single-entry tab set has nothing to switch between, so the sliding
-  // selection surface would otherwise render as one meaningless full-width
-  // pill. Skip the decorative indicator in that case.
+  // pill and accent underline (both designed to show which of several
+  // segments is active) would otherwise render as one meaningless
+  // full-width bar. Skip the decorative indicators in that case.
   const showIndicators = tabSet.tabs.length > 1;
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
+  const usesModuleSegmentedTabs =
+    tabSet.id === "location" || tabSet.id === "connect";
   const shouldResetScrollOnSelection = tabSet.id === "finance";
+
+  const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const [activeTextWidth, setActiveTextWidth] = useState(0);
+
+  useEffect(() => {
+    const activeTextSpan = textRefs.current[activeIndex];
+    if (activeTextSpan) {
+      setActiveTextWidth(activeTextSpan.offsetWidth);
+    }
+  }, [activeIndex, tabSet.tabs.length]);
 
   // Keep the shared swipe-position variable in sync with the committed active
   // tab. Taps go through `selectIndex`, which already snaps the indicator, but
@@ -85,7 +99,7 @@ export function TopShellTabs({
   // `?tab=history`, a back/forward navigation, or external route state -- the
   // persisted position variable can retain the PREVIOUS index. The transform
   // only falls back to `activeIndex` while that variable is unset, so a stale
-  // value would leave the selection surface under the wrong tab until the next
+  // value would leave the underline resting under the wrong tab until the next
   // tap. Re-sync here (never while the pager owns the variable) so the resting
   // indicator always matches the selected tab, and no-op when already aligned.
   useEffect(() => {
@@ -152,7 +166,10 @@ export function TopShellTabs({
 
   return (
     <div
-      className="top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center justify-center text-current"
+      className={cn(
+        "top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center text-current",
+        usesModuleSegmentedTabs && "justify-center",
+      )}
       data-ui-role="agent-tab-bar"
       data-top-shell-tab-set={tabSet.id}
       style={
@@ -163,7 +180,28 @@ export function TopShellTabs({
     >
       <div
         aria-label={`${tabSet.label} navigation`}
-        className="relative flex h-9 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
+        className={cn(
+          "relative flex",
+          usesModuleSegmentedTabs
+            ? // Same edges as the cards under it, at every width.
+              //
+              // This carried `mx-5` on top of the frame's own
+              // `px-[var(--page-inline-gutter-standard)]`, so it paid the page
+              // gutter twice and sat 40px narrower than the grouped cards on
+              // EVERY phone — 36px from the edge against their 16px. And it
+              // capped at 720px, a number belonging to nothing else here, while
+              // the Location column is 880px: 104-112px short on desktop.
+              //
+              // The cap is now the page column's own content width, so the two
+              // cannot drift apart again. Both tokens already exist. Scoped to
+              // Location and Connect by the module branch above — the other
+              // tab sets take the underline arm and do not move. Do NOT
+              // generalise this past module hubs: the RIA workspace runs a
+              // 96rem shell, and an 880px cap would leave its strip ~600px
+              // short per side.
+              "h-9 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
+            : "h-full w-full",
+        )}
         role="tablist"
       >
         {tabSet.tabs.map((tab, index) => {
@@ -207,12 +245,19 @@ export function TopShellTabs({
               }}
             >
               <span
+                ref={(node) => {
+                  textRefs.current[index] = node;
+                }}
                 data-ui-role="agent-tab-label"
                 className={cn(
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
-                  isActive
-                    ? "font-semibold text-[color:var(--app-label)]"
-                    : "font-medium text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]",
+                  usesModuleSegmentedTabs
+                    ? isActive
+                      ? "font-semibold text-[color:var(--app-label)]"
+                      : "font-medium text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]"
+                    : isActive
+                      ? "text-[color:var(--app-accent)]"
+                      : "text-[color:var(--app-label)] hover:text-current",
                 )}
               >
                 {tab.label}
@@ -226,7 +271,9 @@ export function TopShellTabs({
             data-testid="top-shell-tab-indicator"
             className={cn(
               "pointer-events-none absolute left-0 flex justify-center motion-reduce:transition-none",
-              "inset-y-0.5 z-0",
+              usesModuleSegmentedTabs
+                ? "inset-y-0.5 z-0"
+                : "bottom-0 z-20",
               // While the pager owns the variable -- a finger on it, or a
               // tapped panel in flight -- the pill IS the panel's position and
               // must track it frame for frame. A transition here would be a
@@ -243,8 +290,17 @@ export function TopShellTabs({
             <span
               className={cn(
                 "transition-[width] duration-150",
-                "h-full w-[calc(100%-4px)] rounded-[8px] bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgba(0,0,0,0.10)]",
+                usesModuleSegmentedTabs
+                  ? "h-full w-[calc(100%-4px)] rounded-[8px] bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
+                  : "h-[3px] rounded-full bg-[var(--app-accent)]",
               )}
+              style={{
+                width: usesModuleSegmentedTabs
+                  ? undefined
+                  : activeTextWidth
+                    ? `${Math.max(28, activeTextWidth)}px`
+                    : "max(28px, calc(100% - 2rem))",
+              }}
             />
           </div>
         ) : null}

@@ -86,57 +86,114 @@ export interface WalletCardFieldDefinition {
   readonly placeholder: string;
   readonly description?: string;
   readonly multiline?: boolean;
+  readonly type?: "email" | "tel" | "url" | "text";
   readonly inputMode?: "email" | "tel" | "url" | "text";
+  readonly autoComplete?: string;
 }
 
 /** The recommended default set: name, headline, one preferred contact, one link. */
-export const WALLET_CARD_RECOMMENDED_FIELDS: readonly WalletCardFieldDefinition[] = [
-  {
-    key: "fullName",
-    label: "Name",
-    placeholder: "Your name",
+export const WALLET_CARD_RECOMMENDED_FIELDS: readonly WalletCardFieldDefinition[] =
+  [
+    {
+      key: "fullName",
+      label: "Name",
+      placeholder: "Your name",
+    },
+    {
+      key: "headline",
+      label: "Headline (optional)",
+      placeholder: "Founder, Hussh",
+    },
+  ];
+
+const WALLET_CARD_SECONDARY_PROFILE_FIELDS: readonly WalletCardFieldDefinition[] =
+  [
+    { key: "organisation", label: "Company or college", placeholder: "Hussh" },
+    {
+      key: "locationLabel",
+      label: "Location",
+      placeholder: "Bengaluru",
+      description: "City or region only. Never a precise location.",
+    },
+    {
+      key: "summary",
+      label: "Short summary",
+      placeholder: "What you work on, in a couple of sentences.",
+      multiline: true,
+    },
+    {
+      key: "skills",
+      label: "Skills",
+      placeholder: "Product, Privacy engineering, Swift",
+      description: `Up to ${WALLET_CARD_MAX_SKILLS}, separated by commas.`,
+    },
+    {
+      key: "github",
+      label: "GitHub",
+      placeholder: "https://",
+      type: "url",
+      inputMode: "url",
+      autoComplete: "url",
+    },
+    {
+      key: "portfolio",
+      label: "Portfolio",
+      placeholder: "https://",
+      type: "url",
+      inputMode: "url",
+      autoComplete: "url",
+    },
+  ];
+
+export type PreferredContactFieldMeta = {
+  readonly key: Extract<
+    WalletCardFieldKey,
+    "email" | "phone" | "linkedin" | "website"
+  >;
+  readonly label: string;
+  readonly placeholder: string;
+  readonly type: "email" | "tel" | "url";
+  readonly inputMode: "email" | "tel" | "url";
+  readonly autoComplete: string;
+};
+
+export const PREFERRED_CONTACT_FIELD_META: Record<
+  WalletCardPreferredContact,
+  PreferredContactFieldMeta
+> = {
+  email: {
+    key: "email",
+    label: "Email",
+    placeholder: "you@example.com",
+    type: "email",
+    inputMode: "email",
+    autoComplete: "email",
   },
-  {
-    key: "headline",
-    label: "Headline",
-    placeholder: "Founder, Hussh",
-    description: "One line about what you do.",
+  phone: {
+    key: "phone",
+    label: "Phone",
+    placeholder: "+1 555 0100",
+    type: "tel",
+    inputMode: "tel",
+    autoComplete: "tel",
   },
-  {
+  linkedin: {
+    key: "linkedin",
+    label: "LinkedIn profile",
+    placeholder: "https://www.linkedin.com/in/your-profile",
+    type: "url",
+    inputMode: "url",
+    autoComplete: "url",
+  },
+  website: {
     key: "website",
     label: "Public link",
-    placeholder: "https://",
-    description: "A page you are happy for anyone to open.",
+    placeholder: "https://your-site.com",
+    type: "url",
     inputMode: "url",
+    autoComplete: "url",
   },
-];
-
-/** Everything behind "Choose what people can see". Never blocks setup. */
-export const WALLET_CARD_OPTIONAL_FIELDS: readonly WalletCardFieldDefinition[] = [
-  { key: "organisation", label: "Company or college", placeholder: "Hussh" },
-  {
-    key: "locationLabel",
-    label: "Location",
-    placeholder: "Bengaluru",
-    description: "City or region only. Never a precise location.",
-  },
-  {
-    key: "summary",
-    label: "Short summary",
-    placeholder: "What you work on, in a couple of sentences.",
-    multiline: true,
-  },
-  {
-    key: "skills",
-    label: "Skills",
-    placeholder: "Product, Privacy engineering, Swift",
-    description: `Up to ${WALLET_CARD_MAX_SKILLS}, separated by commas.`,
-  },
-  { key: "phone", label: "Phone", placeholder: "+1 555 0100", inputMode: "tel" },
-  { key: "linkedin", label: "LinkedIn", placeholder: "https://", inputMode: "url" },
-  { key: "github", label: "GitHub", placeholder: "https://", inputMode: "url" },
-  { key: "portfolio", label: "Portfolio", placeholder: "https://", inputMode: "url" },
-];
+};
 
 export const WALLET_CARD_PREFERRED_CONTACT_OPTIONS: ReadonlyArray<{
   value: WalletCardPreferredContact;
@@ -148,6 +205,51 @@ export const WALLET_CARD_PREFERRED_CONTACT_OPTIONS: ReadonlyArray<{
   { value: "linkedin", label: "LinkedIn", field: "linkedin" },
   { value: "website", label: "Link", field: "website" },
 ];
+
+export function getWalletCardPreferredField(
+  preferredContact: WalletCardPreferredContact,
+): PreferredContactFieldMeta {
+  return PREFERRED_CONTACT_FIELD_META[preferredContact];
+}
+
+/**
+ * Everything behind More Details. The selected primary-contact field is rendered
+ * directly below the selector, so it is deliberately excluded here to prevent a
+ * second mounted input with the same draft key.
+ */
+export function getWalletCardMoreDetailsFields(
+  preferredContact: WalletCardPreferredContact,
+): WalletCardFieldDefinition[] {
+  const selectedField = getWalletCardPreferredField(preferredContact).key;
+  const secondaryContactFields = WALLET_CARD_PREFERRED_CONTACT_OPTIONS.filter(
+    (option) => option.field !== selectedField,
+  ).map((option) => {
+    const meta = PREFERRED_CONTACT_FIELD_META[option.value];
+    return {
+      key: meta.key,
+      label: meta.label,
+      placeholder: meta.placeholder,
+      type: meta.type,
+      inputMode: meta.inputMode,
+      autoComplete: meta.autoComplete,
+    };
+  });
+
+  return [...secondaryContactFields, ...WALLET_CARD_SECONDARY_PROFILE_FIELDS];
+}
+
+export const WALLET_CARD_OPTIONAL_FIELDS: readonly WalletCardFieldDefinition[] =
+  getWalletCardMoreDetailsFields("email");
+
+export function countWalletCardMoreDetails(draft: WalletCardDraft): number {
+  return getWalletCardMoreDetailsFields(draft.preferredContact).filter(
+    (definition) => {
+      if (definition.key === "skills")
+        return splitSkills(draft.skills).length > 0;
+      return draft[definition.key].trim().length > 0;
+    },
+  ).length;
+}
 
 export interface WalletCardIdentityHints {
   readonly displayName?: string | null;
@@ -166,7 +268,10 @@ export function buildSmartDefaultDraft(
   const phone = normalise(identity.phoneNumber);
   return {
     ...EMPTY_WALLET_CARD_DRAFT,
-    fullName: clamp(normalise(identity.displayName), WALLET_CARD_FIELD_LIMITS.fullName),
+    fullName: clamp(
+      normalise(identity.displayName),
+      WALLET_CARD_FIELD_LIMITS.fullName,
+    ),
     email: clamp(email, WALLET_CARD_FIELD_LIMITS.email),
     phone: clamp(phone, WALLET_CARD_FIELD_LIMITS.phone),
     preferredContact: email ? "email" : phone ? "phone" : "email",
@@ -181,7 +286,10 @@ export function draftFromPayload(payload: WalletCardPayload): WalletCardDraft {
     organisation: normalise(payload.organisation),
     locationLabel: normalise(payload.location_label),
     summary: normalise(payload.summary),
-    skills: (payload.skills ?? []).map((skill) => normalise(skill)).filter(Boolean).join(", "),
+    skills: (payload.skills ?? [])
+      .map((skill) => normalise(skill))
+      .filter(Boolean)
+      .join(", "),
     email: normalise(payload.email),
     phone: normalise(payload.phone),
     website: normalise(payload.website),
@@ -200,12 +308,17 @@ export type WalletCardValidationErrors = Partial<
  * Client-side mirror of the server's validation. Returns a message per invalid
  * field; an empty object means the draft is safe to submit.
  */
-export function validateDraft(draft: WalletCardDraft): WalletCardValidationErrors {
+export function validateDraft(
+  draft: WalletCardDraft,
+): WalletCardValidationErrors {
   const errors: WalletCardValidationErrors = {};
 
-  for (const key of Object.keys(WALLET_CARD_FIELD_LIMITS) as WalletCardFieldKey[]) {
+  for (const key of Object.keys(
+    WALLET_CARD_FIELD_LIMITS,
+  ) as WalletCardFieldKey[]) {
     if (draft[key].trim().length > WALLET_CARD_FIELD_LIMITS[key]) {
-      errors[key] = `Keep this under ${WALLET_CARD_FIELD_LIMITS[key]} characters.`;
+      errors[key] =
+        `Keep this under ${WALLET_CARD_FIELD_LIMITS[key]} characters.`;
     }
   }
 
@@ -232,7 +345,9 @@ export function validateDraft(draft: WalletCardDraft): WalletCardValidationError
   const skills = splitSkills(draft.skills);
   if (skills.length > WALLET_CARD_MAX_SKILLS) {
     errors.skills = `Keep it to ${WALLET_CARD_MAX_SKILLS} skills.`;
-  } else if (skills.some((skill) => skill.length > WALLET_CARD_MAX_SKILL_LENGTH)) {
+  } else if (
+    skills.some((skill) => skill.length > WALLET_CARD_MAX_SKILL_LENGTH)
+  ) {
     errors.skills = `Each skill must be under ${WALLET_CARD_MAX_SKILL_LENGTH} characters.`;
   }
 
@@ -246,7 +361,9 @@ export function validateDraft(draft: WalletCardDraft): WalletCardValidationError
   return errors;
 }
 
-export function hasValidationErrors(errors: WalletCardValidationErrors): boolean {
+export function hasValidationErrors(
+  errors: WalletCardValidationErrors,
+): boolean {
   return Object.keys(errors).length > 0;
 }
 
@@ -256,9 +373,24 @@ export function hasValidationErrors(errors: WalletCardValidationErrors): boolean
  */
 export function draftToPayload(draft: WalletCardDraft): WalletCardPayload {
   const payload: WalletCardPayload = {};
-  assign(payload, "full_name", draft.fullName, WALLET_CARD_FIELD_LIMITS.fullName);
-  assign(payload, "headline", draft.headline, WALLET_CARD_FIELD_LIMITS.headline);
-  assign(payload, "organisation", draft.organisation, WALLET_CARD_FIELD_LIMITS.organisation);
+  assign(
+    payload,
+    "full_name",
+    draft.fullName,
+    WALLET_CARD_FIELD_LIMITS.fullName,
+  );
+  assign(
+    payload,
+    "headline",
+    draft.headline,
+    WALLET_CARD_FIELD_LIMITS.headline,
+  );
+  assign(
+    payload,
+    "organisation",
+    draft.organisation,
+    WALLET_CARD_FIELD_LIMITS.organisation,
+  );
   assign(
     payload,
     "location_label",
@@ -269,9 +401,19 @@ export function draftToPayload(draft: WalletCardDraft): WalletCardPayload {
   assign(payload, "email", draft.email, WALLET_CARD_FIELD_LIMITS.email);
   assign(payload, "phone", draft.phone, WALLET_CARD_FIELD_LIMITS.phone);
   assign(payload, "website", draft.website, WALLET_CARD_FIELD_LIMITS.website);
-  assign(payload, "linkedin", draft.linkedin, WALLET_CARD_FIELD_LIMITS.linkedin);
+  assign(
+    payload,
+    "linkedin",
+    draft.linkedin,
+    WALLET_CARD_FIELD_LIMITS.linkedin,
+  );
   assign(payload, "github", draft.github, WALLET_CARD_FIELD_LIMITS.github);
-  assign(payload, "portfolio", draft.portfolio, WALLET_CARD_FIELD_LIMITS.portfolio);
+  assign(
+    payload,
+    "portfolio",
+    draft.portfolio,
+    WALLET_CARD_FIELD_LIMITS.portfolio,
+  );
 
   const skills = splitSkills(draft.skills)
     .slice(0, WALLET_CARD_MAX_SKILLS)

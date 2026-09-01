@@ -58,7 +58,7 @@ export type ActionMenuItem = {
 };
 
 const ITEM_CLASSNAME =
-  "flex min-h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]";
+  "flex min-h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] dark:hover:bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)] disabled:opacity-45 data-[disabled]:!text-[color:var(--app-tertiary-label)] data-[disabled]:opacity-45 focus:[&_svg]:!text-[color:var(--app-secondary-label)] data-[highlighted]:[&_svg]:!text-[color:var(--app-secondary-label)]";
 
 export function ActionMenu({
   label,
@@ -124,7 +124,9 @@ export function ActionMenu({
                     disabled={item.disabled}
                     aria-busy={item.busy || undefined}
                     data-voice-control-id={item.voiceControlId}
-                    data-testid={testId ? `${testId}-item-${item.id}` : undefined}
+                    data-testid={
+                      testId ? `${testId}-item-${item.id}` : undefined
+                    }
                     onClick={() => {
                       if (item.disabled) return;
                       setOpen(false);

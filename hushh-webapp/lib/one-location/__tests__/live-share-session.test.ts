@@ -419,20 +419,16 @@ describe("resolveStoppableGrantId", () => {
     expect(resolveStoppableGrantId([entry({ grantId: "only" })])).toBe("only");
   });
 
-  it("keeps offering Stop when that one person holds BOTH shares", () => {
-    // The regression this function exists for. The rule used to be "exactly
-    // one live entry", which read a GRANT count as a PERSON count -- so a
-    // friend holding an ordinary share and an SOS share silently took away the
-    // owner's Stop button and their duration editor at the exact moment the
-    // most sharing was running. It resolves to the ORDINARY share: the SMS one
-    // has its own Stop on the Emergency screen, and after the lane split
-    // neither one ends the other.
+  it("offers Manage when one person holds BOTH share lanes", () => {
+    // One person can hold an ordinary share and Save My Soul at once. The hero
+    // card cannot honestly bind one Stop tap to either lane, so it offers
+    // Manage and the lane list carries one Stop per grant.
     expect(
       resolveStoppableGrantId([
         entry({ grantId: "sos", shareKind: "sos", expiresAt: null }),
         entry({ grantId: "ordinary" }),
       ]),
-    ).toBe("ordinary");
+    ).toBeNull();
   });
 
   it("resolves to the SOS share when it is the only thing running", () => {
