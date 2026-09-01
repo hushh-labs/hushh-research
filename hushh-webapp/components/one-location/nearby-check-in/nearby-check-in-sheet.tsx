@@ -95,6 +95,7 @@ import type {
   OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
+  OneLocationPlaceRatingSummary,
   OneLocationRateableVisit,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
@@ -681,6 +682,18 @@ export function NearbyCheckInSheet({
   // keystroke does not rebuild that object 280 times.
   const [ratingNote, setRatingNote] = useState("");
   const [savingRating, setSavingRating] = useState(false);
+  /**
+   * Anonymous per-place averages for the rows currently on screen.
+   *
+   * Keyed by place id rather than held as a list, because the projection only
+   * returns places that have cleared the publication threshold -- most rows
+   * will have nothing, and a row with nothing shows nothing rather than "no
+   * ratings yet", which would both add noise and tell a reader exactly which
+   * places nobody has rated.
+   */
+  const [ratingSummaries, setRatingSummaries] = useState<
+    Record<string, OneLocationPlaceRatingSummary>
+  >({});
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationRecovery, setLocationRecovery] =
     useState<LocationRecovery>(null);
@@ -718,6 +731,42 @@ export function NearbyCheckInSheet({
     searchResults,
     typedSearchActive,
   ]);
+  /**
+   * Fetch the anonymous averages for whatever rows are on screen.
+   *
+   * One call for the whole list rather than one per row: twenty round trips
+   * for a decoration is a waste, and it would also hand an observer a
+   * per-place timing signal they do not otherwise get. Silent on every
+   * failure -- an average is an ornament on this list, and a list that
+   * refuses to render because an ornament could not load is worse than a list
+   * without the ornament.
+   */
+  useEffect(() => {
+    if (!vaultOwnerToken || !places.length) return;
+    const placeIds = places.map((place) => place.placeId).filter(Boolean);
+    if (!placeIds.length) return;
+    let cancelled = false;
+    void OneLocationService.listPlaceRatingSummaries({
+      vaultOwnerToken,
+      placeIds,
+    })
+      .then((summaries) => {
+        if (cancelled || !summaries.length) return;
+        setRatingSummaries((current) => {
+          const next = { ...current };
+          for (const summary of summaries) next[summary.placeId] = summary;
+          return next;
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // `places` is rebuilt on every render of its inputs; keying the effect on
+    // the ids alone stops a re-render with identical rows from re-fetching.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vaultOwnerToken, places.map((place) => place.placeId).join(",")]);
+
   /**
    * Voice handlers below run inside plain async closures, not renders --
    * `automaticPlaces` read directly there would be whatever it was when the
@@ -2958,6 +3007,7 @@ export function NearbyCheckInSheet({
                             const category = place.category?.trim() || "";
                             const address = place.address?.trim() || "";
                             const metadataLabel = category || address;
+                            const ratingSummary = ratingSummaries[place.placeId];
                             const metadataTitle = Array.from(
                               new Set([category, address].filter(Boolean)),
                             ).join(" · ");
@@ -2985,12 +3035,28 @@ export function NearbyCheckInSheet({
                                   >
                                     {name}
                                   </span>
-                                  {metadataLabel ? (
+                                  {metadataLabel || ratingSummary ? (
                                     <span
                                       title={metadataTitle}
                                       className={CHECK_IN_PLACE_META_CLASSNAME}
                                     >
                                       {metadataLabel}
+                                      {ratingSummary ? (
+                                        <>
+                                          {metadataLabel ? " · " : null}
+                                          {/* A bucket, never an exact count:
+                                              an exact count beside an exact
+                                              average lets somebody watching
+                                              the list recover each new rating
+                                              by subtraction. */}
+                                          <span aria-hidden="true">★</span>
+                                          {ratingSummary.average.toFixed(1)} ·{" "}
+                                          {ratingSummary.countBucket}
+                                          <span className="sr-only">
+                                            {` Hushh rating ${ratingSummary.average.toFixed(1)} out of 5, from ${ratingSummary.countBucket} people`}
+                                          </span>
+                                        </>
+                                      ) : null}
                                     </span>
                                   ) : null}
                                 </span>

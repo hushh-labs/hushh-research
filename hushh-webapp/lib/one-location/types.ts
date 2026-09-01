@@ -701,6 +701,18 @@ export type OneLocationPlaceRating = {
   googleReviewUrl?: string | null;
 };
 
+/** The anonymous, cross-user projection for one place.
+ *
+ *  Present only once the place has cleared the publication threshold, and the
+ *  count is always a bucket ("5+", "10+") -- an exact count beside an exact
+ *  average lets an observer recover each new rating by subtraction. */
+export type OneLocationPlaceRatingSummary = {
+  placeId: string;
+  average: number;
+  countBucket: string;
+  minimumRaters: number;
+};
+
 /** A completed visit the owner could still rate. */
 export type OneLocationRateableVisit = {
   visitId: string;

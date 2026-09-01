@@ -63,6 +63,9 @@ function oneLocationActionLabel(action: string): string {
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
+    // Must equal the flow's TaskFlowHeader title exactly, or the trail and the
+    // screen stop reading as the same place.
+    "places-visited": "Places you've been",
     "private-check-in": "Private Check-In",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",

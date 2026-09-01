@@ -177,6 +177,7 @@ import {
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
+import { PlacesVisitedFlow } from "@/components/one-location/redesign/places-visited-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -685,7 +686,8 @@ type FlowKind =
   | "settings"
   | "active-shares"
   | "shared-with-me"
-  | "needs-review";
+  | "needs-review"
+  | "places-visited";
 
 // The open action flow is reflected in the URL as `?action=<slug>` so the single
 // top-left back button in the app chrome (and the OS/hardware back button) knows
@@ -713,6 +715,7 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   "active-shares": "active-shares",
   "shared-with-me": "shared-with-me",
   "needs-review": "needs-review",
+  "places-visited": "places-visited",
 };
 
 /**
@@ -1493,6 +1496,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onLeave={vm.onLeaveNamedCircle}
             onDelete={vm.onDeleteNamedCircle}
           />
+        ) : flow === "places-visited" ? (
+          <PlacesVisitedFlow />
         ) : flow === "active-shares" ||
           flow === "shared-with-me" ||
           flow === "needs-review" ? (
@@ -1524,6 +1529,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             smsContactCount={vm.smsContactUserIds.length}
             onManageSmsContacts={() => openFlow("sms-contacts")}
+            onOpenPlacesVisited={() => openFlow("places-visited")}
           />
         ) : // Every FlowKind above is matched, and `none` never reaches here.
         // This used to fall through to the temporary-link screen, so any
@@ -2790,10 +2796,12 @@ function LocationSettingsFlow({
   vm,
   smsContactCount,
   onManageSmsContacts,
+  onOpenPlacesVisited,
 }: {
   vm: LocationHubViewModel;
   smsContactCount: number;
   onManageSmsContacts: () => void;
+  onOpenPlacesVisited: () => void;
 }) {
   const [scopeSheetOpen, setScopeSheetOpen] = useState(false);
   const [draftScope, setDraftScope] = useState<AutoApproveScope | null>(null);
@@ -2901,6 +2909,27 @@ function LocationSettingsFlow({
             density="compact"
             className="[--settings-row-px:16px]"
             testId="one-location-sms-contacts-entry"
+          />
+        </SettingsGroup>
+      </LocationSettingSection>
+
+      <LocationSettingSection title="Your visits">
+        <SettingsGroup
+          embedded
+          separatorInset
+          shellClassName="[--settings-group-radius:16px] shadow-none"
+        >
+          {/* The way back into what you rated. Without an entry point the
+              ratings are write-only: the check-out pane collects them and no
+              screen ever shows them again. */}
+          <SettingsRow
+            title="Places you've been"
+            description="Your ratings and notes, private to you"
+            onClick={onOpenPlacesVisited}
+            chevron
+            density="compact"
+            className="[--settings-row-px:16px]"
+            testId="one-location-places-visited-entry"
           />
         </SettingsGroup>
       </LocationSettingSection>

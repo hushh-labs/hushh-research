@@ -367,6 +367,64 @@ def test_a_published_summary_is_an_average_and_a_bucket_never_an_exact_count():
     assert 12 not in summary.values()
 
 
+# --- the batch projection -------------------------------------------------
+
+
+def test_a_batch_omits_every_place_that_has_not_earned_an_average():
+    # A row saying "no rating yet" for every unrated place is noise on a list
+    # whose whole job is to be scanned, and it also confirms to a reader which
+    # places nobody has rated.
+    store = FakeStore()
+    store.aggregates["ready"] = {"place_id": "ready", "rating_count": 8, "rating_sum": 36}
+    store.aggregates["thin"] = {"place_id": "thin", "rating_count": 2, "rating_sum": 9}
+
+    summaries = _service(store).place_summaries(place_ids=["ready", "thin", "unknown"])
+
+    assert [s["placeId"] for s in summaries] == ["ready"]
+    assert summaries[0]["average"] == 4.5
+    assert summaries[0]["countBucket"] == "5+"
+
+
+def test_a_batch_deduplicates_and_is_bounded():
+    store = FakeStore()
+    for i in range(40):
+        store.aggregates[f"p{i}"] = {
+            "place_id": f"p{i}",
+            "rating_count": 9,
+            "rating_sum": 36,
+        }
+
+    summaries = _service(store).place_summaries(
+        place_ids=["p1", "p1", "p2"] + [f"p{i}" for i in range(40)],
+    )
+
+    ids = [s["placeId"] for s in summaries]
+    assert len(ids) == len(set(ids))
+    assert len(ids) <= 25
+
+
+def test_a_batch_skips_junk_instead_of_failing_the_whole_call():
+    store = FakeStore()
+    store.aggregates["ok"] = {"place_id": "ok", "rating_count": 6, "rating_sum": 24}
+
+    summaries = _service(store).place_summaries(place_ids=["", "   ", None, "ok"])
+
+    assert [s["placeId"] for s in summaries] == ["ok"]
+
+
+def test_a_summary_never_carries_a_user_or_an_exact_count():
+    store = FakeStore()
+    store.aggregates["p"] = {"place_id": "p", "rating_count": 37, "rating_sum": 148}
+
+    summary = _service(store).place_summaries(place_ids=["p"])[0]
+
+    assert summary["countBucket"] == "10+"
+    assert 37 not in summary.values()
+    for key in summary:
+        assert "user" not in key.lower()
+        assert "author" not in key.lower()
+
+
 # --- visits and continuity ------------------------------------------------
 
 

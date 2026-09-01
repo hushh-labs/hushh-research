@@ -77,6 +77,10 @@ PLACE_RATING_VISIT_TTL_HOURS = 168.0
 
 PLACE_RATING_HISTORY_LIMIT = 50
 
+# The nearby list caps at twenty places, so a batch larger than this is either a
+# mistake or somebody enumerating the aggregate table one page at a time.
+PLACE_RATING_SUMMARY_BATCH_LIMIT = 25
+
 _VISIT_ALGORITHM = "aes-256-gcm"
 _VISIT_SCHEMA_VERSION = 1
 _KEY_DERIVATION_SALT = b"hushh:one-location-place-rating:kdf:v1"
@@ -730,6 +734,36 @@ class OneLocationPlaceRatingService:
         # rating that no longer exists -- which is not a deletion.
         self._store.recompute_aggregate(place_id=normalized_place_id)
         return {"placeId": normalized_place_id, "deleted": True}
+
+    def place_summaries(self, *, place_ids: Any) -> list[dict[str, Any]]:
+        """Anonymous summaries for a list of places, in one call.
+
+        The nearby list shows up to twenty places at a time. Asking per row
+        would be twenty round trips for a decoration, and would also hand an
+        observer a per-place timing signal they do not otherwise have.
+
+        Order and length are not promised to match the input: a place with no
+        aggregate row simply does not appear, so a caller keys the result by
+        `placeId` rather than by index.
+        """
+        seen: set[str] = set()
+        summaries: list[dict[str, Any]] = []
+        for raw in list(place_ids or [])[:PLACE_RATING_SUMMARY_BATCH_LIMIT]:
+            try:
+                place_id = normalize_place_id(raw)
+            except ValueError:
+                continue
+            if place_id in seen:
+                continue
+            seen.add(place_id)
+            summary = self.place_summary(place_id=place_id)
+            # Below the publication threshold there is nothing to say, and
+            # saying "no rating yet" for every unrated place would be a row of
+            # noise on a list whose job is to be scanned.
+            if summary.get("average") is None:
+                continue
+            summaries.append(summary)
+        return summaries
 
     def place_summary(self, *, place_id: Any) -> dict[str, Any]:
         """The anonymous projection. Holds no user reference of any kind."""

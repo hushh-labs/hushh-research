@@ -38,6 +38,7 @@ import type {
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
   OneLocationPlaceRating,
+  OneLocationPlaceRatingSummary,
   OneLocationRateableVisit,
   OneLocationSosVoicePreference,
   OneLocationGrant,
@@ -1750,6 +1751,30 @@ export class OneLocationService {
       { headers: jsonAuthHeaders(vaultOwnerToken) },
     );
     return response.ratings ?? [];
+  }
+
+  /** Anonymous averages for a list of places, in one call.
+   *
+   *  A place that has not cleared the publication threshold simply does not
+   *  come back, so the caller keys by `placeId` and shows nothing where there
+   *  is nothing to show. */
+  static async listPlaceRatingSummaries(params: {
+    vaultOwnerToken: string;
+    placeIds: string[];
+  }): Promise<OneLocationPlaceRatingSummary[]> {
+    const placeIds = Array.from(new Set(params.placeIds.filter(Boolean))).slice(
+      0,
+      25,
+    );
+    if (!placeIds.length) return [];
+    const response = await apiJson<{
+      summaries: OneLocationPlaceRatingSummary[];
+    }>("/api/one/location/place-ratings/summaries", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ placeIds }),
+    });
+    return response.summaries ?? [];
   }
 
   static async listRateableVisits(

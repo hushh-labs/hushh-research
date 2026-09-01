@@ -30,8 +30,11 @@ const service = vi.hoisted(() => ({
   placesSearchErrorMessage: vi.fn(() => "Place search failed."),
   requestNearbyConnection: vi.fn(),
   ratePlace: vi.fn(),
+  listPlaceRatingSummaries: vi.fn(),
 }));
 
+// `listPlaceRatingSummaries` resolves empty by default: the averages are an
+// ornament on the place list, and no test here is about them.
 const visitNotes = vi.hoisted(() => ({
   recordVisitNote: vi.fn(),
 }));
@@ -104,6 +107,9 @@ const point = {
 describe("NearbyCheckInSheet", () => {
   beforeEach(() => {
     Object.values(service).forEach((mock) => mock.mockReset());
+    // Reset wipes the implementation too, and the place list awaits this on
+    // every render. An undefined return would reject inside the effect.
+    service.listPlaceRatingSummaries.mockResolvedValue([]);
     navigation.push.mockReset();
     locationMemory.readLastKnownFix.mockReset();
     locationMemory.rememberLastKnownFix.mockReset();

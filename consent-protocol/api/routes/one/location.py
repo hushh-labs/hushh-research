@@ -439,6 +439,19 @@ class PlaceRatingDeleteRequest(_CamelModel):
     place_id: str = Field(alias="placeId", min_length=1, max_length=300)
 
 
+class PlaceRatingSummariesRequest(_CamelModel):
+    """Anonymous averages for a list of places.
+
+    A POST rather than a GET because the list is a body, not a query string:
+    twenty provider place ids do not belong in a URL, and a place id in a URL
+    is a place id in every access log between here and the browser.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_ids: list[str] = Field(alias="placeIds", min_length=1, max_length=25)
+
+
 def _service() -> OneLocationAgentService:
     return OneLocationAgentService()
 
@@ -1817,6 +1830,28 @@ def list_place_ratings(
             user_id=_user_id(token_data),
             limit=limit,
         )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/place-ratings/summaries")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_place_rating_summaries(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingSummariesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Anonymous per-place averages. Never who rated, never how many exactly."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return {
+            "summaries": _place_rating_service().place_summaries(
+                place_ids=payload.place_ids,
+            )
+        }
     except Exception as exc:
         raise _handle_error(exc) from exc
 
