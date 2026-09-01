@@ -936,4 +936,30 @@ describe("top shell breadcrumbs", () => {
       resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
     ).toEqual(barePicks);
   });
+
+  it("gives the wallet card a way back to the row that opened it", () => {
+    // It had no entry at all, so the resolver returned null and the top shell
+    // rendered no breadcrumb -- leaving the screen with no way out. The Back
+    // control inside the workspace is a stage control between steps of the
+    // pass flow, present in only one stage, so it never served as the exit.
+    expect(resolveTopShellBreadcrumb("/one/wallet-card")).toEqual({
+      backHref: "/one/profile/account",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Account", href: "/one/profile/account" },
+        { label: "Apple Wallet" },
+      ],
+    });
+  });
+
+  it("sends the wallet card back to Account, the panel it is reached from", () => {
+    // profile-workspace-page.tsx pushes this route from the Apple Wallet row
+    // inside the Account panel. Backing out to bare /one/profile would land
+    // somebody a level above the row they tapped.
+    const config = resolveTopShellBreadcrumb("/one/wallet-card");
+    expect(config?.backHref).toBe("/one/profile/account");
+    expect(config?.backHref).not.toBe("/one/profile");
+  });
 });
