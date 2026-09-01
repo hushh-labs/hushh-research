@@ -248,9 +248,9 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     drag progress writes only to the owning tab strip—not an inherited root
     variable that invalidates the whole document. Vertical pane-content
     changes must not reinitialize the horizontal pager; only viewport-width
-    changes may do so. The shared tab strip uses one moving low-emphasis
-    selection wash plus the accent underline, both attached to the same live
-    swipe position.
+    changes may do so. Every shared tab strip uses the Location-proven Morphy
+    rail and one moving solid selection surface attached to the same live swipe
+    position; route-specific underline variants are not allowed.
 
 ## Pixel Grid And Symmetry Contract
 

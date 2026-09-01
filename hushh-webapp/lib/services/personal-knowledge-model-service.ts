@@ -2197,10 +2197,10 @@ export class PersonalKnowledgeModelService {
               : undefined,
         };
       }
-      const errorText = await response.text();
-      console.log("STORE DOMAIN PAYLOAD:", JSON.stringify(payload, null, 2));
-      console.log("STORE DOMAIN ERROR TEXT:", errorText);
-      throw new Error(`Failed to store domain data: ${response.status} - ${errorText}`);
+      // The payload contains encrypted material plus sensitive manifest and
+      // summary metadata. Never copy it (or an upstream validation body that
+      // may echo it) into browser logs, error overlays, Feed, or telemetry.
+      throw new Error(`Failed to store domain data: ${response.status}`);
     }
 
     const data = (await response.json()) as Record<string, unknown>;

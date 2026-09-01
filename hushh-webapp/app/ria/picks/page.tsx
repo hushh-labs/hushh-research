@@ -39,7 +39,7 @@ import {
   SurfaceInset,
   SurfaceStack,
 } from "@/components/app-ui/surfaces";
-import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SegmentedTabs } from "@/components/profile/settings-ui";
 import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
 import { TemplatePreviewModal } from "@/components/ria/template-preview-modal";
 import {
@@ -2712,7 +2712,11 @@ export default function RiaPicksPage() {
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      // Matches RiaPageShell's own default -- see its comment. The wide
+      // tables inside this screen already gate themselves behind
+      // `hidden md:block` and their own horizontal scroll, so narrowing the
+      // shell does not affect them.
+      width="agent"
       nativeTest={{
         routeId: "/ria/picks",
         marker: "native-route-ria-picks",
@@ -2750,7 +2754,7 @@ export default function RiaPicksPage() {
           {...(isDebateView ? { "data-no-route-swipe": "" } : {})}
         >
           <div data-testid="ria-picks-primary">
-            <SettingsSegmentedTabs
+            <SegmentedTabs
               value={source}
               onValueChange={(value) => {
                 const nextSource = value as PicksSource;
@@ -2763,7 +2767,7 @@ export default function RiaPicksPage() {
             />
           </div>
 
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={isDebateView ? "debate" : category}
             onValueChange={(value) => {
               if (value === "debate") {

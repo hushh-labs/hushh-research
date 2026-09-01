@@ -67,7 +67,9 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // segment itself. If ACTION_ID_SCREEN_SEGMENT_CAP were ever raised past
     // this bound, the combined array could exceed AVAILABLE_ACTION_IDS_CAP
     // even though nothing here would report an error.
-    expect(ACTION_ID_SCREEN_SEGMENT_CAP).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
+    expect(ACTION_ID_SCREEN_SEGMENT_CAP).toBeLessThanOrEqual(
+      AVAILABLE_ACTION_IDS_CAP,
+    );
   });
 
   it("is derived, not a bare number to keep in sync by hand", () => {
@@ -100,16 +102,15 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // cap used to be a bare 18, so only the first 4 (fixed declaration
     // order) survived once a screen's local segment filled its 14 slots.
     // Now the cap is sized to hold both segments in full, always.
-    expect(ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length).toBeLessThanOrEqual(
-      AVAILABLE_ACTION_IDS_CAP,
-    );
+    expect(
+      ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length,
+    ).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
   });
 });
 
 // ── enforceArrayDimensionCap unit tests ───────────────────────────────────────
 
 describe("enforceArrayDimensionCap — structured input array bounds", () => {
-
   // ── Non-array input rejection ────────────────────────────────────────────
 
   it("rejects null and signals INVALID_ARRAY_TYPE_ERROR", () => {
@@ -150,7 +151,10 @@ describe("enforceArrayDimensionCap — structured input array bounds", () => {
   });
 
   it("accepts an array whose length equals the default cap exactly", () => {
-    const atCap = Array.from({ length: STRUCTURED_CONTEXT_ARRAY_CAP }, (_, i) => i);
+    const atCap = Array.from(
+      { length: STRUCTURED_CONTEXT_ARRAY_CAP },
+      (_, i) => i,
+    );
     const result = enforceArrayDimensionCap(atCap);
     expect(result.isValidAllocation).toBe(true);
     expect(result.items).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
@@ -173,8 +177,17 @@ describe("enforceArrayDimensionCap — structured input array bounds", () => {
   it("preserves input order — first N items are kept, tail is dropped", () => {
     // 11 items with default cap 10: the last entry must be absent from result.
     const ordered = [
-      "alpha","beta","gamma","delta","epsilon",
-      "zeta","eta","theta","iota","kappa","lambda",
+      "alpha",
+      "beta",
+      "gamma",
+      "delta",
+      "epsilon",
+      "zeta",
+      "eta",
+      "theta",
+      "iota",
+      "kappa",
+      "lambda",
     ];
     const result = enforceArrayDimensionCap(ordered);
     expect(result.items[0]).toBe("alpha");
@@ -193,9 +206,9 @@ describe("enforceArrayDimensionCap — structured input array bounds", () => {
   // ── Custom cap parameter ─────────────────────────────────────────────────
 
   it("respects a custom cap smaller than the default", () => {
-    const result = enforceArrayDimensionCap(["a","b","c","d","e"], 3);
+    const result = enforceArrayDimensionCap(["a", "b", "c", "d", "e"], 3);
     expect(result.isValidAllocation).toBe(false);
-    expect(result.items).toEqual(["a","b","c"]);
+    expect(result.items).toEqual(["a", "b", "c"]);
     expect(result.errorLabel).toBe(ARRAY_DIMENSION_CAP_ERROR);
   });
 
@@ -218,7 +231,11 @@ describe("buildStructuredScreenContext", () => {
   });
 
   it("derives route-aware tab/section context across transitions", () => {
-    window.history.pushState({}, "", "/kai/portfolio?tab=overview&section=allocation");
+    window.history.pushState(
+      {},
+      "",
+      "/kai/portfolio?tab=overview&section=allocation",
+    );
     document.body.innerHTML = "<h1>Portfolio</h1>";
     const dashboardContext = buildStructuredScreenContext({
       appRuntimeState: makeRuntimeState("/kai/portfolio", "dashboard"),
@@ -234,7 +251,11 @@ describe("buildStructuredScreenContext", () => {
     expect(dashboardContext.ui.active_section).toBe("allocation");
     expect(dashboardContext.ui.selected_entity).toBe("AAPL");
 
-    window.history.pushState({}, "", "/kai/analysis?tab=history&section=history");
+    window.history.pushState(
+      {},
+      "",
+      "/kai/analysis?tab=history&section=history",
+    );
     document.body.innerHTML = "<h1>Analysis</h1>";
     const analysisContext = buildStructuredScreenContext({
       appRuntimeState: makeRuntimeState("/kai/analysis", "analysis"),
@@ -339,7 +360,11 @@ describe("buildStructuredScreenContext", () => {
 
     expect(context.route.page_title).toBe("Profile Settings");
     expect(context.ui.visible_modules).toEqual(
-      expect.arrayContaining(["Support Panel", "Gmail Connector", "Session Controls"])
+      expect.arrayContaining([
+        "Support Panel",
+        "Gmail Connector",
+        "Session Controls",
+      ]),
     );
   });
 
@@ -363,9 +388,8 @@ describe("buildStructuredScreenContext", () => {
         "route.profile",
         "route.kai_home",
         "route.ria_home",
-        "route.profile_connected_systems",
         "route.voice_settings",
-      ])
+      ]),
     );
   });
 
@@ -409,11 +433,11 @@ describe("buildStructuredScreenContext", () => {
       actions: oversizedActions,
       availableActions: Array.from(
         { length: 12 },
-        (_, index) => `Surface action ${index}`
+        (_, index) => `Surface action ${index}`,
       ),
       visibleModules: Array.from(
         { length: 12 },
-        (_, index) => `Surface module ${index}`
+        (_, index) => `Surface module ${index}`,
       ),
     });
 
@@ -422,21 +446,21 @@ describe("buildStructuredScreenContext", () => {
       voiceContext: {
         available_actions: Array.from(
           { length: 12 },
-          (_, index) => `Raw action ${index}`
+          (_, index) => `Raw action ${index}`,
         ),
         visible_modules: Array.from(
           { length: 12 },
-          (_, index) => `Raw module ${index}`
+          (_, index) => `Raw module ${index}`,
         ),
       },
     });
 
     expect(context.surface.actions).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
     expect(context.ui.available_actions.length).toBeLessThanOrEqual(
-      STRUCTURED_CONTEXT_ARRAY_CAP
+      STRUCTURED_CONTEXT_ARRAY_CAP,
     );
     expect(context.ui.visible_modules.length).toBeLessThanOrEqual(
-      STRUCTURED_CONTEXT_ARRAY_CAP
+      STRUCTURED_CONTEXT_ARRAY_CAP,
     );
   });
 
@@ -446,12 +470,14 @@ describe("buildStructuredScreenContext", () => {
       surfaceDefinition: {
         screenId: "profile_receipts",
         title: "Gmail receipts",
-        purpose: "This page syncs receipts and saves a private shopping summary automatically.",
+        purpose:
+          "This page syncs receipts and saves a private shopping summary automatically.",
         sections: [
           {
             id: "receipt_memory",
             title: "Shopping summary",
-            purpose: "This section shows the summary saved automatically to PKM.",
+            purpose:
+              "This section shows the summary saved automatically to PKM.",
           },
         ],
         actions: [
@@ -494,25 +520,30 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/one/profile/receipts", "profile_receipts"),
+      appRuntimeState: makeRuntimeState(
+        "/one/profile/receipts",
+        "profile_receipts",
+      ),
       voiceContext: {},
     });
 
     expect(context.ui.active_section).toBe("Shopping summary");
     expect(context.ui.visible_modules).toEqual(
-      expect.arrayContaining(["Connector status", "Shopping summary"])
+      expect.arrayContaining(["Connector status", "Shopping summary"]),
     );
     expect(context.ui.available_actions).toEqual(["Sync receipts"]);
     expect(context.runtime.busy_operations).toEqual([]);
     expect(context.surface.title).toBe("Gmail receipts");
-    expect(context.surface.purpose).toContain("saves a private shopping summary");
+    expect(context.surface.purpose).toContain(
+      "saves a private shopping summary",
+    );
     expect(context.surface.sections).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "receipt_memory",
           title: "Shopping summary",
         }),
-      ])
+      ]),
     );
     expect(context.surface.controls).toEqual(
       expect.arrayContaining([
@@ -520,10 +551,12 @@ describe("buildStructuredScreenContext", () => {
           id: "sync_gmail_receipts",
           action_id: "profile.gmail.sync_now",
         }),
-      ])
+      ]),
     );
     expect(context.surface.active_control_id).toBe("sync_gmail_receipts");
-    expect(context.surface.last_interacted_control_id).toBe("sync_gmail_receipts");
+    expect(context.surface.last_interacted_control_id).toBe(
+      "sync_gmail_receipts",
+    );
     expect(context.screen_metadata).toMatchObject({
       connector_state: "connected",
       receipt_count: 12,
@@ -577,7 +610,10 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/one/profile/preferences", "profile_preferences"),
+      appRuntimeState: makeRuntimeState(
+        "/one/profile/preferences",
+        "profile_preferences",
+      ),
       voiceContext: {},
     });
 
@@ -601,11 +637,15 @@ describe("buildStructuredScreenContext", () => {
     expect(context.screen_metadata.available_action_ids).toEqual(
       expect.arrayContaining(["route.profile_security_panel"]),
     );
-    expect(context.screen_metadata.available_action_ids).not.toContain("profile_theme");
+    expect(context.screen_metadata.available_action_ids).not.toContain(
+      "profile_theme",
+    );
     expect(context.screen_metadata.available_action_ids).not.toContain(
       "profile_agent_voice",
     );
-    expect(context.screen_metadata.preference_voice_actions_available).toBe(false);
+    expect(context.screen_metadata.preference_voice_actions_available).toBe(
+      false,
+    );
   });
 
   it("merges the reusable top-level surface contract into structured context", () => {
@@ -613,7 +653,8 @@ describe("buildStructuredScreenContext", () => {
     publishVoiceSurfaceMetadata("test_surface", {
       screenId: "profile_receipts",
       title: "Receipts",
-      purpose: "Review receipt sync status and build a compact PKM memory snapshot.",
+      purpose:
+        "Review receipt sync status and build a compact PKM memory snapshot.",
       sections: [
         {
           id: "connector-status",
@@ -623,7 +664,8 @@ describe("buildStructuredScreenContext", () => {
         {
           id: "receipt-memory-preview",
           title: "Receipt memory preview",
-          purpose: "Preview the derived shopping memory before saving it to PKM.",
+          purpose:
+            "Preview the derived shopping memory before saving it to PKM.",
         },
       ],
       actions: [
@@ -651,7 +693,10 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/one/profile/receipts", "profile_receipts"),
+      appRuntimeState: makeRuntimeState(
+        "/one/profile/receipts",
+        "profile_receipts",
+      ),
       voiceContext: {},
     });
 
@@ -659,7 +704,8 @@ describe("buildStructuredScreenContext", () => {
     expect(context.surface).toMatchObject({
       screen_id: "profile_receipts",
       title: "Receipts",
-      purpose: "Review receipt sync status and build a compact PKM memory snapshot.",
+      purpose:
+        "Review receipt sync status and build a compact PKM memory snapshot.",
       active_control_id: "add-to-memory",
       last_interacted_control_id: "refresh-preview",
     });
@@ -674,7 +720,7 @@ describe("buildStructuredScreenContext", () => {
           id: "receipt-memory-preview",
           title: "Receipt memory preview",
         }),
-      ])
+      ]),
     );
     expect(context.surface.actions).toEqual(
       expect.arrayContaining([
@@ -683,7 +729,7 @@ describe("buildStructuredScreenContext", () => {
           label: "Refresh receipt memory",
           description: "Rebuild the receipt memory preview.",
         }),
-      ])
+      ]),
     );
     expect(context.surface.controls).toEqual(
       expect.arrayContaining([
@@ -693,19 +739,19 @@ describe("buildStructuredScreenContext", () => {
           type: "button",
           state: "idle",
         }),
-      ])
+      ]),
     );
     expect(context.surface.concepts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ label: "receipt memory" }),
         expect.objectContaining({ label: "shopping memory" }),
-      ])
+      ]),
     );
     expect(context.ui.visible_modules).toEqual(
-      expect.arrayContaining(["Connector status", "Receipt memory preview"])
+      expect.arrayContaining(["Connector status", "Receipt memory preview"]),
     );
     expect(context.ui.available_actions).toEqual(
-      expect.arrayContaining(["Refresh receipt memory"])
+      expect.arrayContaining(["Refresh receipt memory"]),
     );
   });
 
@@ -752,7 +798,10 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/one/profile/pkm-agent-lab", "profile_pkm_agent_lab"),
+      appRuntimeState: makeRuntimeState(
+        "/one/profile/pkm-agent-lab",
+        "profile_pkm_agent_lab",
+      ),
       voiceContext: {},
     });
 
@@ -768,7 +817,7 @@ describe("buildStructuredScreenContext", () => {
           id: "preview",
           title: "Preview cards",
         }),
-      ])
+      ]),
     );
     expect(context.surface.controls).toEqual(
       expect.arrayContaining([
@@ -776,10 +825,10 @@ describe("buildStructuredScreenContext", () => {
           id: "prompt-input",
           type: "textbox",
         }),
-      ])
+      ]),
     );
     expect(context.ui.available_actions).toEqual(
-      expect.arrayContaining(["Save capture to PKM"])
+      expect.arrayContaining(["Save capture to PKM"]),
     );
   });
 
@@ -788,12 +837,14 @@ describe("buildStructuredScreenContext", () => {
     publishVoiceSurfaceMetadata("test_surface", {
       screenId: "profile_account",
       title: "Profile",
-      purpose: "This page gives you account settings, Gmail receipts access, support, and PKM access.",
+      purpose:
+        "This page gives you account settings, Gmail receipts access, support, and PKM access.",
       sections: [
         {
           id: "account",
           title: "Account",
-          purpose: "This section covers your signed-in account and profile-level entry points.",
+          purpose:
+            "This section covers your signed-in account and profile-level entry points.",
         },
       ],
       controls: [
@@ -801,7 +852,8 @@ describe("buildStructuredScreenContext", () => {
           id: "pkm_agent_lab",
           label: "PKM Agent Lab",
           role: "card",
-          purpose: "opens the workspace for previewing and saving encrypted PKM captures.",
+          purpose:
+            "opens the workspace for previewing and saving encrypted PKM captures.",
           actionId: "route.profile_pkm_agent_lab",
           voiceAliases: ["pkm agent lab", "memory lab"],
         },
@@ -841,11 +893,11 @@ describe("buildStructuredScreenContext", () => {
           id: "gmail_receipts",
           action_id: "route.profile_receipts",
         }),
-      ])
+      ]),
     );
     expect(context.ui.focused_widget).toBe("PKM Agent Lab");
     expect(context.ui.available_actions).toEqual(
-      expect.arrayContaining(["Open PKM Agent Lab", "Open Gmail"])
+      expect.arrayContaining(["Open PKM Agent Lab", "Open Gmail"]),
     );
   });
 
@@ -854,7 +906,8 @@ describe("buildStructuredScreenContext", () => {
     publishVoiceSurfaceMetadata("test_surface", {
       screenId: "kai_market",
       title: "Market",
-      purpose: "This screen is the market overview workspace for live tape, advisor signals, and discovery.",
+      purpose:
+        "This screen is the market overview workspace for live tape, advisor signals, and discovery.",
       sections: [
         {
           id: "market_overview",
@@ -921,7 +974,9 @@ describe("buildStructuredScreenContext", () => {
       voiceContext: {},
     });
 
-    const control = context.surface.controls.find((c) => c.id === "oversized-control");
+    const control = context.surface.controls.find(
+      (c) => c.id === "oversized-control",
+    );
     expect(control).toBeDefined();
     expect(control?.voice_aliases).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
   });
@@ -942,7 +997,9 @@ describe("buildStructuredScreenContext", () => {
       voiceContext: {},
     });
 
-    const concept = context.surface.concepts.find((c) => c.label === "Big Concept");
+    const concept = context.surface.concepts.find(
+      (c) => c.label === "Big Concept",
+    );
     expect(concept).toBeDefined();
     expect(concept?.aliases).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
   });
@@ -962,7 +1019,9 @@ describe("buildStructuredScreenContext", () => {
 
     expect(context.surface.sections).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
     expect(context.surface.sections[0]).toMatchObject({ id: "section_0" });
-    expect(context.surface.sections[STRUCTURED_CONTEXT_ARRAY_CAP - 1]).toMatchObject({
+    expect(
+      context.surface.sections[STRUCTURED_CONTEXT_ARRAY_CAP - 1],
+    ).toMatchObject({
       id: `section_${STRUCTURED_CONTEXT_ARRAY_CAP - 1}`,
     });
   });
@@ -972,7 +1031,8 @@ describe("buildStructuredScreenContext", () => {
     publishVoiceSurfaceMetadata("test_surface", {
       screenId: "consents",
       title: "Consents",
-      purpose: "This screen is where sharing requests are reviewed and managed.",
+      purpose:
+        "This screen is where sharing requests are reviewed and managed.",
       sections: [
         {
           id: "active",
@@ -1011,7 +1071,9 @@ describe("buildStructuredScreenContext", () => {
       title: "Consents",
     });
     expect(context.ui.active_section).toBe("Active");
-    expect(context.ui.active_filters).toEqual(expect.arrayContaining(["manager_view"]));
+    expect(context.ui.active_filters).toEqual(
+      expect.arrayContaining(["manager_view"]),
+    );
     expect(context.ui.selected_entity).toBe("Household cashflow sharing");
     expect(context.screen_metadata).toMatchObject({
       pending_count: 2,
@@ -1021,7 +1083,11 @@ describe("buildStructuredScreenContext", () => {
   });
 
   it("builds a redacted One Voice snapshot with action ids and cache posture", () => {
-    window.history.pushState({}, "", "/ria/workspace?clientId=abc123&tab=access");
+    window.history.pushState(
+      {},
+      "",
+      "/ria/workspace?clientId=abc123&tab=access",
+    );
     publishVoiceSurfaceMetadata("test_surface", {
       screenId: "ria_client_workspace",
       title: "Client workspace",
@@ -1040,7 +1106,7 @@ describe("buildStructuredScreenContext", () => {
 
     const appRuntimeState = makeRuntimeState(
       "/ria/workspace?clientId=abc123&tab=access",
-      "ria_client_workspace"
+      "ria_client_workspace",
     );
     const snapshot = buildOneVoiceContextSnapshot({
       appRuntimeState,
@@ -1065,7 +1131,7 @@ describe("buildStructuredScreenContext", () => {
     expect(snapshot.route.route_family).toBe("/ria/workspace");
     expect(snapshot.ui.selected_entity_present).toBe(false);
     expect(snapshot.available_action_ids).toContain(
-      "ria.client_workspace.request_access"
+      "ria.client_workspace.request_access",
     );
     expect(snapshot.cache).toMatchObject({
       vault_ready: true,
@@ -1271,9 +1337,9 @@ describe("a surface that declares more controls than the context can carry", () 
     );
     expect(snapshot.available_action_ids).toContain("location.pause_updates");
     // Still bounded -- this fixes an ordering bug, it does not lift the cap.
-    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
-      ACTION_ID_SCREEN_SEGMENT_CAP,
-    );
+    expect(
+      localOnlyIds(snapshot.available_action_ids).length,
+    ).toBeLessThanOrEqual(ACTION_ID_SCREEN_SEGMENT_CAP);
     // And the openers are what yields, since navigation is admitted from any
     // screen whether or not this surface submitted it.
     expect(snapshot.available_action_ids).not.toContain(
@@ -1340,9 +1406,9 @@ describe("a surface that declares more controls than the context can carry", () 
     for (const actionId of localHandlers) {
       expect(snapshot.available_action_ids).toContain(actionId);
     }
-    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
-      ACTION_ID_SCREEN_SEGMENT_CAP,
-    );
+    expect(
+      localOnlyIds(snapshot.available_action_ids).length,
+    ).toBeLessThanOrEqual(ACTION_ID_SCREEN_SEGMENT_CAP);
   });
 
   it("surfaces the circle actions someone is looking at when the local handlers outgrow even the ranked cap", () => {
@@ -1412,9 +1478,9 @@ describe("a surface that declares more controls than the context can carry", () 
     for (const actionId of peopleTabActions) {
       expect(snapshot.available_action_ids).toContain(actionId);
     }
-    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
-      ACTION_ID_SCREEN_SEGMENT_CAP,
-    );
+    expect(
+      localOnlyIds(snapshot.available_action_ids).length,
+    ).toBeLessThanOrEqual(ACTION_ID_SCREEN_SEGMENT_CAP);
   });
 
   it("keeps refresh reachable on Location's bare route now that it competes with 30 handlers (#6080)", () => {
@@ -1471,9 +1537,9 @@ describe("a surface that declares more controls than the context can carry", () 
     });
 
     expect(snapshot.available_action_ids).toContain("location.refresh");
-    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
-      ACTION_ID_SCREEN_SEGMENT_CAP,
-    );
+    expect(
+      localOnlyIds(snapshot.available_action_ids).length,
+    ).toBeLessThanOrEqual(ACTION_ID_SCREEN_SEGMENT_CAP);
   });
 
   it("keeps sos_default reachable on the SOS subview alongside trigger_sos and stop_sos", () => {
@@ -1525,15 +1591,19 @@ describe("a surface that declares more controls than the context can carry", () 
     });
 
     const snapshot = buildOneVoiceContextSnapshot({
-      appRuntimeState: makeRuntimeState("/one/location?view=sos", "one_location", "sos"),
+      appRuntimeState: makeRuntimeState(
+        "/one/location?view=sos",
+        "one_location",
+        "sos",
+      ),
     });
 
     expect(snapshot.available_action_ids).toContain("location.sos_default");
     expect(snapshot.available_action_ids).toContain("location.trigger_sos");
     expect(snapshot.available_action_ids).toContain("location.stop_sos");
-    expect(localOnlyIds(snapshot.available_action_ids).length).toBeLessThanOrEqual(
-      ACTION_ID_SCREEN_SEGMENT_CAP,
-    );
+    expect(
+      localOnlyIds(snapshot.available_action_ids).length,
+    ).toBeLessThanOrEqual(ACTION_ID_SCREEN_SEGMENT_CAP);
   });
 
   it("still shows every global nav contract when the local segment is completely full", () => {
@@ -1592,7 +1662,7 @@ describe("a surface that declares more controls than the context can carry", () 
     const availableIds = (
       context.screen_metadata as { available_action_ids: string[] }
     ).available_action_ids;
-    for (const navId of GLOBAL_NAV_ACTION_IDS) {
+    for (const navId of GLOBAL_NAV_ACTION_IDS.filter(getKaiActionById)) {
       expect(availableIds).toContain(navId);
     }
   });

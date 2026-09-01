@@ -2,15 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Lock, ShieldAlert } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
 import { PkmMemoryLevel } from "@/components/profile/pkm-memory-level";
 import {
   PkmMemoryDetail,
+  type MemorySharingPosture,
   type MemorySharingState,
 } from "@/components/profile/pkm-memory-detail";
-import { SettingsGroup, SettingsRow, SettingsSegmentedTabs } from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow, SegmentedTabs } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -24,7 +24,6 @@ import {
   buildPkmDomainPresentation,
   isConsumerBrowsablePkmDomain,
 } from "@/lib/profile/pkm-profile-presentation";
-import { ROUTES } from "@/lib/navigation/routes";
 import {
   addToPKM,
   clearAgentPkmContext,
@@ -101,7 +100,6 @@ export function PkmNaturalPanel({
   refreshToken?: number;
   onOpenExplorer?: () => void;
 } = {}) {
-  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
@@ -140,6 +138,9 @@ export function PkmNaturalPanel({
   const [sharingManifests, setSharingManifests] = useState<Record<string, DomainManifest | null>>({});
   const [sharingManifestsLoading, setSharingManifestsLoading] = useState(false);
   const [sharingActionKey, setSharingActionKey] = useState<string | null>(null);
+  const [selectedCardManifest, setSelectedCardManifest] = useState<DomainManifest | null>(null);
+  const [memorySharingActionId, setMemorySharingActionId] = useState<string | null>(null);
+  const [memorySharingError, setMemorySharingError] = useState<string | null>(null);
   const [homeSearchQuery, setHomeSearchQuery] = useState("");
   const [memoryCards, setMemoryCards] = useState<PkmMemoryCard[]>([]);
   const [memoryCardsLoading, setMemoryCardsLoading] = useState(false);
@@ -560,6 +561,31 @@ export function PkmNaturalPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCard?.id]);
 
+  // A memory opened straight from search or "Recently learned" has no selected
+  // category, so its domain manifest — the source of the per-scope share bundle
+  // and the manifest version the backend checks — is loaded here on demand.
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedCard || !user || !vaultOwnerToken) {
+      setSelectedCardManifest(null);
+      return undefined;
+    }
+    void PersonalKnowledgeModelService.getDomainManifest(
+      user.uid,
+      selectedCard.domain,
+      vaultOwnerToken,
+    )
+      .then((manifest) => {
+        if (!cancelled) setSelectedCardManifest(manifest);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedCardManifest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pkmChangeRevision, refreshNonce, selectedCard, user, vaultOwnerToken]);
+
   async function persistMemoryCardChange(params: {
     card: PkmMemoryCard;
     action: "edited" | "deleted";
@@ -797,6 +823,89 @@ export function PkmNaturalPanel({
     return "loading";
   }
 
+  // The share bundle for this memory's own top-level scope, resolved from the
+  // domain manifest. Reuses the same PKM sharing contract the Sharing tab uses.
+  function memoryScopeShareBundle(card: PkmMemoryCard) {
+    const scopePath = cardScopePath(card);
+    return (
+      buildPkmShareBundles(selectedCardManifest).find(
+        (bundle) => bundle.topLevelScopePath === scopePath,
+      ) || null
+    );
+  }
+
+  function memorySharingPosture(card: PkmMemoryCard): MemorySharingPosture {
+    const bundle = memoryScopeShareBundle(card);
+    if (!bundle || !bundle.scopeHandle) return null;
+    return bundle.enabled ? "consent_required" : "private";
+  }
+
+  // In-place per-memory sharing. Stays on the memory screen — no redirect to the
+  // Consent Center — and drives the same scope-exposure endpoint as the Sharing
+  // tab, so grant revocation on turning a scope private is handled server-side.
+  async function updateMemoryScopeSharing(
+    card: PkmMemoryCard,
+    nextPosture: "private" | "consent_required",
+  ) {
+    if (!user || !vaultOwnerToken) return;
+    const manifest = selectedCardManifest;
+    const bundle = memoryScopeShareBundle(card);
+    if (!manifest || !bundle?.scopeHandle) {
+      setMemorySharingError(
+        "Sharing controls for this memory aren’t available right now. Refresh and try again.",
+      );
+      return;
+    }
+    setMemorySharingActionId(cardImpactKey(card));
+    setMemorySharingError(null);
+    try {
+      const operation = PersonalKnowledgeModelService.updateScopeExposure({
+        userId: user.uid,
+        domain: card.domain,
+        expectedManifestVersion: manifest.manifest_version,
+        vaultOwnerToken,
+        changes: [{ scopeHandle: bundle.scopeHandle, visibilityPosture: nextPosture }],
+      });
+      void morphyToast.promise(operation, {
+        loading: "Updating sharing choices…",
+        success:
+          nextPosture === "consent_required"
+            ? "One will ask before sharing this."
+            : "This is private again.",
+        error: "Sharing choices changed elsewhere. Refresh and try again.",
+      });
+      const result = await operation;
+      if (result.manifest) setSelectedCardManifest(result.manifest);
+      // Turning a scope private revokes matching active grants server-side, so
+      // re-verify this memory's recipients instead of trusting a stale "Shared".
+      try {
+        const impact = await PersonalKnowledgeModelService.getMutationSharingImpact({
+          userId: user.uid,
+          domain: card.domain,
+          scopePath: cardScopePath(card),
+          vaultOwnerToken,
+        });
+        setSharingImpacts((current) => ({ ...current, [cardImpactKey(card)]: impact }));
+      } catch {
+        setSharingImpacts((current) => {
+          const next = { ...current };
+          delete next[cardImpactKey(card)];
+          return next;
+        });
+        setSharingImpactError(
+          "Current sharing couldn’t be verified. Refresh before changing details.",
+        );
+      }
+      setRefreshNonce((value) => value + 1);
+    } catch {
+      setMemorySharingError(
+        "Sharing choices couldn’t be updated. Refresh and try again.",
+      );
+    } finally {
+      setMemorySharingActionId(null);
+    }
+  }
+
   const trimmedQuery = homeSearchQuery.trim();
   const searchResults = trimmedQuery
     ? selectRelevantPkmMemoryCards(browsableCards, homeSearchQuery, 24)
@@ -880,6 +989,9 @@ export function PkmNaturalPanel({
         <PkmMemoryDetail
           card={selectedCard}
           sharingState={memorySharingState(selectedCard)}
+          sharingPosture={memorySharingPosture(selectedCard)}
+          sharingBusy={memorySharingActionId === cardImpactKey(selectedCard)}
+          sharingError={memorySharingError}
           canMutate={Boolean(sharingImpacts[cardImpactKey(selectedCard)])}
           saving={memoryActionId === `${selectedCard.id}:edited`}
           deleting={memoryActionId === `${selectedCard.id}:deleted`}
@@ -887,8 +999,14 @@ export function PkmNaturalPanel({
           onBack={() => {
             setSelectedCard(null);
             setMemoryActionError(null);
+            setMemorySharingError(null);
           }}
-          onOpenSharing={() => router.push(ROUTES.CONSENTS)}
+          onSharingChange={(nextPosture) =>
+            void updateMemoryScopeSharing(selectedCard, nextPosture)
+          }
+          onSharingOpenChange={(open) => {
+            if (!open) setMemorySharingError(null);
+          }}
           onSave={(nextValue) =>
             void persistMemoryCardChange({ card: selectedCard, action: "edited", nextValue })
           }
@@ -934,7 +1052,7 @@ export function PkmNaturalPanel({
     <>
       {nativeBeacon}
       <div className="space-y-4">
-        <SettingsSegmentedTabs
+        <SegmentedTabs
           value={workspaceTab}
           onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
           options={MEMORY_WORKSPACE_TABS}
