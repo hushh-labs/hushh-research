@@ -25,7 +25,9 @@ const vault = vi.hoisted(() => ({
   vaultOwnerToken: "owner-token" as string | null,
 }));
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/morphy-ux/morphy", () => ({
+  morphyToast: { promise: vi.fn() },
+}));
 vi.mock("@/lib/one-location/service", () => ({ OneLocationService: service }));
 vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => auth }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));
@@ -157,6 +159,25 @@ describe("PlacesVisitedFlow", () => {
       ),
     );
     await waitFor(() => expect(screen.queryByText("Bag Maker")).toBeNull());
+  });
+
+  it("does not delete the server rating when the vault note cannot be removed", async () => {
+    service.listPlaceRatings.mockResolvedValue([rating()]);
+    visitNotes.removeVisitNote.mockRejectedValue(new Error("vault unavailable"));
+    render(<PlacesVisitedFlow />);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Remove your rating for Bag Maker",
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove", hidden: true }),
+    );
+
+    await waitFor(() => expect(visitNotes.removeVisitNote).toHaveBeenCalled());
+    expect(service.deletePlaceRating).not.toHaveBeenCalled();
+    expect(screen.getByText("Bag Maker")).toBeInTheDocument();
   });
 
   it("links each place to its own Google composer", async () => {

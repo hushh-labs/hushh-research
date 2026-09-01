@@ -8,6 +8,7 @@ is about the decision, not the SQL.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -21,11 +22,13 @@ from hushh_mcp.operons.location.place_rating_policy import (
     normalize_rating,
     publishable_average,
 )
+from hushh_mcp.services import one_location_place_rating_service as rating_service_module
 from hushh_mcp.services.one_location_place_rating_service import (
     PLACE_RATING_CONSENT_VERSION,
     PLACE_RATING_VISIT_TTL_HOURS,
     OneLocationPlaceRatingService,
     PlaceRatingError,
+    PostgresPlaceRatingStore,
     _encrypt_visit_place,
     place_token,
 )
@@ -122,7 +125,7 @@ class FakeStore:
         self.rated_visits.append(visit_id)
 
     # ratings
-    def upsert_rating(self, **kwargs: Any) -> dict[str, Any] | None:
+    def upsert_rating_and_recompute(self, **kwargs: Any) -> dict[str, Any] | None:
         key = (kwargs["user_id"], kwargs["place_id"])
         existing = self.ratings.get(key)
         row = {
@@ -140,17 +143,28 @@ class FakeStore:
             "updated_at": NOW,
         }
         self.ratings[key] = row
+        self.recompute_aggregate(place_id=kwargs["place_id"])
         return row
 
     def list_ratings(self, *, user_id: str, limit: int) -> list[dict[str, Any]]:
         return [row for (uid, _), row in self.ratings.items() if uid == user_id][:limit]
 
-    def delete_rating(self, *, user_id: str, place_id: str) -> dict[str, Any] | None:
-        return self.ratings.pop((user_id, place_id), None)
+    def delete_rating_and_recompute(self, *, user_id: str, place_id: str) -> dict[str, Any] | None:
+        removed = self.ratings.pop((user_id, place_id), None)
+        if removed:
+            self.recompute_aggregate(place_id=place_id)
+        return removed
 
     def recompute_aggregate(self, *, place_id: str) -> dict[str, Any] | None:
         self.recomputed.append(place_id)
-        rows = [r for (_, pid), r in self.ratings.items() if pid == place_id and r["aggregatable"]]
+        rows = [
+            r
+            for (_, pid), r in self.ratings.items()
+            if pid == place_id
+            and r["aggregatable"]
+            and r["consent_version"] == PLACE_RATING_CONSENT_VERSION
+            and is_aggregatable_category(r.get("place_category"))
+        ]
         agg = {
             "place_id": place_id,
             "rating_count": len(rows),
@@ -337,6 +351,55 @@ def test_deleting_a_rating_you_never_made_is_a_404_not_a_silent_success():
         _service(store).delete_rating(user_id=USER, place_id=PLACE)
 
     assert excinfo.value.code == "PLACE_RATING_NOT_FOUND"
+
+
+def test_postgres_rating_mutations_recompute_in_the_same_statement(monkeypatch):
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    class CapturingDb:
+        def execute_raw(self, sql, params):
+            calls.append((sql, params))
+            return SimpleNamespace(data=[{"id": "rating-1", "place_id": PLACE}])
+
+    monkeypatch.setattr(rating_service_module, "get_db", lambda: CapturingDb())
+    store = PostgresPlaceRatingStore()
+    store.upsert_rating_and_recompute(
+        user_id=USER,
+        place_id=PLACE,
+        place_label="Bag Maker",
+        place_category="store",
+        rating=4,
+        aggregatable=True,
+        consent_version=PLACE_RATING_CONSENT_VERSION,
+        source_visit_id="visit-1",
+        visited_at=NOW,
+    )
+    store.delete_rating_and_recompute(user_id=USER, place_id=PLACE)
+
+    assert len(calls) == 2
+    for sql, params in calls:
+        assert "aggregate AS" in sql
+        assert "CROSS JOIN aggregate" in sql
+        assert "consent_version = :consent_version" in sql
+        assert params["consent_version"] == PLACE_RATING_CONSENT_VERSION
+        assert "medical_clinic" in params["sensitive_categories"]
+
+
+def test_postgres_public_read_rechecks_consent_and_sensitive_category(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    class CapturingDb:
+        def execute_raw(self, sql, params):
+            captured.update(sql=sql, params=params)
+            return SimpleNamespace(data=[{"place_id": PLACE, "rating_count": 0, "rating_sum": 0}])
+
+    monkeypatch.setattr(rating_service_module, "get_db", lambda: CapturingDb())
+    PostgresPlaceRatingStore().read_aggregate(place_id=PLACE)
+
+    assert "FROM one_location_place_ratings" in captured["sql"]
+    assert "consent_version = :consent_version" in captured["sql"]
+    assert "ANY(:sensitive_categories)" in captured["sql"]
+    assert captured["params"]["consent_version"] == PLACE_RATING_CONSENT_VERSION
 
 
 # --- the anonymous projection ---------------------------------------------

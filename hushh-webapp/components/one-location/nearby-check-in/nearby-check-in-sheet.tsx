@@ -751,9 +751,13 @@ export function NearbyCheckInSheet({
       placeIds,
     })
       .then((summaries) => {
-        if (cancelled || !summaries.length) return;
+        if (cancelled) return;
         setRatingSummaries((current) => {
           const next = { ...current };
+          // The response is authoritative for every queried id. Clear first
+          // so a summary withdrawn below the anonymity threshold cannot stay
+          // rendered from an earlier request.
+          for (const placeId of placeIds) delete next[placeId];
           for (const summary of summaries) next[summary.placeId] = summary;
           return next;
         });

@@ -272,6 +272,34 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByText(/places · Google Maps/)).not.toBeInTheDocument();
   });
 
+  it("withdraws a stale average when the server no longer publishes it", async () => {
+    service.listPlaceRatingSummaries
+      .mockResolvedValueOnce([
+        { placeId: "stanford-main", average: 4.8, countBucket: "5+" },
+      ])
+      .mockResolvedValueOnce([]);
+    const props = {
+      open: true,
+      ownerId: "user-1",
+      vaultOwnerToken: "owner-token",
+      captureCurrentPosition: vi.fn().mockResolvedValue(point),
+      onOpenChange: vi.fn(),
+    };
+    const { rerender } = render(<NearbyCheckInSheet {...props} />);
+
+    expect(await screen.findByText(/4\.8 · 5\+/)).toBeInTheDocument();
+    rerender(
+      <NearbyCheckInSheet {...props} vaultOwnerToken="refreshed-owner-token" />,
+    );
+
+    await waitFor(() =>
+      expect(service.listPlaceRatingSummaries).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/4\.8 · 5\+/)).not.toBeInTheDocument(),
+    );
+  });
+
   it("is a bottom sheet a phone can put away", async () => {
     render(
       <NearbyCheckInSheet

@@ -23,7 +23,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, MapPin, Star, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -55,6 +54,7 @@ import {
 import type { OneLocationPlaceRating } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 
 /** One row: the server's rating, with the vault's note folded in where there
  *  is one to fold. */
@@ -163,19 +163,29 @@ export function PlacesVisitedFlow() {
     const target = removing;
     if (!target || !vaultOwnerToken || removingBusy) return;
     setRemovingBusy(true);
-    try {
-      await OneLocationService.deletePlaceRating({
-        vaultOwnerToken,
-        placeId: target.placeId,
-      });
-      // Both halves, or a note outlives the rating it belonged to and the
-      // place reappears with no stars the next time this screen loads.
+    const operation = (async () => {
+      // Delete the vault note first. If the server call then fails the user
+      // can retry without leaving sensitive free text orphaned behind a
+      // deleted rating. Success is reported only after both stores agree.
       if (notesReadable) {
         await removeVisitNote({
           context: vaultContext,
           placeId: target.placeId,
-        }).catch(() => undefined);
+        });
       }
+      await OneLocationService.deletePlaceRating({
+        vaultOwnerToken,
+        placeId: target.placeId,
+      });
+    })();
+    void morphyToast.promise(operation, {
+      loading: "Removing your rating and note…",
+      success: "Rating and note removed.",
+      error: "Couldn't remove both the rating and note. Try again.",
+      variant: "destructive",
+    });
+    try {
+      await operation;
       setRatings((current) =>
         current.filter((rating) => rating.placeId !== target.placeId),
       );
@@ -183,9 +193,8 @@ export function PlacesVisitedFlow() {
         current.filter((note) => note.placeId !== target.placeId),
       );
       setRemoving(null);
-      toast.success("Removed.");
     } catch {
-      toast.error("Couldn't remove that rating.");
+      // morphyToast.promise owns the visible failure state.
     } finally {
       setRemovingBusy(false);
     }
@@ -233,7 +242,7 @@ export function PlacesVisitedFlow() {
               leading={
                 <span
                   aria-hidden="true"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--app-neutral-fill)]"
+                  className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px] bg-[color:var(--app-neutral-fill)]"
                 >
                   <MapPin className="h-4 w-4 text-[color:var(--app-secondary-label)]" />
                 </span>
@@ -322,12 +331,13 @@ export function PlacesVisitedFlow() {
             <AlertDialogAction
               variant="destructive"
               className="h-11 w-full sm:w-auto"
+              disabled={removingBusy}
               onClick={(event) => {
                 event.preventDefault();
                 void confirmRemove();
               }}
             >
-              Remove
+              {removingBusy ? "Removing…" : "Remove"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

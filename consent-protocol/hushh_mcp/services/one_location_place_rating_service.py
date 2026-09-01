@@ -52,6 +52,7 @@ from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
 from hushh_mcp.operons.location.place_rating_policy import (
     PLACE_RATING_PUBLICATION_MIN_COUNT,
+    SENSITIVE_PLACE_TYPES,
     bucket_rating_count,
     google_write_review_url,
     is_aggregatable_category,
@@ -218,13 +219,13 @@ class PlaceRatingStore(Protocol):
 
     def mark_visit_rated(self, *, visit_id: Any, rated_at: datetime) -> None: ...
 
-    def upsert_rating(self, **kwargs: Any) -> dict[str, Any] | None: ...
+    def upsert_rating_and_recompute(self, **kwargs: Any) -> dict[str, Any] | None: ...
 
     def list_ratings(self, *, user_id: str, limit: int) -> list[dict[str, Any]]: ...
 
-    def delete_rating(self, *, user_id: str, place_id: str) -> dict[str, Any] | None: ...
-
-    def recompute_aggregate(self, *, place_id: str) -> dict[str, Any] | None: ...
+    def delete_rating_and_recompute(
+        self, *, user_id: str, place_id: str
+    ) -> dict[str, Any] | None: ...
 
     def read_aggregate(self, *, place_id: str) -> dict[str, Any] | None: ...
 
@@ -372,7 +373,7 @@ class PostgresPlaceRatingStore:
             {"visit_id": visit_id, "rated_at": rated_at},
         )
 
-    def upsert_rating(
+    def upsert_rating_and_recompute(
         self,
         *,
         user_id: str,
@@ -387,31 +388,58 @@ class PostgresPlaceRatingStore:
     ) -> dict[str, Any] | None:
         return self._execute_one(
             """
-            INSERT INTO one_location_place_ratings (
-              author_user_id, place_id, place_label, place_category, rating,
-              aggregatable, consent_version, consent_accepted_at,
-              source_visit_id, visited_at, visit_count, revision,
-              created_at, updated_at
-            ) VALUES (
-              :user_id, :place_id, :place_label, :place_category, :rating,
-              :aggregatable, :consent_version, NOW(),
-              :source_visit_id, :visited_at, 1, 1, NOW(), NOW()
+            WITH upserted AS (
+              INSERT INTO one_location_place_ratings (
+                author_user_id, place_id, place_label, place_category, rating,
+                aggregatable, consent_version, consent_accepted_at,
+                source_visit_id, visited_at, visit_count, revision,
+                created_at, updated_at
+              ) VALUES (
+                :user_id, :place_id, :place_label, :place_category, :rating,
+                :aggregatable, :consent_version, NOW(),
+                :source_visit_id, :visited_at, 1, 1, NOW(), NOW()
+              )
+              ON CONFLICT (author_user_id, place_id) DO UPDATE SET
+                place_label = EXCLUDED.place_label,
+                place_category = EXCLUDED.place_category,
+                rating = EXCLUDED.rating,
+                aggregatable = EXCLUDED.aggregatable,
+                consent_version = EXCLUDED.consent_version,
+                consent_accepted_at = NOW(),
+                source_visit_id = EXCLUDED.source_visit_id,
+                visited_at = EXCLUDED.visited_at,
+                visit_count = one_location_place_ratings.visit_count + 1,
+                revision = one_location_place_ratings.revision + 1,
+                updated_at = NOW()
+              RETURNING id, place_id, place_label, place_category, rating,
+                        aggregatable, consent_version, visited_at, visit_count,
+                        revision, created_at, updated_at
+            ), aggregate AS (
+              INSERT INTO one_location_place_rating_aggregates (
+                place_id, rating_count, rating_sum, updated_at
+              )
+              SELECT :place_id, COUNT(*), COALESCE(SUM(candidate.rating), 0), NOW()
+              FROM (
+                SELECT rating, aggregatable, consent_version, place_category
+                FROM one_location_place_ratings
+                WHERE place_id = :place_id AND author_user_id <> :user_id
+                UNION ALL
+                SELECT rating, aggregatable, consent_version, place_category
+                FROM upserted
+              ) AS candidate
+              WHERE candidate.aggregatable
+                AND candidate.consent_version = :consent_version
+                AND NOT (
+                  LOWER(BTRIM(COALESCE(candidate.place_category, '')))
+                  = ANY(:sensitive_categories)
+                )
+              ON CONFLICT (place_id) DO UPDATE SET
+                rating_count = EXCLUDED.rating_count,
+                rating_sum = EXCLUDED.rating_sum,
+                updated_at = NOW()
+              RETURNING place_id
             )
-            ON CONFLICT (author_user_id, place_id) DO UPDATE SET
-              place_label = EXCLUDED.place_label,
-              place_category = EXCLUDED.place_category,
-              rating = EXCLUDED.rating,
-              aggregatable = EXCLUDED.aggregatable,
-              consent_version = EXCLUDED.consent_version,
-              consent_accepted_at = NOW(),
-              source_visit_id = EXCLUDED.source_visit_id,
-              visited_at = EXCLUDED.visited_at,
-              visit_count = one_location_place_ratings.visit_count + 1,
-              revision = one_location_place_ratings.revision + 1,
-              updated_at = NOW()
-            RETURNING id, place_id, place_label, place_category, rating,
-                      aggregatable, consent_version, visited_at, visit_count,
-                      revision, created_at, updated_at
+            SELECT upserted.* FROM upserted CROSS JOIN aggregate
             """,
             {
                 "user_id": user_id,
@@ -423,6 +451,7 @@ class PostgresPlaceRatingStore:
                 "consent_version": consent_version,
                 "source_visit_id": source_visit_id,
                 "visited_at": visited_at,
+                "sensitive_categories": sorted(SENSITIVE_PLACE_TYPES),
             },
         )
 
@@ -440,50 +469,63 @@ class PostgresPlaceRatingStore:
             {"user_id": user_id, "limit": limit},
         )
 
-    def delete_rating(self, *, user_id: str, place_id: str) -> dict[str, Any] | None:
+    def delete_rating_and_recompute(self, *, user_id: str, place_id: str) -> dict[str, Any] | None:
         return self._execute_one(
             """
-            DELETE FROM one_location_place_ratings
-            WHERE author_user_id = :user_id AND place_id = :place_id
-            RETURNING id, place_id
-            """,
-            {"user_id": user_id, "place_id": place_id},
-        )
-
-    def recompute_aggregate(self, *, place_id: str) -> dict[str, Any] | None:
-        # Recomputed from the rows, never incremented. An increment drifts the
-        # moment one write is retried, and an aggregate that still counts a
-        # deleted rating has not deleted it.
-        return self._execute_one(
-            """
-            INSERT INTO one_location_place_rating_aggregates (
-              place_id, rating_count, rating_sum, updated_at
+            WITH removed AS (
+              DELETE FROM one_location_place_ratings
+              WHERE author_user_id = :user_id AND place_id = :place_id
+              RETURNING id, place_id
+            ), aggregate AS (
+              INSERT INTO one_location_place_rating_aggregates (
+                place_id, rating_count, rating_sum, updated_at
+              )
+              SELECT :place_id, COUNT(*), COALESCE(SUM(rating), 0), NOW()
+              FROM one_location_place_ratings
+              WHERE place_id = :place_id
+                AND author_user_id <> :user_id
+                AND aggregatable
+                AND consent_version = :consent_version
+                AND NOT (
+                  LOWER(BTRIM(COALESCE(place_category, '')))
+                  = ANY(:sensitive_categories)
+                )
+                AND EXISTS (SELECT 1 FROM removed)
+              ON CONFLICT (place_id) DO UPDATE SET
+                rating_count = EXCLUDED.rating_count,
+                rating_sum = EXCLUDED.rating_sum,
+                updated_at = NOW()
+              RETURNING place_id
             )
-            SELECT
-              :place_id,
-              COALESCE(COUNT(*), 0),
-              COALESCE(SUM(rating), 0),
-              NOW()
-            FROM one_location_place_ratings
-            WHERE place_id = :place_id AND aggregatable
-            ON CONFLICT (place_id) DO UPDATE SET
-              rating_count = EXCLUDED.rating_count,
-              rating_sum = EXCLUDED.rating_sum,
-              updated_at = NOW()
-            RETURNING place_id, rating_count, rating_sum
+            SELECT removed.* FROM removed CROSS JOIN aggregate
             """,
-            {"place_id": place_id},
+            {
+                "user_id": user_id,
+                "place_id": place_id,
+                "consent_version": PLACE_RATING_CONSENT_VERSION,
+                "sensitive_categories": sorted(SENSITIVE_PLACE_TYPES),
+            },
         )
 
     def read_aggregate(self, *, place_id: str) -> dict[str, Any] | None:
         return self._execute_one(
             """
-            SELECT place_id, rating_count, rating_sum
-            FROM one_location_place_rating_aggregates
+            SELECT :place_id AS place_id, COUNT(*) AS rating_count,
+                   COALESCE(SUM(rating), 0) AS rating_sum
+            FROM one_location_place_ratings
             WHERE place_id = :place_id
-            LIMIT 1
+              AND aggregatable
+              AND consent_version = :consent_version
+              AND NOT (
+                LOWER(BTRIM(COALESCE(place_category, '')))
+                = ANY(:sensitive_categories)
+              )
             """,
-            {"place_id": place_id},
+            {
+                "place_id": place_id,
+                "consent_version": PLACE_RATING_CONSENT_VERSION,
+                "sensitive_categories": sorted(SENSITIVE_PLACE_TYPES),
+            },
         )
 
     def purge_expired_visits(self) -> int:
@@ -689,7 +731,7 @@ class OneLocationPlaceRatingService:
         )
         aggregatable = is_aggregatable_category(resolved_category)
 
-        row = self._store.upsert_rating(
+        row = self._store.upsert_rating_and_recompute(
             user_id=user_id,
             place_id=normalized_place_id,
             place_label=resolved_label,
@@ -708,7 +750,6 @@ class OneLocationPlaceRatingService:
             )
 
         self._store.mark_visit_rated(visit_id=visit.get("id"), rated_at=self._now())
-        self._store.recompute_aggregate(place_id=normalized_place_id)
         return self._rating_payload(row)
 
     def list_own_ratings(self, *, user_id: str, limit: int = 25) -> dict[str, Any]:
@@ -723,16 +764,16 @@ class OneLocationPlaceRatingService:
             raise PlaceRatingError(
                 "PLACE_RATING_PLACE_REQUIRED", str(exc), status_code=422
             ) from exc
-        removed = self._store.delete_rating(user_id=user_id, place_id=normalized_place_id)
+        removed = self._store.delete_rating_and_recompute(
+            user_id=user_id,
+            place_id=normalized_place_id,
+        )
         if not removed:
             raise PlaceRatingError(
                 "PLACE_RATING_NOT_FOUND",
                 "You haven't rated that place.",
                 status_code=404,
             )
-        # In the same call as the delete, or the average keeps reporting a
-        # rating that no longer exists -- which is not a deletion.
-        self._store.recompute_aggregate(place_id=normalized_place_id)
         return {"placeId": normalized_place_id, "deleted": True}
 
     def place_summaries(self, *, place_ids: Any) -> list[dict[str, Any]]:
