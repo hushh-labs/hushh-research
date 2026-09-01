@@ -384,7 +384,7 @@ steps:
           --region="${_REGION}" \
           --image="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
-          --command="python" \
+          --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
           --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
           ${live_key_secret_flag} \
@@ -442,7 +442,7 @@ steps:
         fi
         echo "Probe execution: ${execution_name:-unknown}"
         classification="$(
-          PROBE_LINE="${probe_line}" python - <<'PY'
+          PROBE_LINE="${probe_line}" python3 - <<'PY'
         import json
         import os
 
