@@ -32,7 +32,7 @@ from fastapi.testclient import TestClient
 # resolve to the real, rate-limiting one instead of the no-op double.
 _real_rate_limit_module = importlib.import_module("api.middlewares.rate_limit")
 
-rate_limit_module = types.ModuleType("api.middlewares.rate_limit")
+_fake_rate_limit_module = types.ModuleType("api.middlewares.rate_limit")
 
 
 class _NoopLimiter:
@@ -43,13 +43,25 @@ class _NoopLimiter:
         return decorator
 
 
-rate_limit_module.limiter = _NoopLimiter()  # type: ignore[attr-defined]
-rate_limit_module.RateLimits = _real_rate_limit_module.RateLimits  # type: ignore[attr-defined]
-sys.modules["api.middlewares.rate_limit"] = rate_limit_module
+_fake_rate_limit_module.limiter = _NoopLimiter()  # type: ignore[attr-defined]
+_fake_rate_limit_module.RateLimits = _real_rate_limit_module.RateLimits  # type: ignore[attr-defined]
+
+# Swapped in only for the one import that reads it at decoration time, then put
+# straight back. sys.modules is process-global -- leaving the fake in place
+# would silently hand every OTHER test file that imports this module later in
+# the same pytest session a limiter with none of the real one's behaviour
+# (no `.enabled`, no `_TYPED_RATE_LIMIT_PATHS`), breaking tests that have
+# nothing to do with ria.py. What ria.py's own `from ... import limiter,
+# RateLimits` already bound into its own namespace is unaffected by restoring
+# this afterward -- that binding happened by value, at the line below.
+sys.modules["api.middlewares.rate_limit"] = _fake_rate_limit_module
+try:
+    from api.routes import ria as ria_module  # noqa: E402
+finally:
+    sys.modules["api.middlewares.rate_limit"] = _real_rate_limit_module
 
 import hushh_mcp.services.ria_dossier_service as dossier_module  # noqa: E402
 from api.middleware import require_firebase_auth  # noqa: E402
-from api.routes import ria as ria_module  # noqa: E402
 from hushh_mcp.services.ria_claim_service import RIAClaimService  # noqa: E402
 
 _TEST_UID = "user_dossier_routes_123"
