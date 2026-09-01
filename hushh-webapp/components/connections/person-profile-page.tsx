@@ -23,10 +23,10 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  AvatarBubble,
   SectionCard,
   StatusPill,
 } from "@/lib/morphy-ux/ui/surface-primitives";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   PersonProfileService,
   type PublicPersonProfile,
@@ -43,12 +43,6 @@ type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
 function scopeTitle(scope: ViewerPersonProfile["requestableScopes"][number]) {
   return scope.label || scope.domain || "Information";
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  return (parts.length > 1 ? `${parts[0]?.[0]}${parts.at(-1)?.[0]}` : parts[0]?.slice(0, 2))
-    ?.toUpperCase() || "H";
 }
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
@@ -421,10 +415,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       <div className="space-y-6 pb-12" data-native-route="native-route-person-profile">
         <section className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-4">
-            <AvatarBubble
-              initials={initials(profile.displayName)}
-              size={64}
-              imageUrl={profile.photoUrl}
+            <ConnectionPersonAvatar
+              photoUrl={profile.photoUrl}
+              label={profile.displayName}
+              verified={Boolean(profile.verifiedRole)}
+              size="profile"
             />
             <div className="min-w-0">
               <h1 className="truncate text-3xl font-semibold tracking-tight">
@@ -458,8 +453,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               toast.success("Profile link copied");
             }}
           >
-            <Copy className="h-4 w-4" />
-            Share profile
+            <span className="inline-flex items-center gap-2">
+              <Copy className="h-4 w-4" />
+              <span>Share profile</span>
+            </span>
           </Button>
         </section>
 
@@ -609,7 +606,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                           <button
                             type="button"
                             key={scope.scopeRef}
-                            className="flex w-full items-start justify-between gap-4 rounded-xl py-3 text-left outline-none transition-colors first:pt-0 last:pb-0 focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                            className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-xl py-3 text-left outline-none transition-colors first:pt-0 last:pb-0 focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                             aria-pressed={selectedScopeRefs.has(scope.scopeRef)}
                             onClick={() => setSelectedScopeRefs((current) => {
                               const next = new Set(current);
@@ -618,13 +615,16 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                               return next;
                             })}
                           >
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-sm font-semibold">{scopeTitle(scope)}</p>
                               {scope.description ? (
                                 <p className="mt-1 text-sm text-muted-foreground">{scope.description}</p>
                               ) : null}
                             </div>
-                            <StatusPill tone={selectedScopeRefs.has(scope.scopeRef) ? "ready" : "neutral"}>
+                            <StatusPill
+                              tone={selectedScopeRefs.has(scope.scopeRef) ? "ready" : "neutral"}
+                              className="shrink-0 justify-self-end"
+                            >
                               {selectedScopeRefs.has(scope.scopeRef) ? "Selected" : "Ask first"}
                             </StatusPill>
                           </button>
@@ -641,7 +641,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 </SectionCard>
               )}
               {groupedScopes.length ? (
-                <div className="sticky bottom-4 flex justify-end">
+                <div className="flex justify-end pt-1">
                   <Button
                     type="button"
                     variant="blue-gradient"
