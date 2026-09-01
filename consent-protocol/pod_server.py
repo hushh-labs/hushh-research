@@ -205,7 +205,7 @@ def pod_info() -> dict:
         "role": "sovereign-pod",
         "podMode": pod_mode(),
         "hushhId": os.getenv("HUSSH_ID") or None,
-        "spaceId": os.getenv("HUSSH_SPACE_ID") or None,
+        "billingSpaceId": os.getenv("HUSSH_BILLING_SPACE_ID") or None,
         "controlPlane": "central@hushh (consent issuance + audit not hosted here)",
         "mounts": _mounted_paths(),
         "storageBackend": (os.getenv("POD_STORAGE_BACKEND") or "null").strip() or "null",
@@ -246,7 +246,7 @@ async def _pod_startup() -> None:
         "pod.startup pod_mode=%s hushh_id=%s space_id_present=%s",
         pod_mode(),
         os.getenv("HUSSH_ID") or "<none>",
-        bool(os.getenv("HUSSH_SPACE_ID")),
+        bool(os.getenv("HUSSH_BILLING_SPACE_ID")),
     )
 
     # Recover this pod's DURABLE identity before the keypair is resolved.

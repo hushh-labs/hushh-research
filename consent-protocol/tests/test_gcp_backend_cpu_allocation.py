@@ -35,7 +35,7 @@ SPEC = PodSpec(
     pod_pubkey="not-a-real-key",
     region="us-central1",
     tier=TIER_DEDICATED,
-    space_id="test-space",
+    billing_space_id="test-space",
 )
 
 

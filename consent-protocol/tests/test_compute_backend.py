@@ -30,7 +30,7 @@ def _spec() -> PodSpec:
 def test_pod_spec_defaults_are_backend_neutral():
     spec = _spec()
     assert spec.tier == TIER_LOGICAL
-    assert spec.space_id is None
+    assert spec.billing_space_id is None
     assert spec.region is None
     with pytest.raises(FrozenInstanceError):
         spec.hushh_id = "mutated"  # type: ignore[misc]

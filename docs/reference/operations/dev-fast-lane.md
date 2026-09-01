@@ -190,7 +190,7 @@ plan-mode handle — never `live` — **without making any GCP call**, so `gclou
 while registry rows still read `provisioned`. Check the registry first, then the fleet.
 
 **List the fleet.** The filter comes from the labels
-`GcpBackend.render_deploy_config` actually sets — `app`, `hussh-space-id`, `hussh-tier`,
+`GcpBackend.render_deploy_config` actually sets — `app`, `hussh-billing-space`, `hussh-tier`,
 `hussh-env`, `hussh-purpose`. `app=hussh-one-pod` is the only one that is unconditional, so
 filter on it and use the rest to narrow:
 

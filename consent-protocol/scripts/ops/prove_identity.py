@@ -112,7 +112,7 @@ async def provision(hushh_id: str, durable: bool) -> tuple[str, str]:
     from hushh_mcp.services.compute_backend import PodSpec
     from hushh_mcp.services.gcp_backend import GcpBackend
     from hushh_mcp.services.gcp_run_client import GcpRunClient
-    from hushh_mcp.services.personal_agent_identity_service import mint_space_id
+    from hushh_mcp.services.personal_agent_identity_service import mint_billing_space_id
 
     os.environ.update(BASE_ENV)
     os.environ["HUSSH_POD_KEY_MASTER"] = secret("HUSSH_POD_KEY_MASTER")
@@ -127,7 +127,7 @@ async def provision(hushh_id: str, durable: bool) -> tuple[str, str]:
             hushh_id=hushh_id,
             phone_e164_hash=f"idproof-{hushh_id}",
             pod_pubkey="",
-            space_id=mint_space_id(hushh_id),
+            billing_space_id=mint_billing_space_id(hushh_id),
         )
     )
     name = str(handle.backend_metadata.get("service") or handle.external_agent_id)

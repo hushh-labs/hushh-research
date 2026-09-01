@@ -33,7 +33,7 @@ _IDS = [b[0] for b in _BACKENDS]
 
 
 def _spec() -> PodSpec:
-    return PodSpec(hushh_id="HA1ABC", phone_e164_hash="h", pod_pubkey="pub", space_id="sp1")
+    return PodSpec(hushh_id="HA1ABC", phone_e164_hash="h", pod_pubkey="pub", billing_space_id="sp1")
 
 
 @pytest.mark.parametrize("name,make", _BACKENDS, ids=_IDS)

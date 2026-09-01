@@ -14,7 +14,7 @@ def _spec(hushh_id: str = "HA1ABC234DEF") -> PodSpec:
         phone_e164_hash="hash",
         pod_pubkey="pub",
         region="us-east-1",
-        space_id="sp_1",
+        billing_space_id="sp_1",
         runtime_version="rt1",
         prompt_version="pv1",
     )

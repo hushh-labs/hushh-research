@@ -582,10 +582,10 @@ is a different identity and needs nothing here.
 #### What the pod service account actually needs: almost nothing
 
 Verified from the code rather than assumed. `render_deploy_config()` puts **only identity
-values** in the pod container's env — `HUSSH_ID`, `HUSSH_SPACE_ID`, `HUSSH_REGION`,
+values** in the pod container's env — `HUSSH_ID`, `HUSSH_BILLING_SPACE_ID`, `HUSSH_REGION`,
 `HUSSH_RUNTIME_VERSION`, `HUSSH_PROMPT_VERSION` — and its docstring is explicit that BYOK
 keys and consent tokens arrive per-turn at runtime instead. `pod_server.py` reads only
-`HUSSH_POD_MODE`, `HUSSH_ID` and `HUSSH_SPACE_ID`. Ingress is `internal`.
+`HUSSH_POD_MODE`, `HUSSH_ID` and `HUSSH_BILLING_SPACE_ID`. Ingress is `internal`.
 
 So the pod SA is a **zero-role identity**. That is not an oversight — it is the entire
 point. Without an explicit `serviceAccountName`, Cloud Run runs the service as the project's
@@ -649,7 +649,7 @@ holding its own database credentials — decide that before adding a Cloud SQL a
 
 ### B5. Cost-attribution labels
 
-`gcp_backend.py` already sets `app`, `hussh-space-id`, `hussh-tier` labels on every created
+`gcp_backend.py` already sets `app`, `hussh-billing-space`, `hussh-tier` labels on every created
 service. Extend that dict (same call site) with `hussh-env` and `hussh-purpose`.
 
 **Shipped, with two corrections to what this section originally said.** The prefix is

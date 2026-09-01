@@ -439,3 +439,70 @@ async def deprovision_personal_agent(
     user_id = token_data["user_id"]
     result = await _service().deprovision(user_id=user_id)
     return {"success": True, **result}
+
+
+class SpaceNameRequest(BaseModel):
+    """The owner's chosen handle for their space."""
+
+    model_config = ConfigDict(populate_by_name=True)
+    space_name: str = Field(..., alias="spaceName", min_length=1, max_length=48)
+
+
+@router.get("/space-name")
+async def get_space_name(
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """The owner's chosen spaceID handle, or null if they have not named it.
+
+    The handle is `personal_agent_registry.space_id` -- user-facing, distinct from
+    the opaque `billing_space_id` that carries cost. Owner-authenticated; a person
+    can only read their own.
+    """
+    _require_enabled()
+    row = await PersonalAgentRegistryRepo().get(user_id)
+    return {"spaceName": (row or {}).get("space_id")}
+
+
+@router.put("/space-name")
+async def set_space_name(
+    payload: SpaceNameRequest = Body(...),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """Name (or rename) the caller's own space.
+
+    This is the ONLY write path for the spaceID handle. Provisioning never sets it,
+    so a machine-minted token can never land where a human name goes. Owner-
+    authenticated on the row key; validated so a name that cannot be safely stored
+    or shown is refused rather than persisted.
+
+    A row must already exist (the person has begun provisioning): naming a space
+    that was never reserved is a 409, not a silent create, because the handle is an
+    attribute of an agent, not a way to summon one.
+    """
+    _require_enabled()
+    from hushh_mcp.services.personal_agent_identity_service import is_valid_space_handle
+
+    name = payload.space_name.strip()
+    ok, reason = is_valid_space_handle(name)
+    if not ok:
+        raise HTTPException(
+            status_code=400, detail={"code": "INVALID_SPACE_NAME", "message": reason}
+        )
+
+    repo = PersonalAgentRegistryRepo()
+    row = await repo.get(user_id)
+    if not row:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NO_AGENT",
+                "message": "Name your space after your agent exists; there is nothing to name yet.",
+            },
+        )
+    await repo.upsert(
+        user_id=user_id,
+        hushh_id=str(row.get("hushh_id") or ""),
+        status=str(row.get("status") or ""),
+        space_id=name,
+    )
+    return {"success": True, "spaceName": name}

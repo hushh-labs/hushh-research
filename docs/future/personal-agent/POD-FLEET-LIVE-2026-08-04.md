@@ -37,7 +37,7 @@ and a container that actually serves.
 | Fleet tool | `consent-protocol/scripts/ops/pod_fleet.py` | read-only inventory |
 
 Verified live on both pods: `/pod/info` returns `role: sovereign-pod`, `podMode:
-true`, and the correct per-user `hushhId`/`spaceId`; `/health` reports agents
+true`, and the correct per-user `hushhId`/`billingSpaceId`; `/health` reports agents
 `one, kai, nav, kyc` on ADK 2.4.0; **anonymous requests get 403**; and the
 central-plane routes (`/api/one/consent/issue`, `/api/iam/agents`,
 `/api/one/account/delete`) return **404** — the slim-pod split is real, not merely
@@ -100,7 +100,7 @@ actually uses would let a pod hold strictly less.
 
 | Property | Status | Evidence |
 |---|---|---|
-| Per-user isolated instance | ✅ holds | two pods, distinct `HUSSH_ID`/`spaceId`, separate services |
+| Per-user isolated instance | ✅ holds | two pods, distinct `HUSSH_ID`/`billingSpaceId`, separate services |
 | Least-privilege identity | ✅ holds | pod SA has **no** project roles; verified by re-reading the policy |
 | Not publicly reachable | ✅ holds | anonymous 403; no `allUsers`/`allAuthenticatedUsers` binding |
 | Reduced runtime surface | ✅ holds | central-plane routes 404 on a live pod |

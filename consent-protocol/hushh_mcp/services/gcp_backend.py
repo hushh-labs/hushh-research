@@ -76,9 +76,11 @@ def _label_value(raw: Any, default: str = "") -> str:
     NEVER pass a person through here. Cost labels are attached to a cloud
     resource that is readable by anyone with project-level billing access, so an
     email, phone number, or raw user id must never become a label value. The
-    opaque ``space_id`` is the non-PII per-user identifier; per-developer cost
-    attribution is done by joining the Cloud Billing export against the registry
-    server-side (DEV-LIVE-EXECUTION-PLAN.md B5), not by labeling the resource.
+    opaque ``billing_space_id`` is the non-PII per-agent identifier; per-developer
+    cost attribution is done by joining the Cloud Billing export against the
+    registry server-side (DEV-LIVE-EXECUTION-PLAN.md B5), not by labeling the
+    resource. NOTE it is deliberately NOT the spaceID handle the owner chooses;
+    a user-facing name must never land in a billing-readable label.
     """
     cleaned = _LABEL_UNSAFE.sub("-", str(raw or "").strip().lower()).strip("-_")
     return (cleaned or default)[:63].rstrip("-_")
@@ -307,7 +309,7 @@ class GcpBackend:
             # arrive per-turn at runtime.
             "env": [
                 {"name": "HUSSH_ID", "value": spec.hushh_id},
-                {"name": "HUSSH_SPACE_ID", "value": spec.space_id or ""},
+                {"name": "HUSSH_BILLING_SPACE_ID", "value": spec.billing_space_id or ""},
                 {"name": "HUSSH_REGION", "value": spec.region or self._region},
                 {"name": "HUSSH_RUNTIME_VERSION", "value": spec.runtime_version or ""},
                 {"name": "HUSSH_PROMPT_VERSION", "value": spec.prompt_version or ""},
@@ -462,11 +464,11 @@ class GcpBackend:
                 "name": name,
                 "namespace": self._project or "",
                 # Cost attribution (DEV-LIVE-EXECUTION-PLAN.md B5). Non-PII only:
-                # the opaque spaceID identifies the pod, the lane and purpose
+                # the opaque billing-space id identifies the pod, the lane and purpose
                 # identify the spend. No email, phone, or user id ever appears here.
                 "labels": {
                     "app": "hussh-one-pod",
-                    "hussh-space-id": _label_value(spec.space_id),
+                    "hussh-billing-space": _label_value(spec.billing_space_id),
                     "hussh-tier": _label_value(spec.tier),
                     "hussh-env": _deploy_env_label(),
                     "hussh-purpose": _label_value(_env("HUSSH_POD_PURPOSE"), _POD_PURPOSE_DEFAULT),

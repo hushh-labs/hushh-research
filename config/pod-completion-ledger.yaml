@@ -239,8 +239,9 @@ assertions:
     statement: "Spend can be attributed to an individual agent."
     falsifiable: true
     owner_action: >-
-      Assign space_id on PodSpec at the provision sites. It must be an OPAQUE derived
-      value: _label_value's docstring forbids a raw user id in a billing label.
+      Assign billing_space_id on PodSpec at the provision sites. It must be an OPAQUE
+      derived value distinct from the owner's space_id handle: _label_value's docstring
+      forbids a raw user id (or a user-chosen name) in a billing label.
     check:
       # A grep for `space_id=` would have passed the day the field was DEFINED.
       # The test asserts the two things that actually make spend attributable:

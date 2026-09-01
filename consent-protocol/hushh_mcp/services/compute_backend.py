@@ -117,7 +117,11 @@ class PodSpec:
     pod_pubkey: str
     region: Optional[str] = None
     tier: str = TIER_LOGICAL
-    space_id: Optional[str] = None
+    # The OPAQUE cost-attribution id, not the owner's handle. See
+    # personal_agent_identity_service.mint_billing_space_id: this becomes the
+    # hussh-billing-space cloud label, so it must disclose nothing on its own.
+    # The spaceID handle the owner chooses lives on the registry row, never here.
+    billing_space_id: Optional[str] = None
     consent_binding_ref: Optional[str] = None
     runtime_version: Optional[str] = None
     prompt_version: Optional[str] = None

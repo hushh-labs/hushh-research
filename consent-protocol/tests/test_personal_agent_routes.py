@@ -315,3 +315,79 @@ def test_status_omits_cloud_identity_when_unrecorded(monkeypatch):
     body = client.get("/api/one/personal-agent/status").json()
     assert "cloudProject" not in body
     assert "credentialMode" not in body
+
+
+# --------------------------------------------------------------------------- #
+# The space-name (spaceID handle) write path
+# --------------------------------------------------------------------------- #
+#
+# The handle is the owner's product-facing name for their space. This is its ONLY
+# write path -- provisioning never sets it -- so these pin that a name is
+# validated, that it cannot be set before an agent exists, and that it is written
+# to `space_id` (the handle) and NEVER conflated with `billing_space_id`.
+
+
+class _FakeRepo:
+    def __init__(self, row):
+        self._row = row
+        self.upserts: list[dict] = []
+
+    async def get(self, user_id):
+        return self._row
+
+    async def upsert(self, **kwargs):
+        self.upserts.append(kwargs)
+
+
+def _build_space(monkeypatch, *, row, enabled=True):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1" if enabled else "0")
+    repo = _FakeRepo(row)
+    monkeypatch.setattr(pa, "PersonalAgentRegistryRepo", lambda: repo)
+    app = FastAPI()
+    app.include_router(pa.router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "uid1"
+    return TestClient(app), repo
+
+
+def test_set_space_name_rejects_an_unsafe_name(monkeypatch):
+    client, repo = _build_space(monkeypatch, row={"hushh_id": "ha1_x", "status": "provisioned"})
+    r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "a/b\nc"})
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "INVALID_SPACE_NAME"
+    assert repo.upserts == []
+
+
+def test_set_space_name_refuses_when_no_agent_exists(monkeypatch):
+    client, repo = _build_space(monkeypatch, row=None)
+    r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Home"})
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "NO_AGENT"
+    assert repo.upserts == []
+
+
+def test_set_space_name_writes_the_handle_not_the_billing_id(monkeypatch):
+    client, repo = _build_space(monkeypatch, row={"hushh_id": "ha1_x", "status": "provisioned"})
+    r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Kushal's Space"})
+    assert r.status_code == 200
+    assert r.json() == {"success": True, "spaceName": "Kushal's Space"}
+    assert len(repo.upserts) == 1
+    written = repo.upserts[0]
+    assert written["space_id"] == "Kushal's Space"
+    # The write must NOT touch billing_space_id -- the two columns stay independent.
+    assert "billing_space_id" not in written or written["billing_space_id"] is None
+
+
+def test_get_space_name_returns_the_handle(monkeypatch):
+    client, _ = _build_space(monkeypatch, row={"space_id": "Home", "hushh_id": "ha1_x"})
+    r = client.get("/api/one/personal-agent/space-name")
+    assert r.status_code == 200
+    assert r.json() == {"spaceName": "Home"}
+
+
+def test_space_name_is_flag_gated(monkeypatch):
+    client, _ = _build_space(monkeypatch, row={"hushh_id": "ha1_x"}, enabled=False)
+    r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Home"})
+    assert r.status_code in (403, 404, 503)

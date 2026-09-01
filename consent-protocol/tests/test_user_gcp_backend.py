@@ -18,7 +18,9 @@ from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
 
 def _spec(hushh_id: str = "HA1ABC234DEF") -> PodSpec:
-    return PodSpec(hushh_id=hushh_id, phone_e164_hash="hash", pod_pubkey="pub", space_id="sp_1")
+    return PodSpec(
+        hushh_id=hushh_id, phone_e164_hash="hash", pod_pubkey="pub", billing_space_id="sp_1"
+    )
 
 
 def _backend() -> UserGcpBackend:

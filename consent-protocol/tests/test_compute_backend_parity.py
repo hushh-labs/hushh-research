@@ -102,7 +102,7 @@ def _spec() -> PodSpec:
         phone_e164_hash="h",
         pod_pubkey="pub",
         region="us-central1",
-        space_id="space-1",
+        billing_space_id="space-1",
     )
 
 
@@ -167,7 +167,7 @@ def test_no_platform_renders_a_model_credential(caps: Capabilities):
 
 def test_every_platform_pins_the_pod_identity(caps: Capabilities):
     assert caps.properties.get("HUSSH_ID") == "HA1PARITY"
-    assert caps.properties.get("HUSSH_SPACE_ID") == "space-1"
+    assert caps.properties.get("HUSSH_BILLING_SPACE_ID") == "space-1"
 
 
 def test_every_platform_turns_the_personal_agent_surface_on(caps: Capabilities):

@@ -115,7 +115,7 @@ class AnypointBackend:
         # cannot do its job on this platform.
         properties: dict[str, str] = {
             "HUSSH_ID": spec.hushh_id,
-            "HUSSH_SPACE_ID": spec.space_id or "",
+            "HUSSH_BILLING_SPACE_ID": spec.billing_space_id or "",
             "HUSSH_REGION": spec.region or "",
             "HUSSH_RUNTIME_VERSION": spec.runtime_version or "",
             "HUSSH_PROMPT_VERSION": spec.prompt_version or "",

@@ -430,7 +430,7 @@ class GcpFleet:
         # path so the dry-run never imports the backend.
         from hushh_mcp.services.compute_backend import PodSpec  # noqa: PLC0415
         from hushh_mcp.services.personal_agent_identity_service import (  # noqa: PLC0415
-            mint_space_id,
+            mint_billing_space_id,
         )
 
         return PodSpec(
@@ -440,7 +440,7 @@ class GcpFleet:
             # A drill pod bills like any other pod. Leaving this unset would make
             # the drill's own spend the one slice of the fleet nobody can account
             # for, which is exactly what a cost-attribution guard exists to stop.
-            space_id=mint_space_id(hushh_id),
+            billing_space_id=mint_billing_space_id(hushh_id),
         )
 
     async def provision(self, hushh_id: str) -> str:

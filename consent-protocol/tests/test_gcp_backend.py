@@ -21,7 +21,7 @@ def _spec(*, tier: str = TIER_LOGICAL, hushh_id: str = "HA1ABC234DEF") -> PodSpe
         pod_pubkey="pub",
         region="us-central1",
         tier=tier,
-        space_id="sp_1",
+        billing_space_id="sp_1",
         runtime_version="rt1",
         prompt_version="pv1",
     )
@@ -51,14 +51,14 @@ def test_render_deploy_config_is_a_cloud_run_service():
     assert cfg["metadata"]["name"].startswith("one-pod-")
     # internal ingress: the pod is never publicly reachable
     assert cfg["metadata"]["annotations"]["run.googleapis.com/ingress"] == "internal"
-    assert cfg["metadata"]["labels"]["hussh-space-id"] == "sp_1"
+    assert cfg["metadata"]["labels"]["hussh-billing-space"] == "sp_1"
 
 
 def test_rendered_config_carries_identity_but_no_secrets():
     cfg = _backend().render_deploy_config(_spec())
     env = cfg["spec"]["template"]["spec"]["containers"][0]["env"]
     names = {e["name"] for e in env}
-    assert "HUSSH_ID" in names and "HUSSH_SPACE_ID" in names
+    assert "HUSSH_ID" in names and "HUSSH_BILLING_SPACE_ID" in names
     # No secret material is ever baked into the deploy artifact.
     blob = str(cfg).lower()
     for forbidden in ("secret", "api_key", "apikey", "password", "token", "private"):

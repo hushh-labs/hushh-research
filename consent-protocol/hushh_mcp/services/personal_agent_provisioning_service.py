@@ -72,8 +72,8 @@ from hushh_mcp.services.personal_agent_grant_service import (
 )
 from hushh_mcp.services.personal_agent_identity_service import (
     hash_phone_e164,
+    mint_billing_space_id,
     mint_hushh_id,
-    mint_space_id,
 )
 from hushh_mcp.services.pod_connector_keypair_service import (
     WRAPPING_ALG,
@@ -243,7 +243,7 @@ class _Registry(Protocol):
         external_agent_id: Optional[str] = ...,
         a2a_route: Optional[str] = ...,
         backend: Optional[str] = ...,
-        space_id: Optional[str] = ...,
+        billing_space_id: Optional[str] = ...,
         backend_metadata: Optional[dict] = ...,
         attestation_ref: Optional[str] = ...,
     ) -> None: ...
@@ -418,11 +418,13 @@ class PersonalAgentProvisioningService:
             generation = await self._next_free_generation(phone_e164)
             hushh_id = mint_hushh_id(phone_e164, generation)
             phone_hash = hash_phone_e164(phone_e164)
-            # The billing-space id. Minted ONCE, here, and written to the registry
-            # row below, because the row is the join key of record: re-deriving it
-            # at read time would make a signing-key rotation silently unmatch every
-            # historical pod from the spend it explains.
-            space_id = mint_space_id(hushh_id)
+            # The opaque cost-attribution id. Minted ONCE, here, and written to the
+            # registry row below, because the row is the join key of record:
+            # re-deriving it at read time would make a signing-key rotation silently
+            # unmatch every historical pod from the spend it explains. This is NOT the
+            # spaceID handle the owner chooses -- that is set through the space-name
+            # path, and provisioning deliberately leaves it untouched.
+            billing_space_id = mint_billing_space_id(hushh_id)
             # Validated only when supplied. A half-supplied pair is a caller bug, not
             # a deferred key, and must not be silently read as one -- that would drop
             # a key the caller believed it had handed over.
@@ -495,11 +497,9 @@ class PersonalAgentProvisioningService:
                     # unstated axis leaves the column exactly as it was.
                     deployment_target=deployment_target,
                     model_credential_mode=model_credential_mode,
-                    # The join key that makes spend attributable. The column has
-                    # existed since migration 900 and nothing ever wrote it, so
-                    # every pod hussh has created carries an EMPTY `hussh-space-id`
-                    # label: cost attribution fully plumbed and reached by nothing.
-                    space_id=space_id,
+                    # The join key that makes spend attributable. NOT the owner's
+                    # handle -- an opaque id that is safe to render as a cloud label.
+                    billing_space_id=billing_space_id,
                 )
                 if handle is not None:
                     # None handle fields are dropped by the repo, so NullBackend (all-None)
@@ -602,10 +602,10 @@ class PersonalAgentProvisioningService:
             spec = PodSpec(
                 hushh_id=hushh_id,
                 phone_e164_hash=phone_hash,
-                # Becomes the `hussh-space-id` cost label. Opaque by construction:
-                # a label is readable by anyone with project billing access, so it
-                # must disclose nothing on its own.
-                space_id=space_id,
+                # Becomes the `hussh-billing-space` cost label. Opaque by
+                # construction: a label is readable by anyone with project billing
+                # access, so it must disclose nothing on its own.
+                billing_space_id=billing_space_id,
                 on_stage=_on_stage,
                 on_substrate_step=_on_substrate_step,
                 # Empty when deferred. No backend reads this field -- the pod holds its
@@ -952,7 +952,7 @@ class PersonalAgentProvisioningService:
             # READ from the row, never re-derived. The row is the authority: a
             # signing-key rotation must not silently give an adopted pod a
             # different billing space from the one its spend is recorded under.
-            space_id=(row or {}).get("space_id"),
+            billing_space_id=(row or {}).get("billing_space_id"),
             pod_pubkey="",
             deployment_target=cloud.deployment_target,
             user_cloud_project=cloud.project,
@@ -1062,7 +1062,7 @@ class PersonalAgentProvisioningService:
             pod_pubkey="",
             # Read, never re-derived, for the same reason the row carries the host
             # coordinates below: the row is the only record of what this pod was.
-            space_id=(row or {}).get("space_id"),
+            billing_space_id=(row or {}).get("billing_space_id"),
             deployment_target=(row or {}).get("deployment_target"),
             user_cloud_project=(row or {}).get("user_cloud_project"),
             user_cloud_region=(row or {}).get("user_cloud_region"),

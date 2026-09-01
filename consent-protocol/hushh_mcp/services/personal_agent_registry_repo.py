@@ -87,7 +87,13 @@ class PersonalAgentRegistryRepo:
         external_agent_id: Optional[str] = None,
         a2a_route: Optional[str] = None,
         backend: Optional[str] = None,
+        # The owner's chosen handle for their space (product-facing, user-set).
+        # Written by the space-name settings path, never at provision. None here
+        # is dropped, so provisioning does not clobber a name the owner set.
         space_id: Optional[str] = None,
+        # The opaque cost-attribution id (engineering, minted at provision). A
+        # different value from space_id on purpose: this one becomes a cloud label.
+        billing_space_id: Optional[str] = None,
         backend_metadata: Optional[dict] = None,
         attestation_ref: Optional[str] = None,
         liveness_mode: Optional[str] = None,
@@ -108,6 +114,7 @@ class PersonalAgentRegistryRepo:
             "a2a_route": a2a_route,
             "backend": backend,
             "space_id": space_id,
+            "billing_space_id": billing_space_id,
             "backend_metadata": backend_metadata,
             "attestation_ref": attestation_ref,
             # Pinned from the handle at creation. None (any backend that does not

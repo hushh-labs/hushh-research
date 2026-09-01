@@ -94,6 +94,17 @@ Four layers. None of them changes when the compute backend changes.
 - `spaceID` — the node/instance. Every compute surface an agent runs on gets one; many
   `spaceID`s : one `HusshID`. Today the registry stores a single per-user agent row;
   the column rename in §6 makes it a first-class `spaceID` + `backend`.
+  - The `spaceID` is the owner's OWN handle for their space — a name they choose and
+    reserve (ROADMAP M10), user-facing and mutable. It lives in the
+    `personal_agent_registry.space_id` column and is set through the space-name path,
+    never derived.
+  - It is deliberately NOT the identifier that carries cost into the cloud. Cost
+    attribution uses a SEPARATE opaque value, `billing_space_id`
+    (`mint_billing_space_id`), rendered as the `hussh-billing-space` Cloud Run label
+    and joined against the billing export. A billing label is readable by anyone with
+    project billing access, so a user's chosen handle must never be it. Conflating the
+    two — shipping the handle as the label token — was a real drift, corrected by
+    migrations 913/914 and the identity-service split.
 - **A2A address indirection** — a stable hussh address (`…/u/{hushh_id}`) resolves to
   the agent's *current* backend route, so the agent is portable ("on wheels") without
   its address changing.
@@ -163,7 +174,7 @@ ComputeBackend (Protocol)          # a.k.a. PodBackend
   async render_deploy_config(spec: PodSpec) -> DeployArtifact   # dedicated tier only
   async health() -> bool
 
-PodSpec       = { hushh_id, space_id, phone_e164_hash, region, tier(logical|dedicated),
+PodSpec       = { hushh_id, billing_space_id, phone_e164_hash, region, tier(logical|dedicated),
                   consent_binding_ref, pod_pubkey, runtime_version, prompt_version }   # neutral
 BackendHandle = { external_agent_id, a2a_route, status, backend,
                   backend_metadata, attestation_ref? }                                  # neutral
@@ -210,7 +221,8 @@ column and add the discriminators:
 -- BEFORE                                   -- AFTER
 anypoint_agent_id  TEXT                      external_agent_id  TEXT          -- backend-neutral
                                              backend            TEXT          -- 'gcp'|'gcp_byoc'|'anypoint'|'on_device'
-                                             space_id           TEXT          -- the node/instance spaceID
+                                             space_id           TEXT          -- owner's chosen spaceID handle (user-set)
+                                             billing_space_id   TEXT          -- opaque cost-attribution id (minted)
                                              backend_metadata   JSONB         -- gcp: project/service/revision/image-digest; anypoint: deployment/space
                                              attestation_ref    TEXT          -- Confidential-Space attestation / BYOC token-mint evidence (NULL until dedicated tier)
 ```

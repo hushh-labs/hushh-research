@@ -29,7 +29,7 @@ from hushh_mcp.services.gcp_backend import GcpBackend, _label_value
 # The charset the Cloud Run Admin API accepts for a label value.
 _GCP_LABEL_VALUE = re.compile(r"^[a-z0-9_-]{0,63}$")
 
-_EXPECTED_LABEL_KEYS = {"app", "hussh-space-id", "hussh-tier", "hussh-env", "hussh-purpose"}
+_EXPECTED_LABEL_KEYS = {"app", "hussh-billing-space", "hussh-tier", "hussh-env", "hussh-purpose"}
 
 _PHONE_HASH = "9f8e7d6c5b4a39281706"
 _POD_PUBKEY = "c29tZS1wdWJsaWMta2V5LWJhc2U2NA=="
@@ -42,14 +42,14 @@ def _clean_env(monkeypatch):
     yield
 
 
-def _spec(*, tier: str = TIER_LOGICAL, space_id: str | None = "sp_1") -> PodSpec:
+def _spec(*, tier: str = TIER_LOGICAL, billing_space_id: str | None = "bsp_1") -> PodSpec:
     return PodSpec(
         hushh_id="HA1ABC234DEF",
         phone_e164_hash=_PHONE_HASH,
         pod_pubkey=_POD_PUBKEY,
         region="us-central1",
         tier=tier,
-        space_id=space_id,
+        billing_space_id=billing_space_id,
     )
 
 
@@ -72,7 +72,7 @@ def test_the_label_set_is_exactly_the_five_non_pii_labels():
 def test_existing_labels_are_unchanged():
     labels = _labels()
     assert labels["app"] == "hussh-one-pod"
-    assert labels["hussh-space-id"] == "sp_1"
+    assert labels["hussh-billing-space"] == "bsp_1"
     assert labels["hussh-tier"] == TIER_LOGICAL
     assert _labels(_spec(tier=TIER_DEDICATED))["hussh-tier"] == TIER_DEDICATED
 
@@ -185,13 +185,13 @@ def test_label_value_default_applies_only_to_empty_input():
     assert _label_value("real", "fallback") == "real"
 
 
-def test_a_space_id_with_illegal_characters_is_sanitised_not_passed_through():
-    labels = _labels(_spec(space_id="SP/42 alpha"))
-    assert labels["hussh-space-id"] == "sp-42-alpha"
-    assert _GCP_LABEL_VALUE.match(labels["hussh-space-id"])
+def test_a_billing_space_id_with_illegal_characters_is_sanitised_not_passed_through():
+    labels = _labels(_spec(billing_space_id="SP/42 alpha"))
+    assert labels["hussh-billing-space"] == "sp-42-alpha"
+    assert _GCP_LABEL_VALUE.match(labels["hussh-billing-space"])
 
 
-def test_an_unset_space_id_still_renders_a_legal_empty_label():
+def test_an_unset_billing_space_id_still_renders_a_legal_empty_label():
     # An empty value is LEGAL, and this test says only that. It used to be named
     # for the outcome rather than the input, and reading it as "an empty cost
     # label is correct" is how `space_id` stayed unassigned by every production
@@ -202,4 +202,4 @@ def test_an_unset_space_id_still_renders_a_legal_empty_label():
     # `tests/test_pod_cost_is_attributable.py` is where that is asserted, because
     # this file builds its own specs and so can never observe what the
     # provisioning path actually passes.
-    assert _labels(_spec(space_id=None))["hussh-space-id"] == ""
+    assert _labels(_spec(billing_space_id=None))["hussh-billing-space"] == ""
