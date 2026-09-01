@@ -295,7 +295,12 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Setup", href: "/one/setup" },
-        { label: "CRM" },
+        {
+          label:
+            process.env.NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED === "true"
+              ? "CRM"
+              : "Connected Systems",
+        },
       ],
     });
 
