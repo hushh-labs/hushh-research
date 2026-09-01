@@ -197,6 +197,7 @@ import {
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import {
   resolveShareDurationHours,
   shareReplacementsLosingTime,
@@ -678,7 +679,8 @@ export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
 // cap and lose ties to whichever SUBVIEW_ACTION_BOOST entry matches the
 // current subview) -- this only changes what becomes a CANDIDATE, not how
 // candidates are ranked once the list is bigger.
-export const LOCATION_VOICE_ACTIONS = deriveLocationVoiceActions("one_location");
+export const LOCATION_VOICE_ACTIONS =
+  deriveLocationVoiceActions("one_location");
 
 const LOCATION_VOICE_CONTROLS = [
   {
@@ -3172,8 +3174,8 @@ export function OneLocationAgentPageContent({
   );
   const rankedRecipients = useMemo(() => {
     const ranked = rankRecipientsForRecommendation(
-        contactSignalRecipients,
-        contactMatchedUserIds,
+      contactSignalRecipients,
+      contactMatchedUserIds,
     );
     // Every paged row came through the same vault-authorized recipient route.
     // Retain it by user id so selecting page 2, then changing search, does not
@@ -3184,7 +3186,7 @@ export function OneLocationAgentPageContent({
         [...pagedRecipientsByUserId.values()],
         contactMatchedUserIds,
       ),
-  );
+    );
   }, [contactMatchedUserIds, contactSignalRecipients, pagedRecipientsByUserId]);
   const shareRecipientPool = useMemo(
     () =>
@@ -3243,9 +3245,9 @@ export function OneLocationAgentPageContent({
             contactMatchedUserIds,
           )
         : filterPeopleByQuery(
-        rankedRecipients,
-        shareRecipientSearch,
-        recipientLabel,
+            rankedRecipients,
+            shareRecipientSearch,
+            recipientLabel,
           ).slice(0, 50),
     [
       contactMatchedUserIds,
@@ -3349,9 +3351,10 @@ export function OneLocationAgentPageContent({
     () =>
       (state?.requests ?? []).filter(
         (request) =>
-          request.ownerUserId === auth.userId && request.status === "pending",
+          request.ownerUserId === auth.userId &&
+          isLocationRequestPending(request, nowMs),
       ),
-    [auth.userId, state?.requests],
+    [auth.userId, nowMs, state?.requests],
   );
   // Warm the shared position while the user is still reading the request.
   //
@@ -6557,17 +6560,38 @@ export function OneLocationAgentPageContent({
 
     setLiveShareDurationSaving(true);
     try {
-      await OneLocationService.setGrantDuration({
+      const updatedGrant = await OneLocationService.setGrantDuration({
         vaultOwnerToken,
         grantId,
         durationHours,
         durationMode: untilStopped ? "until_stopped" : "timed",
       });
+      // The PATCH response is authoritative and already contains the new
+      // expiry. Merge it over the enriched row: duration PATCH payloads may
+      // omit display identity and key fields that the state projection added.
+      // Invalidate before publishing so a refresh started before the PATCH can
+      // never overwrite this authoritative result when it eventually lands.
+      if (updatedGrant?.id && auth.userId && state) {
+        const activeUserId = auth.userId;
+        const priorRefresh = refreshInFlightRef.current;
+        const merged = OneLocationStateResource.mergeOwnerGrant(
+          activeUserId,
+          updatedGrant,
+          state,
+        );
+        if (!merged) OneLocationStateResource.invalidate(activeUserId);
+        // If a refresh was already in flight, calling refresh immediately only
+        // joins that stale task. Wait it out, then start (or join) a read that
+        // is guaranteed to have begun after the mutation.
+        void (async () => {
+          if (priorRefresh) await priorRefresh;
+          await refresh({ background: true });
+        })().catch(() => null);
+      } else {
+        void refresh({ background: true }).catch(() => null);
+      }
       toast.success("Time updated.");
       setLiveShareDurationEditing(false);
-      // Held until the list has reconciled, so the card's countdown is already
-      // reading the new expiry when the editor closes.
-      await refresh({ background: true }).catch(() => null);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -6579,9 +6603,11 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activeOwnerGrants,
+    auth.userId,
     liveShareDurationHours,
     liveShareStatus?.stoppableGrantId,
     refresh,
+    state,
     vaultOwnerToken,
   ]);
 
@@ -7087,25 +7113,25 @@ export function OneLocationAgentPageContent({
                     onClick: () => void handleSyncContactSignalRef.current?.(),
                   },
                 }
-            : outcome.remedy === "invite"
-              ? {
-                  action: {
-                    label: "Invite them",
-                    // The other half of a contact scan. Until now the count of
-                    // people who are NOT on One was computed on every sync and
-                    // read by nothing but an analytics dimension — the product
-                    // learned who was missing, recorded it, and offered the
-                    // person no way to act on it.
-                    //
-                    // Reuses the existing invite share rather than minting a
-                    // second one, and deliberately carries no pre-authorized
-                    // connection: `buildInviteToOneShare` documents why, and
-                    // an invite that consents on the recipient's behalf is not
-                    // an invite.
-                    onClick: () => void handleInviteContactCandidates(),
-                  },
-                }
-              : {}),
+              : outcome.remedy === "invite"
+                ? {
+                    action: {
+                      label: "Invite them",
+                      // The other half of a contact scan. Until now the count of
+                      // people who are NOT on One was computed on every sync and
+                      // read by nothing but an analytics dimension — the product
+                      // learned who was missing, recorded it, and offered the
+                      // person no way to act on it.
+                      //
+                      // Reuses the existing invite share rather than minting a
+                      // second one, and deliberately carries no pre-authorized
+                      // connection: `buildInviteToOneShare` documents why, and
+                      // an invite that consents on the recipient's behalf is not
+                      // an invite.
+                      onClick: () => void handleInviteContactCandidates(),
+                    },
+                  }
+                : {}),
       };
       if (result.matchedUserIds.length > 0) {
         toast.success(outcome.title, outcomeOptions);
@@ -7228,7 +7254,9 @@ export function OneLocationAgentPageContent({
             vaultOwnerToken: activeVaultOwnerToken,
             ownerUserId: owner.userId,
             message: buildOneLocationRequestMessage(reason, requestMessage),
-            requestedDurationHours: Number(durationHoursOverride ?? durationHours),
+            requestedDurationHours: Number(
+              durationHoursOverride ?? durationHours,
+            ),
             requestedDurationMode: "timed",
           });
           successCount += 1;
@@ -12297,9 +12325,9 @@ export function OneLocationAgentPageContent({
       try {
         const preference = await OneLocationService.updateAutoApprovePreference(
           {
-          vaultOwnerToken,
-          enabled,
-          scope: enabled ? (input.scope ?? null) : null,
+            vaultOwnerToken,
+            enabled,
+            scope: enabled ? (input.scope ?? null) : null,
           },
         );
         // The PATCH result is the authority. Keep it visible even when the

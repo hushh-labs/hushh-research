@@ -31,7 +31,7 @@ describe("the owner's popup", () => {
     // even read -- extra time on a running share is not a fresh ask.
     expect(copy.title).toBe("More location time requested");
     expect(copy.description).toBe(
-      "Ankit Kumar Singh is asking for 3 hours more of your live location. They have 45 more min left.",
+      "Ankit Kumar Singh is asking for 3 hours more of your live location. They have 45 min left.",
     );
   });
 
