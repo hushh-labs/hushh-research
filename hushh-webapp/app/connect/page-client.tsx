@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search as SearchIcon,
   Share2,
+  UserPlus,
   X,
 } from "lucide-react";
 
@@ -875,12 +876,25 @@ export default function ConnectPageClient() {
   // The directory is every account on Hussh, so listing all of it unprompted
   // stops being useful as soon as sign-ups outgrow a screen or two: the person
   // you came to connect with is buried among strangers, and paging through them
-  // is the tedious part. Unsearched, this surface therefore shows a short
-  // suggested sample and nothing more — enough that someone who does not yet
-  // know a name has somewhere to start, small enough that it is never the thing
-  // you have to scroll past. Naming a name is what opens the full directory.
+  // is the tedious part.
   const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery.length > 0;
+  // Reported: the People tab opened straight onto that unfiltered directory --
+  // a page of 20 strangers before anyone had asked to see one. Your own
+  // connections render separately, above this, and were never the problem.
+  //
+  // Explicit ask, tracked in state rather than derived from `hasQuery` alone
+  // (`peopleDirectoryRevealed`), plus `hasQuery` itself as a second, independent
+  // reason: a search restored from `readStoredConnectSearchQuery` on a fresh
+  // mount is also an explicit ask, just one made in an earlier visit, and it
+  // must reopen the section it belongs to rather than sit invisible.
+  //
+  // Advisors and Nearby keep browsing on arrival -- unaffected. Searching a
+  // verified-advisor directory or nearby businesses is the whole point of
+  // those tabs, not a fallback for not knowing who you want.
+  const [peopleDirectoryRevealed, setPeopleDirectoryRevealed] = useState(false);
+  const showPeopleDirectory =
+    tab !== "people" || peopleDirectoryRevealed || hasQuery;
 
   // A new query, or a new page size, is a new result set: go back to page one
   // rather than asking for page 4 of something the reader has just redefined.
@@ -991,6 +1005,13 @@ export default function ConnectPageClient() {
     let cancelled = false;
     async function run() {
       if (!user) return;
+      // Collapsed on the People tab: no reason to ask the server for a page
+      // of strangers nobody has asked to see yet.
+      if (!showPeopleDirectory) {
+        setLoading(false);
+        setError(null);
+        return;
+      }
       try {
         if (currentPage <= 1) setHasMore(false);
         setLoading(true);
@@ -1045,6 +1066,7 @@ export default function ConnectPageClient() {
     currentPage,
     pageSize,
     directoryAudience,
+    showPeopleDirectory,
     // A contact sync can connect people who are sitting in this list right
     // now. Their rows carry a `relationship` the server decided before the
     // sync ran, so without this the directory keeps offering "Connect" to
@@ -1052,6 +1074,16 @@ export default function ConnectPageClient() {
     // refused. Bumping the nonce re-asks the server for the same page.
     directoryRefreshNonce,
   ]);
+
+  // Single place that focuses the search box on reveal, rather than the two
+  // call sites (this button, the search-people voice handler) each doing it
+  // inline. Inline worked for search-people before this change because the
+  // input was always already mounted; now the input often does not exist
+  // until this exact state flips, so focusing has to wait for the render
+  // that mounts it rather than fire in the same tick as the state update.
+  useEffect(() => {
+    if (peopleDirectoryRevealed) searchInputRef.current?.focus();
+  }, [peopleDirectoryRevealed]);
 
   const selectSurface = useCallback(
     (next: ConnectSurface) => {
@@ -1861,7 +1893,12 @@ export default function ConnectPageClient() {
     selectSurface("all");
     setTab("people");
     setQuery(person);
-    searchInputRef.current?.focus();
+    // A spoken search is an explicit ask too, same as tapping "Add people" --
+    // set alongside `hasQuery` so the section is guaranteed open even on the
+    // very first search of a session, before the reveal-focus effect has ever
+    // run. Focus itself is that effect's job now, once the input this needs
+    // to focus has actually mounted (see the comment beside it).
+    setPeopleDirectoryRevealed(true);
     return {
       status: "succeeded",
       summary: "Searching Connect for the name you gave.",
@@ -2693,6 +2730,7 @@ export default function ConnectPageClient() {
                       </div>
                     ) : null}
 
+                    {showPeopleDirectory ? (
                     <div className="space-y-4">
                       <SettingsGroup
                         title={CONNECT_TAB_LABEL[tab]}
@@ -3172,6 +3210,26 @@ export default function ConnectPageClient() {
                           )}
                       </SettingsGroup>
                     </div>
+                    ) : (
+                      <SettingsGroup>
+                        <SettingsRow
+                          leading={
+                            <span
+                              aria-hidden="true"
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]"
+                            >
+                              <UserPlus className="h-4 w-4" />
+                            </span>
+                          }
+                          title="Add people"
+                          description="Search Hussh for someone to connect with."
+                          chevron
+                          onClick={() => setPeopleDirectoryRevealed(true)}
+                          testId="connect-add-people"
+                          ariaLabel="Add people"
+                        />
+                      </SettingsGroup>
+                    )}
                   </div>
                 )}
               </>
