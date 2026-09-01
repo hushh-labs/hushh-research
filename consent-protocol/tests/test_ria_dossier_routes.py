@@ -478,7 +478,11 @@ def test_a_queued_row_still_within_the_grace_window_is_left_alone(monkeypatch):
         {"status": "scan_failed"},
         # Freshly queued, well inside the stall threshold — a worker that is
         # genuinely still starting up must never be raced into a second scan.
-        {"status": "queued", "scan_id": None, "requested_at": datetime.now(UTC)},
+        {
+            "status": "queued",
+            "scan_id": None,
+            "requested_at_offset": timedelta(seconds=5),
+        },
         {"status": "scanning", "scan_id": None},
         {
             "status": "scanning",
@@ -489,7 +493,12 @@ def test_a_queued_row_still_within_the_grace_window_is_left_alone(monkeypatch):
     ids=["sent", "failed", "queued-not-yet-stale", "scanning-no-scan-id", "already-completed"],
 )
 def test_a_row_that_is_not_mid_scan_is_never_resumed(monkeypatch, overrides):
-    _install_db(monkeypatch, [_row(**overrides)])
+    case_overrides = dict(overrides)
+    requested_at_offset = case_overrides.pop("requested_at_offset", None)
+    if requested_at_offset is not None:
+        case_overrides["requested_at"] = datetime.now(UTC) - requested_at_offset
+
+    _install_db(monkeypatch, [_row(**case_overrides)])
     _install_claim_context(monkeypatch, _claim_context())
     workers: list[dict[str, Any]] = []
 
