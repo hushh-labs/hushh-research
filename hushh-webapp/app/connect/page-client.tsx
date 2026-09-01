@@ -913,22 +913,23 @@ export default function ConnectPageClient() {
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
   /**
-   * "My connections" is a disclosure, closed until asked for.
+   * "My connections" is a disclosure. Open by default.
    *
-   * Reported: "Connections wala ek accordion tab ki tarah ho jo click krne pe
-   * he open ho ... currently it looks long for me".
+   * Originally closed, on the reasoning that it was two stacked lists of
+   * people on one screen -- the ones you already know, and the ones you are
+   * looking for -- and the first pushed the search box below the fold on a
+   * phone. That reasoning no longer holds: the directory/search half is now
+   * ITSELF collapsed behind "Add people" (see showPeopleDirectory above), so
+   * there is nothing left on the fold for a long connections list to push
+   * down. Reported: arriving on Connect with both sections visibly shut read
+   * as the screen having nothing on it.
    *
-   * It was two stacked lists of people on one screen -- the ones you already
-   * know, and the ones you are looking for -- and the first one pushed the
-   * second below the fold on a phone even though the second is what the screen
-   * is FOR. Searching is the reason someone opens Connect; reviewing who you
-   * already have is the occasional visit.
-   *
-   * Closed by default rather than remembering the last state: the default is
-   * the answer to "what is this screen for", and it should not drift per
-   * person. The scroll region it had is unchanged and simply lives inside now.
+   * Still a disclosure rather than always-rendered-open, because the scroll
+   * region a hundred connections need is real and someone may still prefer
+   * it out of the way -- only the DEFAULT changed. Not remembered per person,
+   * for the same reason the earlier default was not: it should not drift.
    */
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(true);
   const connectionsHeading = isAdvisorTab
     ? `My RIAs (${connectionsTotalCount})`
     : `My connections (${connectionsTotalCount})`;
