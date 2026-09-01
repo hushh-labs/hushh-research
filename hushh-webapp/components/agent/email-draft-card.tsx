@@ -357,6 +357,7 @@ export function EmailDraftCard({
                       }`}
                     >
                       {conn.photoUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
                         <img src={conn.photoUrl} alt="" className="h-7 w-7 rounded-full object-cover shrink-0" />
                       ) : (
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
