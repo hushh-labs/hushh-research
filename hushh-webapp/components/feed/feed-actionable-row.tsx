@@ -171,7 +171,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
           that ran straight over the timestamp. The history row two files away
           (feed-row.tsx:63) has always clamped the flex item; this is the same
           shape, one class different. */}
-      <span className="min-w-0 flex-1 truncate">{descriptionBody}</span>
+      <span className="min-w-0 flex-1 line-clamp-2">{descriptionBody}</span>
       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
         {timeLabel}
       </span>
@@ -197,6 +197,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     // Stacking gives the text the full width and the buttons their own line.
     // Only rows that HAVE actions stack; a chevron row is 16px and fine inline.
     stackTrailingOnMobile: hasActions,
+    testId: `feed-actionable-${item.id}`,
   } as const;
 
   // A row with inline actions must not also wrap those buttons in a link. For

@@ -10,6 +10,24 @@ function readMarketplacePage() {
 }
 
 describe("marketplace client card layout contract", () => {
+  it("keeps swipe cards content-sized instead of stretching CTAs away from the profile details", () => {
+    const source = readMarketplacePage();
+
+    expect(source).toContain('data-testid="marketplace-swipe-card"');
+    expect(source).toContain("relative mx-auto flex w-full max-w-[1120px] items-center justify-center");
+    expect(source).toContain("flex w-full touch-pan-y flex-col gap-6");
+    expect(source).toContain("p-6 shadow-[var(--app-card-shadow-feature)]");
+    expect(source).toContain("space-y-6");
+    expect(source).toContain("flex items-center gap-5");
+    expect(source).toContain("rounded-[var(--radius-md)] bg-background/50 p-5");
+    expect(source).toContain('data-testid="marketplace-swipe-card-actions"');
+    expect(source).toContain("grid grid-cols-3 gap-3");
+    expect(source).not.toContain("max-w-[720px]");
+    expect(source).not.toContain("max-w-none");
+    expect(source).not.toContain('minHeight: "min(60dvh, 560px)"');
+    expect(source).not.toContain("flex w-full touch-pan-y flex-col justify-between");
+  });
+
   it("keeps marketplace card CTAs aligned without enlarging the card container", () => {
     const source = readMarketplacePage();
 
@@ -41,5 +59,16 @@ describe("marketplace client card layout contract", () => {
     expect(source).toContain("onClick={() => void matchContacts()}");
     expect(source).toContain("aria-busy={contactMatchLoading}");
     expect(source).not.toContain('aria-label={directoryKind === "investors" ? "Refresh deck" : "Restart deck"}');
+  });
+
+  it("renders marketplace SEC evidence links with normalized labels", () => {
+    const source = readMarketplacePage();
+
+    expect(source).toContain("marketplaceInvestorEvidenceLinks(selectedInvestorEvidence)");
+    expect(source).toContain("key={source.id}");
+    expect(source).toContain("href={source.url}");
+    expect(source).toContain("{source.label}");
+    expect(source).toContain("aria-label={`${source.label} opens in a new tab`}");
+    expect(source).not.toContain("SEC source");
   });
 });

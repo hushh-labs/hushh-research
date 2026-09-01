@@ -21,7 +21,7 @@ describe("PortfolioSourceSwitcher", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Brokerage" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Brokerage" }));
     expect(onSourceChange).toHaveBeenCalledWith("plaid");
 
     rerender(
@@ -39,8 +39,8 @@ describe("PortfolioSourceSwitcher", () => {
       "aria-busy",
       "true",
     );
-    expect(screen.getByRole("button", { name: "Statement" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Brokerage" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Statement" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Brokerage" })).toBeDisabled();
 
     rerender(
       <PortfolioSourceSwitcher
@@ -97,7 +97,7 @@ describe("PortfolioSourceSwitcher", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Brokerage" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Brokerage" })).toBeDisabled();
     expect(
       screen.getByText("Unlock your Vault to change the active portfolio."),
     ).toBeTruthy();

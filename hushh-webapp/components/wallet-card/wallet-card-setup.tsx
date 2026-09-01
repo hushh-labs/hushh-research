@@ -6,7 +6,7 @@ import { ChevronDown, ShieldCheck } from "lucide-react";
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/profile/settings-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -182,7 +182,7 @@ export function WalletCardSetup({
 
           <div className="space-y-1.5">
             <Label className="text-[13px] font-medium">Preferred contact</Label>
-            <SettingsSegmentedTabs
+            <SegmentedTabs
               value={draft.preferredContact}
               onValueChange={(value) =>
                 onChange("preferredContact", value as WalletCardPreferredContact)

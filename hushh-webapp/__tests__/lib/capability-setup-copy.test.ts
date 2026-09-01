@@ -35,14 +35,8 @@ describe("onboarding capability copy", () => {
     expect(email?.setupBlurb).toBe("Verify with your approval.");
   });
 
-  it("frames CRM setup as a connection the person approves", () => {
-    const connectedSystems = getCapabilitySetupCopy("connected-systems");
-
-    expect(connectedSystems).toMatchObject({
-      setupTitle: "Connect your CRM",
-      actionLabel: "Set up CRM",
-    });
-    expect(connectedSystems?.setupBlurb).toBe("Find records with your approval.");
+  it("omits paused local-only CRM copy from the visible setup catalog", () => {
+    expect(getCapabilitySetupCopy("connected-systems")).toBeUndefined();
   });
 
   it("reuses the same launcher icon and tone registry for setup rows", () => {
@@ -60,19 +54,17 @@ describe("onboarding capability copy", () => {
   it("keeps every setup row short enough to read at a glance", () => {
     // Long value-first sentences were what made this list feel like work.
     // Nothing a person scans on the hub runs past a single short line.
-    for (const id of [
-      "gmail",
-      "calendar",
-      "location",
-      "email",
-      "finance",
-      "ria",
-      "connected-systems",
-    ]) {
+    for (const { id } of ONE_SETUP_CAPABILITIES) {
       const copy = getCapabilitySetupCopy(id);
       expect(copy, id).toBeDefined();
-      expect(copy!.setupTitle.split(" ").length, `${id} title`).toBeLessThanOrEqual(5);
-      expect(copy!.setupBlurb.split(" ").length, `${id} blurb`).toBeLessThanOrEqual(8);
+      expect(
+        copy!.setupTitle.split(" ").length,
+        `${id} title`,
+      ).toBeLessThanOrEqual(5);
+      expect(
+        copy!.setupBlurb.split(" ").length,
+        `${id} blurb`,
+      ).toBeLessThanOrEqual(8);
     }
   });
 });

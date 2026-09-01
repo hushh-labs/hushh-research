@@ -12,7 +12,7 @@ import { PopupTextEditorField } from "@/components/app-ui/command-fields";
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/profile/settings-ui";
 import {
   RiaCompatibilityState,
@@ -552,7 +552,7 @@ export function RiaClientWorkspace({
 
       {detail ? (
         <>
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={activeTab}
             onValueChange={(value) => {
               const nextTab = value as WorkspaceTab;

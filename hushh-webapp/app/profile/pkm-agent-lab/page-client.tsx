@@ -29,7 +29,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SegmentedTabs } from "@/components/profile/settings-ui";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -1108,7 +1108,7 @@ export default function PkmAgentLabPageClient() {
         description="See what Kai knows, manage permissions, and explore your encrypted Personal Knowledge Model."
       >
         <SurfaceInset className="space-y-4 px-4 py-4">
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as typeof activeTab)}
             options={pkmAgentLabTabOptions}

@@ -384,18 +384,21 @@ export function StreamingProgressView({
         </span>
       </div>
 
-      {/* AI Thoughts (Reasoning) - Show streamed text during active, thoughts array when complete */}
-      {(isActive || thoughts.length > 0 || streamedText) && (
+      {/* Only claim a stream when the provider emitted real text. Round-one
+          structured agents can be active without token deltas; rendering an
+          empty "Preparing stream" box in that state was misleading. */}
+      {reasoningText.trim().length > 0 && (
         <StreamingAccordion
           id={`thoughts-${title.toLowerCase().replace(/\s+/g, "-")}`}
-          title="Reasoning"
+          title="Analysis"
           text={reasoningText}
           isStreaming={!disableStreaming && isActive} // Disable streaming animation if requested
           isComplete={isComplete}
           autoCollapseOnComplete={false}
           icon={isComplete ? "brain" : "spinner"}
-          className="border-primary/5 bg-primary/5"
+          className="bg-transparent"
           defaultExpanded={compactMode || isActive}
+          surface="flat"
         />
       )}
 
