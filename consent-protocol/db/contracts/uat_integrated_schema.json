@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 188,
+  "expected_migration_version": 190,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -329,6 +329,40 @@
       "gmail_message_id",
       "gmail_thread_id",
       "safe_error_code",
+      "created_at",
+      "updated_at"
+    ],
+    "gmail_personal_information_request_preferences": [
+      "user_id",
+      "monitoring_enabled",
+      "monitoring_enabled_at",
+      "monitor_cursor",
+      "scan_lease_id",
+      "scan_lease_expires_at",
+      "last_scan_attempted_at",
+      "last_scan_completed_at",
+      "created_at",
+      "updated_at"
+    ],
+    "gmail_personal_information_request_scan_states": [
+      "user_id",
+      "gmail_message_id",
+      "source_hmac",
+      "scanned_at"
+    ],
+    "gmail_personal_information_requests": [
+      "workflow_id",
+      "user_id",
+      "status",
+      "gmail_message_id",
+      "gmail_thread_id",
+      "source_hmac",
+      "sender_hmac",
+      "received_at",
+      "classification_confidence",
+      "requested_field_labels",
+      "candidate_scopes",
+      "attachment_review_required",
       "created_at",
       "updated_at"
     ],

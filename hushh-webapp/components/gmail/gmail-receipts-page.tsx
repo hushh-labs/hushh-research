@@ -14,7 +14,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { DataTable } from "@/components/app-ui/data-table";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import GmailChatPanel from "@/components/gmail/gmail-chat-panel";
+import GmailInformationRequestsSection from "@/components/gmail/gmail-information-requests-section";
 import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
@@ -94,6 +94,7 @@ import {
 } from "@/lib/voice/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { buildEmailAgentIntroPrompt } from "@/lib/agent/email-agent-intro";
+import { HushhAuth } from "@/lib/capacitor";
 
 function formatDate(value?: string | null): string {
   if (!value) return "—";
@@ -380,7 +381,9 @@ export default function GmailReceiptsPage({
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
-  const createHandoff = useOneConversationSession((state) => state.createHandoff);
+  const createHandoff = useOneConversationSession(
+    (state) => state.createHandoff,
+  );
 
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [page, setPage] = useState(1);
@@ -598,18 +601,20 @@ export default function GmailReceiptsPage({
 
     const settleClosedPopup = async () => {
       const intent = readOnboardingConnectorIntent();
-      const status = await refreshGmailStatus({ force: true }).catch(() => null);
+      const status = await refreshGmailStatus({ force: true }).catch(
+        () => null,
+      );
       const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
         force: true,
       }).catch(() => null);
       const matchesPendingSetupAttempt = Boolean(
         intent &&
-          journey &&
-          !PreVaultUserStateService.isSetupResolved(journey) &&
-          journey.onboardingPhase === "external_connector" &&
-          journey.onboardingActiveCapability === "gmail" &&
-          journey.onboardingCallbackState === "pending" &&
-          journey.onboardingCallbackAttemptId === intent.correlationId,
+        journey &&
+        !PreVaultUserStateService.isSetupResolved(journey) &&
+        journey.onboardingPhase === "external_connector" &&
+        journey.onboardingActiveCapability === "gmail" &&
+        journey.onboardingCallbackState === "pending" &&
+        journey.onboardingCallbackAttemptId === intent.correlationId,
       );
       if (matchesPendingSetupAttempt && intent && journey) {
         await PreVaultUserStateService.syncOnboardingJourney({
@@ -625,7 +630,9 @@ export default function GmailReceiptsPage({
       if (status?.connected) {
         toast.success("Gmail connected. You can finish setup when ready.");
       } else {
-        toast.message("The Gmail window closed. You can try again whenever you are ready.");
+        toast.message(
+          "The Gmail window closed. You can try again whenever you are ready.",
+        );
       }
     };
 
@@ -693,10 +700,75 @@ export default function GmailReceiptsPage({
     if (!user?.uid || gmailActionBusy !== null) return Promise.resolve(false);
 
     if (Capacitor.isNativePlatform()) {
-      toast.error(
-        "Connect this inbox from the web app for now.",
-      );
-      return Promise.resolve(false);
+      setGmailActionBusy("connect");
+      return (async () => {
+        try {
+          const journey = await PreVaultUserStateService.bootstrapState(
+            user.uid,
+            {
+              force: true,
+            },
+          ).catch(() => null);
+          const fromSetup = Boolean(
+            journey &&
+            !PreVaultUserStateService.isSetupResolved(journey) &&
+            journey.onboardingActiveCapability === "gmail",
+          );
+          const idToken = await user.getIdToken();
+          const nativeStart = await GmailReceiptsService.startNativeConnect({
+            idToken,
+          });
+          if (!nativeStart.configured || !nativeStart.server_client_id) {
+            throw new Error(
+              "Gmail OAuth is not configured for this environment.",
+            );
+          }
+
+          const { serverAuthCode } = await HushhAuth.connectGmail({
+            serverClientId: nativeStart.server_client_id,
+          });
+          if (!serverAuthCode?.trim()) {
+            throw new Error(
+              "Google did not return a Gmail authorization code.",
+            );
+          }
+
+          await GmailReceiptsService.completeNativeConnect({
+            idToken,
+            userId: user.uid,
+            serverAuthCode,
+          });
+          await refreshGmailStatus({ force: true });
+
+          if (fromSetup && journey) {
+            await PreVaultUserStateService.syncOnboardingJourney({
+              userId: user.uid,
+              phase: "capability_setup",
+              activeCapability: "gmail",
+              callbackState: "succeeded",
+              expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+            }).catch(() => undefined);
+          }
+
+          toast.success(
+            "Gmail connected. Your receipt scan will continue in the background.",
+          );
+          return true;
+        } catch (error) {
+          const message = sanitizeGmailUserMessage(error, {
+            fallback:
+              "We couldn't connect Gmail right now. Please try again in a moment.",
+          });
+          console.warn(
+            "[ProfileReceiptsPage] Failed to connect Gmail from native:",
+            error instanceof Error ? error.message : error,
+          );
+          toast.error(message);
+          return false;
+        } finally {
+          setGmailActionBusy(null);
+        }
+      })();
     }
 
     const attempt = createGmailOAuthPopupAttempt();
@@ -710,13 +782,16 @@ export default function GmailReceiptsPage({
 
     return (async () => {
       try {
-        const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
-          force: true,
-        }).catch(() => null);
+        const journey = await PreVaultUserStateService.bootstrapState(
+          user.uid,
+          {
+            force: true,
+          },
+        ).catch(() => null);
         const fromSetup = Boolean(
           journey &&
-            !PreVaultUserStateService.isSetupResolved(journey) &&
-            journey.onboardingActiveCapability === "gmail",
+          !PreVaultUserStateService.isSetupResolved(journey) &&
+          journey.onboardingActiveCapability === "gmail",
         );
         const idToken = await user.getIdToken();
         const isGoogleProvider =
@@ -732,7 +807,9 @@ export default function GmailReceiptsPage({
         });
 
         if (!payload.configured || !payload.authorize_url) {
-          throw new Error("Gmail OAuth is not configured for this environment.");
+          throw new Error(
+            "Gmail OAuth is not configured for this environment.",
+          );
         }
 
         if (fromSetup) {
@@ -789,7 +866,7 @@ export default function GmailReceiptsPage({
         return false;
       }
     })();
-  }, [gmailActionBusy, user]);
+  }, [gmailActionBusy, refreshGmailStatus, user]);
 
   const handleTryEmailAgent = useCallback(() => {
     if (!emailAgentIntroRecipient) return;
@@ -911,10 +988,10 @@ export default function GmailReceiptsPage({
   }, [gmail.syncRun]);
   const hasObservedScanWork = Boolean(
     latestRunMetrics &&
-      (latestRunMetrics.listed > 0 ||
-        latestRunMetrics.filtered > 0 ||
-        latestRunMetrics.synced > 0 ||
-        latestRunMetrics.extracted > 0),
+    (latestRunMetrics.listed > 0 ||
+      latestRunMetrics.filtered > 0 ||
+      latestRunMetrics.synced > 0 ||
+      latestRunMetrics.extracted > 0),
   );
   const {
     activeControlId: activeVoiceControlId,
@@ -999,6 +1076,9 @@ export default function GmailReceiptsPage({
     : connectorState === "needs_reauthentication" || gmail.status?.revoked
       ? "Reconnect Gmail"
       : "Connect Gmail";
+  const connectGmailHelper = Capacitor.isNativePlatform()
+    ? "A secure Google account sheet opens next. Approve Gmail access and return here automatically."
+    : null;
   const statusToneClassName =
     statusSummary.tone === "success"
       ? "border-emerald-500/18 bg-emerald-500/[0.05]"
@@ -1040,9 +1120,7 @@ export default function GmailReceiptsPage({
               purpose:
                 "starts Gmail connection or reconnection from this receipts page.",
               actionId:
-                journeyVariant === "onboarding"
-                  ? "setup.connect_gmail"
-                  : null,
+                journeyVariant === "onboarding" ? "setup.connect_gmail" : null,
               role: "button",
               voiceAliases: [
                 "connect gmail",
@@ -1611,6 +1689,11 @@ export default function GmailReceiptsPage({
                     Disconnect
                   </Button>
                 ) : null}
+                {connectGmailHelper ? (
+                  <p className="w-full text-center text-xs text-muted-foreground sm:basis-full">
+                    {connectGmailHelper}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </SurfaceInset>
@@ -1645,7 +1728,8 @@ export default function GmailReceiptsPage({
               <div className="space-y-1">
                 <p className="font-medium text-foreground">Email Agent</p>
                 <p className="text-sm leading-6 text-muted-foreground">
-                  Draft your first email with One. You can edit it before it is reviewed and sent.
+                  Draft your first email with One. You can edit it before it is
+                  reviewed and sent.
                 </p>
               </div>
               <Button
@@ -1661,7 +1745,16 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected ? (
-            <GmailChatPanel vaultOwnerToken={vaultOwnerToken} />
+            <GmailInformationRequestsSection
+              userId={user?.uid || null}
+              vaultKey={vaultKey}
+              vaultOwnerToken={vaultOwnerToken}
+              isConnected
+              idTokenProvider={
+                user?.getIdToken ? () => user.getIdToken() : null
+              }
+              onRequestVaultUnlock={requestVaultUnlock}
+            />
           ) : null}
 
           {isConnected ? (
@@ -1891,7 +1984,10 @@ export default function GmailReceiptsPage({
                           "Unknown merchant"}
                       </p>
                     </div>
-                    <Badge variant="secondary" className="shrink-0 text-xs font-medium">
+                    <Badge
+                      variant="secondary"
+                      className="shrink-0 text-xs font-medium"
+                    >
                       {formatAmount(receipt.currency, receipt.amount)}
                     </Badge>
                   </div>
@@ -1902,7 +1998,9 @@ export default function GmailReceiptsPage({
                   ) : null}
                   <div className="flex items-center justify-between border-t border-border/50 pt-2 text-[11.5px] text-muted-foreground">
                     <span>
-                      {formatDate(receipt.receipt_date || receipt.gmail_internal_date)}
+                      {formatDate(
+                        receipt.receipt_date || receipt.gmail_internal_date,
+                      )}
                     </span>
                     {receipt.order_id ? (
                       <span className="max-w-[150px] truncate font-mono text-[11px]">

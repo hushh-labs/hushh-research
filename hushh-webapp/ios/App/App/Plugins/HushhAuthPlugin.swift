@@ -21,6 +21,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "HushhAuth"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "connectGmail", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signInWithApple", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getIdToken", returnType: CAPPluginReturnPromise),
@@ -354,6 +355,69 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     call.resolve(response)
                 }
             }
+        }
+    }
+
+    /// Requests incremental Gmail consent without changing the Firebase session.
+    /// The one-time server authorization code is returned to JavaScript only so
+    /// it can be exchanged immediately by the authenticated backend.
+    @objc func connectGmail(_ call: CAPPluginCall) {
+        guard ensureFirebaseConfigured() else {
+            call.reject("Missing GoogleService-Info.plist (Firebase not configured)")
+            return
+        }
+
+        guard let viewController = bridge?.viewController else {
+            call.reject("No view controller available")
+            return
+        }
+
+        guard let serverClientId = call.getString("serverClientId")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !serverClientId.isEmpty else {
+            call.reject("Missing Google server client ID")
+            return
+        }
+
+        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+              let plist = NSDictionary(contentsOfFile: path),
+              let clientId = plist["CLIENT_ID"] as? String else {
+            call.reject("Missing GoogleService-Info.plist or CLIENT_ID")
+            return
+        }
+
+        let configuration = GIDConfiguration(
+            clientID: clientId,
+            serverClientID: serverClientId
+        )
+        GIDSignIn.sharedInstance.configuration = configuration
+
+        let gmailScopes = [
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/gmail.send"
+        ]
+        GIDSignIn.sharedInstance.signIn(
+            withPresenting: viewController,
+            hint: nil,
+            additionalScopes: gmailScopes
+        ) { result, error in
+            if let error = error {
+                // kGIDSignInErrorCodeCanceled is -5. Avoid surfacing the SDK
+                // error string so a normal cancellation remains a calm UI state.
+                let isCanceled = (error as NSError).code == -5
+                call.reject(
+                    isCanceled ? "Gmail connection was cancelled" : "Gmail sign-in failed: \(error.localizedDescription)",
+                    isCanceled ? "USER_CANCELLED" : nil
+                )
+                return
+            }
+
+            guard let serverAuthCode = result?.serverAuthCode,
+                  !serverAuthCode.isEmpty else {
+                call.reject("Google did not return a Gmail authorization code")
+                return
+            }
+
+            call.resolve(["serverAuthCode": serverAuthCode])
         }
     }
     

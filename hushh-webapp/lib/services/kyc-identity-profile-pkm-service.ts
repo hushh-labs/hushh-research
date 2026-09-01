@@ -162,8 +162,12 @@ export class KycIdentityProfilePkmService {
         surface: "web",
         source: "kyc_identity_onboarding",
       },
+      // Save & Continue confirms the onboarding form, not every ambiguous
+      // extraction. KYC persists only the same high-confidence cards allowed
+      // by the owner's explicit auto-save policy.
+      writePolicy: "auto_save_only",
     });
-    if (ingestion.save.saved === 0) {
+    if (ingestion.save.attempted > 0 && ingestion.save.saved === 0) {
       return {
         ...(profileResult ?? { fullBlob: {} }),
         success: false,
@@ -208,6 +212,13 @@ export class KycIdentityProfilePkmService {
         message:
           `Saved ${ingestion.save.saved} separate memory ${ingestion.save.saved === 1 ? "detail" : "details"}. ` +
           "Your setup status will finish syncing shortly.",
+      };
+    }
+
+    if (ingestion.save.saved === 0) {
+      return {
+        ...completionResult,
+        message: "No durable personal details were found to save.",
       };
     }
 

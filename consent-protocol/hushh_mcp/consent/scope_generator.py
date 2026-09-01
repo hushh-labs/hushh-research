@@ -430,7 +430,7 @@ class DynamicScopeGenerator:
             path_result = (
                 self.db.table("pkm_manifest_paths")
                 .select(
-                    "domain,json_path,path_type,exposure_eligibility,consent_label,scope_handle"
+                    "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle"
                 )
                 .eq("user_id", user_id)
                 .execute()
@@ -813,6 +813,8 @@ class DynamicScopeGenerator:
                     "scope": self.generate_scope(domain, path),
                     "domain": domain,
                     "path": path,
+                    "path_type": str(row.get("path_type") or "leaf").strip().lower(),
+                    "segment_id": str(row.get("segment_id") or "root").strip().lower() or "root",
                     "wildcard": False,
                     "source_kind": "pkm_manifest_paths",
                     "registry_handle": str(row.get("scope_handle") or "").strip()

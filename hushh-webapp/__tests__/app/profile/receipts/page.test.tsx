@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => {
       listReceipts: vi.fn(),
       listNudges: vi.fn(),
       startConnect: vi.fn(),
+      startNativeConnect: vi.fn(),
+      completeNativeConnect: vi.fn(),
       syncNow: vi.fn(),
     },
     preVaultUserStateService: {
@@ -51,6 +53,9 @@ const mocks = vi.hoisted(() => {
     assignWindowLocation: vi.fn(),
     capacitor: {
       isNativePlatform: vi.fn(),
+    },
+    hushhAuth: {
+      connectGmail: vi.fn(),
     },
     pkmDomainResourceService: {
       prepareDomainWriteContext: vi.fn(),
@@ -90,6 +95,10 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
 
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
   GmailReceiptsService: mocks.gmailReceiptsService,
+}));
+
+vi.mock("@/components/gmail/gmail-information-requests-section", () => ({
+  default: () => null,
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -249,6 +258,10 @@ vi.mock("@capacitor/core", () => ({
   },
   CapacitorHttp: { request: vi.fn() },
   registerPlugin: vi.fn(() => ({})),
+}));
+
+vi.mock("@/lib/capacitor", () => ({
+  HushhAuth: mocks.hushhAuth,
 }));
 
 vi.mock("@/lib/profile/gmail-oauth-popup", () => ({
@@ -567,6 +580,33 @@ describe("ProfileReceiptsPage", () => {
       redirect_uri: "http://localhost:3000/one/profile/gmail/oauth/return",
       expires_at: "2026-04-01T00:00:00Z",
     });
+    vi.mocked(GmailReceiptsService.startNativeConnect).mockResolvedValue({
+      configured: true,
+      server_client_id: "gmail-server-client-id",
+    });
+    vi.mocked(GmailReceiptsService.completeNativeConnect).mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      scope_csv: "https://www.googleapis.com/auth/gmail.readonly",
+      last_sync_status: null,
+      auto_sync_enabled: true,
+      revoked: false,
+      latest_run: null,
+      google_email: "akshat@example.com",
+    });
+    mocks.hushhAuth.connectGmail.mockResolvedValue({
+      serverAuthCode: "native-server-auth-code",
+    });
+  });
+
+  it("does not render the inbox assistant panel on the receipts page", () => {
+    render(<ProfileReceiptsPage />);
+
+    expect(
+      screen.queryByRole("textbox", { name: "Ask your inbox" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Email assistant")).not.toBeInTheDocument();
   });
 
   it("starts Gmail sync in the background", async () => {
@@ -716,7 +756,7 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage />);
 
-    expect(await screen.findByText("Page One Shop")).toBeTruthy();
+    expect(await screen.findAllByText("Page One Shop")).not.toHaveLength(0);
     expect(
       vi.mocked(GmailReceiptsService.listReceipts),
     ).toHaveBeenNthCalledWith(
@@ -731,8 +771,8 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("button", { name: /load older receipts/i }),
     );
 
-    expect(await screen.findByText("Page Two Shop")).toBeTruthy();
-    expect(screen.getByText("Page One Shop")).toBeTruthy();
+    expect(await screen.findAllByText("Page Two Shop")).not.toHaveLength(0);
+    expect(screen.getAllByText("Page One Shop")).not.toHaveLength(0);
 
     await waitFor(() => {
       expect(
@@ -751,12 +791,12 @@ describe("ProfileReceiptsPage", () => {
     });
 
     const firstRender = render(<ProfileReceiptsPage />);
-    expect(await screen.findByText("Cached Shop")).toBeTruthy();
+    expect(await screen.findAllByText("Cached Shop")).not.toHaveLength(0);
 
     firstRender.unmount();
     render(<ProfileReceiptsPage />);
 
-    expect(await screen.findByText("Cached Shop")).toBeTruthy();
+    expect(await screen.findAllByText("Cached Shop")).not.toHaveLength(0);
     await waitFor(() => {
       expect(
         vi.mocked(GmailReceiptsService.listReceipts),
@@ -782,7 +822,7 @@ describe("ProfileReceiptsPage", () => {
 
     const renderResult = render(<ProfileReceiptsPage />);
 
-    expect(await screen.findByText("Current Watermark Shop")).toBeTruthy();
+    expect(await screen.findAllByText("Current Watermark Shop")).not.toHaveLength(0);
     await waitFor(() => {
       expect(
         vi.mocked(GmailReceiptMemoryService.preview),
@@ -876,7 +916,7 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage />);
 
-    expect(await screen.findByText("Backfill Shop")).toBeTruthy();
+    expect(await screen.findAllByText("Backfill Shop")).not.toHaveLength(0);
     expect(
       screen.getByText(
         /we'll prepare your shopping summary after gmail finishes syncing/i,
@@ -912,7 +952,9 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /checking your gmail status/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/your inbox and receipts will appear here as they are ready/i),
+      screen.getByText(
+        /your inbox and receipts will appear here as they are ready/i,
+      ),
     ).toBeTruthy();
   });
 
@@ -950,7 +992,7 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage />);
 
-    expect(await screen.findByText("Stored Shop")).toBeTruthy();
+    expect(await screen.findAllByText("Stored Shop")).not.toHaveLength(0);
     expect(
       screen.getByRole("heading", { name: /reconnect gmail/i }),
     ).toBeTruthy();
@@ -1024,9 +1066,8 @@ describe("ProfileReceiptsPage", () => {
 
   it("falls back to same-window OAuth when the retained popup is unavailable", async () => {
     const retainedPopup = mocks.gmailOAuthPopup.popup;
-    (
-      mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }
-    ).popup = null;
+    (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup =
+      null;
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({
         status: {
@@ -1070,13 +1111,12 @@ describe("ProfileReceiptsPage", () => {
       expect(mocks.gmailOAuthPopup.navigate).not.toHaveBeenCalled();
       expect(mocks.toast.error).not.toHaveBeenCalled();
     } finally {
-      (
-        mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }
-      ).popup = retainedPopup;
+      (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup =
+        retainedPopup;
     }
   });
 
-  it("does not launch browser Gmail OAuth inside the native iOS shell", async () => {
+  it("connects Gmail through native Google consent without a browser popup", async () => {
     mocks.capacitor.isNativePlatform.mockReturnValue(true);
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({
@@ -1107,17 +1147,25 @@ describe("ProfileReceiptsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
 
     await waitFor(() => {
-      expect(mocks.toast.error).toHaveBeenCalledWith(
-        "Connect this inbox from the web app for now.",
+      expect(GmailReceiptsService.startNativeConnect).toHaveBeenCalledWith({
+        idToken: "token-abc",
+      });
+      expect(mocks.hushhAuth.connectGmail).toHaveBeenCalledWith({
+        serverClientId: "gmail-server-client-id",
+      });
+      expect(GmailReceiptsService.completeNativeConnect).toHaveBeenCalledWith({
+        idToken: "token-abc",
+        userId: "user-123",
+        serverAuthCode: "native-server-auth-code",
+      });
+      expect(mocks.toast.success).toHaveBeenCalledWith(
+        "Gmail connected. Your receipt scan will continue in the background.",
       );
     });
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();
     expect(GmailReceiptsService.startConnect).not.toHaveBeenCalled();
     expect(assignWindowLocation).not.toHaveBeenCalled();
     expect(mocks.gmailOAuthPopup.navigate).not.toHaveBeenCalled();
-    expect(
-      mocks.preVaultUserStateService.syncOnboardingJourney,
-    ).not.toHaveBeenCalled();
   });
 
   it("continues onboarding Gmail OAuth when iOS blocks popup session storage", async () => {
@@ -1153,9 +1201,11 @@ describe("ProfileReceiptsPage", () => {
       onboardingActiveCapability: "gmail",
       onboardingJourneyUpdatedAt: 456,
     });
-    mocks.gmailOAuthPopup.popup.sessionStorage.setItem.mockImplementation(() => {
-      throw new Error("iOS blocked popup sessionStorage");
-    });
+    mocks.gmailOAuthPopup.popup.sessionStorage.setItem.mockImplementation(
+      () => {
+        throw new Error("iOS blocked popup sessionStorage");
+      },
+    );
 
     render(<ProfileReceiptsPage journeyVariant="onboarding" />);
 
@@ -1224,7 +1274,9 @@ describe("ProfileReceiptsPage", () => {
     );
 
     expect(finishSetup).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: /skip gmail setup/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /skip gmail setup/i }),
+    ).toBeNull();
     expect(
       screen.getAllByText(/preparing your receipt scan/i).length,
     ).toBeGreaterThan(0);
@@ -1252,7 +1304,7 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage />);
 
-    expect(await screen.findByText("Stored Shop")).toBeTruthy();
+    expect(await screen.findAllByText("Stored Shop")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
     expect(screen.getByText("Disconnect Gmail?")).toBeTruthy();
 
@@ -1270,6 +1322,6 @@ describe("ProfileReceiptsPage", () => {
         success: "Gmail disconnected. Saved receipts stay available here.",
       }),
     );
-    expect(screen.getByText("Stored Shop")).toBeTruthy();
+    expect(screen.getAllByText("Stored Shop")).not.toHaveLength(0);
   });
 });

@@ -45,7 +45,7 @@ describe("KycIdentityProfilePkmService", () => {
     })).resolves.toMatchObject({ success: true, message: "Saved 3 separate memory details." });
 
     expect(ingestionMocks.ingestNaturalLanguagePkm).toHaveBeenCalledWith(expect.objectContaining({
-      userId: "user_1", currentDomains: ["identity"], source: "kyc_identity_onboarding",
+      userId: "user_1", currentDomains: ["identity"], source: "kyc_identity_onboarding", writePolicy: "auto_save_only",
     }));
     expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
   });
@@ -64,5 +64,22 @@ describe("KycIdentityProfilePkmService", () => {
       success: true,
       message: "Saved 1 separate memory detail. 1 detail was skipped and can be retried later.",
     });
+  });
+
+  it("completes KYC without writing junk when no cards qualify for auto-save", async () => {
+    (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValue({ success: true, saveState: "saved", fullBlob: {} });
+    ingestionMocks.ingestNaturalLanguagePkm.mockResolvedValue({
+      preview: { cards: [] },
+      save: { attempted: 0, saved: 0, failed: 0, domains: [], results: [] },
+    });
+
+    await expect(KycIdentityProfilePkmService.saveProfile({
+      userId: "user_1", vaultKey: "vault-key", vaultOwnerToken: "owner-token",
+      profile: { aboutMe: "Thanks for helping with this form." },
+    })).resolves.toMatchObject({
+      success: true,
+      message: "No durable personal details were found to save.",
+    });
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
   });
 });
