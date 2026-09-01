@@ -913,7 +913,7 @@ export default function ConnectPageClient() {
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
   /**
-   * "My connections" is a disclosure. Open by default.
+   * "My connections" is a disclosure. The People tab opens it by default.
    *
    * Originally closed, on the reasoning that it was two stacked lists of
    * people on one screen -- the ones you already know, and the ones you are
@@ -924,12 +924,25 @@ export default function ConnectPageClient() {
    * down. Reported: arriving on Connect with both sections visibly shut read
    * as the screen having nothing on it.
    *
-   * Still a disclosure rather than always-rendered-open, because the scroll
-   * region a hundred connections need is real and someone may still prefer
-   * it out of the way -- only the DEFAULT changed. Not remembered per person,
-   * for the same reason the earlier default was not: it should not drift.
+   * Advisors keeps its own closed default: the verified-advisor directory is
+   * the primary work there, so opening "My RIAs" first would push that task
+   * away. Each directory keeps its own disclosure state while this page is
+   * mounted, so a manual toggle does not leak across tabs.
    */
-  const [connectionsOpen, setConnectionsOpen] = useState(true);
+  const [connectionsOpenByTab, setConnectionsOpenByTab] = useState<
+    Record<ConnectTab, boolean>
+  >({
+    people: true,
+    advisors: false,
+    nearby: false,
+  });
+  const connectionsOpen = connectionsOpenByTab[tab];
+  const toggleConnectionsOpen = useCallback(() => {
+    setConnectionsOpenByTab((openByTab) => ({
+      ...openByTab,
+      [tab]: !openByTab[tab],
+    }));
+  }, [tab]);
   const connectionsHeading = isAdvisorTab
     ? `My RIAs (${connectionsTotalCount})`
     : `My connections (${connectionsTotalCount})`;
@@ -2511,7 +2524,7 @@ export default function ConnectPageClient() {
                           data-testid="connect-my-connections-toggle"
                           aria-expanded={connectionsOpen}
                           aria-controls="connect-my-connections-panel"
-                          onClick={() => setConnectionsOpen((open) => !open)}
+                          onClick={toggleConnectionsOpen}
                           className="-mx-1 flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-[10px] px-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
                         >
                           <span className="min-w-0 truncate">

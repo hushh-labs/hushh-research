@@ -1722,6 +1722,10 @@ describe("Connect — People", () => {
     // and rendering another is the exact shape of the original Connect search
     // bug, so the count is asserted here alongside the rows.
     expect(await screen.findByText("My RIAs (1)")).toBeTruthy();
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     expect(screen.getByText("Verified Adviser")).toBeTruthy();
     expect(screen.queryByText("Ordinary Person")).toBeNull();
   });
@@ -2044,6 +2048,30 @@ describe("Connect — the phone-width geometry QA reported", () => {
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("does not open the RIAs disclosure just because People opens by default", async () => {
+    render(<ConnectPageClient />);
+    await revealPeopleDirectory();
+
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    chooseDirectory("RIAs");
+
+    expect(await screen.findByText("My RIAs (0)")).toBeTruthy();
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("gives Connections the same row rhythm as Circles beside it", async () => {
