@@ -118,6 +118,33 @@ def _require_enabled() -> None:
         raise HTTPException(status_code=404, detail="pod turn is not available")
 
 
+# The signature a keyless pod raises when a tool reaches for the database it holds
+# no credential for. Matched on the MESSAGE, not the exception type, so it holds
+# whether the failure arrives as the db layer's own `DatabaseExecutionError` or as
+# the raw `EnvironmentError` from `get_db_engine()` -- and without importing the db
+# layer (which the pod image can build without). The message is emitted verbatim by
+# db/db_client.get_db_engine(); see `run_pod_turn`'s except block.
+_DB_WALL_MARKER = "Database credentials not set"
+
+
+def _is_keyless_pod_db_wall(exc: BaseException) -> bool:
+    """True when this failure is only the pod having no DB credential, by design.
+
+    Walks the __cause__/__context__ chain because the DB error is raised deep in a
+    tool and re-wrapped by the ADK runner before it reaches the turn boundary.
+    Deliberately narrow: it matches the credential-absence wall specifically, so it
+    can never mask a genuine turn failure (a model error, a real DB fault elsewhere).
+    """
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if _DB_WALL_MARKER in str(cur):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict:
     """Ask the hub whether this consent is live. The hub is the authority.
 
@@ -293,6 +320,33 @@ async def run_pod_turn(
             elif kind == "specialist" and getattr(event, "specialist", None) is not None:
                 specialists.append(event.specialist)
     except Exception as exc:  # noqa: BLE001 - a failed turn is a 502, never a 500 traceback
+        # THE KEYLESS-POD DB WALL IS AN EXPECTED CONDITION, NOT A 502.
+        # A pod holds no database credential by design. Some tools on One's roster
+        # (calendar, and any tool that reads a connected-account OAuth token) reach
+        # for the DB the pod does not have and raise "Database credentials not set".
+        # That is the pod being a pod -- exactly like a DB-backed specialist degrading
+        # to runtime_unavailable through the data door -- so it must read to the owner
+        # as "I can't do that here yet", never as their agent crashing (a 502). Only
+        # in pod mode, and only for that specific wall: a real DB error on the
+        # DB-capable hub still surfaces, and any OTHER pod failure is still a 502.
+        if pod_mode() and _is_keyless_pod_db_wall(exc):
+            logger.info("pod_turn.degraded_db_wall %s", type(exc).__name__)
+            text = (
+                "I can't do that from your private agent yet. That needs a connected "
+                "account I can't reach here. I can still help with anything in the "
+                "information you've shared with me."
+            )
+            return {
+                "text": text,
+                "model": model,
+                "provider": provider,
+                "grounded": bool(grounding),
+                "directiveCount": 0,
+                "directives": [],
+                "specialists": [],
+                "runtimeMode": runtime_mode,
+                "degraded": "keyless_pod_db_wall",
+            }
         logger.warning("pod_turn.failed %s: %s", type(exc).__name__, str(exc)[:200])
         raise HTTPException(
             status_code=502, detail=f"the agent could not complete this turn: {type(exc).__name__}"

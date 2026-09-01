@@ -198,6 +198,76 @@ async def test_a_failed_turn_is_502_not_a_raw_traceback(enabled, monkeypatch):
     assert "model exploded" not in str(exc.value.detail)
 
 
+# -- the keyless-pod DB wall degrades, never 502s ------------------------------
+# A pod holds no DB credential by design. A tool that reaches for the DB (calendar,
+# any connected-account read) raises "Database credentials not set". That is the pod
+# being a pod, so the owner must see "I can't do that here yet", not their agent
+# crashing. Observed live 2026-09-01: "set a reminder" 502'd a healthy user_adc pod.
+
+
+class _FakeDatabaseExecutionError(Exception):
+    """Stands in for db.db_client.DatabaseExecutionError. The boundary matches on the
+    MESSAGE (the pod image need not import the db layer), so only the text matters."""
+
+
+def _db_wall_error() -> Exception:
+    return _FakeDatabaseExecutionError(
+        "DB operation failed [<raw_sql>.execute_raw]: Database credentials not set. "
+        "Required: DB_USER, DB_PASSWORD, and one of DB_HOST/DB_UNIX_SOCKET."
+    )
+
+
+async def test_the_keyless_pod_db_wall_degrades_gracefully_not_502(enabled, monkeypatch):
+    _consent_ok(monkeypatch)
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(),
+        consent_token="t",
+        stream_fn=_stream([], boom=_db_wall_error()),
+    )
+    # A dict, not a raised 502.
+    assert result["degraded"] == "keyless_pod_db_wall"
+    assert result["directiveCount"] == 0
+    assert result["directives"] == []
+    assert result["text"]  # an honest, non-empty message for the owner
+    assert "traceback" not in result["text"].lower()
+
+
+async def test_a_db_wall_wrapped_in_a_cause_chain_still_degrades(enabled, monkeypatch):
+    # The DB error is raised deep in a tool and re-wrapped by the ADK runner before
+    # it reaches the turn boundary, so detection must walk the cause chain.
+    _consent_ok(monkeypatch)
+    outer = RuntimeError("Root node one failed.")
+    outer.__cause__ = _db_wall_error()
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(),
+        consent_token="t",
+        stream_fn=_stream([], boom=outer),
+    )
+    assert result["degraded"] == "keyless_pod_db_wall"
+
+
+def test_the_db_wall_detector_is_narrow():
+    # Detects the credential wall, by type name + message and through a cause chain.
+    assert pod_turn._is_keyless_pod_db_wall(_db_wall_error()) is True
+    assert (
+        pod_turn._is_keyless_pod_db_wall(
+            OSError("Database credentials not set. Required: DB_USER, DB_PASSWORD")
+        )
+        is True
+    )
+    wrapped = RuntimeError("wrapped")
+    wrapped.__context__ = _db_wall_error()
+    assert pod_turn._is_keyless_pod_db_wall(wrapped) is True
+    # Rejects a real turn failure -- masking that would hide a genuine bug behind a
+    # cheerful "I can't do that here yet".
+    assert pod_turn._is_keyless_pod_db_wall(RuntimeError("model exploded")) is False
+    # Rejects a DatabaseExecutionError that is NOT the credential wall: a real DB
+    # fault (a deadlock, a timeout) must still surface, never be degraded.
+    assert (
+        pod_turn._is_keyless_pod_db_wall(_FakeDatabaseExecutionError("deadlock detected")) is False
+    )
+
+
 def test_the_route_is_mounted_in_the_pod():
     """A turn route nobody mounted is a pod that still runs no agent."""
     import pod_server
