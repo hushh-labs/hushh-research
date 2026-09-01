@@ -1088,7 +1088,6 @@ function resolveTopShellBreadcrumbInner(
             label: profileOriginCrumbLabel(originBackHref),
             href: originBackHref,
           },
-          { label: "Profile" },
         ],
       };
     }

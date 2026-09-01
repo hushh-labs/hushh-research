@@ -3511,12 +3511,15 @@ export function PeopleHub({
             className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:gap-x-6"
             data-testid="one-location-people-connections"
           >
-            <h2
+            <SectionLabel
+              as="div"
               id="one-location-connections-heading"
+              role="heading"
+              aria-level={2}
               className="col-start-1 row-start-1 text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]"
             >
               Connections · {vm.recipientPageTotalCount}
-            </h2>
+            </SectionLabel>
 
             {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
               <button

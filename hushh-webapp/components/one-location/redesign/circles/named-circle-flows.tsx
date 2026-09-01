@@ -367,9 +367,9 @@ export function CirclesSection({
   return (
     <div className="space-y-3" data-testid="one-location-named-circles">
       <div className="flex w-full items-center justify-between gap-4">
-        <h2 className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
+        <SectionLabel as="div" role="heading" aria-level={2}>
           Circles
-        </h2>
+        </SectionLabel>
 
         <div
           className={cn(

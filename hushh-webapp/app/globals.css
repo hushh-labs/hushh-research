@@ -800,8 +800,8 @@ textarea {
   --ios-account-title-line: var(--type-page-title-line);
   --ios-account-title-weight: 700;
   --ios-account-title-tracking: normal;
-  --ios-account-description-size: 15px;
-  --ios-account-description-line: 20.7px;
+  --ios-account-description-size: var(--type-row-description-size);
+  --ios-account-description-line: var(--type-row-description-line);
   --ios-account-section-header-size: 15px;
   --ios-account-section-header-line: 20px;
   --ios-account-regular-weight: var(--foundation-body-weight);
@@ -815,7 +815,7 @@ textarea {
   --ios-account-tab-label-line: 13.75px;
   --ios-account-card-margin-inline: 0px;
   --ios-account-card-outer-offset: 0px;
-  --ios-account-card-radius: 24px;
+  --ios-account-card-radius: var(--app-radius-lg);
   --ios-account-card-leading-inset: 20px;
   --ios-account-row-min-height: 58px;
   --ios-account-row-vertical-pad: 11px;
@@ -1369,7 +1369,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="account"] [data-slot="settings-group-shell"],
 [data-profile-stack-screen="panel:account"] [data-slot="settings-group-shell"],
 .profile-account-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: 22px;
+  --settings-group-radius: var(--ios-account-card-radius);
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -1752,11 +1752,11 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-meta {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body);
-  font-size: 15px !important;
+  font-size: var(--type-row-description-size) !important;
   margin-top: 0 !important;
   font-weight: 400;
   letter-spacing: 0 !important;
-  line-height: 20px !important;
+  line-height: var(--type-row-description-line) !important;
 }
 
 .profile-home-meta svg {
@@ -1804,7 +1804,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: 22px;
+  --settings-group-radius: var(--ios-account-card-radius);
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;

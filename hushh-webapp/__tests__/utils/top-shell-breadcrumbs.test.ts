@@ -390,10 +390,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/location",
       width: "profile",
       align: "center",
-      items: [
-        { label: "Location", href: "/one/location" },
-        { label: "Profile" },
-      ],
+      items: [{ label: "Location", href: "/one/location" }],
     });
 
     const fromGmail = new URLSearchParams();
@@ -402,7 +399,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/gmail",
       width: "profile",
       align: "center",
-      items: [{ label: "Gmail", href: "/one/gmail" }, { label: "Profile" }],
+      items: [{ label: "Gmail", href: "/one/gmail" }],
     });
 
     // No origin → the historic default (back to the One dashboard) is preserved.
@@ -410,7 +407,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: "/one" }, { label: "Profile" }],
+      items: [{ label: "One", href: "/one" }],
     });
 
     // Unsafe / protocol-relative origins are rejected → One dashboard fallback.

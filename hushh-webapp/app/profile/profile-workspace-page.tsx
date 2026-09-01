@@ -4123,7 +4123,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={Users}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 density="compact"
@@ -4151,7 +4151,7 @@ function ProfilePageContent() {
               {canShowPkmAgentLab ? (
                 <SettingsRow
                   icon={CodeXml}
-                  iconTone="purple"
+                  iconTone="gray"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
