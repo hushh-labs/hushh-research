@@ -29,6 +29,10 @@
 		A11C0A710000000000000072 /* LocationEnvelopeCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */; };
 		A11C0A710000000000000082 /* BackgroundLocationPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */; };
 		A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000061 /* HushhContactsPlugin.swift */; };
+		A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A740000000000000001 /* OneVoiceAppIntent.swift */; };
+		A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */; };
+		A11C0A730000000000000013 /* HushhVoiceInvocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */; };
+		A11C0A730000000000000022 /* OneVoiceInvocationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */; };
 		A1B2C3D42F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */; };
 		A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */; };
 		ABCDEF000000000000000002 /* HusshIMessageSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */; };
@@ -93,6 +97,10 @@
 		A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocationEnvelopeCrypto.swift; path = Plugins/LocationEnvelopeCrypto.swift; sourceTree = "<group>"; };
 		A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundLocationPublisher.swift; path = Plugins/BackgroundLocationPublisher.swift; sourceTree = "<group>"; };
 		A11C0A720000000000000061 /* HushhContactsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhContactsPlugin.swift; path = Plugins/HushhContactsPlugin.swift; sourceTree = "<group>"; };
+		A11C0A740000000000000001 /* OneVoiceAppIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceAppIntent.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceInvocationCoordinator.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhVoiceInvocationPlugin.swift; path = Plugins/HushhVoiceInvocationPlugin.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceInvocationCoordinatorTests.swift; sourceTree = "<group>"; };
 		A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PersonalKnowledgeModelPlugin.swift; path = Plugins/PersonalKnowledgeModelPlugin.swift; sourceTree = "<group>"; };
 		A280438C2F21B1FC005B42F3 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HusshIMessageSessionStore.swift; path = Plugins/HusshIMessageSessionStore.swift; sourceTree = "<group>"; };
@@ -173,6 +181,8 @@
 				A280438C2F21B1FC005B42F3 /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				A11C0A740000000000000001 /* OneVoiceAppIntent.swift */,
+				A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -202,6 +212,7 @@
 			children = (
 				844A95957616D891DBC4D212 /* NativeSupportTests.swift */,
 				A11C0A710000000000000091 /* LocationEnvelopeCryptoTests.swift */,
+				A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -225,6 +236,7 @@
 				A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */,
 				A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */,
 				A11C0A720000000000000061 /* HushhContactsPlugin.swift */,
+				A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */,
 			);
 			name = Plugins;
 			sourceTree = "<group>";
@@ -407,6 +419,7 @@
 			files = (
 				FEBC1F9C14F1FB5C3D876D51 /* NativeSupportTests.swift in Sources */,
 				A11C0A710000000000000092 /* LocationEnvelopeCryptoTests.swift in Sources */,
+				A11C0A730000000000000022 /* OneVoiceInvocationCoordinatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -415,6 +428,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */,
+				A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */,
+				A11C0A730000000000000013 /* HushhVoiceInvocationPlugin.swift in Sources */,
 				ABCDEF000000000000000002 /* HusshIMessageSessionStore.swift in Sources */,
 				D1F9F9122F0E966A009FC3FB /* KaiPlugin.swift in Sources */,
 				4DDFEE23E895EA15BE093A8C /* MyViewController.swift in Sources */,

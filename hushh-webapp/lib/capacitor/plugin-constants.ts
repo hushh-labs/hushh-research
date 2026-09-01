@@ -97,6 +97,8 @@ export const PluginNames = {
   SETTINGS: "HushhSettings",
   KEYCHAIN: "HushhKeychain", // Note: iOS uses HushhKeystorePlugin class but jsName is HushhKeychain
   CONTACTS: "HushhContacts",
+  /** Apple system-surface adapter; intentionally unsupported on Android/web. */
+  VOICE_INVOCATION: "HushhVoiceInvocation",
 } as const;
 
 /**

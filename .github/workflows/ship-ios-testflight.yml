@@ -52,7 +52,7 @@ jobs:
     name: Build & upload iOS (UAT) to TestFlight
     runs-on: macos-15
     environment: uat
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Assert manual dispatch originates from main
@@ -334,6 +334,42 @@ jobs:
             -scheme "${XCODE_SCHEME}" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
+      - name: Run native iOS unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIMULATOR_ID="$(python3 - <<'PY'
+          import json
+          import subprocess
+
+          payload = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "--json"],
+                  text=True,
+              )
+          )
+          for runtime, devices in payload.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit(0)
+          raise SystemExit("No available iPhone Simulator is installed on the release runner.")
+          PY
+          )"
+          xcodebuild test \
+            -project "${XCODE_PROJECT}" \
+            -scheme "${XCODE_SCHEME}" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${SIMULATOR_ID}" \
+            -derivedDataPath "${RUNNER_TEMP}/derived-data" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            -only-testing:AppTests \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Archive
         shell: bash
         run: |
@@ -345,6 +381,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "${RUNNER_TEMP}/App.xcarchive" \
+            -derivedDataPath "${RUNNER_TEMP}/derived-data" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "${RUNNER_TEMP}/asc.p8" \
