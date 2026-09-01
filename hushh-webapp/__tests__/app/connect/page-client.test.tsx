@@ -124,19 +124,27 @@ function chooseDirectory(name: "People" | "RIAs" | "Around you") {
   fireEvent.click(screen.getByRole("menuitemradio", { name }));
 }
 
-// The People-tab directory is now collapsed behind "Add people" until asked
-// for -- see app/connect/page-client.tsx. Almost every test in this file used
-// to synchronize on the mount-time fetch that gate removed on purpose;
-// this is the drop-in replacement: it waits for the page to be interactively
-// ready, reveals the section, and waits for the fetch it triggers, which is
-// what the old `await waitFor(() => expect(mocks.searchDirectory)...)` was
-// really standing in for in every case that did not also assert on that
-// specific mount-time call.
-async function revealPeopleDirectory() {
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Add people" }),
-  );
+// People is always visible. Most tests need only wait for its mount-time read
+// before interacting with the rendered directory.
+async function waitForPeopleDirectory() {
   await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+}
+
+function openMyConnections() {
+  const toggle = screen.getByTestId("connect-my-connections-toggle");
+  if (toggle.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(toggle);
+  }
+  return toggle;
+}
+
+async function waitForConnectionsSummary(label: string, count: number) {
+  const toggle = screen.getByTestId("connect-my-connections-toggle");
+  await waitFor(() => {
+    expect(toggle).toHaveTextContent(label);
+    expect(toggle).toHaveTextContent(String(count));
+  });
+  return toggle;
 }
 
 vi.mock("sonner", () => ({
@@ -255,46 +263,65 @@ beforeEach(() => {
 });
 
 describe("Connect — People, arriving on the tab", () => {
-  it("does not fetch or show the directory until asked", async () => {
-    // The report: the People tab opened straight onto a page of strangers.
-    // Your own connections still render on arrival -- that half was never
-    // broken -- but the directory itself waits for an explicit ask.
+  it("shows People immediately and leaves My connections closed", async () => {
     render(<ConnectPageClient />);
+    await waitForPeopleDirectory();
 
-    await screen.findByRole("button", { name: "Add people" });
-    expect(mocks.searchDirectory).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText("Search people")).toBeNull();
-    expect(screen.queryByText("Person 0")).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "People", level: 2 }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Search people")).toBeTruthy();
+    expect(await screen.findByText("Person 0")).toBeTruthy();
+    expect(screen.queryByTestId("connect-add-people")).toBeNull();
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 
-  it("reveals the directory once Add people is tapped, and focuses search", async () => {
+  it("keeps People as a section instead of a second disclosure", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
-    expect(await screen.findByText("Person 0")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Add people" })).toBeNull();
-    expect(screen.getByLabelText("Search people")).toHaveFocus();
+    const peopleHeading = screen.getByRole("heading", {
+      name: "People",
+      level: 2,
+    });
+    expect(peopleHeading).not.toHaveAttribute("aria-expanded");
+    expect(peopleHeading).not.toHaveAttribute("aria-controls");
+    expect(peopleHeading.querySelector("button")).toBeNull();
+
+    const connectionsToggle = screen.getByTestId(
+      "connect-my-connections-toggle",
+    );
+    expect(connectionsToggle.closest('[role="heading"]')).toBeNull();
+  });
+
+  it("uses an opaque surface for the directory picker menu", async () => {
+    render(<ConnectPageClient />);
+    await waitForPeopleDirectory();
+
+    fireEvent.click(screen.getByRole("button", { name: /Current directory:/ }));
+    const menu = screen.getByRole("menu");
+    expect(menu.className).toContain(
+      "bg-[color:var(--app-card-surface-default-solid)]",
+    );
+    expect(menu.className).not.toContain(
+      "bg-[color:var(--app-card-surface-standard)]",
+    );
   });
 
   it("browses on the Advisors tab by design", async () => {
-    // Only the People tab's unsearched browse was the reported problem.
-    // Searching a directory of verified advisors is the whole point of that
-    // tab, so it is unaffected -- no "Add people" button, no reveal needed.
     render(<ConnectPageClient />);
     chooseDirectory("RIAs");
 
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
-    expect(
-      screen.queryByRole("button", { name: "Add people" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add people" })).toBeNull();
   });
 
-  it("reopens the directory on remount when a search was left active", async () => {
-    // A search is an explicit ask made in an earlier visit, restored from
-    // sessionStorage -- it must reopen the section it belongs to, not sit
-    // invisible behind a button that looks like nothing was ever searched.
+  it("restores a search into the always-visible directory on remount", async () => {
     const { unmount } = render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "Ada" },
     });
@@ -345,13 +372,13 @@ describe("Connect — People", () => {
     ]);
 
     render(<ConnectPageClient />);
+    openMyConnections();
 
     const myConnections = await screen.findByTestId(
       "connect-my-connections-group",
     );
-    const connectionName = await within(myConnections).findByText(
-      "Scoped Friend",
-    );
+    const connectionName =
+      await within(myConnections).findByText("Scoped Friend");
     const connectionAction = connectionName.closest("button");
     expect(connectionAction).toBeTruthy();
 
@@ -406,7 +433,12 @@ describe("Connect — People", () => {
 
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("My connections (5000)")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("connect-my-connections-toggle"),
+      ).toHaveTextContent("5000"),
+    );
+    openMyConnections();
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -473,6 +505,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("Current Person")).toBeTruthy();
+    openMyConnections();
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -583,33 +616,20 @@ describe("Connect — People", () => {
     expect(await screen.findByText("Current Person")).toBeTruthy();
     expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1);
 
-    // My connections is a disclosure, open by default -- Refresh exists
-    // against a list you can already see, with no click needed to reach it.
-
-    // Refresh is a control, not part of the heading text. It used to be a
-    // child of the `title` node, which SettingsGroup renders inside an element
-    // carrying `role="heading"` -- a button there is folded into the heading's
-    // accessible name and is never offered as something to press. The two
-    // assertions below are what keep it out: the heading's name is the plain
-    // text, and the button is not a descendant of it.
-    const connectionsHeading = screen
-      .getAllByRole("heading")
-      .find((node) => node.textContent?.includes("connections"));
-    expect(connectionsHeading).toBeTruthy();
     expect(
-      connectionsHeading?.contains(
-        screen.getByRole("button", { name: "Refresh contacts" }),
-      ),
-    ).toBe(false);
-    expect(connectionsHeading?.textContent).not.toContain("Refresh");
+      screen.queryByRole("button", { name: "Refresh connections" }),
+    ).toBeNull();
+    openMyConnections();
 
-    fireEvent.click(screen.getByRole("button", { name: "Refresh contacts" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh connections" }),
+    );
 
     await waitFor(() =>
       expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(2),
     );
     const refreshingButton = screen.getByRole("button", {
-      name: "Refresh contacts",
+      name: "Refresh connections",
     }) as HTMLButtonElement;
     expect(refreshingButton.disabled).toBe(true);
     expect(refreshingButton).toHaveAttribute("aria-busy", "true");
@@ -638,7 +658,7 @@ describe("Connect — People", () => {
     expect(await screen.findByText("Refreshed Person")).toBeTruthy();
     expect(screen.queryByText("Current Person")).toBeNull();
     const refreshButton = screen.getByRole("button", {
-      name: "Refresh contacts",
+      name: "Refresh connections",
     }) as HTMLButtonElement;
     expect(refreshButton.disabled).toBe(false);
     expect(refreshButton).toHaveAttribute("aria-busy", "false");
@@ -707,6 +727,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("First Person")).toBeTruthy();
+    openMyConnections();
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -731,7 +752,7 @@ describe("Connect — People", () => {
 
   it("asks for a bounded sample before anyone has searched", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     // The reported problem was the whole register arriving unprompted. The
     // unsearched surface must ask for a capped set, and no query.
     expect(mocks.searchDirectory.mock.calls[0][0]).toMatchObject({
@@ -749,7 +770,7 @@ describe("Connect — People", () => {
     // left the rest of the directory unreachable. Both now hold: a screenful
     // by default, and a way through it.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     expect(await screen.findByText("Search by name.")).toBeTruthy();
     expect(
@@ -768,7 +789,7 @@ describe("Connect — People", () => {
     // the reader had already scrolled past -- and the field itself arrived
     // before anything on screen had said what it searched.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const supporting = await screen.findByText("Search by name.");
     const heading = screen.getByRole("heading", { name: "People", level: 2 });
@@ -792,7 +813,7 @@ describe("Connect — People", () => {
 
   it("keeps load-more inside the grouped list as a compact row", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const row = await screen.findByTestId("connect-load-more-row");
     expect(row.className).not.toContain("flex-col");
@@ -805,7 +826,7 @@ describe("Connect — People", () => {
 
   it("asks the server for the next batch the reader loads", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Load 20 more people" }),
@@ -843,16 +864,14 @@ describe("Connect — People", () => {
     });
 
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Load 20 more people" }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByText("Loading more…")).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("Loading more…")).toBeTruthy());
     expect(screen.getByText("Person 0")).toBeTruthy();
     expect(screen.queryByText("Finding people…")).toBeNull();
 
@@ -872,7 +891,7 @@ describe("Connect — People", () => {
 
   it("opens the full directory once a name is typed", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "Person 9" },
@@ -901,7 +920,7 @@ describe("Connect — People", () => {
     // React state, not URL state, so it used to come back empty even
     // though the person had just been searching (issue #5921).
     const { unmount } = render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "Person 9" },
@@ -923,7 +942,7 @@ describe("Connect — People", () => {
 
   it("clears the stored search query once the box is emptied", async () => {
     const { unmount } = render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "Person 9" },
@@ -938,9 +957,9 @@ describe("Connect — People", () => {
     unmount();
 
     render(<ConnectPageClient />);
-    // Nothing was left in storage to restore, so the section is collapsed
-    // again on this fresh mount -- reveal it before checking the field.
-    await revealPeopleDirectory();
+    // Nothing was left in storage to restore, so the always-visible search
+    // returns empty on this fresh mount.
+    await waitForPeopleDirectory();
     expect(
       (screen.getByLabelText("Search people") as HTMLInputElement).value,
     ).toBe("");
@@ -962,7 +981,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "R" },
@@ -988,7 +1007,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "N" },
@@ -1020,7 +1039,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "N" },
@@ -1071,7 +1090,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "n" },
@@ -1113,7 +1132,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "Zzz" },
@@ -1125,7 +1144,7 @@ describe("Connect — People", () => {
 
   it("asks for page one once when the query changes while paged", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Load 20 more people" }),
@@ -1150,7 +1169,7 @@ describe("Connect — People", () => {
 
   it("runs a spoken name through the governed Connect search handler", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const search = resolveLocalOnboardingHandler("connect.search_people");
     expect(search).not.toBeNull();
@@ -1175,7 +1194,7 @@ describe("Connect — People", () => {
     });
     mocks.sendRequest.mockResolvedValue({ id: "request-9" });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     expect(sendRequest).not.toBeNull();
@@ -1213,7 +1232,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     expect(sendRequest).not.toBeNull();
@@ -1248,7 +1267,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     const result = await sendRequest!({ person: "Ankit Kumar Singh" });
@@ -1291,7 +1310,7 @@ describe("Connect — People", () => {
     });
     mocks.sendRequest.mockResolvedValue({ id: "request-10" });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     let result:
@@ -1327,7 +1346,7 @@ describe("Connect — People", () => {
     });
     mocks.sendRequest.mockResolvedValue({ id: "request-9" });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     let result:
@@ -1354,7 +1373,7 @@ describe("Connect — People", () => {
     });
     mocks.sendRequest.mockResolvedValue({ id: "request-9" });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     let result:
@@ -1375,7 +1394,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     let result:
@@ -1395,7 +1414,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     expect(sendRequest).not.toBeNull();
@@ -1407,7 +1426,7 @@ describe("Connect — People", () => {
 
   it("says who was searched for when a search matches nobody", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     mocks.searchDirectory.mockResolvedValue({
       items: [],
@@ -1432,7 +1451,7 @@ describe("Connect — People", () => {
     });
     mocks.sendRequest.mockResolvedValue({ id: "request" });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     expect(await screen.findByText("Bulk person 0")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
@@ -1492,7 +1511,7 @@ describe("Connect — People", () => {
     // page happened to show, so a selection only existed while its own row did.
     // Paging is not deselecting.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
@@ -1549,7 +1568,7 @@ describe("Connect — People", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     expect(await screen.findByText("Connected Carl")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
@@ -1577,7 +1596,7 @@ describe("Connect — People", () => {
     // as the answer, and the page's own surface contract -- an explicit
     // capability review for every connection request -- was failing against it.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Connect" })[0]!);
@@ -1631,7 +1650,7 @@ describe("Connect — People", () => {
     mocks.sendRequest.mockResolvedValue({ id: "request" });
 
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     expect(await screen.findByText("Ada Advisor")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
@@ -1669,7 +1688,7 @@ describe("Connect — People", () => {
     // first one unreachable. The tab therefore asks the server for its own
     // half of the directory.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
       expect.objectContaining({ audience: "people" }),
     );
@@ -1712,7 +1731,8 @@ describe("Connect — People", () => {
 
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("My connections (2)")).toBeTruthy();
+    await waitForConnectionsSummary("My connections", 2);
+    openMyConnections();
     expect(screen.getByText("Verified Adviser")).toBeTruthy();
     expect(screen.getByText("Ordinary Person")).toBeTruthy();
 
@@ -1721,11 +1741,9 @@ describe("Connect — People", () => {
     // The heading counts the list it is actually showing. Counting one list
     // and rendering another is the exact shape of the original Connect search
     // bug, so the count is asserted here alongside the rows.
-    expect(await screen.findByText("My RIAs (1)")).toBeTruthy();
-    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    const riaToggle = await waitForConnectionsSummary("My RIAs", 1);
+    expect(riaToggle).toHaveAttribute("aria-expanded", "false");
+    openMyConnections();
     expect(screen.getByText("Verified Adviser")).toBeTruthy();
     expect(screen.queryByText("Ordinary Person")).toBeNull();
   });
@@ -1781,7 +1799,8 @@ describe("Connect — People", () => {
     expect(await screen.findByText("People Only Row")).toBeTruthy();
     chooseDirectory("RIAs");
 
-    expect(await screen.findByText("My RIAs (0)")).toBeTruthy();
+    await waitForConnectionsSummary("My RIAs", 0);
+    openMyConnections();
     expect(screen.queryByText("People Only Row")).toBeNull();
   });
 
@@ -1800,11 +1819,12 @@ describe("Connect — People", () => {
     ]);
 
     render(<ConnectPageClient />);
-    expect(await screen.findByText("My connections (1)")).toBeTruthy();
+    await waitForConnectionsSummary("My connections", 1);
 
     chooseDirectory("RIAs");
 
-    expect(await screen.findByText("My RIAs (0)")).toBeTruthy();
+    await waitForConnectionsSummary("My RIAs", 0);
+    openMyConnections();
     expect(screen.queryByText("Unannotated Person")).toBeNull();
     expect(screen.getByText("No RIAs yet")).toBeTruthy();
   });
@@ -1824,7 +1844,7 @@ describe("Connect — removing a connection", () => {
     // question -- it must not also answer it.
     mocks.listConnections.mockResolvedValue([RASHID]);
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const remove = resolveLocalOnboardingHandler("connect.remove_connection");
     const result = await remove!({ person: "Rashid" });
@@ -1849,7 +1869,7 @@ describe("Connect — removing a connection", () => {
     mocks.listConnections.mockResolvedValue([RASHID]);
     mocks.removeConnection.mockResolvedValue({});
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const remove = resolveLocalOnboardingHandler("connect.remove_connection");
     let result: Awaited<ReturnType<NonNullable<typeof remove>>> | undefined;
@@ -1889,7 +1909,7 @@ describe("Connect — removing a connection", () => {
       },
     ]);
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const remove = resolveLocalOnboardingHandler("connect.remove_connection");
     const result = await remove!({ person: "Rashid" });
@@ -1923,6 +1943,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
       },
     ]);
     render(<ConnectPageClient />);
+    openMyConnections();
 
     const remove = await screen.findByRole("button", {
       name: "Remove connection with Abdul Rashid",
@@ -1956,17 +1977,22 @@ describe("Connect — the phone-width geometry QA reported", () => {
     );
 
     const { container } = render(<ConnectPageClient />);
-    expect(await screen.findByText("My connections (12)")).toBeTruthy();
+    await waitForConnectionsSummary("My connections", 12);
 
     const list = container.querySelector(
       '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
     );
+    const panel = screen.getByTestId("connect-my-connections-panel");
     expect(list).toBeTruthy();
 
-    // Open on arrival: the directory/search half is collapsed behind its
-    // own "Add people" button now, so there is no search field on the fold
-    // left for a long connections list to push down.
-    expect(list!.className).not.toContain("hidden");
+    // The compact summary row is closed on arrival, so a long connection list
+    // cannot push the always-visible People directory below the fold.
+    expect(panel).toHaveAttribute("hidden");
+    expect(list!.className).not.toContain("max-h-[232px]");
+
+    openMyConnections();
+
+    expect(panel).not.toHaveAttribute("hidden");
     expect(list!.className).toContain("max-h-[232px]");
     expect(list!.className).toContain("overflow-y-auto");
     expect(list!.className).toContain("overscroll-contain");
@@ -1974,9 +2000,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
 
     fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
 
-    // Still collapsible -- someone may still want it out of the way, only
-    // the default changed.
-    expect(list!.className).toContain("hidden");
+    expect(panel).toHaveAttribute("hidden");
     expect(list!.className).not.toContain("max-h-[232px]");
   });
 
@@ -1992,7 +2016,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
      * not a scroll away, above a list it does not touch.
      */
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     await screen.findByPlaceholderText("Search people");
 
     const stickyHeader = screen.getByTestId("connect-sticky-header");
@@ -2021,53 +2045,72 @@ describe("Connect — the phone-width geometry QA reported", () => {
     ).toBe(true);
   });
 
-  it("opens My connections by default, and says so to a screen reader", async () => {
+  it("starts My connections closed and exposes an accessible disclosure", async () => {
     // A disclosure either way, so the state has to be announced rather than
     // only drawn -- a chevron is not an affordance to anyone who cannot see
-    // it. Defaults open now that the directory/search half collapses behind
-    // its own "Add people" button -- nothing left on the fold to protect by
-    // shutting this one too.
+    // it. The controlled panel remains in the DOM while closed so focus and
+    // list state survive a close/open cycle.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     await screen.findByPlaceholderText("Search people");
 
     const toggle = screen.getByTestId("connect-my-connections-toggle");
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(toggle).toHaveAttribute(
-      "aria-controls",
-      "connect-my-connections-panel",
+    const panel = screen.getByTestId("connect-my-connections-panel");
+    expect(toggle.tagName).toBe("BUTTON");
+    expect(toggle).toHaveAttribute("type", "button");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle.getAttribute("aria-controls")).toBe(panel.id);
+    expect(panel).toHaveAttribute("role", "region");
+    expect(panel).toHaveAttribute(
+      "aria-labelledby",
+      "connect-my-connections-trigger",
     );
-    // The panel it names exists whether or not it is showing, so the reference
-    // is never dangling.
-    expect(
-      document.getElementById("connect-my-connections-panel"),
-    ).not.toBeNull();
+    expect(panel).toHaveAttribute("hidden");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(panel).not.toHaveAttribute("hidden");
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(panel).toHaveAttribute("hidden");
   });
 
-  it("does not open the RIAs disclosure just because People opens by default", async () => {
+  it("keeps disclosure state isolated across People and RIAs", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
       "aria-expanded",
-      "true",
+      "false",
     );
+    openMyConnections();
 
     chooseDirectory("RIAs");
 
-    expect(await screen.findByText("My RIAs (0)")).toBeTruthy();
+    await waitForConnectionsSummary("My RIAs", 0);
+    await waitFor(() =>
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ audience: "ria" }),
+      ),
+    );
     expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
       "aria-expanded",
       "false",
     );
 
     fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
+    expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    chooseDirectory("People");
+    await waitFor(() =>
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ audience: "people" }),
+      ),
+    );
     expect(screen.getByTestId("connect-my-connections-toggle")).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -2092,7 +2135,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
      * lined up exactly.
      */
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     await screen.findByPlaceholderText("Search people");
 
     fireEvent.click(screen.getByTestId("connect-my-connections-toggle"));
@@ -2110,7 +2153,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
 
   it("asks for the search field in two words", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     expect(await screen.findByPlaceholderText("Search people")).toBeTruthy();
     expect(screen.queryByPlaceholderText("Search people by name")).toBeNull();
   });
@@ -2119,7 +2162,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     // 44px of right padding held back from a field whose only content is its
     // placeholder is 44px the placeholder does not get.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     const field = (await screen.findByPlaceholderText(
       "Search people",
     )) as HTMLInputElement;
@@ -2147,7 +2190,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const cancel = await screen.findByRole("button", {
       name: "Cancel your request to Smirthika Dharmalingam",
@@ -2164,7 +2207,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
 
   it("keeps the selection toggle compact and accessible", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     const toggle = await screen.findByRole("button", {
       name: "Select people",
     });
@@ -2198,7 +2241,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: query },
     });
@@ -2355,7 +2398,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     expect(await screen.findByText("No people yet")).toBeTruthy();
     expect(screen.queryByText("Invite them to One")).toBeNull();
@@ -2371,7 +2414,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
       page: 1,
     });
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     chooseDirectory("RIAs");
     fireEvent.change(screen.getByLabelText("Search people"), {
@@ -2397,7 +2440,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
 describe("Connect — Circles", () => {
   it("opens on People when the URL says nothing", async () => {
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
@@ -2418,6 +2461,7 @@ describe("Connect — Circles", () => {
     expect(
       screen.queryByRole("button", { name: /Current directory:/ }),
     ).toBeNull();
+    expect(mocks.searchDirectory).not.toHaveBeenCalled();
   });
 
   it("names the default surface explicitly, so back to People navigates", async () => {
@@ -2440,7 +2484,7 @@ describe("Connect — Circles", () => {
     // runs before the navigation, so it is observable in this render even
     // though the mocked URL does not change.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Select people" }),
@@ -2454,9 +2498,7 @@ describe("Connect — Circles", () => {
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
     // Back to a plain list, with nothing armed against it.
-    expect(
-      screen.getByRole("button", { name: "Select people" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Select people" })).toBeTruthy();
   });
 
   it("keeps directory tab switches local while Circles stays linkable", async () => {
@@ -2464,7 +2506,7 @@ describe("Connect — Circles", () => {
     // Circles writes the route-backed surface, so ordinary directory switches
     // do not add browser history noise.
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     chooseDirectory("RIAs");
 
@@ -2544,6 +2586,20 @@ describe("Connect — contact sync", () => {
     );
   });
 
+  it("does not offer it on Around you", async () => {
+    mocks.listConnections.mockResolvedValue([]);
+    render(<ConnectPageClient />);
+
+    await screen.findByRole("button", { name: "Sync contacts" });
+    chooseDirectory("Around you");
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Sync contacts" }),
+      ).toBeNull(),
+    );
+  });
+
   it("hides it when no contact source is reachable", async () => {
     // A desktop browser with no picker and no Google client configured. A
     // button whose only function is to explain that it cannot work is worse
@@ -2552,7 +2608,7 @@ describe("Connect — contact sync", () => {
     mocks.listConnections.mockResolvedValue([]);
     try {
       render(<ConnectPageClient />);
-      await revealPeopleDirectory();
+      await waitForPeopleDirectory();
 
       await screen.findByRole("heading", { name: "People" });
       await waitFor(() =>
@@ -2574,7 +2630,7 @@ describe("Connect — contact sync", () => {
     // offered as something to press.
     mocks.listConnections.mockResolvedValue([]);
     render(<ConnectPageClient />);
-    await revealPeopleDirectory();
+    await waitForPeopleDirectory();
 
     const sync = await screen.findByRole("button", {
       name: "Sync contacts",
