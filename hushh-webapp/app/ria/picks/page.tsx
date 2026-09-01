@@ -2712,7 +2712,11 @@ export default function RiaPicksPage() {
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      // Matches RiaPageShell's own default -- see its comment. The wide
+      // tables inside this screen already gate themselves behind
+      // `hidden md:block` and their own horizontal scroll, so narrowing the
+      // shell does not affect them.
+      width="agent"
       nativeTest={{
         routeId: "/ria/picks",
         marker: "native-route-ria-picks",
