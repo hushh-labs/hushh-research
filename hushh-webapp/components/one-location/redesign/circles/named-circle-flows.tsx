@@ -30,7 +30,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   SheetClose,
   Sheet,
@@ -940,10 +939,12 @@ function CircleMemberRow({
 
   return (
     <div className={CIRCLE_MEMBER_ROW_CLASSNAME}>
-      <Avatar className={CIRCLE_MEMBER_AVATAR_CLASSNAME}>
-        {member.photoUrl ? <AvatarImage src={member.photoUrl} alt="" /> : null}
-        <AvatarFallback>{circleInitials(member.displayName)}</AvatarFallback>
-      </Avatar>
+      <ConnectionPersonAvatar
+        label={member.displayName}
+        photoUrl={member.photoUrl}
+        verified={Boolean(member.isRia)}
+        className={CIRCLE_MEMBER_AVATAR_CLASSNAME}
+      />
       <div className="min-w-0 flex-1">
         {/* `truncate`, not `break-words`. A long name used to wrap to three
             lines and push its own row to twice the height of its neighbours,
@@ -1057,6 +1058,7 @@ function CircleMemberRow({
           displayName={member.displayName}
           initials={circleInitials(member.displayName)}
           photoUrl={member.photoUrl}
+          verified={Boolean(member.isRia)}
           secondaryLine={secondaryLine}
           canShare={canShare}
           canRemove={canRemove}
@@ -2227,20 +2229,14 @@ export function CircleDetailFlow({
                             <SettingsRow
                               key={invite.id}
                               leading={
-                                <Avatar className="h-10 w-10">
-                                  {invite.inviteePhotoUrl ? (
-                                    <AvatarImage
-                                      src={invite.inviteePhotoUrl}
-                                      alt=""
-                                    />
-                                  ) : null}
-                                  <AvatarFallback>
-                                    {circleInitials(
-                                      invite.inviteeDisplayName ||
-                                        "One connection",
-                                    )}
-                                  </AvatarFallback>
-                                </Avatar>
+                                <ConnectionPersonAvatar
+                                  label={
+                                    invite.inviteeDisplayName ||
+                                    "One connection"
+                                  }
+                                  photoUrl={invite.inviteePhotoUrl}
+                                  className="h-10 w-10"
+                                />
                               }
                               title={
                                 invite.inviteeDisplayName || "One connection"

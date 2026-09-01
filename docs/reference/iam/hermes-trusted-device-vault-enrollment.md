@@ -254,6 +254,61 @@ Production selection must use an allowlisted immutable environment bundle. It
 must not accept arbitrary origins, and switching environments requires
 disconnecting and clearing local custody first.
 
+## Liveness Heartbeat
+
+`last_synced_at` cannot answer "is this agent reachable right now?" It advances
+only when the device pulls the PKM sync channel, so an agent that is running but
+idle reads as days stale.
+
+Migration 186 adds `last_heartbeat_at` and a `heartbeat` JSONB column, written by
+`POST /api/account/trusted-devices/{device_id}/heartbeat`. The endpoint is
+Firebase-authed like the own-device status read: a heartbeat grants nothing, so
+it needs no device signature.
+
+Three properties keep it safe. The payload is untrusted device input written to
+JSONB, so the service reduces it to a fixed allow-list of runtime scalars
+(machine identifier, configured model, busy flag, active session count, next
+cron run) and drops everything else rather than sanitizing it; the reduction
+runs again on read. The server stamps its own timestamp, so a device cannot
+backdate or forward-date liveness. Only rows with `status = 'active'` are
+updated, so a revoked device can never appear live again. Enforcement never
+consults these columns: trust remains decided by `status` and
+`is_trusted_device_active`.
+
+The devices surface reports `Active now` only while a heartbeat is fresher than
+eleven minutes, and otherwise falls back to the trust-only label.
+
+## Talking To The Agent On This Machine
+
+The One agent chat carries a `One | This Mac` toggle. "This Mac" is a separate
+thread, not a mode of the cloud conversation, because it is a different agent
+with a different model and a different memory, doing its work on the user's own
+hardware; mixing those turns into one transcript would make the transcript lie
+about where each answer came from.
+
+Requests go to `/api/hermes/status` and `/api/hermes/chat`, Next route handlers
+that run on the same machine and forward to the Hermes `api_server` on loopback
+`127.0.0.1:8642`. The `api_server` bearer key is effectively host
+remote-code-execution, so it is read server-side from `HERMES_API_SERVER_KEY`
+and never reaches the browser; the browser only ever talks to its own origin.
+The bridge refuses any non-loopback target rather than forwarding that key to
+another host.
+
+| Variable | Purpose |
+| --- | --- |
+| `HERMES_API_SERVER_KEY` | Bearer key for the local Hermes `api_server`. Absent means the toggle renders a calm "not connected" state. |
+| `HERMES_API_SERVER_URL` | Optional override, loopback only. Defaults to `http://127.0.0.1:8642`. |
+
+The on-device pin sets `provider: "lmstudio"` so generation happens on the local
+model rather than reaching a model vendor, and each answer shows the provider
+and model that actually ran instead of asserting where it came from.
+
+This bridge is localhost-only by construction: a cloud-hosted One cannot reach a
+loopback service on a user's machine. Serving the toggle from a deployed
+environment requires the outbound rendezvous in the One and Hermes live-bridge
+design, where the agent dials out and nothing dials in. That transport is not
+built.
+
 ## Related References
 
 - [IAM Architecture](./architecture.md)

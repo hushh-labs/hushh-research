@@ -197,6 +197,25 @@ if (markerlessRequiredRoutes.length > 0) {
   fail(`native-required routes need expectedMarker: ${markerlessRequiredRoutes.join(", ")}`);
 }
 
+// An `excluded-*` classification drops a route out of every parity check above.
+// That is the one place tri-flow can be lost silently: marking a route excluded
+// costs nothing and no reviewer sees why. The PR template already demands the
+// layer be "explicitly marked as not applicable with the reason" -- this makes
+// the inventory hold that reason, so the claim is reviewable instead of implied.
+const EXCLUSION_REASON_MIN_LENGTH = 40;
+const unjustifiedExclusions = inventoryRoutes
+  .filter((route) => String(route.classification || "").startsWith("excluded"))
+  .filter(
+    (route) => String(route.reason || "").trim().length < EXCLUSION_REASON_MIN_LENGTH
+  )
+  .map((route) => route.route);
+if (unjustifiedExclusions.length > 0) {
+  fail(
+    "excluded routes need a `reason` explaining why the native layer does not apply " +
+      `(min ${EXCLUSION_REASON_MIN_LENGTH} chars): ${unjustifiedExclusions.join(", ")}`
+  );
+}
+
 const nonCanonicalProfileLaunches = inventoryRoutes
   .filter((route) => String(route.route || "").startsWith("/one/profile"))
   .filter((route) => String(route.initialRoute || "").startsWith("/login?"))

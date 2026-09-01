@@ -319,6 +319,7 @@ class CircleMemberPageItem(_CamelModel):
     relationship: str
     can_connect: bool = Field(alias="canConnect")
     connected_from_contacts: bool = Field(alias="connectedFromContacts")
+    is_ria: bool = Field(default=False, alias="isRia")
 
 
 class CircleMembersPageResponse(_CamelModel):

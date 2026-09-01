@@ -7,7 +7,9 @@ describe("top shell breadcrumbs", () => {
     expect(
       resolveTopShellBreadcrumb(
         "/one/kai",
-        new URLSearchParams("tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA"),
+        new URLSearchParams(
+          "tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA",
+        ),
       ),
     ).toEqual({
       backHref: "/one/kai?tab=analysis",
@@ -267,10 +269,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "RIA", href: "/one/setup" },
-        { label: "Claim profile" },
-      ],
+      items: [{ label: "RIA", href: "/one/setup" }, { label: "Claim profile" }],
     });
   });
 
@@ -295,7 +294,7 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Setup", href: "/one/setup" },
-        { label: "CRM" },
+        { label: "Connected Systems" },
       ],
     });
 
@@ -628,7 +627,7 @@ describe("top shell breadcrumbs", () => {
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.
       ["share", "Share location"],
-      ["ask", "Request location"],
+      ["ask", "Ask for location"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
       ["settings", "Settings"],
@@ -931,13 +930,45 @@ describe("top shell breadcrumbs", () => {
     // An unrecognized view value must not deepen into the Debate crumb; it stays
     // a plain three-crumb Picks with Back to RIA.
     expect(
-      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=garbage")),
+      resolveTopShellBreadcrumb(
+        "/ria/picks",
+        new URLSearchParams("view=garbage"),
+      ),
     ).toEqual(barePicks);
 
     // The Picks debate match is case-sensitive (view === "debate"), so a
     // capitalized value is treated as unknown rather than the debate sub-view.
     expect(
-      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
+      resolveTopShellBreadcrumb(
+        "/ria/picks",
+        new URLSearchParams("view=Debate"),
+      ),
     ).toEqual(barePicks);
+  });
+
+  it("gives the wallet card a way back to the row that opened it", () => {
+    // It had no entry at all, so the resolver returned null and the top shell
+    // rendered no breadcrumb -- leaving the screen with no way out. The Back
+    // control inside the workspace is a stage control between steps of the
+    // pass flow, present in only one stage, so it never served as the exit.
+    expect(resolveTopShellBreadcrumb("/one/wallet-card")).toEqual({
+      backHref: "/one/profile/account",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Account", href: "/one/profile/account" },
+        { label: "Apple Wallet" },
+      ],
+    });
+  });
+
+  it("sends the wallet card back to Account, the panel it is reached from", () => {
+    // profile-workspace-page.tsx pushes this route from the Apple Wallet row
+    // inside the Account panel. Backing out to bare /one/profile would land
+    // somebody a level above the row they tapped.
+    const config = resolveTopShellBreadcrumb("/one/wallet-card");
+    expect(config?.backHref).toBe("/one/profile/account");
+    expect(config?.backHref).not.toBe("/one/profile");
   });
 });

@@ -8,7 +8,26 @@ export interface DeviceSyncFields {
   revoked_at?: number | null;
   last_synced_at?: number | null;
   sealed_at?: number | null;
+  /** Advisory liveness telemetry posted by the running device (migration 189). */
+  last_heartbeat_at?: number | null;
+  heartbeat?: { current_model?: string; busy?: boolean } | null;
 }
+
+/**
+ * How recently a device must have checked in to be called reachable.
+ *
+ * Must stay above twice the agent's keepalive interval, so a single missed beat
+ * (a retry, a sleep/wake) does not flip a healthy machine to "trust only". The
+ * agent pushes on every transition and keeps a 600s keepalive underneath
+ * (KEEPALIVE_INTERVAL_SECONDS in hermes_cli/hussh_one_pkm/presence.py), so this
+ * is 2 x 600s plus slack. Shortening one without the other is what makes a
+ * live device read as gone.
+ *
+ * This is the idle-machine bound only. A machine anyone is actually using
+ * pushes on session start, model load and eject, so it reports far fresher
+ * than this ceiling; the window is what "quiet but alive" is allowed to cost.
+ */
+export const HEARTBEAT_FRESH_MS = 21 * 60 * 1000;
 
 export type SyncTone = "active" | "neutral" | "muted";
 
@@ -38,11 +57,23 @@ export function deriveSyncDisplay(
   nowMs: number,
 ): SyncDisplay {
   if (device.status === "active") {
-    // "Trusted", not "Active": status only says this device is still authorized
-    // (not revoked). It is NOT a liveness signal -- the server has no channel
-    // telling it whether the agent is running right now, and last_synced_at only
-    // moves when the device pulls the sync channel. Saying "Active" next to a
-    // two-day-old sync reads as "reachable now", which the data cannot support.
+    // A fresh heartbeat is the ONLY evidence the agent is actually running, so
+    // it is the only thing that may say so. Everything below it reports trust
+    // and sync time instead, because status alone means "still authorized" and
+    // last_synced_at only moves when the device pulls the sync channel.
+    if (
+      device.last_heartbeat_at != null &&
+      nowMs - device.last_heartbeat_at <= HEARTBEAT_FRESH_MS
+    ) {
+      const model = device.heartbeat?.current_model;
+      return {
+        label: model ? `Active now · running ${model}` : "Active now",
+        tone: "active",
+      };
+    }
+    // "Trusted", not "Active": no fresh heartbeat means the server cannot say
+    // whether the agent is running. Saying "Active" next to a two-day-old sync
+    // reads as "reachable now", which the data cannot support.
     if (device.last_synced_at != null) {
       return {
         label: `Trusted · last synced ${formatRelativeTime(device.last_synced_at, nowMs)}`,

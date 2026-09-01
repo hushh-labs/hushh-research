@@ -14,12 +14,23 @@ from hushh_mcp.services.connected_systems_service import (
     ConnectedSystemValidationError,
     get_connected_systems_service,
 )
+from hushh_mcp.services.crm_product_availability import crm_product_available
 from hushh_mcp.services.crm_schema_mapping_service import (
     CrmSchemaMappingError,
     get_crm_schema_mapping_service,
 )
 
-router = APIRouter(prefix="/api/connected-systems", tags=["Connected Systems"])
+
+def _require_local_crm_product() -> None:
+    if not crm_product_available():
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+router = APIRouter(
+    prefix="/api/connected-systems",
+    tags=["Connected Systems"],
+    dependencies=[Depends(_require_local_crm_product)],
+)
 
 
 class ConnectedSystemsResponse(BaseModel):

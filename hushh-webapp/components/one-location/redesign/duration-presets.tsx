@@ -209,9 +209,7 @@ export function DurationPresetPicker({
 
   return (
     <div role="group" aria-labelledby={labelledBy} className="space-y-2">
-      <div
-        className={cn(DURATION_GRID_CLASS, centered && "sm:justify-center")}
-      >
+      <div className={cn(DURATION_GRID_CLASS, centered && "sm:justify-center")}>
         {rungs.map((rung) => {
           const active = !wheelOpen && value === rung.value;
           return (

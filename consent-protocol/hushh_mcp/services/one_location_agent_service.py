@@ -35,6 +35,7 @@ from hushh_mcp.operons.location.policy import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.people_search_sql import people_query_match_params
+from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
 
@@ -1669,6 +1670,7 @@ class OneLocationAgentService:
             "keyRegisteredAt": _iso(row.get("key_created_at") or row.get("created_at")),
             "canReceiveLocation": bool(row.get("key_id")),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            "isRia": bool(row.get("is_ria")),
         }
 
     @staticmethod
@@ -3803,7 +3805,7 @@ class OneLocationAgentService:
         # a Circle qualifies through the Circle branch, and stops qualifying
         # the moment that Circle membership ends.
         rows = self._execute_many(
-            """
+            f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               COALESCE(a.custom_photo_url, a.photo_url) AS photo_url,
@@ -3824,7 +3826,13 @@ class OneLocationAgentService:
                     (contact_connection.user_b_id = :owner_user_id
                      AND contact_connection.user_a_id = a.user_id)
                   )
-              ) AS connected_from_contacts
+              ) AS connected_from_contacts,
+              EXISTS (
+                SELECT 1
+                FROM ria_profiles ria_annotation
+                WHERE ria_annotation.user_id = a.user_id
+                  AND {RIA_VERIFIED_STATUS_SQL}
+              ) AS is_ria
             FROM actor_identity_cache a
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
@@ -3897,7 +3905,7 @@ class OneLocationAgentService:
               )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
-            """,
+            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )
 
@@ -3934,12 +3942,18 @@ class OneLocationAgentService:
         normalized_query = str(query or "").strip().lower()
         offset = (normalized_page - 1) * normalized_limit
         rows = self._execute_many(
-            """
+            f"""
             WITH eligible AS (
               SELECT
                 identity.user_id, identity.display_name, identity.email,
                 identity.phone_number, identity.phone_verified,
                 COALESCE(identity.custom_photo_url, identity.photo_url) AS photo_url,
+                EXISTS (
+                  SELECT 1
+                  FROM ria_profiles ria_annotation
+                  WHERE ria_annotation.user_id = identity.user_id
+                    AND {RIA_VERIFIED_STATUS_SQL}
+                ) AS is_ria,
                 LOWER(CASE
                   WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
                    AND BTRIM(identity.display_name) <> identity.user_id
@@ -4031,7 +4045,7 @@ class OneLocationAgentService:
             )
             SELECT page_rows.user_id, page_rows.display_name, page_rows.email,
                    page_rows.phone_number, page_rows.phone_verified,
-                   page_rows.photo_url,
+                   page_rows.photo_url, page_rows.is_ria,
                    recipient_key.key_id, recipient_key.public_key_jwk,
                    recipient_key.algorithm,
                    recipient_key.created_at AS key_created_at,
@@ -4057,7 +4071,7 @@ class OneLocationAgentService:
             ) recipient_key ON TRUE
             ORDER BY page_rows.match_rank, page_rows.normalized_name,
                      page_rows.user_id
-            """,
+            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
             {
                 "owner_user_id": owner_user_id,
                 "query": normalized_query,

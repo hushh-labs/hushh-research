@@ -4,7 +4,10 @@ import {
   mergeRecipientsByUserId,
   resolveCircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
-import type { OneLocationCircleDetail, OneLocationRecipient } from "@/lib/one-location/types";
+import type {
+  OneLocationCircleDetail,
+  OneLocationRecipient,
+} from "@/lib/one-location/types";
 
 const publicKeyJwk: JsonWebKey = { kty: "EC" };
 
@@ -28,6 +31,7 @@ describe("circle recipient avatar identity", () => {
           canReceiveLocation: true,
           keyId: "key-person-1",
           publicKeyJwk,
+          isRia: true,
         },
       ],
     };
@@ -37,6 +41,7 @@ describe("circle recipient avatar identity", () => {
     expect(selection.ready[0]?.recipient.photoUrl).toBe(
       "https://lh3.googleusercontent.com/avatar",
     );
+    expect(selection.ready[0]?.recipient.isRia).toBe(true);
   });
 
   it("does not overwrite an existing recipient photo with a null Circle value", () => {
@@ -47,16 +52,24 @@ describe("circle recipient avatar identity", () => {
       phoneVerified: true,
       keyAlgorithm: "test",
       canReceiveLocation: true,
+      isRia: true,
     };
     const circleRecipient: OneLocationRecipient = {
       ...directoryRecipient,
       photoUrl: null,
+      isRia: false,
       keyId: "key-person-1",
       publicKeyJwk,
     };
 
-    expect(
-      mergeRecipientsByUserId([directoryRecipient], [circleRecipient])[0]?.photoUrl,
-    ).toBe("https://lh3.googleusercontent.com/directory-avatar");
+    const merged = mergeRecipientsByUserId(
+      [directoryRecipient],
+      [circleRecipient],
+    )[0];
+
+    expect(merged?.photoUrl).toBe(
+      "https://lh3.googleusercontent.com/directory-avatar",
+    );
+    expect(merged?.isRia).toBe(true);
   });
 });

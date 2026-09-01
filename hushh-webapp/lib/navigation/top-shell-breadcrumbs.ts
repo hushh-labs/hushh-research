@@ -59,7 +59,7 @@ function oneLocationActionLabel(action: string): string {
     // shares", "Public link") and the screen's own TaskFlowHeader title. The
     // crumb and the title must read as the same words or the trail and the
     // screen stop agreeing.
-    ask: "Request location",
+    ask: "Ask for location",
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
@@ -326,7 +326,9 @@ function resolveTopShellBreadcrumbInner(
   }
 
   if (pathname === KAI_MARKET_PATH && searchParams?.get("tab") === "analysis") {
-    const analysisEntryId = String(searchParams?.get("analysis_id") || "").trim();
+    const analysisEntryId = String(
+      searchParams?.get("analysis_id") || "",
+    ).trim();
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
     const runId = String(searchParams?.get("run_id") || "").trim();
@@ -522,10 +524,7 @@ function resolveTopShellBreadcrumbInner(
       width: "content",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "RIA", href: returnHref },
-        { label: "Claim profile" },
-      ],
+      items: [{ label: "RIA", href: returnHref }, { label: "Claim profile" }],
     };
   }
 
@@ -837,6 +836,29 @@ function resolveTopShellBreadcrumbInner(
       width: "profile",
       align: "center",
       items: [{ label: fromProfile ? "Profile" : "One" }],
+    };
+  }
+
+  // Reached only from Profile > Account (profile-workspace-page.tsx pushes
+  // ROUTES.ONE_WALLET_CARD from the "Apple Wallet" row), and it had no entry
+  // here at all -- so the resolver returned null, the top shell rendered no
+  // breadcrumb, and the screen had no way back out. The Back control inside
+  // the workspace is a stage control (setStage("manage")); it moves between
+  // steps of the pass flow and exists in only one of them, so it was never
+  // the way out of the surface.
+  if (pathname === ROUTES.ONE_WALLET_CARD) {
+    return {
+      backHref: ROUTES.PROFILE_ACCOUNT,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Account", href: ROUTES.PROFILE_ACCOUNT },
+        // Matches WALLET_CARD_COPY.profileEntry.title, the row that leads
+        // here. Kept as a literal rather than an import so a navigation
+        // module does not reach into a component folder for a string.
+        { label: "Apple Wallet" },
+      ],
     };
   }
 

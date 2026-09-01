@@ -141,6 +141,38 @@ function rewriteShareableLinks(markdown, inputPath) {
   );
 }
 
+async function embedLocalImages(markdown, inputPath) {
+  const inputDir = path.dirname(inputPath);
+  const pattern = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  let result = "";
+  let cursor = 0;
+  for (const match of markdown.matchAll(pattern)) {
+    const [source, alt, target] = match;
+    result += markdown.slice(cursor, match.index);
+    const cleanTarget = target.trim();
+    if (/^(?:https?:|data:)/i.test(cleanTarget)) {
+      result += source;
+    } else {
+      const resolved = path.resolve(inputDir, cleanTarget);
+      const extension = path.extname(resolved).toLowerCase();
+      const mimeType = extension === ".png"
+        ? "image/png"
+        : extension === ".jpg" || extension === ".jpeg"
+          ? "image/jpeg"
+          : extension === ".webp"
+            ? "image/webp"
+            : null;
+      if (!mimeType || !existsSync(resolved)) {
+        throw new Error(`Unsupported or missing report image: ${cleanTarget}`);
+      }
+      const bytes = await readFile(resolved);
+      result += `![${alt}](data:${mimeType};base64,${bytes.toString("base64")})`;
+    }
+    cursor = match.index + source.length;
+  }
+  return result + markdown.slice(cursor);
+}
+
 function renderInline(markdown) {
   let html = escapeHtml(markdown);
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -336,6 +368,14 @@ function renderMarkdown(markdown) {
       closeLists();
       const level = heading[1].length;
       html.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const image = /^!\[([^\]]*)\]\((data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+|https?:\/\/[^)]+)\)$/.exec(line.trim());
+    if (image) {
+      flushParagraph();
+      closeLists();
+      html.push(`<figure class="report-figure"><img src="${image[2]}" alt="${escapeHtml(image[1])}" /><figcaption>${escapeHtml(image[1])}</figcaption></figure>`);
       continue;
     }
 
@@ -776,6 +816,27 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter 
       strong {
         color: var(--fg);
       }
+
+      .report-figure {
+        break-inside: avoid;
+        margin: 14px 0 20px;
+      }
+
+      .report-figure img {
+        border-radius: 16px;
+        box-shadow: 0 20px 52px -38px var(--accent-deep);
+        display: block;
+        height: auto;
+        max-height: 210mm;
+        object-fit: contain;
+        width: 100%;
+      }
+
+      .report-figure figcaption {
+        color: var(--fg-secondary);
+        font-size: 9px;
+        margin-top: 7px;
+      }
     </style>
   </head>
   <body>
@@ -794,7 +855,8 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter 
 }
 
 async function renderPdf({ input, output, html: htmlOutput, title, subtitle, theme, profile }) {
-  const markdown = rewriteShareableLinks(await readFile(input, "utf8"), input);
+  const source = rewriteShareableLinks(await readFile(input, "utf8"), input);
+  const markdown = await embedLocalImages(source, input);
   const formatter = await resolveFormatter(theme, profile);
   const displayTitle = visibleTitle(title);
   const html = buildHtml(markdown, { documentTitle: title, displayTitle, subtitle, formatter });

@@ -6,6 +6,8 @@ import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
+import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
+import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 
 export type AgentVisibleStreamStatus = "running" | "done" | "blocked" | "error";
@@ -28,6 +30,7 @@ export type AgentTurnStreamPanelProps = {
   className?: string;
   thinkingText?: string;
   sources?: AgentSource[];
+  structuredExperience?: AgentStructuredExperience | null;
 };
 
 const MAX_VISIBLE_SOURCES = 8;
@@ -116,6 +119,7 @@ export function AgentTurnStreamPanel({
   className,
   thinkingText,
   sources = [],
+  structuredExperience = null,
 }: AgentTurnStreamPanelProps) {
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
@@ -138,6 +142,11 @@ export function AgentTurnStreamPanel({
       progressItems={[...progressItems, ...specialistItems]}
       responseText={responseText}
       response={response}
+      structuredContent={
+        structuredExperience ? (
+          <AgentStructuredExperienceView experience={structuredExperience} />
+        ) : null
+      }
       responsePendingLabel="One is preparing your response."
       isStreaming={isStreaming}
       isError={isError}
