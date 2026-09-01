@@ -276,7 +276,7 @@ describe("Connect — People, arriving on the tab", () => {
     expect(screen.getByLabelText("Search people")).toHaveFocus();
   });
 
-  it("does not fetch on the Advisors tab, which browses on arrival by design", async () => {
+  it("browses on the Advisors tab by design", async () => {
     // Only the People tab's unsearched browse was the reported problem.
     // Searching a directory of verified advisors is the whole point of that
     // tab, so it is unaffected -- no "Add people" button, no reveal needed.

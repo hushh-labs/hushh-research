@@ -1007,7 +1007,11 @@ export default function ConnectPageClient() {
       if (!user) return;
       // Collapsed on the People tab: no reason to ask the server for a page
       // of strangers nobody has asked to see yet.
-      if (!showPeopleDirectory) return;
+      if (!showPeopleDirectory) {
+        setLoading(false);
+        setError(null);
+        return;
+      }
       try {
         if (currentPage <= 1) setHasMore(false);
         setLoading(true);
