@@ -69,6 +69,7 @@ import {
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
 import {
   getWelcomePromptSetIndex,
   getWelcomePrompts,
@@ -130,6 +131,7 @@ import {
   type AgentSource,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
@@ -194,6 +196,7 @@ type AgentMessage = {
   streamEvents?: AgentVisibleStreamEvent[];
   thought?: string;
   sources?: AgentSource[];
+  structuredExperience?: AgentStructuredExperience | null;
 };
 
 type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
@@ -226,6 +229,15 @@ function upsertVisibleStreamEvent(
     );
   }
   return [...current, event].slice(-10);
+}
+
+function settleVisibleStreamEvents(
+  events: AgentVisibleStreamEvent[] | undefined,
+  status: Extract<AgentVisibleStreamStatus, "done" | "blocked" | "error">,
+): AgentVisibleStreamEvent[] {
+  return (events ?? []).map((event) =>
+    event.status === "running" ? { ...event, status } : event,
+  );
 }
 
 type AgentPkmReview = {
@@ -934,7 +946,8 @@ function AgentBubble({
   const hasStreamContent =
     isStreaming ||
     streamEvents.length > 0 ||
-    Boolean(message.sources?.length);
+    Boolean(message.sources?.length) ||
+    Boolean(message.structuredExperience);
   const shouldRenderStreamPanel =
     !isUser && !isError && hasStreamContent && !message.renderAsPlainAssistantMessage;
   const animated = useAnimatedAssistantText(
@@ -1006,9 +1019,9 @@ function AgentBubble({
           className={cn(
             "text-sm leading-6",
             isUser
-              ? "rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground shadow-sm shadow-primary/10"
+              ? "rounded-[22px] rounded-br-[7px] bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))] px-4 py-2.5 text-[color:var(--app-accent-fg)] shadow-[0_14px_34px_-24px_var(--app-accent-deep)]"
               : showAssistantBubble
-                ? "rounded-2xl bg-muted/50 px-4 py-3 text-foreground"
+                ? "px-1 py-2 text-foreground"
                 : "px-0 py-1 text-foreground",
             isError &&
               "rounded-2xl border border-destructive/20 bg-destructive/[0.06] px-4 py-2.5 text-foreground",
@@ -1023,6 +1036,7 @@ function AgentBubble({
               streamEvents={streamEvents}
               thinkingText={message.thought}
               sources={message.sources}
+              structuredExperience={message.structuredExperience}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -1236,6 +1250,7 @@ export function AgentChatWorkspace({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isPopover = variant === "popover";
+  const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, loading: authLoading, phoneNumber } = useAuth();
   const {
     isVaultUnlocked,
@@ -2023,7 +2038,11 @@ export function AgentChatWorkspace({
       timestamp,
       status: "done",
     });
-    if (handoff.specialistDirective) {
+    if (
+      handoff.specialistDirective &&
+      (handoff.specialistDirective.delegateAgentId !== "agent_connected_systems" ||
+        localCrmEnabled)
+    ) {
       setPendingSpecialistDirective(handoff.specialistDirective);
     }
     setMessages((current) => [...current, ...nextMessages]);
@@ -2034,6 +2053,7 @@ export function AgentChatWorkspace({
     handleCreateNewChat,
     hasChatAccess,
     router,
+    localCrmEnabled,
     user,
   ]);
 
@@ -2695,7 +2715,6 @@ export function AgentChatWorkspace({
     let toolStatusMessageId: string | null = null;
     let pkmStatusItemId: string | null = null;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
-    let pkmAddToolHandled = false;
     let pendingAssistantDelta = "";
     let assistantFlushFrame: number | null = null;
     const flushAssistantDelta = () => {
@@ -2731,7 +2750,10 @@ export function AgentChatWorkspace({
         ...message,
         text: message.text || "Agent turn canceled.",
         status: "done",
-        streamEvents: [],
+        streamEvents: settleVisibleStreamEvents(
+          message.streamEvents,
+          "blocked",
+        ),
       }));
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -2911,7 +2933,6 @@ export function AgentChatWorkspace({
       appendDebugEvent(debugTurnId, "frontend_execute_start", toolEvent);
 
       if (toolEvent.actionId === "pkm.add") {
-        pkmAddToolHandled = true;
         await executePkmAddTool(toolEvent);
         return {
           status: "succeeded",
@@ -3025,127 +3046,6 @@ export function AgentChatWorkspace({
             return result;
           },
         });
-      }
-    };
-
-    const runPkmMemoryCapture = async (
-      pkmContext: AgentPkmContext,
-      signal: AbortSignal,
-    ) => {
-      if (signal.aborted) return;
-      if (!vaultKey || !token) {
-        appendDebugEvent(debugTurnId, "pkm_memory_skipped", {
-          reason: !vaultKey
-            ? "vault_key_unavailable"
-            : "vault_owner_token_unavailable",
-        });
-        return;
-      }
-
-      setActivePkmToolCount((count) => count + 1);
-      appendDebugEvent(debugTurnId, "pkm_memory_preview_start", {
-        tool: "addToPKM",
-        execution: "frontend",
-        current_domains: pkmContext.domains,
-      });
-      upsertPkmStatusMessage(
-        "Checking whether this belongs in Memory...",
-        "streaming",
-      );
-
-      try {
-        const preview = await prepareNaturalLanguagePkm({
-          userId,
-          message: text,
-          currentDomains: pkmContext.domains,
-          vaultOwnerToken: token,
-          source: "agent_chat_memory_capture",
-          onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
-            if (signal.aborted) return;
-            upsertPkmStatusMessage(
-              phase === "prepared"
-                ? `Checked ${cardCount} memory ${cardCount === 1 ? "section" : "sections"}.`
-                : `Organizing memory ${Math.min(chunkIndex + 1, chunkCount)} of ${chunkCount}…`,
-              phase === "prepared" ? "done" : "streaming",
-            );
-          },
-        });
-        if (signal.aborted) return;
-        const cards = preview.cards;
-        const autoSaveCards = getPkmAutoSaveCards(cards);
-        const confirmationCards = [
-          ...getPkmConfirmationCards(cards),
-          ...(pkmAutoSavePolicy.enabled ? [] : autoSaveCards),
-        ].filter(
-          (card, index, all) =>
-            all.findIndex((candidate) => candidate.card_id === card.card_id) ===
-            index,
-        );
-        const ignoredCards = getIgnoredPkmCards(cards);
-
-        appendDebugEvent(debugTurnId, "pkm_memory_preview_result", {
-          model: preview.preview.model,
-          used_fallback: preview.preview.used_fallback,
-          total_cards: cards.length,
-          auto_save_count: autoSaveCards.length,
-          auto_save_enabled: pkmAutoSavePolicy.enabled,
-          confirmation_count: confirmationCards.length,
-          ignored_count: ignoredCards.length,
-          preview_summary: preview.preview.preview_summary || null,
-          cards,
-        });
-
-        if (
-          confirmationCards.length > 0 &&
-          latestVisibleTurnIdRef.current === debugTurnId
-        ) {
-          if (signal.aborted) return;
-          setPkmReviews((current) => [
-            ...current.filter((review) => review.turnId !== debugTurnId),
-            {
-              id: `${debugTurnId}-pkm-review`,
-              turnId: debugTurnId,
-              sourceMessage: text,
-              cards: confirmationCards,
-              saving: false,
-            },
-          ]);
-          appendDebugEvent(debugTurnId, "pkm_memory_review_required", {
-            candidate_count: confirmationCards.length,
-            cards: confirmationCards,
-          });
-          upsertPkmStatusMessage(
-            "One found a memory that needs your review before saving.",
-            "done",
-          );
-        }
-
-        if (confirmationCards.length === 0) {
-          upsertPkmStatusMessage("", "done");
-        }
-        if (pkmAutoSavePolicy.enabled && autoSaveCards.length > 0) {
-          saveEligiblePkmCardsInBackground({
-            turnId: debugTurnId,
-            sourceMessage: text,
-            cards: autoSaveCards,
-            policy: pkmAutoSavePolicy,
-          });
-        }
-      } catch (error) {
-        if (signal.aborted) return;
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "One could not update Memory for this message.";
-        appendDebugEvent(debugTurnId, "pkm_memory_failed", {
-          message,
-        });
-        upsertPkmStatusMessage(
-          "One could not update Memory for this message.",
-          "error",
-        );
-      } finally {
-        setActivePkmToolCount((count) => Math.max(0, count - 1));
       }
     };
 
@@ -3368,6 +3268,13 @@ export function AgentChatWorkspace({
               sources,
             }));
           },
+          onStructuredExperience: (structuredExperience) => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              structuredExperience,
+            }));
+          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
@@ -3377,6 +3284,10 @@ export function AgentChatWorkspace({
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               status: "done",
+              streamEvents: settleVisibleStreamEvents(
+                message.streamEvents,
+                "done",
+              ),
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -3388,7 +3299,10 @@ export function AgentChatWorkspace({
               ...current,
               text: current.text || message,
               status: "error",
-              streamEvents: [],
+              streamEvents: settleVisibleStreamEvents(
+                current.streamEvents,
+                "error",
+              ),
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -3412,16 +3326,6 @@ export function AgentChatWorkspace({
           status: "done",
         };
       });
-      if (!pkmAddToolHandled) {
-        const pkmAbortController = new AbortController();
-        pkmAbortControllersRef.current.add(pkmAbortController);
-        void runPkmMemoryCapture(
-          turnPkmContext,
-          pkmAbortController.signal,
-        ).finally(() => {
-          pkmAbortControllersRef.current.delete(pkmAbortController);
-        });
-      }
       void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -3439,7 +3343,10 @@ export function AgentChatWorkspace({
         ...current,
         text: current.text || message,
         status: "error",
-        streamEvents: [],
+        streamEvents: settleVisibleStreamEvents(
+          current.streamEvents,
+          "error",
+        ),
       }));
       void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
@@ -3957,9 +3864,15 @@ export function AgentChatWorkspace({
               saving: false,
             },
           ]);
+          const ignoredBlockCount = prepared.sourceCoverage.filter(
+            (block) => block.disposition === "intentionally_ignored",
+          ).length;
+          const reviewBlockCount = prepared.sourceCoverage.filter(
+            (block) => block.disposition === "review_required",
+          ).length;
           updateMessage(assistantMessageId, (message) => ({
             ...message,
-            text: `I organized ${reviewableCards.length} memory ${reviewableCards.length === 1 ? "section" : "sections"}. Review the destination, sensitivity, and sharing posture before saving.`,
+            text: `I accounted for all ${prepared.sourceCoverage.length} source ${prepared.sourceCoverage.length === 1 ? "block" : "blocks"} and organized ${reviewableCards.length} memory ${reviewableCards.length === 1 ? "section" : "sections"} for review.${reviewBlockCount ? ` ${reviewBlockCount} ${reviewBlockCount === 1 ? "block needs" : "blocks need"} your decision.` : ""}${ignoredBlockCount ? ` ${ignoredBlockCount} ${ignoredBlockCount === 1 ? "block was" : "blocks were"} intentionally excluded.` : ""} Review the destination, sensitivity, and sharing posture before saving.`,
             status: "done",
           }));
         } catch (error) {
@@ -4418,13 +4331,13 @@ export function AgentChatWorkspace({
 
         <section
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_78%_8%,color-mix(in_srgb,var(--app-accent-soft)_42%,transparent),transparent_34%),var(--background)]",
           )}
           inert={isHistoryDrawerOpen}
         >
           <div
             className={cn(
-              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur sm:px-5",
+              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/82 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
               isPopover
                 ? "min-h-[calc(3.5rem+var(--agent-chat-header-safe-top))] sm:h-16 sm:min-h-16 sm:pt-0"
                 : "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)]",
@@ -4459,7 +4372,7 @@ export function AgentChatWorkspace({
                   <Menu className="h-4 w-4" />
                 </ShellActionSurface>
               ) : null}
-              <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md border border-border bg-muted max-sm:h-11 max-sm:w-11 max-sm:rounded-[13px] max-sm:border-[color:var(--app-accent-border)]">
+              <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)] shadow-[0_10px_28px_-20px_var(--app-accent-deep)]">
                 <Image
                   src="/one-quiet-emoji.png"
                   alt="One"
@@ -4526,7 +4439,7 @@ export function AgentChatWorkspace({
           >
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
               {accessMessage ? (
-                <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-muted/35 px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 rounded-[20px] bg-foreground/[0.045] px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <span>{accessMessage}</span>
                   {accessAction ? (
                     <Button
@@ -4741,6 +4654,7 @@ export function AgentChatWorkspace({
                     }}
                   />
                 ) : pendingSpecialistDirective.directive.kind === "prompt" &&
+                  localCrmEnabled &&
                   pendingSpecialistDirective.delegateAgentId ===
                     "agent_connected_systems" &&
                   pendingSpecialistDirective.directive.payload.kind ===
@@ -5017,7 +4931,7 @@ export function AgentChatWorkspace({
                       );
                     }}
                   />
-                ) : pendingSpecialistDirective.delegateAgentId ===
+                ) : localCrmEnabled && pendingSpecialistDirective.delegateAgentId ===
                   "agent_connected_systems" ? (
                   <SpecialistDirectiveCard
                     summary={String(
@@ -5272,7 +5186,7 @@ export function AgentChatWorkspace({
               // CSS-only focus-within drives the padding shift in lockstep with
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
-              "shrink-0 border-t border-border/70 bg-background/92 px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
+              "shrink-0 bg-gradient-to-t from-background via-background/96 to-transparent px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
               isPopover
                 ? "pb-[var(--agent-chat-composer-bottom)] sm:pb-3"
                 : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
@@ -5281,7 +5195,7 @@ export function AgentChatWorkspace({
             <div className="mx-auto w-full max-w-4xl">
               {queuedPrompts.length > 0 ? (
                 <div
-                  className="mb-2 rounded-2xl border border-border/70 bg-muted/45 px-3 py-2"
+                  className="mb-2 rounded-[18px] bg-foreground/[0.045] px-3 py-2"
                   data-testid="agent-chat-prompt-queue"
                   aria-live="polite"
                 >
@@ -5376,7 +5290,7 @@ export function AgentChatWorkspace({
                 </div>
               ) : null}
               {voiceActive ? (
-                <div className="rounded-[var(--app-card-radius-compact)] border border-border/70 bg-foreground/[0.04] p-2 shadow-[var(--app-card-shadow-standard)]">
+                <div className="rounded-[22px] bg-foreground/[0.045] p-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]">
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}
@@ -5390,7 +5304,7 @@ export function AgentChatWorkspace({
                 <>
                   {composerPurpose ? (
                     <div
-                      className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-soft)] px-3 py-2 text-xs"
+                      className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[18px] bg-[color:var(--app-accent-soft)] px-3 py-2 text-xs shadow-[0_14px_34px_-28px_var(--app-accent-deep)]"
                       role="status"
                       aria-live="polite"
                       data-testid="agent-chat-paste-purpose"
@@ -5429,7 +5343,7 @@ export function AgentChatWorkspace({
                   {composerExpanded ? (
                     <div
                       data-testid="agent-chat-composer-expanded"
-                      className="relative mb-2 overflow-hidden rounded-[var(--app-card-radius-compact)] border border-border/70 bg-foreground/[0.04] shadow-[var(--app-card-shadow-standard)]"
+                      className="relative mb-2 overflow-hidden rounded-[24px] bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
                     >
                       <textarea
                         ref={composerTextareaRef}
@@ -5478,7 +5392,7 @@ export function AgentChatWorkspace({
                   {!composerExpanded ? (
                     <div
                       data-testid="agent-chat-composer"
-                      className="flex min-h-16 items-end gap-2 rounded-2xl border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]"
+                      className="flex min-h-16 items-end gap-2 rounded-[24px] bg-foreground/[0.045] px-3 py-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045] transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]"
                     >
                       <div className="relative min-w-0 flex-1 self-stretch">
                         <textarea

@@ -16,6 +16,7 @@ from hushh_mcp.onboarding_contract import (
     SETUP_CAPABILITY_ORDER,
 )
 from hushh_mcp.services.action_gateway import AVAILABLE_ACTION_IDS_CAP
+from hushh_mcp.services.crm_product_availability import crm_product_available
 
 _PHASES = (
     "anonymous_auth",
@@ -177,13 +178,19 @@ def build_onboarding_specialist():
 def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal:
     """Resolve the next allowed onboarding move without side effects."""
     phase = context.phase
+    crm_available = crm_product_available()
+    active_setup_order = tuple(
+        capability
+        for capability in SETUP_CAPABILITY_ORDER
+        if capability != "connected-systems" or crm_available
+    )
     completed_set = set(context.setup_capability_ids)
     setup_progress = {
         "setup_completed_ids": [
-            capability for capability in SETUP_CAPABILITY_ORDER if capability in completed_set
+            capability for capability in active_setup_order if capability in completed_set
         ],
         "setup_remaining_ids": [
-            capability for capability in SETUP_CAPABILITY_ORDER if capability not in completed_set
+            capability for capability in active_setup_order if capability not in completed_set
         ],
     }
     if context.root_resolved:
@@ -200,11 +207,17 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
         phase = "capability_setup"
 
     allowed = _PHASE_ACTIONS[phase]
+    if not crm_available:
+        allowed = {action_id for action_id in allowed if "connected_systems" not in action_id}
     if phase == "capability_setup" and context.active_capability:
         # The active capability is redacted route state, not an inferred intent.
         # It narrows terminal authority before the available visible-action
         # intersection below, so a stale sibling action fails closed.
-        allowed = _CAPABILITY_TERMINAL_ACTIONS.get(context.active_capability, set())
+        allowed = (
+            _CAPABILITY_TERMINAL_ACTIONS.get(context.active_capability, set())
+            if context.active_capability != "connected-systems" or crm_available
+            else set()
+        )
     permitted = [action_id for action_id in context.available_action_ids if action_id in allowed]
     assessment = context.assessment
     candidate = assessment.candidate_action_id

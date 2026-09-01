@@ -94,7 +94,9 @@ try {
 
   const latestTurn = page.locator('[data-message-role="assistant"]').last();
   await latestTurn.getByRole("button", { name: /Activity/i }).waitFor({ state: "visible" });
-  await latestTurn.locator(`a[href="/people/${fixture.personRef}"]`).waitFor({ state: "visible" });
+  await latestTurn.getByRole("link", { name: "Review information", exact: true }).waitFor({
+    state: "visible",
+  });
   await session.context.close();
   session = await reviewer.openSession(browser, `/people/${fixture.personRef}`);
   page = session.page;
