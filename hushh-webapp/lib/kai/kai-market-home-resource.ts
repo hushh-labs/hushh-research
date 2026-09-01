@@ -15,6 +15,7 @@ import {
 } from "@/lib/services/device-resource-cache-service";
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
+const MARKET_HOME_RESOURCE_VERSION = "v2";
 const inflightRefreshes = new Map<string, Promise<KaiHomeInsightsV2 | null>>();
 
 const TICKER_CANDIDATE_RE = /^[A-Z][A-Z0-9.-]{0,5}$/;
@@ -34,8 +35,11 @@ const EXCLUDED_SYMBOLS = new Set([
 ]);
 
 function toSymbolsKey(symbols: string[]): string {
-  if (!Array.isArray(symbols) || symbols.length === 0) return "default";
-  return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
+  const symbolPart =
+    !Array.isArray(symbols) || symbols.length === 0
+      ? "default"
+      : [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
+  return `${MARKET_HOME_RESOURCE_VERSION}-${symbolPart}`;
 }
 
 function hasUsefulOverviewValue(value: string | number | null | undefined): boolean {
@@ -97,15 +101,7 @@ function toStoredPersonalizedRecordKey(params: {
   daysBack: number;
   symbolsKey: string;
 }): string {
-  return `kai_market_home:personalized:${params.pickSource}:${params.daysBack}:${params.symbolsKey}`;
-}
-
-function toLegacyStoredRecordKey(params: {
-  pickSource: string;
-  daysBack: number;
-  symbolsKey: string;
-}): string {
-  return `kai_market_home:${params.pickSource}:${params.daysBack}:${params.symbolsKey}`;
+  return `kai_market_home:personalized:${MARKET_HOME_RESOURCE_VERSION}:${params.pickSource}:${params.daysBack}:${params.symbolsKey}`;
 }
 
 type CachedMarketCandidate = {
@@ -162,17 +158,10 @@ async function readAnyStoredPersonalizedMarketHome(params: {
 }): Promise<StoredMarketCandidate | null> {
   const daysBack = params.daysBack ?? 7;
   const pickSource = params.pickSource ?? "default";
-  const [modern, legacy] = await Promise.all([
-    DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
-      userId: params.userId,
-      resourcePrefix: `kai_market_home:personalized:${pickSource}:${daysBack}:`,
-    }),
-    DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
-      userId: params.userId,
-      resourcePrefix: `kai_market_home:${pickSource}:${daysBack}:`,
-    }),
-  ]);
-  const stored = modern ?? legacy;
+  const stored = await DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
+    userId: params.userId,
+    resourcePrefix: `kai_market_home:personalized:${MARKET_HOME_RESOURCE_VERSION}:${pickSource}:${daysBack}:`,
+  });
   return stored
     ? {
         payload: stored.value,
@@ -369,7 +358,6 @@ export class KaiMarketHomeResourceService {
           TICKER_CANDIDATE_RE.test(symbol) &&
           arr.indexOf(symbol) === index
       )
-      .sort((a, b) => a.localeCompare(b))
       .slice(0, 8);
   }
 
@@ -553,15 +541,10 @@ export class KaiMarketHomeResourceService {
     }
 
     if (!params.forceRefresh) {
-      const stored =
-        (await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
-          userId: params.userId,
-          resourceKey: toStoredPersonalizedRecordKey({ pickSource, daysBack, symbolsKey }),
-        })) ??
-        (await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
-          userId: params.userId,
-          resourceKey: toLegacyStoredRecordKey({ pickSource, daysBack, symbolsKey }),
-        }));
+      const stored = await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
+        userId: params.userId,
+        resourceKey: toStoredPersonalizedRecordKey({ pickSource, daysBack, symbolsKey }),
+      });
       if (stored) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
         logRequest("device_hit", {

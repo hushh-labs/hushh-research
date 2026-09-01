@@ -239,6 +239,35 @@ export function notifyFeedActionResolved(): void {
   dispatchFeedStateChanged();
 }
 
+export function classifyDebateFeedState(
+  task: DebateRunTask,
+): "running" | "ready" | "failed_save" | null {
+  if (task.dismissedAt) return null;
+  if (task.status === "running") return "running";
+  if (task.persistenceState === "failed") return "failed_save";
+  if (
+    task.status === "completed" &&
+    (task.persistenceState === "pending" || task.persistenceState === "saved")
+  ) {
+    return "ready";
+  }
+  return null;
+}
+
+/**
+ * A completed run must open through its durable PKM history identity. A live
+ * `run_id` route depends on the task still being undisposed in session state,
+ * which is intentionally no longer true once the Feed item is settled.
+ */
+export function buildDebateFeedAnalysisHref(
+  runId: string,
+  settled: boolean,
+): string {
+  return settled
+    ? buildKaiMarketRoute("analysis", { analysis_id: `run:${runId}` })
+    : buildKaiMarketRoute("analysis", { focus: "active", run_id: runId });
+}
+
 export function useFeedActionables(): UseFeedActionablesResult {
   const router = useRouter();
   const { user } = useAuth();
@@ -385,10 +414,12 @@ export function useFeedActionables(): UseFeedActionablesResult {
   });
 
   const openAnalysis = useCallback(
-    (runId: string) => {
-      router.push(
-        buildKaiMarketRoute("analysis", { focus: "active", run_id: runId }),
-      );
+    (runId: string, settleReadyState = false) => {
+      const href = buildDebateFeedAnalysisHref(runId, settleReadyState);
+      if (settleReadyState) {
+        DebateRunManagerService.dismissTask(runId);
+      }
+      router.push(href);
     },
     [router],
   );
@@ -799,22 +830,30 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
     }
 
-    // Running / failed Kai debates — Resume (reconnect the stream) + Cancel.
+    // Kai debates remain visible while running and after completion until the
+    // person opens or dismisses the ready result. The debate manager remains
+    // the authority; Feed is only its consumer-safe projection.
     const debateTasks = debateState.tasks.filter(
       (task: DebateRunTask) => task.userId === userId && !task.dismissedAt,
     );
     for (const task of debateTasks) {
-      const running = task.status === "running";
-      const failedSave =
-        task.status !== "running" && task.persistenceState === "failed";
-      if (!running && !failedSave) continue;
+      const feedState = classifyDebateFeedState(task);
+      if (!feedState) continue;
+      const running = feedState === "running";
+      const ready = feedState === "ready";
+      const failedSave = feedState === "failed_save";
+      const persisted = ready && task.persistenceState === "saved";
       const statusText = running
         ? task.streamState === "reconnecting"
           ? "Reconnecting…"
           : task.streamState === "paused"
             ? "Updates paused"
             : "Analyzing…"
-        : task.persistenceError || "History save failed.";
+        : ready
+          ? task.persistenceState === "pending"
+            ? "Analysis ready. Saving to history…"
+            : "Analysis ready to review."
+        : "Analysis is ready, but could not be saved. Retry to keep it in history.";
       const actions: FeedActionButton[] = [];
       if (running) {
         actions.push({
@@ -832,7 +871,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
             });
           },
         });
-      } else {
+      } else if (failedSave) {
         actions.push({
           key: "retry",
           label: "Retry",
@@ -847,16 +886,32 @@ export function useFeedActionables(): UseFeedActionablesResult {
           tone: "ghost",
           run: () => DebateRunManagerService.dismissTask(task.runId),
         });
+      } else {
+        actions.push({
+          key: "open",
+          label: "Open",
+          tone: "primary",
+          run: () => openAnalysis(task.runId, persisted),
+        });
+        actions.push({
+          key: "dismiss",
+          label: "Dismiss",
+          tone: "ghost",
+          run: () => DebateRunManagerService.dismissTask(task.runId),
+        });
       }
       items.push({
         id: `debate:${task.runId}`,
         icon: TrendingUp,
         iconTone: "accent",
-        spinning: running,
+        spinning: running || task.persistenceState === "pending",
         title: task.ticker || "Analysis",
         description: statusText,
-        onSelect: running ? () => openAnalysis(task.runId) : undefined,
-        chevron: running,
+        onSelect:
+          running || ready
+            ? () => openAnalysis(task.runId, persisted)
+            : undefined,
+        chevron: running || ready,
         actions,
         sortAt:
           toTimestamp(task.updatedAt || task.startedAt) ||

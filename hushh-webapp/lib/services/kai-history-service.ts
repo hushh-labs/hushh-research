@@ -2,7 +2,7 @@
  * Kai Analysis History Service
  *
  * Manages analysis history within the encrypted PKM financial domain.
- * Uses FIFO strategy: max 3 analyses per ticker, newest first.
+ * Retains analyses until the owner explicitly deletes them, newest first.
  *
  * Canonical storage path:
  *   financial.analysis_history
@@ -11,7 +11,7 @@
  * {
  *   "financial": {
  *     "analysis_history": {
- *     "AMZN": [entry3, entry2, entry1],  // newest first, max 3
+ *     "AMZN": [entry3, entry2, entry1],  // newest first
  *     "AAPL": [entry2, entry1],
  *     }
  *   }
@@ -24,7 +24,6 @@ import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upg
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
 
-const MAX_HISTORY_PER_TICKER = 3;
 const FINANCIAL_DOMAIN = "financial";
 const FINANCIAL_SCHEMA_VERSION = 3;
 const FINANCIAL_CONTRACT_VERSION = currentDomainContractVersion(FINANCIAL_DOMAIN);
@@ -57,6 +56,52 @@ export interface AnalysisHistoryEntry {
 }
 
 export type AnalysisHistoryMap = Record<string, AnalysisHistoryEntry[]>;
+
+function compactTranscriptRound(
+  round: Record<string, any>,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(round || {}).map(([agent, rawState]) => {
+      const state =
+        rawState && typeof rawState === "object" && !Array.isArray(rawState)
+          ? (rawState as Record<string, unknown>)
+          : {};
+      return [
+        agent,
+        {
+          stage: typeof state.stage === "string" ? state.stage : "complete",
+          text: typeof state.text === "string" ? state.text : "",
+          thoughts: Array.isArray(state.thoughts)
+            ? state.thoughts.map((value) => String(value))
+            : [],
+          ...(typeof state.statusMessage === "string"
+            ? { statusMessage: state.statusMessage }
+            : {}),
+          ...(typeof state.error === "string" ? { error: state.error } : {}),
+        },
+      ];
+    }),
+  );
+}
+
+/**
+ * Persist the decision card once and keep only the text needed to replay each
+ * analyst turn. Rich metrics already live in `raw_card`; copying them into
+ * every transcript agent doubled the encrypted financial blob and made each
+ * later history append progressively slower.
+ */
+export function compactAnalysisHistoryEntryForStorage(
+  entry: AnalysisHistoryEntry,
+): AnalysisHistoryEntry {
+  if (!entry.debate_transcript) return entry;
+  return {
+    ...entry,
+    debate_transcript: {
+      round1: compactTranscriptRound(entry.debate_transcript.round1),
+      round2: compactTranscriptRound(entry.debate_transcript.round2),
+    },
+  };
+}
 
 /**
  * Stable, URL-safe identity for a stored analysis. Runs use their persisted
@@ -207,6 +252,33 @@ function extractRunId(entry: AnalysisHistoryEntry): string | null {
     return direct.trim();
   }
   return extractStreamId(entry);
+}
+
+export function prependAnalysisHistoryEntry(
+  existing: readonly AnalysisHistoryEntry[],
+  entry: AnalysisHistoryEntry,
+): { entries: AnalysisHistoryEntry[]; changed: boolean } {
+  const entries = [...existing];
+  const incomingRunId = extractRunId(entry);
+  if (incomingRunId) {
+    const existingIndex = entries.findIndex(
+      (candidate) => extractRunId(candidate) === incomingRunId,
+    );
+    if (existingIndex >= 0) {
+      const current = entries[existingIndex];
+      if (
+        current &&
+        timestampsMatch(current.timestamp, entry.timestamp) &&
+        String(current.decision || "") === String(entry.decision || "") &&
+        Number(current.confidence || 0) === Number(entry.confidence || 0)
+      ) {
+        return { entries, changed: false };
+      }
+      entries.splice(existingIndex, 1);
+    }
+  }
+  entries.unshift(entry);
+  return { entries, changed: true };
 }
 
 function buildHistorySummary(
@@ -368,7 +440,7 @@ function buildFinancialDomainWithHistory(params: {
 export class KaiHistoryService {
   /**
    * Save a new analysis result to history.
-   * Implements FIFO: prepends new entry, pops oldest if > MAX_HISTORY_PER_TICKER.
+   * Prepends the new entry and retains prior analyses until explicit deletion.
    *
    * Uses fetch-decrypt-merge-encrypt-save cycle to avoid overwriting other domains.
    */
@@ -378,7 +450,8 @@ export class KaiHistoryService {
     vaultOwnerToken?: string;
     entry: AnalysisHistoryEntry;
   }): Promise<boolean> {
-    const { userId, vaultKey, vaultOwnerToken, entry } = params;
+    const { userId, vaultKey, vaultOwnerToken } = params;
+    const entry = compactAnalysisHistoryEntryForStorage(params.entry);
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -400,35 +473,15 @@ export class KaiHistoryService {
                 : ({} as Record<string, unknown>);
 
           const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
-          const tickerHistory = historyMap[entry.ticker] || [];
-          const incomingRunId = extractRunId(entry);
-
-          if (incomingRunId) {
-            const existingIndex = tickerHistory.findIndex(
-              (candidate) => extractRunId(candidate) === incomingRunId
-            );
-            if (existingIndex >= 0) {
-              const existing = tickerHistory[existingIndex];
-              if (existing) {
-                const sameTimestamp = timestampsMatch(existing.timestamp, entry.timestamp);
-                const sameDecision =
-                  String(existing.decision || "") === String(entry.decision || "");
-                const sameConfidence =
-                  Number(existing.confidence || 0) === Number(entry.confidence || 0);
-                if (sameTimestamp && sameDecision && sameConfidence) {
-                  throw new Error("KAI_HISTORY_IDEMPOTENT_NOOP");
-                }
-              }
-              tickerHistory.splice(existingIndex, 1);
-            }
+          const merged = prependAnalysisHistoryEntry(
+            historyMap[entry.ticker] || [],
+            entry,
+          );
+          if (!merged.changed) {
+            throw new Error("KAI_HISTORY_IDEMPOTENT_NOOP");
           }
 
-          tickerHistory.unshift(entry);
-          if (tickerHistory.length > MAX_HISTORY_PER_TICKER) {
-            tickerHistory.splice(MAX_HISTORY_PER_TICKER);
-          }
-
-          historyMap[entry.ticker] = tickerHistory;
+          historyMap[entry.ticker] = merged.entries;
           const nowIso = new Date().toISOString();
           return {
             domainData: buildFinancialDomainWithHistory({

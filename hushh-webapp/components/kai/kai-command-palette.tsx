@@ -50,6 +50,7 @@ import {
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
+import type { KaiCommandBarIntent } from "@/lib/navigation/kai-command-bar-events";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -70,6 +71,8 @@ interface KaiCommandPaletteProps {
   onOpenChange: (open: boolean) => void;
   onSelectAction: (selection: KaiCommandPaletteSelection) => void;
   onSubmitPrompt: (prompt: string) => void;
+  intent?: KaiCommandBarIntent;
+  initialQuery?: string;
   appRuntimeState?: AppRuntimeState;
   capabilityState?: VoiceCapabilityStateV1;
   surfaceMetadata?: VoiceSurfaceMetadata | null;
@@ -84,6 +87,24 @@ interface KaiCommandPaletteProps {
     is_investable?: boolean;
     analyze_eligible?: boolean;
   }>;
+}
+
+const ANALYZE_PREFIX = "Analyze ";
+
+export function isFinanceAnalysisQuery(query: string): boolean {
+  return /^analyze(?:\s|$)/i.test(query.trimStart());
+}
+
+export function deriveFinanceTickerQuery(
+  query: string,
+  intent?: KaiCommandBarIntent,
+): string {
+  const trimmed = query.trim();
+  if (intent !== "finance_stock_analysis" && !isFinanceAnalysisQuery(query)) {
+    return trimmed;
+  }
+  if (!trimmed.toLowerCase().startsWith("analyze")) return trimmed;
+  return trimmed.slice("analyze".length).trim();
 }
 
 
@@ -285,6 +306,8 @@ export function KaiCommandPalette({
   onOpenChange,
   onSelectAction,
   onSubmitPrompt,
+  intent,
+  initialQuery,
   appRuntimeState,
   capabilityState,
   surfaceMetadata,
@@ -324,13 +347,30 @@ export function KaiCommandPalette({
       pathname.startsWith(`${ROUTES.LEGACY_KAI_HOME}/`)
     );
   }, [appRuntimeState]);
+  // The Analysis button supplies the authored intent, while a person typing
+  // the same authored `Analyze ` command into global Search must enter the
+  // identical stock workflow. This is command parsing, not semantic keyword
+  // inference: only the exact prefix changes the palette's authority.
+  const financeAnalysisIntent =
+    intent === "finance_stock_analysis" || isFinanceAnalysisQuery(query);
+  const financeTickerQuery = useMemo(
+    () => deriveFinanceTickerQuery(query, intent),
+    [intent, query],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setQuery(
+      initialQuery ?? (intent === "finance_stock_analysis" ? ANALYZE_PREFIX : ""),
+    );
+  }, [initialQuery, intent, open]);
 
   useEffect(() => {
     // The ticker universe is Finance's data. The palette began life on the Kai
     // home and kept fetching it after it became global chrome, so opening
     // search on Location paid for an equities index it would never show -- and
     // surfaced "Ticker universe unavailable" on screens that have no tickers.
-    if (!open || !financeSectionActive) {
+    if (!open || (!financeSectionActive && !financeAnalysisIntent)) {
       setLoadingUniverse(false);
       return;
     }
@@ -362,17 +402,17 @@ export function KaiCommandPalette({
     return () => {
       cancelled = true;
     };
-  }, [open, financeSectionActive]);
+  }, [open, financeAnalysisIntent, financeSectionActive]);
 
   useEffect(() => {
-    if (!open || !financeSectionActive) {
+    if (!open || (!financeSectionActive && !financeAnalysisIntent)) {
       setRemoteMatches([]);
       setRemoteSearchError(null);
       return;
     }
 
     let cancelled = false;
-    const q = query.trim();
+    const q = financeTickerQuery;
     if (q.length < 2) {
       setRemoteMatches([]);
       setRemoteSearchError(null);
@@ -403,7 +443,7 @@ export function KaiCommandPalette({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, query, financeSectionActive]);
+  }, [open, financeAnalysisIntent, financeTickerQuery, financeSectionActive]);
 
   const universeByTicker = useMemo(() => {
     const map = new Map<string, TickerUniverseRow>();
@@ -456,7 +496,7 @@ export function KaiCommandPalette({
 
   const tickerMatches = useMemo(() => {
     const rows = universe ?? [];
-    const search = query.trim();
+    const search = financeTickerQuery;
     const mergeAndNormalizeRows = (
       candidates: TickerUniverseRow[],
       qUpper: string
@@ -524,16 +564,16 @@ export function KaiCommandPalette({
         return a.ticker.localeCompare(b.ticker);
       })
       .slice(0, 20);
-  }, [portfolioRows, portfolioTickerSet, query, universe, remoteMatches]);
+  }, [financeTickerQuery, portfolioRows, portfolioTickerSet, universe, remoteMatches]);
 
   const isFiltering = query.trim().length > 0;
   // Only Finance loads the ticker universe, so only Finance can report it as
   // slow or unavailable. Elsewhere those messages described a subsystem the
   // screen never asked for.
   const commandEmptyMessage =
-    financeSectionActive && loadingUniverse
+    (financeSectionActive || financeAnalysisIntent) && loadingUniverse
       ? "Loading commands..."
-      : financeSectionActive && universeError
+      : (financeSectionActive || financeAnalysisIntent) && universeError
         ? "Ticker universe unavailable. Check backend connectivity."
         : "No matching commands.";
 
@@ -806,6 +846,13 @@ export function KaiCommandPalette({
     event.preventDefault();
     const value = query.trim();
     if (!value) return;
+    if (financeAnalysisIntent) {
+      const soleMatch = tickerMatches.length === 1 ? tickerMatches[0] : null;
+      if (soleMatch) {
+        runAction("analysis.start", { symbol: soleMatch.ticker.toUpperCase() });
+      }
+      return;
+    }
     if (exactActionMatch) {
       runAction(exactActionMatch.action.action_id);
       return;
@@ -834,7 +881,7 @@ export function KaiCommandPalette({
       showCloseButton={false}
       title="Search or ask One"
       data-keyboard-anchor="bottom"
-      className="top-auto bottom-[calc(var(--kb-height,0px)+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-1rem),34rem)] w-[calc(100%-1rem)] max-sm:!translate-y-0 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
+      className="top-auto bottom-[calc(var(--kb-height,0px)+var(--bottom-chrome-stack-height,0px)+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-var(--bottom-chrome-stack-height,0px)-1rem),34rem)] w-[calc(100%-1rem)] max-sm:!translate-y-0 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
     >
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty className={isFiltering ? undefined : "hidden"}>{commandEmptyMessage}</CommandEmpty>
@@ -928,23 +975,26 @@ export function KaiCommandPalette({
           </CommandGroup>
         ) : null}
 
-        <CommandGroup heading="Ask One" hidden={!isFiltering}>
-          <CommandItem
-            className={commandItemClass}
-            value={`Ask One ${query}`}
-            disabled={disabled}
-            onSelect={submitPromptSuggestion}
-          >
-            <Icon icon={Search} size="sm" className="mr-2 text-accent-strong" />
-            <span className="min-w-0 truncate font-medium">
-              Ask One: {query.trim()}
-            </span>
-          </CommandItem>
-        </CommandGroup>
+        {isFiltering && !financeAnalysisIntent ? (
+          <CommandGroup heading="Ask One">
+            <CommandItem
+              className={commandItemClass}
+              value={`Ask One ${query}`}
+              disabled={disabled}
+              onSelect={submitPromptSuggestion}
+            >
+              <Icon icon={Search} size="sm" className="mr-2 text-accent-strong" />
+              <span className="min-w-0 truncate font-medium">
+                Ask One: {query.trim()}
+              </span>
+            </CommandItem>
+          </CommandGroup>
+        ) : null}
 
-        <CommandSeparator hidden={!isFiltering} />
+        {isFiltering && !financeAnalysisIntent ? <CommandSeparator /> : null}
 
-        <CommandGroup heading="Commands" hidden={!isFiltering}>
+        {isFiltering && !financeAnalysisIntent ? (
+        <CommandGroup heading="Commands">
           {rankedActionMatches.length === 0 ? (
             <CommandItem className={commandItemClass} disabled>
               <Icon icon={Compass} size="sm" className="mr-2 text-muted-foreground" />
@@ -987,12 +1037,13 @@ export function KaiCommandPalette({
             );
           })}
         </CommandGroup>
+        ) : null}
 
         {/* Ticker rows are Finance's, not every screen's. Searching on
             Location used to answer with SEC equities. Rendered conditionally
             rather than hidden, because cmdk owns group visibility once a
             query is typed and would happily bring it back. */}
-        {isFiltering && financeSectionActive ? (
+        {isFiltering && (financeSectionActive || financeAnalysisIntent) ? (
           <>
             <CommandSeparator />
             <CommandGroup heading="Market results">
@@ -1019,7 +1070,7 @@ export function KaiCommandPalette({
                   className={commandItemClass}
                   key={`${ticker}:${title}`}
                   disabled={disabled}
-                  value={`${ticker} ${title} ${row.sector || row.sector_primary || ""} ${row.exchange || ""}`}
+                  value={`${ANALYZE_PREFIX}${ticker} ${title} ${row.sector || row.sector_primary || ""} ${row.exchange || ""}`}
                   onSelect={() =>
                     runAction("analysis.start", {
                       symbol: ticker,
@@ -1047,7 +1098,7 @@ export function KaiCommandPalette({
           onValueChange={setQuery}
           onKeyDown={submitSearchOrPrompt}
           disabled={disabled}
-          placeholder="Ask One or search"
+          placeholder={financeAnalysisIntent ? "Analyze a stock" : "Ask One or search"}
           className="pr-28"
           enterKeyHint="send"
           autoFocus

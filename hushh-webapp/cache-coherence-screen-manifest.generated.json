@@ -1958,7 +1958,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
@@ -1971,7 +1971,6 @@
         "native_beacon": false
       },
       "findings": [
-        "no local cache primitive detected in page/contract source",
         "loader detected; verify warm cache path avoids blocking loader"
       ]
     },
@@ -6082,5 +6081,5 @@
       ]
     }
   ],
-  "content_sha256": "1d7d627aa97b27e89df7d710bfe28e6a4e86091f2d41004958a614b09ce6e02e"
+  "content_sha256": "b88a9d01b595d47abd10d7430275032b8f2f97b284e281a33a202e617019f40c"
 }

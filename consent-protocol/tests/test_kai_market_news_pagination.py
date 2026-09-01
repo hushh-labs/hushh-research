@@ -8,6 +8,46 @@ from fastapi import HTTPException
 from api.routes.kai import market_insights
 
 
+def test_market_news_round_robin_deduplicates_tracking_urls_and_headlines():
+    rows = [
+        {
+            "symbol": "AMZN",
+            "title": f"Amazon update {index}",
+            "url": f"https://example.com/amzn/{index}?utm_source=feed",
+            "published_at": f"2026-07-19T00:0{index}:00Z",
+        }
+        for index in range(4)
+    ]
+    rows.extend(
+        [
+            {
+                "symbol": "MSFT",
+                "title": "Microsoft update",
+                "url": "https://example.com/msft?gclid=tracking",
+                "published_at": "2026-07-19T00:05:00Z",
+            },
+            {
+                "symbol": "MSFT",
+                "title": "  microsoft   update ",
+                "url": "https://mirror.example.com/story",
+                "published_at": "2026-07-19T00:04:00Z",
+            },
+        ]
+    )
+
+    selected, duplicate_count = market_insights._round_robin_market_news_rows(
+        rows,
+        symbols=["AMZN", "MSFT"],
+        limit=6,
+        per_symbol_cap=2,
+    )
+
+    assert [row["symbol"] for row in selected] == ["MSFT", "AMZN", "AMZN"]
+    assert duplicate_count == 1
+    assert "utm_source" not in selected[0]["url"]
+    assert "gclid" not in selected[1]["url"]
+
+
 @pytest.mark.asyncio
 async def test_market_news_later_cursor_pages_slice_the_cached_bundle(monkeypatch):
     provider_calls: list[str] = []

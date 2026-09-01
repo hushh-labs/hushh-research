@@ -23,7 +23,7 @@ describe("RIA shared header regression contract", () => {
     expect(riaProfile).toContain("RiaPageShell");
     expect(riaClients).toContain("PageHeader");
     expect(riaPicks).toContain("PageHeader");
-    expect(riaPicks).toContain("SettingsSegmentedTabs");
+    expect(riaPicks).toContain("SegmentedTabs");
     expect(riaPicks).toContain("showMyListActionRail");
   });
 

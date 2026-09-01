@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ export function SegmentedTabs({
   mobileColumns,
   disabled = false,
   className,
+  ariaLabel,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -24,15 +25,18 @@ export function SegmentedTabs({
   /** Disable every option while the owning selection is settling. */
   disabled?: boolean;
   className?: string;
+  ariaLabel?: string;
 }) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const resolvedDesktopColumns = Math.max(options.length, 1);
   const resolvedMobileColumns = Math.max(mobileColumns ?? resolvedDesktopColumns, 1);
 
   return (
     <div
+      role="tablist"
+      aria-label={ariaLabel}
       className={cn(
-        "relative grid min-h-11 w-full rounded-[14px] p-0.5 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
-        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-none",
+        "relative grid min-h-11 w-full rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5 [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
         className
       )}
       style={
@@ -42,23 +46,47 @@ export function SegmentedTabs({
         } as CSSProperties
       }
     >
-      {options.map((option) => {
+      {options.map((option, index) => {
         const isActive = option.value === value;
 
         return (
           <button
             key={option.value}
+            ref={(node) => {
+              tabRefs.current[index] = node;
+            }}
             type="button"
-            aria-pressed={isActive}
+            role="tab"
+            aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
             disabled={disabled}
             data-state={isActive ? "active" : "inactive"}
             onClick={() => {
               if (!disabled && !isActive) onValueChange(option.value);
             }}
+            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+              if (disabled || options.length < 2) return;
+              let nextIndex: number | null = null;
+              if (event.key === "ArrowRight") {
+                nextIndex = (index + 1) % options.length;
+              } else if (event.key === "ArrowLeft") {
+                nextIndex = (index - 1 + options.length) % options.length;
+              } else if (event.key === "Home") {
+                nextIndex = 0;
+              } else if (event.key === "End") {
+                nextIndex = options.length - 1;
+              }
+              if (nextIndex === null) return;
+              event.preventDefault();
+              const next = options[nextIndex];
+              if (!next) return;
+              tabRefs.current[nextIndex]?.focus();
+              if (next.value !== value) onValueChange(next.value);
+            }}
             className={cn(
-              "relative isolate flex min-h-10 min-w-0 items-center justify-center overflow-hidden rounded-[12px] border px-3 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:px-4",
+              "relative isolate flex min-h-10 min-w-0 items-center justify-center overflow-hidden rounded-[8px] border border-transparent px-3 py-2 text-center transition-[background-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:px-4",
               isActive
-                ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-normal shadow-[var(--app-segmented-active-shadow)]"
+                ? "z-10 bg-[color:var(--app-card-surface-default-solid)] font-semibold text-[color:var(--app-label)] shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
                 : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
               disabled && "cursor-not-allowed opacity-60"
             )}

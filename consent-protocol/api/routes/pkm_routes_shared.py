@@ -374,7 +374,12 @@ class PathDescriptorPayload(BaseModel):
 class StructureDecisionPayload(BaseModel):
     action: str = Field(default="match_existing_domain", min_length=1, max_length=128)
     target_domain: Optional[str] = Field(default=None, max_length=256)
-    json_paths: List[str] = Field(default_factory=list, max_length=1000)
+    # Mature encrypted domains can legitimately exceed 1,000 discovered paths
+    # (Finance analysis history is one current example). Keep the request
+    # bounded for CWE-400 protection, but align the structure decision with the
+    # manifest's existing 10,000-path capacity so a valid client-side manifest
+    # cannot be rejected solely because the same paths are repeated here.
+    json_paths: List[str] = Field(default_factory=list, max_length=10000)
     top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
     externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
     summary_projection: dict = Field(default_factory=dict)

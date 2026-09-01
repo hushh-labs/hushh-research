@@ -16,6 +16,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from time import time
 from typing import Annotated, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -69,8 +70,9 @@ QUOTE_SYMBOL_ALIASES: dict[str, str] = {
     "CMCS1": "CMCSA",
 }
 WATCHLIST_MAX = 8
-NEWS_SYMBOL_MAX = 3
+NEWS_SYMBOL_MAX = WATCHLIST_MAX
 NEWS_ROWS_MAX = 12
+NEWS_ROWS_PER_SYMBOL_MAX = 2
 NEWS_FEED_ROWS_MAX = 75
 NEWS_FEED_PAGE_DEFAULT = 12
 NEWS_FEED_PAGE_MAX = 20
@@ -416,11 +418,11 @@ def _market_home_cache_key(
     exchange_suffix = "" if exchange_code == DEFAULT_EXCHANGE else f":x={exchange_code}"
     if not personalized:
         return (
-            f"home:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
+            f"home:v2:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
             f"{exchange_suffix}"
         )
     return (
-        f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
+        f"home:v2:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
         f"{roster_signature}{exchange_suffix}"
     )
 
@@ -758,7 +760,7 @@ def _select_news_symbols(raw_symbols: str | None) -> list[str]:
 
 def _market_news_feed_cache_key(symbols: list[str], days_back: int) -> str:
     canonical_symbols = ",".join(sorted(set(symbols)))
-    return f"news_feed:v1:{canonical_symbols}:{days_back}"
+    return f"news_feed:v2:{canonical_symbols}:{days_back}"
 
 
 def _market_news_snapshot_id(rows: list[dict[str, Any]]) -> str:
@@ -842,6 +844,81 @@ def _normalize_market_news_rows(
     return normalized
 
 
+def _canonical_market_news_url(raw_url: str) -> str:
+    """Normalize only tracking noise; preserve the publisher and article path."""
+    try:
+        parts = urlsplit(raw_url.strip())
+    except ValueError:
+        return raw_url.strip()
+    query = urlencode(
+        sorted(
+            (key, value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            if not key.lower().startswith("utm_") and key.lower() not in {"fbclid", "gclid"}
+        )
+    )
+    return urlunsplit(
+        (parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, "")
+    )
+
+
+def _round_robin_market_news_rows(
+    rows: list[dict[str, Any]],
+    *,
+    symbols: list[str],
+    limit: int,
+    per_symbol_cap: int | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Deduplicate public stories and fairly interleave the requested symbols."""
+    buckets: dict[str, list[dict[str, Any]]] = {symbol: [] for symbol in symbols}
+    seen_urls: set[str] = set()
+    seen_headlines: set[str] = set()
+    duplicate_count = 0
+    for row in sorted(
+        rows,
+        key=lambda item: str(item.get("published_at") or ""),
+        reverse=True,
+    ):
+        symbol = str(row.get("symbol") or "").strip().upper()
+        title = " ".join(str(row.get("title") or "").lower().split())
+        url = _canonical_market_news_url(str(row.get("url") or ""))
+        if not symbol or symbol not in buckets or not title or not url:
+            continue
+        if title in seen_headlines or url in seen_urls:
+            duplicate_count += 1
+            continue
+        seen_headlines.add(title)
+        seen_urls.add(url)
+        buckets[symbol].append({**row, "url": url})
+
+    # The visible viewport may show only three cards. Ordering buckets by each
+    # symbol's newest valid story prevents the first holdings in a portfolio
+    # from permanently owning those slots while preserving round-robin caps.
+    ordered_symbols = sorted(
+        symbols,
+        key=lambda symbol: str((buckets.get(symbol) or [{}])[0].get("published_at") or ""),
+        reverse=True,
+    )
+    selected: list[dict[str, Any]] = []
+    depth = 0
+    while len(selected) < limit:
+        added = False
+        for symbol in ordered_symbols:
+            bucket = buckets.get(symbol) or []
+            if per_symbol_cap is not None and depth >= per_symbol_cap:
+                continue
+            if depth >= len(bucket):
+                continue
+            selected.append(bucket[depth])
+            added = True
+            if len(selected) >= limit:
+                break
+        if not added:
+            break
+        depth += 1
+    return selected, duplicate_count
+
+
 async def _get_market_news_feed_page(
     *,
     user_id: str,
@@ -885,19 +962,20 @@ async def _get_market_news_feed_page(
             statuses[f"news:{symbol}"] = status_value
             rows.extend(_normalize_market_news_rows(articles, symbol=symbol))
 
-        deduped: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for row in rows:
-            key = f"{str(row.get('title') or '').lower()}::{row.get('url')}"
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(row)
-        deduped.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
+        deduped, duplicate_count = _round_robin_market_news_rows(
+            rows,
+            symbols=symbols,
+            limit=NEWS_FEED_ROWS_MAX,
+        )
         return {
-            "rows": deduped[:NEWS_FEED_ROWS_MAX],
+            "rows": deduped,
             "provider_status": statuses,
             "generated_at": _now_iso(),
+            "coverage": {
+                "requested_symbol_count": len(symbols),
+                "represented_symbol_count": len({str(row.get("symbol") or "") for row in deduped}),
+                "duplicate_count": duplicate_count,
+            },
         }
 
     news_value, stale, age_seconds, cache_tier, cache_hit = await _get_or_refresh_public_module(
@@ -2808,7 +2886,7 @@ async def _get_market_insights_payload(
         ][:NEWS_SYMBOL_MAX]
         if not news_symbols:
             news_symbols = watchlist_symbols_for_cards[:NEWS_SYMBOL_MAX]
-        news_key = f"news:{','.join(news_symbols)}:{days_back}"
+        news_key = f"news:v2:{','.join(news_symbols)}:{days_back}"
 
         async def fetch_news_bundle() -> dict[str, Any]:
             rows: list[dict[str, Any]] = []
@@ -2861,17 +2939,23 @@ async def _get_market_insights_payload(
                     ", ".join(degraded_news[:6]),
                 )
 
-            deduped: list[dict[str, Any]] = []
-            seen: set[str] = set()
-            for row in rows:
-                key = f"{row.get('title')}::{row.get('url')}"
-                if not row.get("title") or not row.get("url") or key in seen:
-                    continue
-                seen.add(key)
-                deduped.append(row)
-
-            deduped.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
-            return {"rows": deduped[:NEWS_ROWS_MAX], "provider_status": statuses}
+            deduped, duplicate_count = _round_robin_market_news_rows(
+                rows,
+                symbols=news_symbols,
+                limit=NEWS_ROWS_MAX,
+                per_symbol_cap=NEWS_ROWS_PER_SYMBOL_MAX,
+            )
+            return {
+                "rows": deduped,
+                "provider_status": statuses,
+                "coverage": {
+                    "requested_symbol_count": len(news_symbols),
+                    "represented_symbol_count": len(
+                        {str(row.get("symbol") or "") for row in deduped}
+                    ),
+                    "duplicate_count": duplicate_count,
+                },
+            }
 
         (
             news_value,
@@ -2888,6 +2972,9 @@ async def _get_market_insights_payload(
         )
         news_bundle = news_value if isinstance(news_value, dict) else {}
         news_tape = news_bundle.get("rows") if isinstance(news_bundle.get("rows"), list) else []
+        news_coverage = (
+            news_bundle.get("coverage") if isinstance(news_bundle.get("coverage"), dict) else {}
+        )
         provider_status.update(
             {str(k): str(v) for k, v in (news_bundle.get("provider_status") or {}).items()}
         )
@@ -3095,6 +3182,7 @@ async def _get_market_insights_payload(
                     "accepted_count": len(watchlist_symbols),
                     "filtered_count": len(filtered_symbols) + len(hidden_pick_symbols),
                 },
+                "news_coverage": news_coverage,
                 "filtered_symbols": [*filtered_symbols, *hidden_pick_symbols],
             },
             # Backward compatibility fields.
