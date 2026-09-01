@@ -442,7 +442,7 @@ steps:
         fi
         echo "Probe execution: ${execution_name:-unknown}"
         classification="$(
-          PROBE_LINE="${probe_line}" python - <<'PY'
+          PROBE_LINE="${probe_line}" python3 - <<'PY'
         import json
         import os
 
