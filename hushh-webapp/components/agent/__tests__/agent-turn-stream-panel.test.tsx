@@ -113,4 +113,52 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Review the portfolio question.")).not.toBeInTheDocument();
     expect(screen.queryByText("Duplicate source.")).not.toBeInTheDocument();
   });
+
+  it("renders validated AG-UI scope discovery as a Morphy information surface", () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="You can review these fields before asking for access."
+        isStreaming={false}
+        structuredExperience={{
+          type: "one.scope_discovery.v1",
+          person: {
+            displayName: "Alex Morgan",
+            profilePath: "/people/1234567890abcdef",
+            relationship: "connected",
+          },
+          domainFilter: "Financial",
+          scopes: [
+            {
+              scopeRef: "scope_ref_private_123",
+              label: "Employment status",
+              description: "Current employment eligibility status.",
+              domain: "Identity",
+              sensitivity: "sensitive",
+            },
+            {
+              scopeRef: "scope_ref_private_456",
+              label: "Tax residency",
+              description: null,
+              domain: "Financial",
+              sensitivity: "restricted",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("region", { name: "Information available from Alex Morgan" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Identity")).toBeInTheDocument();
+    expect(screen.getByText("Financial")).toBeInTheDocument();
+    expect(screen.getByText("Employment status")).toBeInTheDocument();
+    expect(screen.getByText("Highly sensitive")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Review information/i })).toHaveAttribute(
+      "href",
+      "/people/1234567890abcdef",
+    );
+    expect(screen.queryByText("scope_ref_private_123")).not.toBeInTheDocument();
+  });
 });

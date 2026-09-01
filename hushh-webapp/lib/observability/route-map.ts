@@ -62,6 +62,7 @@ export const ROUTE_ID_VALUES = [
   "consents",
   "feed",
   "agent",
+  "puppy_one",
   "person_profile",
   "connect",
   "connect_settings",
@@ -247,6 +248,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   }
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.AGENT) return "agent";
+  if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";
   // `public_person_ref` is intentionally opaque.  Never let the dynamic
   // segment fall through to `unknown`, where callers may retain raw paths.
   if (/^\/people\/[^/]+$/.test(pathname)) return "person_profile";

@@ -1038,7 +1038,9 @@
       "revoked_at",
       "last_synced_at",
       "last_sync_cursor",
-      "sealed_at"
+      "sealed_at",
+      "last_heartbeat_at",
+      "heartbeat"
     ],
     "trusted_device_challenges": [
       "challenge_id",

@@ -134,6 +134,7 @@ tests/test_pool_acquire_is_bounded.py
 # it is decoration.
 tests/test_contact_discovery_hardening.py
 tests/test_trusted_device_routes.py
+tests/test_trusted_device_heartbeat.py
 tests/quality/test_revocation_persistence.py
 
 # One Location place ratings.

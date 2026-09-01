@@ -179,6 +179,7 @@ export function SettingsGroup({
   headingClassName,
   shellClassName,
   contentClassName,
+  contentId,
   testId = "settings-group",
 }: {
   eyebrow?: string;
@@ -238,6 +239,9 @@ export function SettingsGroup({
   shellClassName?: string;
   /** Lets a bounded manager make the shared row stack the scroll owner. */
   contentClassName?: string;
+  /** Id for the rows wrapper, so a group can be the panel of a
+   *  disclosure whose `aria-controls` has to name something stable. */
+  contentId?: string;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
@@ -264,6 +268,7 @@ export function SettingsGroup({
             : "divide-y divide-border/60",
           contentClassName,
         )}
+        id={contentId}
         data-inset-separators={resolvedSeparatorInset ? "true" : undefined}
       >
         {children}

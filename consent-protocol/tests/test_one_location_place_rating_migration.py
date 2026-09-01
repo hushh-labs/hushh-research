@@ -26,7 +26,7 @@ UAT_CONTRACT = ROOT / "consent-protocol" / "db" / "contracts" / "uat_integrated_
 PROD_CONTRACT = ROOT / "consent-protocol" / "db" / "contracts" / "prod_core_schema.json"
 DEV_CONTRACT = ROOT / "consent-protocol" / "db" / "contracts" / "dev_minimum_schema.json"
 
-MIGRATION_NAME = "189_one_location_place_ratings.sql"
+MIGRATION_NAME = "190_one_location_place_ratings.sql"
 SQL = (MIGRATIONS / MIGRATION_NAME).read_text(encoding="utf-8")
 
 
@@ -134,7 +134,7 @@ def test_event_type_widen_is_replay_safe():
 
 
 def test_rollback_refuses_to_drop_a_table_with_rows_in_it():
-    rollback = (MIGRATIONS / "rollback" / "189_one_location_place_ratings.rollback.sql").read_text(
+    rollback = (MIGRATIONS / "rollback" / "190_one_location_place_ratings.rollback.sql").read_text(
         encoding="utf-8"
     )
 
@@ -143,7 +143,7 @@ def test_rollback_refuses_to_drop_a_table_with_rows_in_it():
         "one_location_nearby_visits",
         "one_location_place_rating_aggregates",
     ):
-        assert f"migration_189_rollback_refused_nonempty_table:{table}" in rollback
+        assert f"migration_190_rollback_refused_nonempty_table:{table}" in rollback
         assert f"DROP TABLE IF EXISTS {table}" in rollback
 
     # Leaving the widened constraint behind would allow an event the restored

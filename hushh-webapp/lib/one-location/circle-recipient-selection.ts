@@ -92,6 +92,7 @@ export function resolveCircleRecipientSelection(params: {
         keyRegisteredAt: member.keyRegisteredAt,
         canReceiveLocation: true,
         connectedFromContacts: member.connectedFromContacts,
+        isRia: Boolean(member.isRia),
       },
     });
   }
@@ -147,6 +148,7 @@ export function mergeRecipientsByUserId(
         recommendationSummary:
           recipient.recommendationSummary ?? existing?.recommendationSummary,
         photoUrl: recipient.photoUrl ?? existing?.photoUrl ?? null,
+        isRia: Boolean(recipient.isRia || existing?.isRia),
       });
     }
   }

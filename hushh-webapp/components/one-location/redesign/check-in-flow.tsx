@@ -137,6 +137,7 @@ function ContactRow({
   completed,
   label,
   photoUrl,
+  verified,
   fromContacts,
   isLast,
   onToggle,
@@ -147,6 +148,7 @@ function ContactRow({
   completed: boolean;
   label: string;
   photoUrl?: string | null;
+  verified?: boolean;
   fromContacts?: boolean;
   isLast: boolean;
   onToggle: () => void;
@@ -167,6 +169,7 @@ function ContactRow({
       <ContactAvatar
         label={label}
         photoUrl={photoUrl}
+        verified={verified}
         className="h-[42px] w-[42px]"
       />
       <span className="min-w-0 flex-1">
@@ -749,6 +752,7 @@ export function CheckInFlow({
                 completed={completedRecipientIds.includes(recipient.userId)}
                 label={vm.recipientLabel(recipient)}
                 photoUrl={recipient.photoUrl}
+                verified={Boolean(recipient.isRia)}
                 fromContacts={recipient.connectedFromContacts}
                 isLast={index === filtered.length - 1}
                 onToggle={() => toggle(recipient.userId)}

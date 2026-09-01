@@ -14,7 +14,7 @@ BEGIN
       INTO has_rows;
     IF has_rows THEN
       RAISE EXCEPTION
-        'migration_189_rollback_refused_nonempty_table:one_location_place_ratings';
+        'migration_190_rollback_refused_nonempty_table:one_location_place_ratings';
     END IF;
   END IF;
 
@@ -23,7 +23,7 @@ BEGIN
       INTO has_rows;
     IF has_rows THEN
       RAISE EXCEPTION
-        'migration_189_rollback_refused_nonempty_table:one_location_nearby_visits';
+        'migration_190_rollback_refused_nonempty_table:one_location_nearby_visits';
     END IF;
   END IF;
 
@@ -32,7 +32,7 @@ BEGIN
       INTO has_rows;
     IF has_rows THEN
       RAISE EXCEPTION
-        'migration_189_rollback_refused_nonempty_table:one_location_place_rating_aggregates';
+        'migration_190_rollback_refused_nonempty_table:one_location_place_rating_aggregates';
     END IF;
   END IF;
 END

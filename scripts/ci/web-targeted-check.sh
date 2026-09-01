@@ -70,6 +70,11 @@ fi
 
 if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
   run_check "Capacitor static parity" npm run verify:capacitor:static
+  # Signature parity across the three flows. Static parity checks the route
+  # inventory; this checks that a plugin method declared in TypeScript is
+  # actually implemented AND registered on both iOS and Android. A change under
+  # ios/ or android/ is exactly when that can drift.
+  run_check "Capacitor plugin contracts" npm run verify:capacitor:plugins
   ran=1
 fi
 

@@ -618,6 +618,7 @@ class OneLocationCircleService:
             # can start.
             "canConnect": (relationship == "none" and bool(row.get("phone_verified"))),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            "isRia": bool(row.get("is_ria")),
         }
 
     @staticmethod
@@ -835,7 +836,7 @@ class OneLocationCircleService:
                     status_code=404,
                 )
             members_result = self._db.execute_raw(
-                """
+                f"""
                 SELECT
                   membership.user_id, membership.role, membership.joined_at,
                   identity.display_name, identity.email, identity.photo_url,
@@ -843,6 +844,12 @@ class OneLocationCircleService:
                   recipient_key.key_id, recipient_key.public_key_jwk,
                   recipient_key.algorithm,
                   recipient_key.created_at AS key_created_at,
+                  EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_annotation
+                    WHERE ria_annotation.user_id = membership.user_id
+                      AND {RIA_VERIFIED_STATUS_SQL}
+                  ) AS is_ria,
                   EXISTS (
                     SELECT 1
                     FROM connections contact_connection
@@ -903,7 +910,7 @@ class OneLocationCircleService:
                 ORDER BY
                   CASE membership.role WHEN 'owner' THEN 0 ELSE 1 END,
                   COALESCE(identity.display_name, membership.user_id)
-                """,
+                """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {"circle_id": cleaned_circle_id, "viewer_user_id": user_id},
             )
             circle = self._circle_summary(dict(summary_row))
@@ -1038,7 +1045,7 @@ class OneLocationCircleService:
         offset = (normalized_page - 1) * normalized_limit
         try:
             result = self._db.execute_raw(
-                """
+                f"""
                 WITH authorized_circle AS (
                   SELECT circle.id, circle.owner_user_id
                   FROM one_location_circles circle
@@ -1054,6 +1061,12 @@ class OneLocationCircleService:
                   SELECT membership.user_id, membership.role, membership.joined_at,
                          identity.display_name, identity.email, identity.photo_url,
                          identity.custom_photo_url, identity.phone_verified,
+                         EXISTS (
+                           SELECT 1
+                           FROM ria_profiles ria_annotation
+                           WHERE ria_annotation.user_id = membership.user_id
+                             AND {RIA_VERIFIED_STATUS_SQL}
+                         ) AS is_ria,
                          LOWER(CASE
                            WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
                             AND BTRIM(identity.display_name) <> membership.user_id
@@ -1166,7 +1179,7 @@ class OneLocationCircleService:
                 ) recipient_key ON TRUE
                 ORDER BY page_rows.match_rank, page_rows.normalized_name,
                          page_rows.user_id
-                """,
+                """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
                     "viewer_user_id": user_id,

@@ -27,7 +27,6 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -134,8 +133,8 @@ import {
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
-  initialsFrom,
   RequestCard,
   SharedWithMeCard,
   type GrantViewStatus,
@@ -3152,6 +3151,7 @@ function StopGrantTextButton({
 function PersonRow({
   name,
   photoUrl,
+  verified,
   fromContacts,
   subtitle,
   active,
@@ -3161,6 +3161,7 @@ function PersonRow({
 }: {
   name: string;
   photoUrl?: string | null;
+  verified?: boolean;
   fromContacts?: boolean;
   subtitle: string;
   /** True when there's a live connection (you're sharing or they're sharing). */
@@ -3175,9 +3176,6 @@ function PersonRow({
    */
   expansion?: ReactNode;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const showImage = Boolean(photoUrl) && !imageFailed;
-
   return (
     // The separator and the hover wash belong to the whole row INCLUDING its
     // breakdown: a person's two shares are one row, and a hairline cutting
@@ -3191,27 +3189,19 @@ function PersonRow({
     >
       <div className="flex min-h-[60px] items-center gap-3 px-4 py-2.5 sm:min-h-16">
         <div className="relative shrink-0">
-          <span
-            className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]"
-            aria-hidden
-          >
-            {showImage && photoUrl ? (
-              <Image
-                src={photoUrl}
-                alt=""
-                fill
-                sizes="36px"
-                unoptimized
-                referrerPolicy="no-referrer"
-                className="object-cover"
-                onError={() => setImageFailed(true)}
-              />
-            ) : (
-              personInitials(name)
-            )}
-          </span>
+          <ConnectionPersonAvatar
+            label={name}
+            photoUrl={photoUrl}
+            verified={verified}
+            className="h-9 w-9 text-[13px]"
+          />
           {active ? (
-            <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
+            <span
+              className={cn(
+                "absolute h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]",
+                verified ? "-right-0.5 -top-0.5" : "bottom-0 right-0",
+              )}
+            />
           ) : null}
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
@@ -3535,6 +3525,7 @@ export function PeopleHub({
                         key={r.userId}
                         name={name}
                         photoUrl={r.photoUrl}
+                        verified={Boolean(r.isRia)}
                         fromContacts={r.connectedFromContacts}
                         expansion={
                           shareGroup && !singleGrant ? (
@@ -4291,7 +4282,13 @@ function ShareFlow({
             ? `${selected ? "Deselect" : "Select"} ${label} for private sharing`
             : undefined
         }
-        leading={<Avatar initials={initialsFrom(label)} imageUrl={r.photoUrl} />}
+        leading={
+          <ConnectionPersonAvatar
+            label={label}
+            photoUrl={r.photoUrl}
+            verified={Boolean(r.isRia)}
+          />
+        }
         title={
           <span className="flex min-w-0 items-start gap-1.5">
             <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -4902,6 +4899,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 function RequestRecipientListRow({
   name,
   photoUrl,
+  verified,
   fromContacts,
   subtitle,
   tone,
@@ -4919,6 +4917,7 @@ function RequestRecipientListRow({
 }: {
   name: string;
   photoUrl?: string | null;
+  verified?: boolean;
   fromContacts?: boolean;
   subtitle?: string;
   tone: "ready" | "pending" | "neutral";
@@ -4949,7 +4948,7 @@ function RequestRecipientListRow({
       )}
     >
       <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
-        <ContactAvatar label={name} photoUrl={photoUrl} />
+        <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-start gap-1.5">
             <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
@@ -5434,6 +5433,7 @@ function AskFlow({
                   key={r.userId}
                   name={recipientLabel}
                   photoUrl={r.photoUrl}
+                  verified={Boolean(r.isRia)}
                   fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
@@ -5592,6 +5592,7 @@ function SelectedRecipientsRail({
                   key={recipient.userId}
                   label={label}
                   photoUrl={recipient.photoUrl}
+                  verified={Boolean(recipient.isRia)}
                   className="h-9 w-9 border-2 border-[color:var(--app-card-surface-default-solid)] text-[13px]"
                 />
               );
@@ -5627,6 +5628,7 @@ function SelectedRecipientsRail({
                 <ContactAvatar
                   label={label}
                   photoUrl={recipient.photoUrl}
+                  verified={Boolean(recipient.isRia)}
                   className="h-8 w-8 text-[13px]"
                 />
                 <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
