@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { EmblaCarouselType } from "embla-carousel";
 import useEmblaCarousel from "embla-carousel-react";
 
@@ -49,7 +55,10 @@ const SWIPE_VIEWPORT_MIN_HEIGHT =
  */
 const ARRIVED_TOLERANCE_PX = 3;
 
-export function clampSwipePosition(position: number, optionCount: number): number {
+export function clampSwipePosition(
+  position: number,
+  optionCount: number,
+): number {
   const upperBound = Math.max(0, optionCount - 1);
   if (!Number.isFinite(position)) return 0;
   return Math.min(Math.max(position, 0), upperBound);
@@ -133,7 +142,9 @@ function scrollToIndexSafely(
   const slideRects = engine?.slideRects;
   const slideWidth = slideRects?.[0]?.width;
   const hasReliableWidth =
-    typeof slideWidth === "number" && slideWidth > 0 && Boolean(slideRects?.length);
+    typeof slideWidth === "number" &&
+    slideWidth > 0 &&
+    Boolean(slideRects?.length);
 
   // The engine's `limit` (its scroll bounds) is captured at construction from
   // the same stale measurement as scrollSnaps, and has no public setter. Its
@@ -192,7 +203,10 @@ function scrollToIndexSafely(
  * fall back to Embla's own counter when the geometry isn't available yet
  * (e.g. before first layout).
  */
-function resolveVisualIndex(api: EmblaCarouselType, optionsLength: number): number {
+function resolveVisualIndex(
+  api: EmblaCarouselType,
+  optionsLength: number,
+): number {
   const engine = api.internalEngine?.();
   const slideWidth = engine?.slideRects?.[0]?.width;
   const rendered = engine?.offsetLocation?.get?.();
@@ -299,7 +313,9 @@ export function SwipeViews({
     // width-accurate against ANY resize cause while still ignoring the
     // per-slide entries that caused the original hitch.
     watchResize: (emblaApiInstance, entries) =>
-      entries.some((entry) => entry.target === emblaApiInstance.containerNode()),
+      entries.some(
+        (entry) => entry.target === emblaApiInstance.containerNode(),
+      ),
     watchDrag,
   });
   const panels = useMemo(() => React.Children.toArray(children), [children]);
@@ -308,7 +324,9 @@ export function SwipeViews({
     options.findIndex((option) => option.value === activeValue),
   );
   const panelNodesRef = useRef<Record<string, HTMLDivElement | null>>({});
-  const [activePanelHeight, setActivePanelHeight] = useState<number | null>(null);
+  const [activePanelHeight, setActivePanelHeight] = useState<number | null>(
+    null,
+  );
   const isDraggingRef = useRef(false);
   // True from the moment a tapped pane starts moving until Embla settles on it.
   // Together with `isDraggingRef` this is what the strip reads as "the pager
@@ -348,6 +366,13 @@ export function SwipeViews({
     if (!emblaApi) return;
     const root = emblaApi.rootNode();
     const onPointerDownCapture = (event: PointerEvent) => {
+      if (
+        isNestedHorizontalScrollTarget(event.target) ||
+        isNestedSwipeViewsTarget(event.target, root)
+      ) {
+        edgePointerStartRef.current = null;
+        return;
+      }
       edgePointerStartRef.current = { x: event.clientX, y: event.clientY };
     };
     const onPointerUpCapture = (event: PointerEvent) => {
@@ -442,7 +467,8 @@ export function SwipeViews({
         frame = 0;
         const measured = Math.ceil(activeNode.scrollHeight);
         const floor = heightFloorRef.current;
-        const nextHeight = floor === null ? measured : Math.max(measured, floor);
+        const nextHeight =
+          floor === null ? measured : Math.max(measured, floor);
         renderedHeightRef.current = nextHeight;
         setActivePanelHeight((current) =>
           current === nextHeight ? current : nextHeight,
@@ -467,7 +493,6 @@ export function SwipeViews({
       observer.disconnect();
     };
   }, [activeValue, heightMode, heightSettleTick, holdHeightDuringTransition]);
-
 
   // Embla measures the container and slides synchronously at init, but only
   // attaches its own ResizeObserver a frame later. A width change inside that
@@ -502,7 +527,8 @@ export function SwipeViews({
 
       const engine = api.internalEngine?.();
       const engineWidth = engine?.containerRect?.width;
-      const widthChanged = lastWidth !== -1 && Math.abs(width - lastWidth) > 0.5;
+      const widthChanged =
+        lastWidth !== -1 && Math.abs(width - lastWidth) > 0.5;
       const engineIsStale =
         typeof engineWidth === "number" && Math.abs(engineWidth - width) > 1;
       lastWidth = width;
@@ -540,7 +566,8 @@ export function SwipeViews({
         typeof belongsAt === "number" &&
         Math.abs(targetAt - belongsAt) > 1;
 
-      if (!widthChanged && !engineIsStale && !slideCountStale && !misaligned) return;
+      if (!widthChanged && !engineIsStale && !slideCountStale && !misaligned)
+        return;
 
       // Re-measure only when the measurement is the thing at fault; reInit()
       // preserves whatever index the engine believes it is on, which may
@@ -798,7 +825,10 @@ export function SwipeViews({
       const targetIndex = options.findIndex(
         (option) => option.value === selection.value,
       );
-      if (targetIndex < 0 || targetIndex === resolveVisualIndex(emblaApi, options.length))
+      if (
+        targetIndex < 0 ||
+        targetIndex === resolveVisualIndex(emblaApi, options.length)
+      )
         return;
       // A top-tab press starts the compositor motion immediately. Waiting for
       // Next searchParams made the tab ink update first and the pane lag behind.

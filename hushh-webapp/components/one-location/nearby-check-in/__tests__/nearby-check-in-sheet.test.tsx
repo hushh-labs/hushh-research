@@ -29,7 +29,18 @@ const service = vi.hoisted(() => ({
   placesAutocomplete: vi.fn(),
   placesSearchErrorMessage: vi.fn(() => "Place search failed."),
   requestNearbyConnection: vi.fn(),
+  ratePlace: vi.fn(),
 }));
+
+const visitNotes = vi.hoisted(() => ({
+  recordVisitNote: vi.fn(),
+}));
+
+vi.mock("@/lib/one-location/visit-notes", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/one-location/visit-notes")>();
+  return { ...actual, recordVisitNote: visitNotes.recordVisitNote };
+});
 
 const navigation = vi.hoisted(() => ({
   push: vi.fn(),
@@ -2394,6 +2405,191 @@ describe("NearbyCheckInSheet", () => {
       // Red is reserved for dangerous and irreversible actions. Checking out is
       // neither — you can check back in.
       expect(checkOut.className).not.toContain("app-destructive");
+    });
+
+    /** Checkout, with the server offering a rateable visit for the place. */
+    const renderAndCheckOutRateable = async (
+      overrides: Record<string, unknown> = {},
+      onOpenChange = vi.fn(),
+    ) => {
+      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      service.checkoutNearby.mockResolvedValue({
+        presence: null,
+        attendees: [],
+        checkedOut: true,
+        reviewPrompt: {
+          visitId: "visit-1",
+          placeId: "ChIJbagmaker",
+          placeLabel: "Bag Maker",
+          visitedAt: "2026-08-31T10:00:00.000Z",
+          expiresAt: "2026-09-07T10:00:00.000Z",
+          googleReviewUrl:
+            "https://search.google.com/local/writereview?placeid=ChIJbagmaker",
+          consentVersion: "one-location-place-rating-v1",
+          ...overrides,
+        },
+      });
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          vaultKey="vault-key"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={onOpenChange}
+        />,
+      );
+
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      await screen.findByTestId("nearby-presence-completed");
+      return onOpenChange;
+    };
+
+    it("asks how the visit went, by name", async () => {
+      await renderAndCheckOutRateable();
+
+      expect(await screen.findByTestId("nearby-visit-rating")).toBeTruthy();
+      expect(screen.getByText("How was Bag Maker?")).toBeTruthy();
+      // The one sentence that stops a star row above a Google button reading
+      // as though it publishes somewhere.
+      expect(screen.getByText(/Only you see this\./)).toBeTruthy();
+    });
+
+    it("cannot be saved until a star is chosen", async () => {
+      await renderAndCheckOutRateable();
+
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "4 stars" }));
+
+      expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+    });
+
+    it("sends the star to the server and keeps the note in the vault", async () => {
+      // The split is the whole design: an average cannot be computed on a
+      // device, and free text about a named business must not sit in plaintext
+      // on ours.
+      service.ratePlace.mockResolvedValue({ id: "r1", rating: 4 });
+      visitNotes.recordVisitNote.mockResolvedValue([]);
+      await renderAndCheckOutRateable();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "4 stars" }));
+      fireEvent.change(
+        screen.getByPlaceholderText("Anything worth remembering"),
+        { target: { value: "  Quick and friendly.  " } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() =>
+        expect(service.ratePlace).toHaveBeenCalledWith({
+          vaultOwnerToken: "owner-token",
+          placeId: "ChIJbagmaker",
+          rating: 4,
+          consentVersion: "one-location-place-rating-v1",
+        }),
+      );
+      // No note field reaches the request at all.
+      expect(Object.keys(service.ratePlace.mock.calls[0][0])).not.toContain(
+        "note",
+      );
+      await waitFor(() =>
+        expect(visitNotes.recordVisitNote).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entry: expect.objectContaining({
+              placeId: "ChIJbagmaker",
+              rating: 4,
+              note: "Quick and friendly.",
+            }),
+          }),
+        ),
+      );
+    });
+
+    it("offers the Google hand-off only after the local save succeeds", async () => {
+      service.ratePlace.mockResolvedValue({ id: "r1", rating: 5 });
+      await renderAndCheckOutRateable();
+
+      // The order is the mitigation for "why did I write it twice": your
+      // rating is safe with us first, Google is extra.
+      expect(
+        screen.queryByRole("link", { name: "Also post on Google" }),
+      ).toBeNull();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "5 stars" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      const handoff = await screen.findByRole("link", {
+        name: "Also post on Google",
+      });
+      expect(handoff).toHaveAttribute(
+        "href",
+        "https://search.google.com/local/writereview?placeid=ChIJbagmaker",
+      );
+      expect(handoff).toHaveAttribute("rel", "noopener noreferrer");
+      // Honest about what happens next: nothing can be prefilled on Google.
+      expect(
+        screen.getByText("Opens Google Maps — you'll type it there."),
+      ).toBeTruthy();
+    });
+
+    it("says nothing about Google when there is no place id to link to", async () => {
+      // No disabled button and no explanation. The rating succeeded; the
+      // hand-off was only ever a bonus.
+      service.ratePlace.mockResolvedValue({ id: "r1", rating: 3 });
+      await renderAndCheckOutRateable({ googleReviewUrl: null });
+
+      fireEvent.click(await screen.findByRole("radio", { name: "3 stars" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await screen.findByText("Saved to your places.");
+      expect(screen.queryByText(/Google/)).toBeNull();
+      expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    });
+
+    it("keeps the stars set when the save fails", async () => {
+      // Clearing somebody's input because the network failed turns a retry
+      // into a re-decision.
+      service.ratePlace.mockRejectedValue(new Error("offline"));
+      await renderAndCheckOutRateable();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "2 stars" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(
+        await screen.findByText("Couldn't save your rating."),
+      ).toBeTruthy();
+      expect(screen.getByRole("radio", { name: "2 stars" })).toBeChecked();
+      expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+    });
+
+    it("lets someone leave without rating, and writes nothing when they do", async () => {
+      const onOpenChange = await renderAndCheckOutRateable();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
+
+      expect(service.ratePlace).not.toHaveBeenCalled();
+      expect(visitNotes.recordVisitNote).not.toHaveBeenCalled();
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it("does not ask at all when the server offers nothing rateable", async () => {
+      // An expired presence produces no visit, and a backend that predates
+      // ratings sends no reviewPrompt. Both land here, and both must leave the
+      // pane exactly as it was.
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      await renderAndCheckOut();
+
+      expect(screen.queryByTestId("nearby-visit-rating")).toBeNull();
+      expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    });
+
+    it("offers no bookmark control, because rating is the save", async () => {
+      await renderAndCheckOutRateable();
+
+      expect(screen.queryByRole("button", { name: /bookmark/i })).toBeNull();
     });
   });
 });

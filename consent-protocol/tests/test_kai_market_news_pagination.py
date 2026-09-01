@@ -44,8 +44,10 @@ def test_market_news_round_robin_deduplicates_tracking_urls_and_headlines():
 
     assert [row["symbol"] for row in selected] == ["MSFT", "AMZN", "AMZN"]
     assert duplicate_count == 1
-    assert "utm_source" not in selected[0]["url"]
-    assert "gclid" not in selected[1]["url"]
+    msft_row = next(row for row in selected if row["symbol"] == "MSFT")
+    amzn_row = next(row for row in selected if row["symbol"] == "AMZN")
+    assert "gclid" not in msft_row["url"]
+    assert "utm_source" not in amzn_row["url"]
 
 
 @pytest.mark.asyncio

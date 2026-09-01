@@ -470,6 +470,37 @@
       "expected_row_growth": "medium_per_user_share"
     },
     {
+      "id": "one_location_place_rating_visits",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_nearby_visits"
+      ],
+      "primary_access_path": "Short-lived ledger of completed nearby check-in visits, so the place a person just left can be rated and so the check-in travel-continuity guard survives a checkout that clears the presence anchor. The venue is readable only as an AES-256-GCM envelope bound by AAD to its owner, alongside a server-keyed equality token that allows same-venue and distinct-place checks without decryption.",
+      "retention_policy": "Each visit expires seven days after check-in and is deleted by the Location retention purge on its own expires_at, independently of the twelve-hour window used for terminal presence rows.",
+      "deletion_behavior": "Rows cascade on actor_profiles deletion and are also deleted explicitly by the account service for the owning user.",
+      "trust_boundary": "backend_runtime",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user_bounded_by_ttl"
+    },
+    {
+      "id": "one_location_place_ratings",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_place_ratings",
+        "one_location_place_rating_aggregates"
+      ],
+      "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets.",
+      "retention_policy": "A rating is retained while the account exists and is updated in place on a revisit. The aggregate is derived state, recomputed from the surviving rows on every insert, update and delete.",
+      "deletion_behavior": "Ratings cascade on actor_profiles deletion and are deleted explicitly by the account service, which recomputes every affected place aggregate in the same statement -- an average that still counts a deleted rating has not deleted it.",
+      "trust_boundary": "backend_runtime",
+      "plaintext_posture": "provider_place_id_and_label",
+      "expected_row_growth": "low_per_user"
+    },
+    {
       "id": "one_referral_program",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",

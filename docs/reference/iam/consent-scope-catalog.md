@@ -157,6 +157,38 @@ provider place ids, place labels, roster contents, email, phone, and stable
 public user ids are forbidden in nearby-presence persistence, logs, analytics,
 and audit metadata. Peer responses expose none of the encrypted anchor fields.
 
+### One Place Rating Capability Scopes
+
+| Scope | Intended Use |
+| --- | --- |
+| `cap.location.place_rating.publish` | Save the caller's own 1–5 star rating for a place they were recorded at |
+| `cap.location.place_rating.discover` | Read an anonymous per-place average that meets the publication threshold |
+| `cap.location.place_rating.revoke` | Delete the caller's rating and remove it from the average |
+
+**A narrow, named exception to the paragraph above.** A rating cannot exist
+without a durable link between a person and a venue, which nearby presence
+exists to prevent. Rather than leave the contract and the schema disagreeing,
+the exception is stated here and bounded to two tables:
+
+- `one_location_nearby_visits` may hold the provider place id and place label
+  **only inside AES-256-GCM ciphertext**, owner-bound by AAD exactly as the
+  presence anchor is, alongside a server-keyed equality token. Rows expire and
+  are purged. This table also carries the check-in continuity anchor, which the
+  presence row deliberately destroys on checkout.
+- `one_location_place_ratings` may hold a **plaintext** provider place id and
+  place label, permanently. A row is created only when its author accepts
+  `one-location-place-rating-v1`, a named consent that says in words that being
+  at the place is what makes them eligible to rate it.
+
+Everything else in the paragraph above is unchanged, and this exception grants
+nothing further: a rating is private to its author, no read projection may
+return an author identifier of any kind next to a place id, review text is
+never stored server-side, and the only cross-user projection is an anonymous
+count and average, withheld below the publication threshold and reported in
+buckets so that polling cannot recover an individual rating by subtraction.
+Places in health, worship, legal, funeral and shelter categories never carry a
+public average at all.
+
 ### Capability token enforcement
 
 Each live-location grant mints a signed HCT consent token scoped

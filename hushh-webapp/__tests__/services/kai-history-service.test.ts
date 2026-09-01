@@ -65,7 +65,7 @@ describe("analysis history route identity", () => {
 });
 
 describe("analysis history retention", () => {
-  it("retains more than three analyses until explicit deletion", () => {
+  it("retains only the newest three analyses per ticker", () => {
     const entries = Array.from({ length: 5 }, (_, index) =>
       entry({
         timestamp: `2026-08-${String(10 + index).padStart(2, "0")}T12:00:00.000Z`,
@@ -76,13 +76,11 @@ describe("analysis history retention", () => {
       [],
     );
 
-    expect(entries).toHaveLength(5);
+    expect(entries).toHaveLength(3);
     expect(entries.map((item) => item.raw_card.debate_run_id)).toEqual([
       "run-4",
       "run-3",
       "run-2",
-      "run-1",
-      "run-0",
     ]);
   });
 

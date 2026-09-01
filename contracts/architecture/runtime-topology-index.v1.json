@@ -1035,6 +1035,27 @@
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
     },
     {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "one_location_nearby_visits"
+      ],
+      "id": "one_location_place_rating_visits",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Short-lived ledger of completed nearby check-in visits, so the place a person just left can be rated and so the check-in travel-continuity guard survives a checkout that clears the presence anchor. The venue is readable only as an AES-256-GCM envelope bound by AAD to its owner, alongside a server-keyed equality token that allows same-venue and distinct-place checks without decryption."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_location_place_ratings",
+        "one_location_place_rating_aggregates"
+      ],
+      "id": "one_location_place_ratings",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_information_request_bundles",
@@ -5265,7 +5286,7 @@
     "action_gateway": "ad1c14d11ad34a758103eb32781f0ee09d5fc4f21070f9d90faabef025b58703",
     "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
     "cache_manifest": "5ea1ec280ffbf64e8c28d3765b3db052c725dc1cbd3de41b8a4e7b574da28847",
-    "data_plane": "423c5c3c6daeb92c0a3469d22a80d6b700884387a9a35883d963f0f0eebbf0b1",
+    "data_plane": "21ffe02aadae25180c00bdd4668075682b8f1ced9c43b04fb3d1b2257c9f4464",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "376cf3193426e923607c74d060cdfe4678e6661dc22042b25f34a36c89e5bbfa",
     "route_index": "93bea51ad478ab3a7ae03decc2e2bf46995d49808d40cb095d5271a419d2ab05",
@@ -5284,6 +5305,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 136,
     "semantic_routes": 14,
-    "table_families": 54
+    "table_families": 56
   }
 }

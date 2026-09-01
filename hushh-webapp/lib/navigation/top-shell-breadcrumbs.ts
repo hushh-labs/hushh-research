@@ -59,7 +59,7 @@ function oneLocationActionLabel(action: string): string {
     // shares", "Public link") and the screen's own TaskFlowHeader title. The
     // crumb and the title must read as the same words or the trail and the
     // screen stop agreeing.
-    ask: "Request location",
+    ask: "Ask for location",
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
@@ -323,7 +323,9 @@ function resolveTopShellBreadcrumbInner(
   }
 
   if (pathname === KAI_MARKET_PATH && searchParams?.get("tab") === "analysis") {
-    const analysisEntryId = String(searchParams?.get("analysis_id") || "").trim();
+    const analysisEntryId = String(
+      searchParams?.get("analysis_id") || "",
+    ).trim();
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
     const runId = String(searchParams?.get("run_id") || "").trim();
@@ -519,10 +521,7 @@ function resolveTopShellBreadcrumbInner(
       width: "content",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "RIA", href: returnHref },
-        { label: "Claim profile" },
-      ],
+      items: [{ label: "RIA", href: returnHref }, { label: "Claim profile" }],
     };
   }
 

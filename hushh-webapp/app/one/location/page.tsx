@@ -739,7 +739,7 @@ const LOCATION_VOICE_CONTROLS = [
   },
   {
     id: "one-location-action-ask",
-    label: "Request location",
+    label: "Ask for location",
     purpose: "Ask for location access.",
     actionId: "location.open_ask",
     role: "button",
