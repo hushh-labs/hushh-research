@@ -8,9 +8,10 @@ FOR UPDATE and re-dispatch the worker; a delivered dossier is a conflict.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import sys
 import types
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import asyncpg
@@ -20,6 +21,17 @@ from fastapi.testclient import TestClient
 
 # Stub the rate-limit middleware *before* importing the route module so the
 # decorator is a no-op during tests (same pattern as test_ria_claim_flow).
+#
+# RateLimits carries the real per-route budget constants -- ria.py's other
+# routes read them at decoration time (e.g. RateLimits.RIA_NEARBY_DIRECTORY_READ),
+# so the stub module needs the real class, not just a limiter double, or the
+# import fails before a single test runs. Imported via importlib rather than
+# a plain `import`, which would cache the REAL module under this same
+# sys.modules key -- the assignment below has to be the thing that wins, or
+# ria.py's own `from api.middlewares.rate_limit import ... limiter` would
+# resolve to the real, rate-limiting one instead of the no-op double.
+_real_rate_limit_module = importlib.import_module("api.middlewares.rate_limit")
+
 rate_limit_module = types.ModuleType("api.middlewares.rate_limit")
 
 
@@ -32,7 +44,8 @@ class _NoopLimiter:
 
 
 rate_limit_module.limiter = _NoopLimiter()  # type: ignore[attr-defined]
-sys.modules.setdefault("api.middlewares.rate_limit", rate_limit_module)
+rate_limit_module.RateLimits = _real_rate_limit_module.RateLimits  # type: ignore[attr-defined]
+sys.modules["api.middlewares.rate_limit"] = rate_limit_module
 
 import hushh_mcp.services.ria_dossier_service as dossier_module  # noqa: E402
 from api.middleware import require_firebase_auth  # noqa: E402
@@ -386,12 +399,74 @@ def test_reading_a_scanning_row_resumes_its_poll(monkeypatch):
     assert workers[0]["dossier_id"] == 1
 
 
+def test_reading_a_stale_queued_row_resumes_it_from_scratch(monkeypatch):
+    """The other stall point: withdrawn CPU before the worker's first turn.
+
+    A `queued` row has no scan id, so there is nothing to resume a poll
+    against -- the worker has to re-enter from the beginning: resolve email,
+    build the scan payload, start a fresh scan. `resume_scan_id=""` is what
+    tells it to do that rather than treat the empty string as a scan id.
+    """
+    stale_requested_at = datetime.now(UTC) - timedelta(minutes=5)
+    _install_db(
+        monkeypatch,
+        [_row(status="queued", scan_id=None, completed_at=None, requested_at=stale_requested_at)],
+    )
+    _install_claim_context(monkeypatch, _claim_context())
+    workers: list[dict[str, Any]] = []
+
+    async def _fake_worker(self, **kwargs: Any) -> None:
+        workers.append(kwargs)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_dossier_service.RIADossierService._run_worker", _fake_worker
+    )
+    ria_module._DOSSIER_RESUMING.clear()
+
+    response = TestClient(_build_app()).get("/api/ria/dossier")
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert len(workers) == 1
+    assert workers[0]["resume_scan_id"] == ""
+    assert workers[0]["dossier_id"] == 1
+
+
+def test_a_queued_row_still_within_the_grace_window_is_left_alone(monkeypatch):
+    """The window a live worker needs to reach its first status write.
+
+    Requested five seconds ago is well within `_DOSSIER_QUEUED_STALL_THRESHOLD`
+    -- indistinguishable, from a single read, from dispatch still legitimately
+    resolving the recipient email and building the scan payload. Resuming it
+    here would start a second scan racing the first.
+    """
+    fresh_requested_at = datetime.now(UTC) - timedelta(seconds=5)
+    _install_db(
+        monkeypatch,
+        [_row(status="queued", scan_id=None, completed_at=None, requested_at=fresh_requested_at)],
+    )
+    _install_claim_context(monkeypatch, _claim_context())
+    workers: list[dict[str, Any]] = []
+
+    async def _fake_worker(self, **kwargs: Any) -> None:
+        workers.append(kwargs)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_dossier_service.RIADossierService._run_worker", _fake_worker
+    )
+    ria_module._DOSSIER_RESUMING.clear()
+
+    assert TestClient(_build_app()).get("/api/ria/dossier").status_code == 200
+    assert workers == []
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
         {"status": "sent"},
         {"status": "scan_failed"},
-        {"status": "queued", "scan_id": None},
+        # Freshly queued, well inside the stall threshold — a worker that is
+        # genuinely still starting up must never be raced into a second scan.
+        {"status": "queued", "scan_id": None, "requested_at": datetime.now(UTC)},
         {"status": "scanning", "scan_id": None},
         {
             "status": "scanning",
@@ -399,7 +474,7 @@ def test_reading_a_scanning_row_resumes_its_poll(monkeypatch):
             "completed_at": datetime(2026, 8, 8, 12, 30, 0, tzinfo=UTC),
         },
     ],
-    ids=["sent", "failed", "queued-no-scan", "scanning-no-scan-id", "already-completed"],
+    ids=["sent", "failed", "queued-not-yet-stale", "scanning-no-scan-id", "already-completed"],
 )
 def test_a_row_that_is_not_mid_scan_is_never_resumed(monkeypatch, overrides):
     _install_db(monkeypatch, [_row(**overrides)])
