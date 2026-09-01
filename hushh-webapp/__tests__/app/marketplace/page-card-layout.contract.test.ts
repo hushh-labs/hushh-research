@@ -71,4 +71,18 @@ describe("marketplace client card layout contract", () => {
     expect(source).toContain("aria-label={`${source.label} opens in a new tab`}");
     expect(source).not.toContain("SEC source");
   });
+
+  it("surfaces database-backed saved investor leads in the RIA deck", () => {
+    const source = readMarketplacePage();
+
+    expect(source).toContain('data-testid="marketplace-saved-leads"');
+    expect(source).toContain("Saved investor leads");
+    expect(source).toContain('item.status === "shortlisted"');
+    expect(source).toContain("marketplaceSavedInvestorLeadsFromActions(actions)");
+    expect(source).toContain("setSavedInvestorLeads(savedLeads)");
+    expect(source).toContain("removeSavedInvestorLead");
+    expect(source).toContain('"pass", { gesture: "remove_saved_lead" }');
+    expect(source).toContain('toast.success("Saved lead removed from the RIA deck.")');
+    expect(source).not.toContain("localStorage.setItem(key, JSON.stringify([...savedInvestorLeads");
+  });
 });

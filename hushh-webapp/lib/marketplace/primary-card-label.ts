@@ -7,6 +7,7 @@ export type MarketplacePrimaryCardLabelInput = {
   currentPersona: Persona;
   canConnect?: boolean;
   isInvestorShortlistable?: boolean;
+  isInvestorShortlisted?: boolean;
 };
 
 export function resolveMarketplacePrimaryCardLabel({
@@ -16,6 +17,7 @@ export function resolveMarketplacePrimaryCardLabel({
   currentPersona,
   canConnect = false,
   isInvestorShortlistable = false,
+  isInvestorShortlisted = false,
 }: MarketplacePrimaryCardLabelInput): string {
   if (isTestProfile) {
     return kind === "investor" && currentPersona === "ria" ? "Open workspace" : "Demo";
@@ -27,6 +29,7 @@ export function resolveMarketplacePrimaryCardLabel({
     return currentPersona === "investor" ? "Request advisory" : "Send request";
   }
 
+  if (isInvestorShortlisted) return "Saved lead";
   if (isInvestorShortlistable) return "Save lead";
   if (canConnect) return "Send request";
   return "View profile";
