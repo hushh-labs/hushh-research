@@ -35,6 +35,7 @@ import {
   isMarketplaceInvestorConnectable,
   isMarketplaceInvestorShortlistable,
   isPublicSecMarketplaceInvestor,
+  marketplaceInvestorEvidenceLinks,
   marketplaceInvestorActionTarget,
   marketplaceInvestorCardId,
   marketplaceInvestorCurationLabel,
@@ -797,11 +798,8 @@ export default function MarketplacePage() {
   const selectedInvestorAddress = formatEvidenceAddress(
     selectedInvestorEvidence?.business_address
   );
-  const selectedInvestorEvidenceLinks = Array.isArray(selectedInvestorEvidence?.source_urls)
-    ? selectedInvestorEvidence.source_urls
-        .filter((url): url is string => Boolean(url))
-        .slice(0, 3)
-    : [];
+  const selectedInvestorEvidenceLinks =
+    marketplaceInvestorEvidenceLinks(selectedInvestorEvidence);
   const selectedInvestorFormsLabel = formatEvidenceForms(selectedInvestorEvidence?.forms);
   const selectedInvestorCurationLabel = selectedInvestor
     ? marketplaceInvestorCurationLabel(selectedInvestor)
@@ -1706,10 +1704,15 @@ export default function MarketplacePage() {
                 ) : null}
                 {selectedInvestorEvidenceLinks.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
-                    {selectedInvestorEvidenceLinks.map((url) => (
-                      <Button key={url} asChild variant="none" effect="fade" size="sm">
-                        <a href={url} target="_blank" rel="noopener noreferrer">
-                          SEC source
+                    {selectedInvestorEvidenceLinks.map((source) => (
+                      <Button key={source.id} asChild variant="none" effect="fade" size="sm">
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`${source.label} opens in a new tab`}
+                        >
+                          {source.label}
                           <ArrowUpRight className="ml-2 h-4 w-4" />
                         </a>
                       </Button>

@@ -60,4 +60,15 @@ describe("marketplace client card layout contract", () => {
     expect(source).toContain("aria-busy={contactMatchLoading}");
     expect(source).not.toContain('aria-label={directoryKind === "investors" ? "Refresh deck" : "Restart deck"}');
   });
+
+  it("renders marketplace SEC evidence links with normalized labels", () => {
+    const source = readMarketplacePage();
+
+    expect(source).toContain("marketplaceInvestorEvidenceLinks(selectedInvestorEvidence)");
+    expect(source).toContain("key={source.id}");
+    expect(source).toContain("href={source.url}");
+    expect(source).toContain("{source.label}");
+    expect(source).toContain("aria-label={`${source.label} opens in a new tab`}");
+    expect(source).not.toContain("SEC source");
+  });
 });
