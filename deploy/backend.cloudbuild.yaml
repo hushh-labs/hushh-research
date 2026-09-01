@@ -316,8 +316,9 @@ steps:
           "--allow-unauthenticated"
           "--port=8080"
           "--memory=1Gi"
-          "--cpu=1"
+          "--cpu=${_CLOUD_RUN_CPU}"
           "--timeout=3600"
+          "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
           "--session-affinity"
           "--max=${_CLOUD_RUN_MAX_INSTANCES}"
           "--min=${_CLOUD_RUN_MIN_INSTANCES}"
@@ -593,6 +594,8 @@ substitutions:
   _DB_POOL_ACQUIRE_TIMEOUT_SECONDS: "60"
   _CLOUD_RUN_MIN_INSTANCES: "1"
   _CLOUD_RUN_MAX_INSTANCES: "5"
+  _CLOUD_RUN_CPU: "1"
+  _CLOUD_RUN_CONCURRENCY: "80"
   _RUNTIME_ENVIRONMENT: ""
   # Direct backend builds remain conservative. The UAT workflow explicitly
   # overrides this from its authoritative changed-SHA verification plan.

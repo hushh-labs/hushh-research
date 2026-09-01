@@ -41,6 +41,57 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     )
 
 
+def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
+    workflow = _read(".github/workflows/deploy-uat.yml")
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    frontend_build = _read("deploy/frontend.cloudbuild.yaml")
+
+    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_build
+    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_build
+    assert "_CLOUD_RUN_CPU=2" in workflow
+    assert "_CLOUD_RUN_CONCURRENCY=20" in workflow
+
+    assert '"--memory=${_CLOUD_RUN_MEMORY}"' in frontend_build
+    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in frontend_build
+    assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in frontend_build
+    assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in frontend_build
+    assert '"--min-instances=0"' in frontend_build
+    assert "_CLOUD_RUN_MEMORY=1Gi" in workflow
+    assert "_CLOUD_RUN_TIMEOUT_SECONDS=300" in workflow
+    assert "_CLOUD_RUN_CONCURRENCY=10" in workflow
+    assert "_CLOUD_RUN_MIN_INSTANCES=2" in workflow
+    assert "_CLOUD_RUN_MAX_INSTANCES=10" in workflow
+
+
+def test_frontend_verifies_server_chunks_before_binding_cloud_run_port() -> None:
+    next_config = _read("hushh-webapp/next.config.ts")
+    dockerfile = _read("hushh-webapp/Dockerfile")
+    verifier = _read("hushh-webapp/scripts/runtime/verify-server-chunks.mjs")
+
+    assert "preloadEntriesOnStart: true" in next_config
+    assert "node scripts/runtime/verify-server-chunks.mjs && exec node server.js" in dockerfile
+    assert "await readFile(chunk)" in verifier
+    assert "No Next.js server chunks found" in verifier
+
+
+def test_uat_automatic_rollback_uses_tagged_last_known_good() -> None:
+    workflow = _read(".github/workflows/deploy-uat.yml")
+    rollback_block = workflow[
+        workflow.index("- name: Resolve last-known-good rollback targets") : workflow.index(
+            "- name: Resolve final Cloud Run state"
+        )
+    ]
+
+    assert "git fetch --force origin" in rollback_block
+    assert "refs/tags/deployed/uat-latest:refs/tags/deployed/uat-latest" in rollback_block
+    assert "scripts/ci/resolve-rollback-target.sh uat backend" in rollback_block
+    assert "scripts/ci/resolve-rollback-target.sh uat frontend" in rollback_block
+    assert "steps.rollback-targets.outputs.backend_revision" in rollback_block
+    assert "steps.rollback-targets.outputs.frontend_revision" in rollback_block
+    assert "steps.predeploy-state.outputs.backend_revision" not in rollback_block
+    assert "steps.predeploy-state.outputs.frontend_revision" not in rollback_block
+
+
 def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
     workflow_source = _read(".github/workflows/deploy-uat.yml")
     workflow = yaml.safe_load(workflow_source)
