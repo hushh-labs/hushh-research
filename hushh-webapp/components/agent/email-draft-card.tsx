@@ -288,9 +288,17 @@ export function EmailDraftCard({
       </div>
 
       {isDrafting ? (
-        <div className="space-y-4 p-6 sm:p-8">
-          <div className="flex items-center gap-3 text-sm font-medium text-primary">
+        <div
+          aria-busy="true"
+          className="space-y-4 p-6 sm:p-8"
+          data-testid="one-email-draft-preparing"
+        >
+          <div
+            className="flex items-center gap-3 text-sm font-medium text-primary"
+            role="status"
+          >
             <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="sr-only">Drafting your email. </span>
             <span>One is preparing your email draft...</span>
           </div>
           <div className="space-y-3 pt-2">

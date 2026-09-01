@@ -158,7 +158,11 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
                 TalkToHusshOneIntent.authenticationPolicy,
                 .requiresLocalDeviceAuthentication
             )
-            XCTAssertEqual(HusshOneAppShortcuts.appShortcuts.count, 1)
+            XCTAssertEqual(
+                HusshOneAppShortcuts.appShortcuts.count,
+                10,
+                "The App Shortcuts provider intentionally fills Apple's ten-shortcut limit."
+            )
         }
         if #available(iOS 26.0, *) {
             XCTAssertEqual(
