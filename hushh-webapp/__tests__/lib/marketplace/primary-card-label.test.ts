@@ -49,4 +49,15 @@ describe("resolveMarketplacePrimaryCardLabel", () => {
       }),
     ).toBe("Save lead");
   });
+
+  it("shows saved lead state for already-shortlisted investors", () => {
+    expect(
+      resolveMarketplacePrimaryCardLabel({
+        kind: "investor",
+        currentPersona: "ria",
+        isInvestorShortlistable: true,
+        isInvestorShortlisted: true,
+      }),
+    ).toBe("Saved lead");
+  });
 });

@@ -1,9 +1,18 @@
-import type { MarketplaceInvestor } from "@/lib/services/ria-service";
+import type {
+  MarketplaceInvestor,
+  MarketplaceInvestorActionRecord,
+} from "@/lib/services/ria-service";
 
 export type MarketplaceEvidenceLink = {
   id: string;
   label: string;
   url: string;
+};
+
+export type MarketplaceSavedInvestorLead = {
+  id: string;
+  investor: MarketplaceInvestor;
+  action: MarketplaceInvestorActionRecord;
 };
 
 export function marketplaceInvestorCardId(investor: MarketplaceInvestor): string {
@@ -87,6 +96,68 @@ export function marketplaceInvestorCurationLabel(investor: MarketplaceInvestor):
   if (tier === "showcase") return "Showcase";
   if (tier === "qualified") return "Qualified";
   return null;
+}
+
+export function marketplaceInvestorActionIdentity(
+  action: MarketplaceInvestorActionRecord
+): string | null {
+  const targetKey = String(action.target_key || "").trim();
+  if (targetKey) return targetKey;
+
+  const sourceType = String(action.source_type || "").trim().toLowerCase();
+  const publicProfileId = String(action.public_profile_id || "").trim();
+  if (sourceType === "public_sec" && publicProfileId) return `public_sec:${publicProfileId}`;
+
+  const targetUserId = String(action.target_user_id || "").trim();
+  if (sourceType === "hushh_user" && targetUserId) return targetUserId;
+
+  return null;
+}
+
+export function marketplaceSavedInvestorLeadFromAction(
+  action: MarketplaceInvestorActionRecord
+): MarketplaceSavedInvestorLead | null {
+  if (String(action.status || "").toLowerCase() !== "shortlisted") return null;
+
+  const identity = marketplaceInvestorActionIdentity(action);
+  if (!identity) return null;
+
+  const profile = action.profile;
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) return null;
+
+  const profileRecord = profile as Record<string, unknown>;
+  const displayName = String(profileRecord.display_name || "").trim();
+  if (!displayName) return null;
+
+  return {
+    id: identity,
+    investor: {
+      ...(profile as MarketplaceInvestor),
+      id: String(profileRecord.id || identity),
+      source_type: action.source_type || String(profileRecord.source_type || ""),
+      user_id: action.target_user_id || String(profileRecord.user_id || ""),
+      public_profile_id:
+        action.public_profile_id || (profile as MarketplaceInvestor).public_profile_id,
+      display_name: displayName,
+    },
+    action,
+  };
+}
+
+export function marketplaceSavedInvestorLeadsFromActions(
+  actions: MarketplaceInvestorActionRecord[]
+): MarketplaceSavedInvestorLead[] {
+  const leads: MarketplaceSavedInvestorLead[] = [];
+  const seen = new Set<string>();
+
+  for (const action of actions) {
+    const lead = marketplaceSavedInvestorLeadFromAction(action);
+    if (!lead || seen.has(lead.id)) continue;
+    seen.add(lead.id);
+    leads.push(lead);
+  }
+
+  return leads;
 }
 
 const SEC_ACCESSION_PATTERN = /\b\d{10}-\d{2}-\d{6}\b/;
