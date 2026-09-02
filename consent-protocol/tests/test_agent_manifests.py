@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_ROOT = ROOT / "hushh_mcp" / "agents"
@@ -67,7 +69,8 @@ def test_kyc_owns_strict_zero_knowledge_formatter_contract() -> None:
 def test_connected_systems_schema_mapper_is_manifest_owned_and_toolless() -> None:
     manifest = load("connected_systems")
     mapper = next(child for child in manifest.subagents if child.id == "crm_schema_mapper")
-    assert mapper.model.name == "gemini-3.7-flash"
+    assert mapper.model.name == "gemini-default"
+    assert resolve_fleet_model_name(mapper.model.name) == GEMINI_MODEL
     assert mapper.runtime.adk_mode == "single_turn"
     assert mapper.runtime.transport == ["in_process"]
     assert mapper.privacy.plaintext_telemetry is False
@@ -86,9 +89,7 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
         "kai",
         "kyc",
         "location",
-        "memory_intent",
         "memory_merge",
-        "memory_segmentation",
         "nav",
         "onboarding",
         "personal_information",
@@ -96,14 +97,17 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
         "portfolio_import",
     )
     for name in agentic_manifests:
-        assert load(name).model_config_for_runtime().name == "gemini-3.7-flash", name
+        assert load(name).model_config_for_runtime().name == GEMINI_MODEL, name
 
     assert load("summary_reducer").model_config_for_runtime().name == "gemini-3.1-flash-lite"
+    # The memory chain's salience workers keep their explicit pin; the fleet switch never moves them.
+    for name in ("memory_intent", "memory_segmentation"):
+        assert load(name).model_config_for_runtime().name == "gemini-3.1-pro-preview", name
     one = load("one")
-    assert one.model_config_for_runtime().name == "gemini-3.7-flash"
+    assert one.model_config_for_runtime().name == GEMINI_MODEL
     assert one.capabilities["heads"] == {
-        "text": "gemini-3.7-flash",
-        "specialist_text": "gemini-3.7-flash",
+        "text": "gemini-default",
+        "specialist_text": "gemini-default",
         "live": "gemini-3.1-flash-live-preview",
     }
 

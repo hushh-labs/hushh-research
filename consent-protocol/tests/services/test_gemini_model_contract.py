@@ -11,7 +11,7 @@ from hushh_mcp.runtime_providers import (
 
 
 def test_gemini_flash_strips_legacy_sampling_controls():
-    for model_name in (GEMINI_MODEL, "gemini-3.7-flash", "gemini-3.6-flash"):
+    for model_name in (GEMINI_MODEL, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"):
         assert generation_config_kwargs(
             model_name,
             temperature=0,

@@ -162,7 +162,7 @@
   "overrides": {
     "@google-cloud/storage": "7.19.0",
     "@tootallnate/once": "3.0.1",
-    "@xmldom/xmldom": "0.8.13",
+    "@xmldom/xmldom": "0.8.15",
     "@eslint/config-array": {
       "minimatch": "3.1.5"
     },
@@ -227,6 +227,7 @@
     "browserslist": "4.28.7",
     "sharp": "0.35.0",
     "brace-expansion@<2": "1.1.18",
-    "brace-expansion@>=2": "5.0.9"
+    "brace-expansion@>=2": "5.0.9",
+    "@humanfs/node": "0.16.8"
   }
 }
