@@ -12,6 +12,7 @@ from typing import Any
 from hushh_mcp.services.domain_contracts import (
     DOMAIN_SHARING_POLICY_REGISTRY,
     get_domain_sharing_policy,
+    is_owner_managed_reserved_domain,
 )
 
 
@@ -30,6 +31,19 @@ def is_source_library_pkm_scope(scope: str | None) -> bool:
 
     domain, _path = normalize_pkm_scope(scope)
     return domain == "source_library"
+
+
+def is_reserved_domain_scope(scope: str | None) -> bool:
+    """Whether an ``attr.*`` scope addresses an owner-managed reserved PKM domain.
+
+    Reserved domains (``source_library``, ``payment_cards``) are protocol-owned:
+    natural-language structuring must never invent or repurpose them, and
+    consent surfaces render them with an explicit reserved indicator so a
+    reserved grant is never mistaken for an ordinary dynamic-domain grant.
+    """
+
+    domain, _path = normalize_pkm_scope(scope)
+    return bool(domain) and is_owner_managed_reserved_domain(domain)
 
 
 def consent_token_scope_value(token_obj: Any) -> str:

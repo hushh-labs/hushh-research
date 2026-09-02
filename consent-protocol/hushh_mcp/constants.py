@@ -45,6 +45,11 @@ class ConsentScope(str, Enum):
 
     AGENT_KAI_ANALYZE = "agent.kai.analyze"
 
+    # Cards specialist invocation. Control-plane only: it never authorizes a
+    # read of the reserved payment_cards PKM domain, whose data leaves the
+    # vault solely through client-side decryption or an explicit attr.* grant.
+    AGENT_CARDS_MANAGE = "agent.cards.manage"
+
     AGENT_NAV_REVIEW = "agent.nav.review"
 
     AGENT_KYC_PROCESS = "agent.kyc.process"
@@ -253,6 +258,7 @@ class ConsentScope(str, Enum):
         """Return all agent operation scopes."""
         return [
             cls.AGENT_KAI_ANALYZE,
+            cls.AGENT_CARDS_MANAGE,
             cls.AGENT_NAV_REVIEW,
             cls.AGENT_KYC_PROCESS,
             cls.AGENT_KYC_REDRAFT_LLM,
