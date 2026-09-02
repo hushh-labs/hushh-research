@@ -293,8 +293,11 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
     }
 
     @available(iOS 16.0, *)
-    func testLocationDestinationEntityResolvesNaturalOneVocabulary() async throws {
+    func testLocationDestinationEntityResolvesNaturalAgentOneVocabulary() async throws {
         let query = OneLocationDestinationEntityQuery()
+
+        let agentOneLocation = try await query.entities(matching: "Agent One Location Agent")
+        XCTAssertEqual(agentOneLocation.compactMap(\.actionID), [.openLocation])
 
         let locationAgent = try await query.entities(matching: "One Location Agent")
         XCTAssertEqual(locationAgent.compactMap(\.actionID), [.openLocation])
