@@ -87,6 +87,41 @@ function readString(record: Record<string, unknown>, key: string): string {
 const GENERIC_AGENT_CHAT_ERROR =
   "One couldn't complete that response. Please try again.";
 
+type ParkedAppActionDirective = {
+  actionId: string;
+  slots: Record<string, unknown>;
+  needsConfirmation: boolean;
+  trustedActivationRequired: boolean;
+  message: string;
+};
+
+/** Reads the directive a run_app_action result carries when it parked an action for the browser. */
+export function parseParkedAppActionDirective(content: unknown): ParkedAppActionDirective | null {
+  let result: unknown = content;
+  if (typeof result === "string") {
+    try {
+      result = JSON.parse(result);
+    } catch {
+      return null;
+    }
+  }
+  const record = asRecord(result);
+  if (!record) return null;
+  const status = String(record.status || "");
+  if (status !== "ready_to_run" && status !== "confirm_pending") return null;
+  const directive = asRecord(record.directive);
+  const actionId = String(directive?.actionId || record.action_id || "").trim();
+  if (!actionId) return null;
+  const slots = asRecord(directive?.slots) || {};
+  return {
+    actionId,
+    slots,
+    needsConfirmation: directive?.needsConfirmation === true || status === "confirm_pending",
+    trustedActivationRequired: directive?.trustedActivationRequired === true,
+    message: String(record.message || ""),
+  };
+}
+
 const SERVER_TOOL_PRESENTATION: Record<
   string,
   { label: string; message: string }
@@ -277,6 +312,41 @@ export async function streamAgentChat(input: {
       );
       payload.raw.result = event.content;
       handlers.onToolResult?.(payload);
+      // A server-side run_app_action parks a directive for the browser. The
+      // Live relay delivers parked directives through session state; this
+      // text transport has no such relay, so the parked action is surfaced
+      // here as a frontend tool event and staged (or run) by the workspace.
+      const parked = parseParkedAppActionDirective(event.content);
+      if (parked) {
+        const action = getKaiActionById(parked.actionId);
+        handlers.onToolWaiting?.({
+          callId: `${event.toolCallId}:directive`,
+          directiveId: event.toolCallId,
+          conversationId: threadId,
+          contextRevision: null,
+          expiresAt: null,
+          actionId: parked.actionId,
+          label: action?.label || parked.actionId,
+          execution: "frontend",
+          slots: parked.slots,
+          message: action?.meaning || parked.message || "One is ready to continue.",
+          requiresConfirmation:
+            parked.needsConfirmation || action?.execution_policy === "confirm_required",
+          trustedActivationRequired:
+            parked.trustedActivationRequired ||
+            action?.activation_policy === "trusted_activation_required",
+          raw: {
+            protocol: "ag-ui",
+            toolName,
+            args: {},
+            parked: true,
+            // The run does not pause for a parked directive; there is no
+            // interrupt to resume. The workspace still needs a resume hook to
+            // treat this like any other staged frontend action.
+            resume: async () => undefined,
+          },
+        });
+      }
       const experience = parseAgentToolResultExperience(toolName, event.content);
       if (experience) handlers.onStructuredExperience?.(experience);
     },

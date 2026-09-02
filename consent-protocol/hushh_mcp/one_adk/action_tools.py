@@ -1995,6 +1995,10 @@ async def run_app_action(
     )
     return {
         "status": "confirm_pending" if needs_confirmation else "ready_to_run",
+        # The AG-UI text chat has no session-state directive relay (that is the
+        # Live voice path), so the browser learns about the parked action from
+        # this tool result and stages or runs it itself.
+        "directive": directive_payload,
         # The model reads this and says it out loud, so it has to match what
         # will actually happen. Promising a confirmation that never comes --
         # "I'll ask you to confirm", followed by the thing simply happening --

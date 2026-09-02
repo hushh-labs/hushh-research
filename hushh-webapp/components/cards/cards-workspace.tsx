@@ -111,10 +111,7 @@ export function CardsWorkspace() {
       description="Encrypted in your vault. Shared only with your consent."
       innerClassName="mx-auto max-w-[640px]"
     >
-      <div
-        className="flex w-full flex-col gap-4"
-        data-testid="native-route-one-cards"
-      >
+      <div className="flex w-full flex-col gap-4" data-testid="one-cards-workspace">
       <NativeTestBeacon
         routeId="/one/cards"
         marker="native-route-one-cards"

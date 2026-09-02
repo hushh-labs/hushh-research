@@ -3048,12 +3048,26 @@ export function AgentChatWorkspace({
         if (toolEvent.actionId === "cards.list") {
           const summaries =
             await PaymentCardsService.listCardSummaries(cardsContext);
+          const described = PaymentCardsService.describeSummaries(summaries);
+          // Metadata only (nickname, brand, last4, expiry, region): safe to
+          // show in the conversation and to hand back to the model.
+          appendMessage({
+            id: `msg-${Date.now()}-cards-list`,
+            role: "assistant",
+            text:
+              summaries.length === 0
+                ? "No cards are stored yet."
+                : `Your cards:\n${described}`,
+            timestamp: formatNow(),
+            status: "done",
+            renderAsPlainAssistantMessage: true,
+          });
           return {
             status: "succeeded",
             actionId: toolEvent.actionId,
             label: toolEvent.label,
             routeBefore: pathname,
-            resultSummary: PaymentCardsService.describeSummaries(summaries),
+            resultSummary: described,
           };
         }
         if (toolEvent.actionId === "cards.add") {
@@ -3422,6 +3436,21 @@ export function AgentChatWorkspace({
               toolEvent,
             );
             upsertTurnStreamEvent(visibleEvent);
+            // A parked run_app_action directive that owes no confirmation
+            // runs right away, exactly as the Live relay would run it; one
+            // that does owe a confirmation (or a trusted tap) is staged.
+            if (
+              toolEvent.raw.parked === true &&
+              toolEvent.actionId &&
+              !toolEvent.requiresConfirmation &&
+              !toolEvent.trustedActivationRequired
+            ) {
+              const callKey = toolEvent.callId;
+              if (executedToolCalls.has(callKey)) return;
+              executedToolCalls.add(callKey);
+              void executeFrontendTool(toolEvent);
+              return;
+            }
             stageToolForConfirmation(toolEvent);
           },
           onToolResult: (toolEvent) => {
