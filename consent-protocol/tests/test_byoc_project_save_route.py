@@ -172,8 +172,50 @@ async def test_an_invalid_project_id_is_refused_before_any_iam_call(wiring, monk
     assert excinfo.value.status_code == 422
 
 
-async def test_a_person_with_no_agent_record_is_told_rather_than_half_saved(monkeypatch):
-    """Row creation belongs to phone verification, which alone has the HusshID."""
+async def test_a_person_with_no_agent_record_gets_their_cloud_parked(monkeypatch):
+    """The cloud step comes first, so no record can exist yet: park, do not refuse.
+
+    Founder-hit 2026-09-02: a proven cloud on a fresh sign-in (no verified phone)
+    was answered with a 409 telling the person to do a step the wizard had not shown.
+    Now the proven cloud is parked on their setup record and attached when phone
+    verification mints the row.
+    """
+    repo = _FakeRepo(row_exists=False)
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        lambda *a, **k: repo,
+    )
+    monkeypatch.setenv(
+        "HUSSH_CONSENT_PLANE_SA", "consent-protocol-runtime@hushh.iam.gserviceaccount.com"
+    )
+    _grant_present(monkeypatch)
+    parked: list[dict] = []
+
+    class _Jobs:
+        async def park_cloud(self, **kwargs):
+            parked.append(kwargs)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.byoc_setup_job_service.ByocSetupJobRepo", lambda *a, **k: _Jobs()
+    )
+
+    result = await _save()
+
+    assert result.authorized is True
+    assert "kept for your agent" in result.nextStep
+    assert parked == [
+        {
+            "user_id": "uid-123",
+            "project_id": "their-own-project",
+            "region": "us-central1",
+            "bootstrap_sa": "one-bootstrap@their-own-project.iam.gserviceaccount.com",
+            "authorized": True,
+        }
+    ]
+
+
+async def test_an_unparkable_cloud_is_still_a_refusal(monkeypatch):
+    """Only when the cloud cannot even be kept does the person get the 409."""
     from fastapi import HTTPException
 
     repo = _FakeRepo(row_exists=False)
@@ -185,6 +227,14 @@ async def test_a_person_with_no_agent_record_is_told_rather_than_half_saved(monk
         "HUSSH_CONSENT_PLANE_SA", "consent-protocol-runtime@hushh.iam.gserviceaccount.com"
     )
     _grant_present(monkeypatch)
+
+    class _Jobs:
+        async def park_cloud(self, **kwargs):
+            raise RuntimeError("db down")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.byoc_setup_job_service.ByocSetupJobRepo", lambda *a, **k: _Jobs()
+    )
 
     with pytest.raises(HTTPException) as excinfo:
         await _save()

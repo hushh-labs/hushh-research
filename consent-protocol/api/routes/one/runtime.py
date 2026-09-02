@@ -807,18 +807,40 @@ async def save_byoc_project(
         # connection. Doing it on the failure path keeps the common case one query.
         if await _reserve_pending_agent_record(firebase_uid):
             wrote = await _attach_cloud()
+    parked = False
     if not wrote:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "NO_AGENT_RECORD",
-                "message": (
-                    "Verify your phone number first. Your agent's record is created then, "
-                    "and this is where your cloud gets attached to it."
-                ),
-            },
+        # No record can exist yet: the cloud step comes FIRST now, so a person
+        # who has not verified a phone arrives here with a proven cloud and no row
+        # to hang it on. Refusing them (the old 409) sent them to a step the wizard
+        # had not shown yet. Park the cloud on their setup record instead;
+        # ``register_pending`` attaches it the moment phone verification mints the
+        # row. Parking is what fails loudly now, not the person.
+        from hushh_mcp.services.byoc_setup_job_service import (  # noqa: PLC0415
+            ByocSetupJobRepo,
         )
 
+        try:
+            await ByocSetupJobRepo().park_cloud(
+                user_id=firebase_uid,
+                project_id=project,
+                region=body.region,
+                bootstrap_sa=bootstrap_sa,
+                authorized=authorized,
+            )
+            parked = True
+            logger.info("byoc_project.parked_awaiting_record project=%s", project)
+        except Exception:  # noqa: BLE001 - only an unparkable cloud is a refusal
+            logger.warning("byoc_project.park_failed project=%s", project, exc_info=True)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "NO_AGENT_RECORD",
+                    "message": (
+                        "Your cloud could not be kept for your agent yet. Verify your "
+                        "phone number, then try this step again."
+                    ),
+                },
+            ) from None
     if authorized:
         await _write_cloud_setup_marker(firebase_uid)
 
@@ -829,7 +851,10 @@ async def save_byoc_project(
         authorized=authorized,
         hushhCaller=hushh_caller,
         nextStep=(
-            "Your cloud is connected. Choose how your agent reaches a model next."
+            "Your cloud is connected and kept for your agent. Verify your phone next; "
+            "it attaches to your agent's record then."
+            if authorized and parked
+            else "Your cloud is connected. Choose how your agent reaches a model next."
             if authorized
             else (
                 "Run the authorization script in your project, then continue. "

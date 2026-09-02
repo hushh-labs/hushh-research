@@ -909,6 +909,14 @@ class PersonalAgentProvisioningService:
 
         await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_RESERVED)
         logger.info("personal_agent.registered_pending hushh_id=%s", hushh_id or "<none>")
+        # A cloud the person proved BEFORE this row existed (the cloud step comes
+        # first) is waiting on their setup record; attach it now. Best-effort and
+        # never a reason for registration to fail.
+        from hushh_mcp.services.byoc_setup_job_service import (  # noqa: PLC0415
+            attach_parked_cloud,
+        )
+
+        await attach_parked_cloud(user_id, registry=self._registry)
         return {"hushhId": hushh_id, "status": "pending"}
 
     async def adopt_orphan(self, *, user_id: str) -> Optional[dict[str, Any]]:

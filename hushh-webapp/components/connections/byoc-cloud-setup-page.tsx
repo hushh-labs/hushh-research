@@ -134,6 +134,11 @@ export function ByocCloudSetupPage() {
   const [job, setJob] = useState<Awaited<
     ReturnType<typeof ApiService.getByocSetupStatus>
   > | null>(null);
+  // The first answer from the job store has not arrived yet. Until it has,
+  // the page must not show the tier choice: on the return from Google the
+  // choice flashed for a beat before the "connected" state replaced it
+  // (founder-hit, 2026-09-02). Failed polls give up into the form, never hang.
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -145,6 +150,7 @@ export function ByocCloudSetupPage() {
         const status = await ApiService.getByocSetupStatus();
         if (cancelled) return;
         setJob(status.status === "none" ? null : status);
+        setChecked(true);
         if (status.status === "recorded") {
           // The durable marker just landed server-side; refresh the shared
           // bootstrap so this page, the hub, and every other surface flip to
@@ -175,6 +181,8 @@ export function ByocCloudSetupPage() {
         failures += 1;
         if (!cancelled && failures < 3) {
           timer = setTimeout(() => void poll(), 4000);
+        } else {
+          setChecked(true);
         }
       }
     };
@@ -379,6 +387,14 @@ export function ByocCloudSetupPage() {
               Try again
             </button>
           </div>
+        ) : !checked && !authorized ? (
+          <p
+            className="text-sm text-[var(--app-text-secondary)]"
+            data-testid="byoc-cloud-checking"
+            aria-live="polite"
+          >
+            Checking your cloud…
+          </p>
         ) : connectedBefore && !connectedNow ? (
           // The revisit state: their cloud is already recorded and proven.
           // Showing the naming form here read as "nothing ever happened"

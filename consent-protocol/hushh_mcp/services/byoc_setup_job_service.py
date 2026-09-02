@@ -52,6 +52,8 @@ from db.db_client import get_db
 logger = logging.getLogger(__name__)
 
 _JOBS = "byoc_setup_jobs"
+PARKED_STAGE = "awaiting_agent_record"
+ATTACHED_STAGE = "attached"
 
 #: Stage order, which is the product order: nothing is authorized before it
 #: exists and bills, and nothing is recorded before the fresh grant answers.
@@ -111,6 +113,81 @@ class ByocSetupJobRepo:
             self._db().table(_JOBS).update(row).eq("user_id", user_id).execute()
         else:
             self._db().table(_JOBS).insert(row).execute()
+
+    async def park_cloud(
+        self,
+        *,
+        user_id: str,
+        project_id: str,
+        region: str,
+        bootstrap_sa: str,
+        authorized: bool,
+    ) -> None:
+        """Keep a proven cloud for a person who has no agent record yet.
+
+        The cloud step now comes first, so the common case is a cloud that is
+        authorized before phone verification has minted the registry row it would
+        attach to. Parking it here (the row that outlives everything but account
+        deletion) lets ``register_pending`` attach it the moment the record exists,
+        instead of refusing the person with a 409 that tells them to redo a step
+        they cannot reach yet.
+        """
+        row = {
+            "user_id": user_id,
+            "job_id": uuid.uuid4().hex,
+            "project_id": project_id,
+            "status": "recorded",
+            "stage": PARKED_STAGE,
+            "stages": [
+                {
+                    "stage": PARKED_STAGE,
+                    "at": _now(),
+                    "region": region,
+                    "bootstrap_sa": bootstrap_sa,
+                    "authorized": bool(authorized),
+                }
+            ],
+            "error_code": None,
+            "error_message": None,
+            "updated_at": _now(),
+        }
+        if await self._exists(user_id):
+            self._db().table(_JOBS).update(row).eq("user_id", user_id).execute()
+        else:
+            self._db().table(_JOBS).insert(row).execute()
+
+    async def parked_cloud(self, user_id: str) -> Optional[dict]:
+        """The parked cloud coordinates, or None when nothing is waiting."""
+        row = await self._current(user_id)
+        if not row or str(row.get("stage") or "") != PARKED_STAGE:
+            return None
+        last = next(
+            (s for s in reversed(list(row.get("stages") or [])) if s.get("stage") == PARKED_STAGE),
+            {},
+        )
+        project = str(row.get("project_id") or "").strip()
+        if not project:
+            return None
+        return {
+            "project_id": project,
+            "region": str(last.get("region") or "us-central1"),
+            "bootstrap_sa": str(
+                last.get("bootstrap_sa") or f"one-bootstrap@{project}.iam.gserviceaccount.com"
+            ),
+            "authorized": bool(last.get("authorized")),
+        }
+
+    async def mark_attached(self, user_id: str) -> None:
+        """The parked cloud is now on the registry row; the wait is over."""
+        self._db().table(_JOBS).update({"stage": ATTACHED_STAGE, "updated_at": _now()}).eq(
+            "user_id", user_id
+        ).execute()
+
+    async def _exists(self, user_id: str) -> bool:
+        response = (
+            self._db().table(_JOBS).select("user_id").eq("user_id", user_id).limit(1).execute()
+        )
+        return bool(response.data)
 
     async def _current(self, user_id: str) -> Optional[dict]:
         response = self._db().table(_JOBS).select("*").eq("user_id", user_id).limit(1).execute()
@@ -272,6 +349,25 @@ async def run_setup_job(
         except JobSuperseded:
             pass
     except Exception as exc:  # noqa: BLE001 - the record must never die silently
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, dict) and detail.get("code"):
+            # A refusal the save route already explains (a 409 with a code and a
+            # message the person can act on). Surfacing it as UNEXPECTED hid the
+            # only useful sentence behind "(HTTPException)" (founder-hit, 2026-09-02).
+            logger.info(
+                "byoc_setup_job.refused user=%s job=%s code=%s", user_id, job_id, detail["code"]
+            )
+            try:
+                await jobs.finish(
+                    user_id=user_id,
+                    job_id=job_id,
+                    status="failed",
+                    error_code=str(detail["code"]),
+                    error_message=str(detail.get("message") or "The cloud step was refused."),
+                )
+            except JobSuperseded:
+                pass
+            return
         logger.exception("byoc_setup_job.unexpected user=%s job=%s", user_id, job_id)
         try:
             await jobs.finish(
@@ -305,3 +401,40 @@ def is_stale(row: dict, *, now: datetime | None = None) -> bool:
     if updated.tzinfo is None:
         updated = updated.replace(tzinfo=timezone.utc)
     return (reference - updated).total_seconds() > STALE_AFTER_SECONDS
+
+
+async def attach_parked_cloud(user_id: str, *, registry: Any) -> bool:
+    """Put a parked cloud onto the registry row that now exists. Never raises.
+
+    Called by ``register_pending`` right after the pending row is written. Returns
+    True when a cloud was attached, False when nothing was parked or the attach could
+    not be completed (the parked record stays, so a retry can still land it).
+    """
+    try:
+        jobs = ByocSetupJobRepo()
+        parked = await jobs.parked_cloud(user_id)
+        if not parked:
+            return False
+        wrote = await registry.set_user_cloud(
+            user_id=user_id,
+            project=parked["project_id"],
+            region=parked["region"],
+            bootstrap_sa=parked["bootstrap_sa"],
+            authorized=parked["authorized"],
+            deployment_target="user_gcp",
+            model_credential_mode="user_adc",
+        )
+        if not wrote:
+            logger.warning("byoc_setup_job.parked_attach_no_row user=%s", user_id)
+            return False
+        await jobs.mark_attached(user_id)
+        logger.info(
+            "byoc_setup_job.parked_cloud_attached user=%s project=%s authorized=%s",
+            user_id,
+            parked["project_id"],
+            parked["authorized"],
+        )
+        return True
+    except Exception:  # noqa: BLE001 - registration must complete regardless
+        logger.warning("byoc_setup_job.parked_attach_failed user=%s", user_id, exc_info=True)
+        return False
