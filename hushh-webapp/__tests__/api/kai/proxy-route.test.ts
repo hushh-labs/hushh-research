@@ -54,6 +54,33 @@ describe("/api/kai/[...path] proxy", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
   });
 
+  it("lets Gmail OAuth completion finish within its server timeout after the popup closes", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ connected: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const controller = new AbortController();
+    const req = createRequest("http://localhost:3000/api/kai/gmail/connect/complete", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: "Bearer id-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123", code: "code", state: "state" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "connect", "complete"] }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(options?.signal).not.toBe(req.signal);
+  });
+
   it("forwards Authorization for import multipart path without overriding multipart content-type", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ success: true }), {

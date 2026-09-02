@@ -122,6 +122,26 @@ class NormalizedEmailDraft:
         )
 
 
+@dataclass(frozen=True)
+class GmailReplyContext:
+    """Server-derived Gmail thread binding for an owner-approved reply."""
+
+    thread_id: str
+    in_reply_to: str | None = None
+    references: str | None = None
+
+    def canonical_json(self) -> str:
+        return json.dumps(
+            {
+                "thread_id": self.thread_id,
+                "in_reply_to": self.in_reply_to or "",
+                "references": self.references or "",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+
 def _normalize_recipients(value: Any, *, field_name: str) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -190,7 +210,9 @@ def normalize_draft(payload: dict[str, Any]) -> NormalizedEmailDraft:
     )
 
 
-def _message_for(draft: NormalizedEmailDraft) -> EmailMessage:
+def _message_for(
+    draft: NormalizedEmailDraft, *, reply_context: GmailReplyContext | None = None
+) -> EmailMessage:
     message = EmailMessage(policy=SMTP)
     # Deliberately omit From: Gmail assigns the connected user's `me` sender.
     message["To"] = ", ".join(draft.to)
@@ -200,6 +222,10 @@ def _message_for(draft: NormalizedEmailDraft) -> EmailMessage:
         # Gmail consumes Bcc from the RFC message and strips it before delivery.
         message["Bcc"] = ", ".join(draft.bcc)
     message["Subject"] = draft.subject
+    if reply_context and reply_context.in_reply_to:
+        message["In-Reply-To"] = reply_context.in_reply_to
+    if reply_context and reply_context.references:
+        message["References"] = reply_context.references
     message.set_content(draft.body)
     if draft.html_body:
         message.add_alternative(draft.html_body, subtype="html")
@@ -220,8 +246,22 @@ class GmailDeliveryService:
             key, f"gmail-owner-delivery:{purpose}:{value}".encode("utf-8"), hashlib.sha256
         ).hexdigest()
 
-    def _envelope_hmac(self, draft: NormalizedEmailDraft) -> str:
-        return self._hmac(draft.canonical_json(), purpose="envelope")
+    def _envelope_hmac(
+        self, draft: NormalizedEmailDraft, *, reply_context: GmailReplyContext | None = None
+    ) -> str:
+        return self._hmac(
+            json.dumps(
+                {
+                    "draft": json.loads(draft.canonical_json()),
+                    "reply_context": json.loads(reply_context.canonical_json())
+                    if reply_context
+                    else None,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+            purpose="envelope",
+        )
 
     def _idempotency_hmac(self, idempotency_key: str) -> str:
         return self._hmac(idempotency_key, purpose="idempotency")
@@ -309,14 +349,19 @@ class GmailDeliveryService:
         return draft
 
     async def prepare(
-        self, *, user_id: str, draft_payload: dict[str, Any], idempotency_key: str
+        self,
+        *,
+        user_id: str,
+        draft_payload: dict[str, Any],
+        idempotency_key: str,
+        reply_context: GmailReplyContext | None = None,
     ) -> dict[str, Any]:
         draft = normalize_draft(draft_payload)
         idempotency_key = _text(idempotency_key)
         if not 16 <= len(idempotency_key) <= 256:
             raise GmailDeliveryError("INVALID_IDEMPOTENCY_KEY", "Use a valid confirmation key.")
         await self.gmail_service.assert_send_ready(user_id=user_id)
-        envelope_hmac = self._envelope_hmac(draft)
+        envelope_hmac = self._envelope_hmac(draft, reply_context=reply_context)
         idempotency_hmac = self._idempotency_hmac(idempotency_key)
         action_id = str(uuid.uuid4())
         expires_at = _utcnow() + timedelta(seconds=_ACTION_TTL_SECONDS)
@@ -373,13 +418,18 @@ class GmailDeliveryService:
         }
 
     async def execute(
-        self, *, user_id: str, action_id: str, draft_payload: dict[str, Any]
+        self,
+        *,
+        user_id: str,
+        action_id: str,
+        draft_payload: dict[str, Any],
+        reply_context: GmailReplyContext | None = None,
     ) -> dict[str, Any]:
         draft = normalize_draft(draft_payload)
         action_id = _text(action_id)
         if not action_id:
             raise GmailDeliveryError("MISSING_ACTION", "Choose the prepared email confirmation.")
-        envelope_hmac = self._envelope_hmac(draft)
+        envelope_hmac = self._envelope_hmac(draft, reply_context=reply_context)
         pool = await get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -445,13 +495,18 @@ class GmailDeliveryService:
 
         try:
             access_token = await self.gmail_service.get_send_access_token(user_id=user_id)
-            raw = base64.urlsafe_b64encode(_message_for(draft).as_bytes()).decode("ascii")
+            raw = base64.urlsafe_b64encode(
+                _message_for(draft, reply_context=reply_context).as_bytes()
+            ).decode("ascii")
+            send_payload: dict[str, str] = {"raw": raw}
+            if reply_context:
+                send_payload["threadId"] = reply_context.thread_id
             timeout = httpx.Timeout(20.0, connect=8.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     _GMAIL_SEND_URL,
                     headers={"Authorization": f"Bearer {access_token}"},
-                    json={"raw": raw},
+                    json=send_payload,
                 )
             if response.status_code >= 400:
                 await self._set_terminal(
@@ -464,6 +519,24 @@ class GmailDeliveryService:
             message_id = (
                 _text(response_payload.get("id")) if isinstance(response_payload, dict) else ""
             )
+            sent_thread_id = (
+                _text(response_payload.get("threadId"))
+                if isinstance(response_payload, dict)
+                else ""
+            )
+            if reply_context and sent_thread_id != reply_context.thread_id:
+                await self._set_terminal(
+                    action_id=action_id,
+                    state="failed",
+                    error_code="reply_thread_mismatch",
+                    message_id=message_id or None,
+                    thread_id=sent_thread_id or None,
+                )
+                raise GmailDeliveryError(
+                    "GMAIL_REPLY_THREAD_MISMATCH",
+                    "Gmail could not keep this reply in the original thread.",
+                    status_code=502,
+                )
             if not message_id:
                 await self._set_terminal(
                     action_id=action_id, state="outcome_unknown", error_code="missing_message_id"
@@ -473,9 +546,7 @@ class GmailDeliveryService:
                 action_id=action_id,
                 state="sent",
                 message_id=message_id,
-                thread_id=_text(response_payload.get("threadId"))
-                if isinstance(response_payload, dict)
-                else None,
+                thread_id=sent_thread_id or None,
             )
             return {"action_id": action_id, "state": "sent", "outcome_unknown": False}
         except asyncio.TimeoutError:

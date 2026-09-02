@@ -4,16 +4,15 @@
  * Non-destructive iOS continuity session.
  *
  * Existing route audits deliberately reinstall/reset the app and are cold-start
- * evidence. This command does neither: it opens the canonical iPhone 14 Plus,
+ * evidence. This command does neither: it opens an available iPhone simulator,
  * launches the already-installed app, and keeps device logs attached while a
  * person drives rapid tabs, background/resume, and One voice interactions.
  */
 
 import { execFileSync, spawn } from "node:child_process";
 
-const DEVICE_NAME = process.env.IOS_TEST_DEVICE_NAME || "iPhone 14 Plus";
-const DEFAULT_UDID = "9C5B1D61-028C-474A-BDFC-523BACC3B02C";
-const DEVICE_ID = process.env.IOS_TEST_DEVICE_UDID || DEFAULT_UDID;
+const REQUESTED_DEVICE_NAME = process.env.IOS_TEST_DEVICE_NAME?.trim() || "";
+const REQUESTED_DEVICE_ID = process.env.IOS_TEST_DEVICE_UDID?.trim() || "";
 const BUNDLE_ID = process.env.IOS_CONTINUITY_BUNDLE_ID || "com.hushh.app";
 
 function run(command, args, options = {}) {
@@ -37,13 +36,26 @@ try {
   process.exit();
 }
 
-const device = Object.values(devices.devices ?? {})
+const phoneDevices = Object.values(devices.devices ?? {})
   .flat()
-  .find((candidate) => candidate?.udid === DEVICE_ID && candidate?.name === DEVICE_NAME);
+  .filter((candidate) => candidate?.isAvailable !== false && /^iPhone/.test(candidate?.name || ""));
+const device = phoneDevices.find(
+  (candidate) =>
+    (!REQUESTED_DEVICE_ID || candidate.udid === REQUESTED_DEVICE_ID) &&
+    (!REQUESTED_DEVICE_NAME || candidate.name === REQUESTED_DEVICE_NAME),
+) || (!REQUESTED_DEVICE_ID && !REQUESTED_DEVICE_NAME
+  ? phoneDevices.find((candidate) => candidate.state === "Booted") || phoneDevices[0]
+  : undefined);
 if (!device) {
-  fail(`required ${DEVICE_NAME} (${DEVICE_ID}) is unavailable; do not substitute another device.`);
+  fail(
+    REQUESTED_DEVICE_ID || REQUESTED_DEVICE_NAME
+      ? `requested simulator ${REQUESTED_DEVICE_NAME || ""} (${REQUESTED_DEVICE_ID || "any id"}) is unavailable.`
+      : "no available iPhone simulator was found.",
+  );
   process.exit();
 }
+const DEVICE_NAME = device.name;
+const DEVICE_ID = device.udid;
 
 try {
   if (device.state !== "Booted") {

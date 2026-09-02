@@ -228,7 +228,7 @@ describe("sanitizeGmailUserMessage", () => {
 describe("resolveGmailStatusSummary", () => {
   it("explains the purchase-signal benefit before Gmail is connected", () => {
     expect(resolveGmailStatusSummary({ status: null }).detail).toBe(
-      "One reads your inbox to flag what needs a reply, surfaces upcoming meetings, and turns your receipts into a private shopping summary.",
+      "One syncs purchase receipts into a private shopping summary. You can separately turn on verification-request monitoring after connecting.",
     );
   });
 

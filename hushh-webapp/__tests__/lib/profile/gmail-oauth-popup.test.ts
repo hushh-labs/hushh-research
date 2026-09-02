@@ -70,6 +70,26 @@ describe("gmail-oauth-popup", () => {
     );
   });
 
+  it("shows progress instead of leaving the trusted popup blank", () => {
+    const attempt = makeAttempt();
+    const popup = {
+      close: vi.fn(),
+      document: {
+        title: "",
+        body: { textContent: "", style: { cssText: "" } },
+      },
+      focus: vi.fn(),
+      localStorage: makeStorage(),
+      sessionStorage: makeStorage(),
+    } as unknown as Window;
+    vi.spyOn(window, "open").mockReturnValue(popup);
+
+    openGmailOAuthPopup(attempt);
+
+    expect(popup.document.title).toBe("Connecting Gmail");
+    expect(popup.document.body?.textContent).toBe("Opening secure Google sign-in…");
+  });
+
   it("keeps the retained popup open when reading sessionStorage itself throws", () => {
     const attempt = makeAttempt();
     const fallbackStorage = makeStorage();

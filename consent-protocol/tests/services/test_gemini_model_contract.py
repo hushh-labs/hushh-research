@@ -37,6 +37,21 @@ def test_other_models_preserve_their_supported_sampling_controls():
     }
 
 
+def test_gemini_31_pro_strips_unsupported_sampling_controls():
+    assert generation_config_kwargs(
+        "gemini-3.1-pro-preview",
+        temperature=0,
+        top_p=0.5,
+        top_k=10,
+        candidate_count=1,
+        max_output_tokens=512,
+        response_mime_type="application/json",
+    ) == {
+        "max_output_tokens": 512,
+        "response_mime_type": "application/json",
+    }
+
+
 def test_gemini_37_is_text_only_and_global_vertex():
     entry = resolve_model_entry("gemini", "gemini-3.7-flash")
     assert entry.supports_streaming is True
@@ -48,6 +63,11 @@ def test_gemini_37_is_text_only_and_global_vertex():
 def test_gemini_default_resolves_to_37_flash():
     entry = resolve_model_entry("gemini", "default")
     assert entry.model == "gemini-3.7-flash"
+    assert entry.supported_vertex_locations == ("global",)
+
+
+def test_gemini_31_pro_is_available_on_global_vertex():
+    entry = resolve_model_entry("gemini", "gemini-3.1-pro-preview")
     assert entry.supported_vertex_locations == ("global",)
 
 

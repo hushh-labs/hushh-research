@@ -89,6 +89,8 @@ export interface UseGmailConnectorStatusResult {
   statusError: string | null;
   refreshStatus: (options?: {
     force?: boolean;
+    /** Reconcile with Gmail instead of reading the persisted connector state. */
+    reconcile?: boolean;
   }) => Promise<GmailConnectionStatus | null>;
   disconnectGmail: () => Promise<GmailConnectionStatus | null>;
   syncNow: () => Promise<GmailSyncQueueResponse | null>;
@@ -557,6 +559,7 @@ async function fetchStatusFromNetwork(params: {
   userId: string;
   idToken: string;
   force?: boolean;
+  reconcile?: boolean;
   routeHref?: string | null;
   idTokenProvider?: (() => Promise<string>) | null;
   pollActiveRun?: boolean;
@@ -594,8 +597,9 @@ async function fetchStatusFromNetwork(params: {
     statusError: null,
   });
 
+  const shouldReconcile = params.reconcile ?? Boolean(params.force);
   const request = (
-    params.force
+    shouldReconcile
       ? GmailReceiptsService.reconcile
       : GmailReceiptsService.getStatus
   )({
@@ -616,7 +620,7 @@ async function fetchStatusFromNetwork(params: {
       return status;
     })
     .catch(async (error) => {
-      if (params.force) {
+      if (shouldReconcile) {
         try {
           const fallbackStatus = await GmailReceiptsService.getStatus({
             idToken: params.idToken,
@@ -1064,7 +1068,7 @@ export function useGmailConnectorStatus(
   const refreshKey = options.refreshKey || "";
 
   const refreshStatus = useCallback(
-    async (refreshOptions?: { force?: boolean }) => {
+    async (refreshOptions?: { force?: boolean; reconcile?: boolean }) => {
       const provider = idTokenProviderRef.current;
       if (!enabled || !normalizedUserId || !provider) {
         return getConnectorView(normalizedUserId).status;
@@ -1074,6 +1078,7 @@ export function useGmailConnectorStatus(
         userId: normalizedUserId,
         idToken,
         force: refreshOptions?.force,
+        reconcile: refreshOptions?.reconcile,
         routeHref,
         idTokenProvider: provider,
       });

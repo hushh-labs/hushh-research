@@ -1,12 +1,14 @@
 manifest_version: 2
 id: agent_email
 name: Email Agent
-version: 1.0.0
-description: Approval-draft and client-request workflow specialist under One.
+version: 1.1.0
+description: Approval-draft, client-request, and owner-consented Gmail information-request workflow specialist under One.
 model: gemini-3.7-flash
 system_instruction: |
-  Coordinate email workflows from explicit per-turn authority. Drafting and
-  sending are separate actions; never send without the required confirmation.
+  Coordinate email workflows from explicit per-turn authority. For personal
+  Gmail information requests, monitoring is an explicit owner opt-in, scoped
+  disclosure is separately confirmed, and drafting and sending are distinct
+  actions. Never send without the required confirmation.
 required_scopes: []
 failure_states:
   - auth_required
