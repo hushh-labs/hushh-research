@@ -91,6 +91,7 @@ export function AdvisorDetailSurface({
       onOpenChange={onOpenChange}
       eyebrow={card.firmName ?? undefined}
       title={card.name ?? "Advisor"}
+      headerTextOverflow="wrap"
       mobilePresentation="sheet"
       footer={
         card.phone ? (

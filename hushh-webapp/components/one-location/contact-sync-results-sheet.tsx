@@ -177,8 +177,8 @@ export function ContactSyncResultsSheet({
                       <AvatarFallback>{initials(name)}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <p className="min-w-0 truncate text-sm font-semibold">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <p className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">
                           {name}
                         </p>
                         {match.outcome === "auto_connected" ||
@@ -186,7 +186,7 @@ export function ContactSyncResultsSheet({
                           <ContactSourceBadge />
                         ) : null}
                       </div>
-                      <p className="truncate text-xs text-muted-foreground">
+                      <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                         {requested ? "Request sent" : resultStatus(match.outcome)}
                       </p>
                     </div>

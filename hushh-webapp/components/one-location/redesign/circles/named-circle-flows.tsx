@@ -57,11 +57,16 @@ import {
   CIRCLE_NAME_ROW_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import {
+  CIRCLE_DETAIL_HEADER_CLASSNAME,
+  CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_AVATAR_CLASSNAME,
+  CIRCLE_MEMBER_NAME_CLASSNAME,
+  CIRCLE_MEMBER_NAME_ROW_CLASSNAME,
   CIRCLE_MEMBER_ROW_CLASSNAME,
+  CIRCLE_MEMBER_SECONDARY_CLASSNAME,
   CIRCLE_MEMBER_TRAILING_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { CircleMemberActionsMenu } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
@@ -471,7 +476,7 @@ export function CirclesSection({
                   <UsersRound className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-semibold text-foreground">
+                  <p className="whitespace-normal text-[15px] font-semibold text-foreground [overflow-wrap:anywhere]">
                     {invite.circleName}
                   </p>
                   <p className={MUTED_TEXT}>
@@ -937,7 +942,7 @@ export function JoinCircleFlow({
               <UsersRound className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[17px] font-semibold leading-[22px] text-foreground">
+              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">
                 {preview.name}
               </p>
               <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
@@ -1111,20 +1116,16 @@ function CircleMemberRow({
         className={CIRCLE_MEMBER_AVATAR_CLASSNAME}
       />
       <div className="min-w-0 flex-1">
-        {/* `truncate`, not `break-words`. A long name used to wrap to three
-            lines and push its own row to twice the height of its neighbours,
-            which is the other half of what a 320px phone was showing. */}
-        <p
-          className="flex min-w-0 items-center gap-1.5 text-[15px] font-semibold leading-5 text-foreground"
-          title={member.displayName}
-        >
-          <span className="min-w-0 truncate">{member.displayName}</span>
+        <p className={CIRCLE_MEMBER_NAME_ROW_CLASSNAME}>
+          <span className={CIRCLE_MEMBER_NAME_CLASSNAME}>
+            {member.displayName}
+          </span>
           {member.connectedFromContacts ? <ContactSourceBadge /> : null}
         </p>
         <p
           className={cn(
             MUTED_TEXT,
-            "truncate",
+            CIRCLE_MEMBER_SECONDARY_CLASSNAME,
             // The amber pair `WARNING_SURFACE` already uses for caution copy,
             // not the flat `--app-warning`: that token is the #ff9500 glyph
             // tone and measures ~2.2:1 on this card, well under the 4.5:1 a
@@ -1900,11 +1901,13 @@ export function CircleDetailFlow({
 
       {circle ? (
         <>
-          <div className="flex items-start justify-between gap-4 px-1">
-            <TaskFlowHeader
-              title={circle.name}
-              description={visibleMemberSummary}
-            />
+          <div className={CIRCLE_DETAIL_HEADER_CLASSNAME}>
+            <div className={CIRCLE_DETAIL_HEADER_COPY_CLASSNAME}>
+              <TaskFlowHeader
+                title={circle.name}
+                description={visibleMemberSummary}
+              />
+            </div>
             {isOwner && circle.systemKind !== "trusted" ? (
               <Button
                 type="button"
@@ -2283,8 +2286,8 @@ export function CircleDetailFlow({
                                   />
                                 }
                                 title={
-                                  <span className="flex min-w-0 items-center gap-1.5">
-                                    <span className="min-w-0 truncate">
+                                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
                                       {connection.displayName}
                                     </span>
                                     {connection.connectedFromContacts ? (

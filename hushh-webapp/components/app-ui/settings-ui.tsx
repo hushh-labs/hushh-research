@@ -665,6 +665,8 @@ export type AdaptiveDetailSurfaceProps = {
   showMobileCloseButton?: boolean;
   desktopMaxWidthClassName?: string;
   desktopMaxWidth?: string;
+  /** Keep record identities complete when the caller cannot safely abbreviate them. */
+  headerTextOverflow?: "truncate" | "wrap";
 };
 
 /** The one cross-app, adaptive record-detail surface. */
@@ -685,6 +687,7 @@ export function AdaptiveDetailSurface({
   showMobileCloseButton = showCloseButton,
   desktopMaxWidthClassName,
   desktopMaxWidth,
+  headerTextOverflow = "truncate",
 }: AdaptiveDetailSurfaceProps) {
   const isMobile = useIsMobile();
   // A query-backed selection can mount this surface before the mobile media
@@ -701,6 +704,15 @@ export function AdaptiveDetailSurface({
   if (open && !presentationReady) {
     return null;
   }
+
+  const titleOverflowClassName =
+    headerTextOverflow === "wrap"
+      ? "whitespace-normal break-words [overflow-wrap:anywhere]"
+      : "truncate";
+  const descriptionOverflowClassName =
+    headerTextOverflow === "wrap"
+      ? "whitespace-normal break-words [overflow-wrap:anywhere]"
+      : "line-clamp-2";
 
   const closeButton = (
     <button
@@ -739,12 +751,18 @@ export function AdaptiveDetailSurface({
                   {eyebrow ? (
                     <SectionLabel as="p">{eyebrow}</SectionLabel>
                   ) : null}
-                  <SheetTitle className="ui-text-navigation-title truncate">
+                  <SheetTitle
+                    className={cn(
+                      "ui-text-navigation-title",
+                      titleOverflowClassName,
+                    )}
+                  >
                     {title}
                   </SheetTitle>
                   <SheetDescription
                     className={cn(
-                      "ui-text-row-description line-clamp-2",
+                      "ui-text-row-description",
+                      descriptionOverflowClassName,
                       !description && "sr-only",
                     )}
                   >
@@ -792,12 +810,18 @@ export function AdaptiveDetailSurface({
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0 text-left">
                 {eyebrow ? <SectionLabel as="p">{eyebrow}</SectionLabel> : null}
-                <DrawerTitle className="ui-text-navigation-title truncate">
+                <DrawerTitle
+                  className={cn(
+                    "ui-text-navigation-title",
+                    titleOverflowClassName,
+                  )}
+                >
                   {title}
                 </DrawerTitle>
                 <DrawerDescription
                   className={cn(
-                    "ui-text-row-description line-clamp-2",
+                    "ui-text-row-description",
+                    descriptionOverflowClassName,
                     !description && "sr-only",
                   )}
                 >
@@ -847,12 +871,18 @@ export function AdaptiveDetailSurface({
             {leading ? <div className="shrink-0">{leading}</div> : null}
             <div className="min-w-0 text-left">
               {eyebrow ? <SectionLabel as="p">{eyebrow}</SectionLabel> : null}
-              <DialogTitle className="ui-text-navigation-title truncate">
+              <DialogTitle
+                className={cn(
+                  "ui-text-navigation-title",
+                  titleOverflowClassName,
+                )}
+              >
                 {title}
               </DialogTitle>
               <DialogDescription
                 className={cn(
-                  "ui-text-row-description line-clamp-2",
+                  "ui-text-row-description",
+                  descriptionOverflowClassName,
                   !description && "sr-only",
                 )}
               >

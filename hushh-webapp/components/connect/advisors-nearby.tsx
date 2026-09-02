@@ -322,8 +322,10 @@ export function AdvisorsNearby({
                   icon={card.kind === "branch" ? Building2 : UserRound}
                   iconTone="blue"
                   title={
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">{card.name ?? "Advisor"}</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+                        {card.name ?? "Advisor"}
+                      </span>
                       <NearbyTagBadge>
                         {card.kind === "branch" ? "Office" : "Advisor"}
                       </NearbyTagBadge>
