@@ -209,8 +209,14 @@ every text agent to one Gemini generation at once: agent manifests say
 `gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
 generation proven in every lane (`FLEET_TEXT_MODEL_DEFAULT`, 3.7 Flash today). A
 lane may flip it only after its project's `constraints/vertexai.allowedModels`
-policy admits the id; `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
-2026-09-02 and remains outside the production allowlist. The memory chain (3.1 Pro
+policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
+2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
+Gemini project is `hushh-gemini-bridge`, whose allowlist still rejects it (verified
+2026-09-02: a direct generateContent returns a policy violation), so UAT stays on the
+default until an org-policy admin admits the id there; production likewise. The
+deploy-time Vertex readiness probe resolves the alias through the same resolver and
+receives `HUSSH_GEMINI_TEXT_MODEL`, so it validates the lane's switched model, never
+the literal alias. The memory chain (3.1 Pro
 preview), the reducer (3.1 Flash lite), and the Live head keep their explicit pins.
 
 ### Wallet subagent flags and the central One mailbox (2026-09-02)
