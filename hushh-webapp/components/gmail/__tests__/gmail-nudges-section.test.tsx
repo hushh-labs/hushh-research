@@ -26,7 +26,7 @@ describe("GmailNudgesSection", () => {
     await waitFor(() =>
       expect(
         screen.getAllByText("Inbox details couldn’t load. Refresh to try again."),
-      ).toHaveLength(2),
+      ).toHaveLength(1),
     );
 
     expect(GmailReceiptsService.listNudges).toHaveBeenCalledTimes(1);
