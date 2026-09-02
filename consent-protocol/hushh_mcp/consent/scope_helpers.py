@@ -56,7 +56,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     _AGENT_SCOPE_MAP = {
         "cap.one.invoke": ConsentScope.CAP_ONE_INVOKE,
         "agent.kai.analyze": ConsentScope.AGENT_KAI_ANALYZE,
-        "agent.cards.manage": ConsentScope.AGENT_CARDS_MANAGE,
+        "agent.wallet.manage": ConsentScope.AGENT_WALLET_MANAGE,
         "agent.nav.review": ConsentScope.AGENT_NAV_REVIEW,
         "agent.kyc.process": ConsentScope.AGENT_KYC_PROCESS,
         "agent.kyc.redraft.llm": ConsentScope.AGENT_KYC_REDRAFT_LLM,
@@ -186,7 +186,7 @@ def get_scope_display_metadata(scope: str) -> dict:
             or f"Access your {display_info['domain']} data",
             "icon_name": display_info["icon_name"],
             "color_hex": display_info["color_hex"],
-            # Owner-managed reserved domains (source_library, payment_cards)
+            # Owner-managed reserved domains (source_library, wallet)
             # carry an explicit indicator so chat and consent surfaces never
             # present a reserved grant as an ordinary dynamic-domain grant.
             "reserved": is_reserved_domain_scope(scope),
@@ -224,9 +224,9 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "brain",
             "color_hex": "#D4AF37",
         },
-        "agent.cards.manage": {
+        "agent.wallet.manage": {
             "label": "Cards Management",
-            "description": "Allow the Cards agent to help you store, list, and reveal your payment cards on this device",
+            "description": "Allow the Cards agent to help you store, list, and reveal your wallet cards on this device",
             "icon_name": "credit-card",
             "color_hex": "#B45309",
         },

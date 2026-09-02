@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { detectLikelyPan, redactLikelyPans } from "@/lib/cards/pan-paste-guard";
+import { detectLikelyPan, redactLikelyPans } from "@/lib/wallet/pan-paste-guard";
 
 describe("detectLikelyPan", () => {
   it("detects a bare Luhn-valid 16-digit number", () => {

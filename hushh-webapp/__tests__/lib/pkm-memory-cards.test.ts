@@ -210,11 +210,25 @@ describe("PKM memory cards", () => {
       expect(shouldSkipPkmMemoryKey("artifact_id")).toBe(true);
     });
 
-    it("keeps payment cards out of agent memory context, at both the domain and the secrets subtree", () => {
-      // The domain-level guard is the primary wall; the `secrets` key name
-      // matching SECRET_KEY_PATTERN is deliberate defense in depth.
-      expect(shouldSkipPkmMemoryKey("payment_cards")).toBe(true);
+    it("keeps the wallet domain memory-visible while pruning its secrets subtree", () => {
+      // Card summaries (nickname, network, last4) are Memory items like any
+      // other domain; PAN, CVV, and PIN live under `secrets`, which
+      // SECRET_KEY_PATTERN prunes before anything reaches a card or a model.
+      expect(shouldSkipPkmMemoryKey("wallet")).toBe(false);
       expect(shouldSkipPkmMemoryKey("secrets")).toBe(true);
+      const snapshot = buildPkmMemorySnapshot({
+        metadata: null,
+        fullBlob: {
+          wallet: {
+            summary: { card_1: { nickname: "Everyday Visa", brand: "visa", last4: "1111" } },
+            secrets: { card_1: { pan: "4111111111111111", cvv: "123", pin: "1234" } },
+          },
+        },
+      });
+      const rendered = JSON.stringify(snapshot);
+      expect(rendered).toContain("Everyday Visa");
+      expect(rendered).not.toContain("4111111111111111");
+      expect(rendered).not.toContain("1234");
     });
   });
 

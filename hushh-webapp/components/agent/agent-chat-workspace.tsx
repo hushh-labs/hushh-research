@@ -47,14 +47,14 @@ import {
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
-import { SecureCardAddForm } from "@/components/cards/secure-card-add-form";
-import { SecureCardReveal } from "@/components/cards/secure-card-reveal";
-import { detectLikelyPan } from "@/lib/cards/pan-paste-guard";
+import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
+import { detectLikelyPan } from "@/lib/wallet/pan-paste-guard";
 import {
-  PaymentCardsService,
-  type PaymentCardSecrets,
-  type PaymentCardSummary,
-} from "@/lib/services/payment-cards-service";
+  WalletService,
+  type WalletCardSecrets,
+  type WalletCardSummary,
+} from "@/lib/services/wallet-service";
 import {
   SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
@@ -274,8 +274,8 @@ type AgentCardWidget =
   | {
       id: string;
       kind: "reveal";
-      summary: PaymentCardSummary;
-      secrets: PaymentCardSecrets;
+      summary: WalletCardSummary;
+      secrets: WalletCardSecrets;
     };
 
 type AgentTurnSource = "typed";
@@ -2758,7 +2758,7 @@ export function AgentChatWorkspace({
         status: "done",
         renderAsPlainAssistantMessage: true,
       });
-      if (PaymentCardsService.isEnabled()) {
+      if (WalletService.isEnabled()) {
         setCardWidgets((current) => [
           ...current,
           { id: `pan-guard-${Date.now()}`, kind: "add" },
@@ -3016,11 +3016,11 @@ export function AgentChatWorkspace({
       // under the vault key and renders secure widgets. Only metadata (and
       // never PAN/CVV/PIN) flows back to the model through resultSummary.
       if (
-        toolEvent.actionId === "cards.list" ||
-        toolEvent.actionId === "cards.add" ||
-        toolEvent.actionId === "cards.reveal"
+        toolEvent.actionId === "wallet.list" ||
+        toolEvent.actionId === "wallet.add" ||
+        toolEvent.actionId === "wallet.reveal"
       ) {
-        if (!PaymentCardsService.isEnabled()) {
+        if (!WalletService.isEnabled()) {
           return {
             status: "failed",
             actionId: toolEvent.actionId,
@@ -3045,10 +3045,10 @@ export function AgentChatWorkspace({
           vaultKey,
           vaultOwnerToken: token,
         };
-        if (toolEvent.actionId === "cards.list") {
+        if (toolEvent.actionId === "wallet.list") {
           const summaries =
-            await PaymentCardsService.listCardSummaries(cardsContext);
-          const described = PaymentCardsService.describeSummaries(summaries);
+            await WalletService.listCardSummaries(cardsContext);
+          const described = WalletService.describeSummaries(summaries);
           // Metadata only (nickname, brand, last4, expiry, region): safe to
           // show in the conversation and to hand back to the model.
           appendMessage({
@@ -3070,7 +3070,7 @@ export function AgentChatWorkspace({
             resultSummary: described,
           };
         }
-        if (toolEvent.actionId === "cards.add") {
+        if (toolEvent.actionId === "wallet.add") {
           setCardWidgets((current) => [
             ...current,
             { id: `${debugTurnId}-card-add-${current.length}`, kind: "add" },
@@ -3089,7 +3089,7 @@ export function AgentChatWorkspace({
             ? toolEvent.slots.card_ref.trim().toLowerCase()
             : "";
         const summaries =
-          await PaymentCardsService.listCardSummaries(cardsContext);
+          await WalletService.listCardSummaries(cardsContext);
         const match = summaries.find(
           (card) =>
             card.cardId.toLowerCase() === cardRef ||
@@ -3109,7 +3109,7 @@ export function AgentChatWorkspace({
             reason: "card_not_found",
           };
         }
-        const full = await PaymentCardsService.getCard({
+        const full = await WalletService.getCard({
           ...cardsContext,
           cardId: match.cardId,
         });
@@ -4230,7 +4230,7 @@ export function AgentChatWorkspace({
         status: "done",
         renderAsPlainAssistantMessage: true,
       });
-      if (PaymentCardsService.isEnabled()) {
+      if (WalletService.isEnabled()) {
         setCardWidgets((current) => [
           ...current,
           { id: `pan-guard-${Date.now()}`, kind: "add" },
@@ -4821,13 +4821,13 @@ export function AgentChatWorkspace({
                       if (!user?.uid || !vaultKey || !token) {
                         throw new Error("Unlock your vault to save a card.");
                       }
-                      const saved = await PaymentCardsService.addCard({
+                      const saved = await WalletService.addCard({
                         userId: user.uid,
                         vaultKey,
                         vaultOwnerToken: token,
                         card,
                         surface: "chat",
-                        source: "agent_chat_cards_add",
+                        source: "agent_chat_wallet_add",
                       });
                       setCardWidgets((current) =>
                         current.filter((item) => item.id !== widget.id),

@@ -4,7 +4,7 @@
  * BYOK means only the browser ever sees the PAN, so this module is the
  * authoritative validator for secrets (Luhn, brand detection, CVV/PIN shape).
  * The server independently re-validates the non-secret envelope (brand, last4,
- * expiry, issuing region) in consent-protocol payment_card_validation.py -
+ * expiry, issuing region) in consent-protocol wallet_card_validation.py -
  * keep the region rules in the two files in sync.
  *
  * Region rule: region-locked schemes (RuPay, Mir, Elo, Verve) must claim their

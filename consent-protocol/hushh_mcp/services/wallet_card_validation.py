@@ -1,9 +1,9 @@
-"""Server-side validation for the reserved ``payment_cards`` PKM domain.
+"""Server-side validation for the reserved ``wallet`` PKM domain.
 
 BYOK means the server never sees a PAN, CVV, or PIN in plaintext - full card
 validation (Luhn, brand detection from the number) is client-side only.  What
 the server CAN and MUST validate is the non-secret summary envelope that
-accompanies a ``payment_cards`` store-domain write: issuing region, brand,
+accompanies a ``wallet`` store-domain write: issuing region, brand,
 last four digits, and expiry shape, plus the region barrier (a region-locked
 scheme never claims an issuing region outside its home market).
 
@@ -88,8 +88,8 @@ def validate_card_summary_entry(entry: Any) -> None:
         raise ValueError(f"card_brand_region_mismatch:{brand}:{region}")
 
 
-def validate_payment_card_envelope(summary: Any) -> None:
-    """Validate the plaintext summary of a ``payment_cards`` domain write.
+def validate_wallet_card_envelope(summary: Any) -> None:
+    """Validate the plaintext summary of a ``wallet`` domain write.
 
     Expected shape: ``{"card_count": int, "cards": [<summary entry>, ...]}``.
     Secrets never appear here; any recognizable secret-shaped key is refused
@@ -97,7 +97,7 @@ def validate_payment_card_envelope(summary: Any) -> None:
     """
 
     if not isinstance(summary, dict):
-        raise ValueError("payment_cards_summary_must_be_object")
+        raise ValueError("wallet_summary_must_be_object")
 
     forbidden = {"pan", "cvv", "cvc", "pin", "card_number", "number", "secrets"}
 
@@ -105,7 +105,7 @@ def validate_payment_card_envelope(summary: Any) -> None:
         if isinstance(node, dict):
             for key, value in node.items():
                 if str(key).strip().lower() in forbidden:
-                    raise ValueError(f"payment_cards_summary_contains_secret_key:{key}")
+                    raise ValueError(f"wallet_summary_contains_secret_key:{key}")
                 _refuse_secret_keys(value)
         elif isinstance(node, list):
             for value in node:
@@ -117,18 +117,18 @@ def validate_payment_card_envelope(summary: Any) -> None:
     if cards is None:
         cards = []
     if not isinstance(cards, list):
-        raise ValueError("payment_cards_summary_cards_must_be_list")
+        raise ValueError("wallet_summary_cards_must_be_list")
     if len(cards) > MAX_CARDS_PER_OWNER:
-        raise ValueError("payment_cards_too_many_cards")
+        raise ValueError("wallet_too_many_cards")
 
     card_count = summary.get("card_count")
     if card_count is not None and card_count != len(cards):
-        raise ValueError("payment_cards_count_mismatch")
+        raise ValueError("wallet_count_mismatch")
 
     seen_ids: set[str] = set()
     for entry in cards:
         validate_card_summary_entry(entry)
         card_id = str(entry["card_id"])
         if card_id in seen_ids:
-            raise ValueError(f"payment_cards_duplicate_card_id:{card_id}")
+            raise ValueError(f"wallet_duplicate_card_id:{card_id}")
         seen_ids.add(card_id)

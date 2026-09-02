@@ -164,25 +164,16 @@
     "@tootallnate/once": "3.0.1",
     "@xmldom/xmldom": "0.8.13",
     "@eslint/config-array": {
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.18"
-      }
+      "minimatch": "3.1.5"
     },
     "@eslint/eslintrc": {
       "ajv": "6.14.0",
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.18"
-      },
+      "minimatch": "3.1.5",
       "js-yaml": "4.3.1"
     },
     "eslint": {
       "ajv": "6.14.0",
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.18"
-      }
+      "minimatch": "3.1.5"
     },
     "firebase-admin": {
       "node-forge": "1.4.0"
@@ -195,10 +186,7 @@
       "tar": "7.5.21"
     },
     "glob": {
-      "minimatch": {
-        ".": "10.2.4",
-        "brace-expansion": "5.0.9"
-      }
+      "minimatch": "10.2.4"
     },
     "micromatch": {
       "picomatch": "2.3.2"
@@ -238,11 +226,7 @@
     "yauzl": "3.2.1",
     "browserslist": "4.28.7",
     "sharp": "0.35.0",
-    "minimatch@<4": {
-      "brace-expansion": "1.1.18"
-    },
-    "minimatch@>=9": {
-      "brace-expansion": "5.0.9"
-    }
+    "brace-expansion@<2": "1.1.18",
+    "brace-expansion@>=2": "5.0.9"
   }
 }

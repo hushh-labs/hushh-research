@@ -4,9 +4,9 @@ import uuid
 
 import pytest
 
-from hushh_mcp.services.payment_card_validation import (
+from hushh_mcp.services.wallet_card_validation import (
     validate_card_summary_entry,
-    validate_payment_card_envelope,
+    validate_wallet_card_envelope,
 )
 
 
@@ -65,23 +65,23 @@ def test_bad_fields_are_refused(field, value, code) -> None:
 
 def test_envelope_refuses_secret_shaped_keys_anywhere() -> None:
     with pytest.raises(ValueError, match="contains_secret_key"):
-        validate_payment_card_envelope({"cards": [], "extra": {"cvv": "123"}})
+        validate_wallet_card_envelope({"cards": [], "extra": {"cvv": "123"}})
     with pytest.raises(ValueError, match="contains_secret_key"):
-        validate_payment_card_envelope({"secrets": {}})
+        validate_wallet_card_envelope({"secrets": {}})
 
 
 def test_envelope_count_mismatch_and_duplicates_are_refused() -> None:
     entry = _entry()
     with pytest.raises(ValueError, match="count_mismatch"):
-        validate_payment_card_envelope({"card_count": 2, "cards": [entry]})
+        validate_wallet_card_envelope({"card_count": 2, "cards": [entry]})
     with pytest.raises(ValueError, match="duplicate_card_id"):
-        validate_payment_card_envelope({"card_count": 2, "cards": [entry, dict(entry)]})
+        validate_wallet_card_envelope({"card_count": 2, "cards": [entry, dict(entry)]})
 
 
 def test_envelope_happy_path_with_bookkeeping_keys() -> None:
-    validate_payment_card_envelope(
+    validate_wallet_card_envelope(
         {
-            "domain_intent": "payment_cards",
+            "domain_intent": "wallet",
             "manifest_version": 3,
             "card_count": 1,
             "cards": [_entry()],
@@ -89,21 +89,21 @@ def test_envelope_happy_path_with_bookkeeping_keys() -> None:
     )
 
 
-def test_store_domain_refuses_payment_cards_when_flag_off(monkeypatch) -> None:
+def test_store_domain_refuses_wallet_when_flag_off(monkeypatch) -> None:
     """The write policy hook: flag off -> 403 before any persistence."""
     from fastapi import HTTPException
 
     from api.routes import pkm_routes_shared
 
-    monkeypatch.delenv("ONE_PAYMENT_CARDS_ENABLED", raising=False)
+    monkeypatch.delenv("ONE_WALLET_ENABLED", raising=False)
 
     class _Req:
         summary = {"card_count": 0, "cards": []}
 
     with pytest.raises(HTTPException) as exc_info:
-        pkm_routes_shared._enforce_payment_cards_write_policy(_Req(), "payment_cards")
+        pkm_routes_shared._enforce_wallet_write_policy(_Req(), "wallet")
     assert exc_info.value.status_code == 403
-    assert exc_info.value.detail["code"] == "PAYMENT_CARDS_DISABLED"
+    assert exc_info.value.detail["code"] == "WALLET_DISABLED"
 
 
 def test_store_domain_validates_envelope_when_flag_on(monkeypatch) -> None:
@@ -111,28 +111,28 @@ def test_store_domain_validates_envelope_when_flag_on(monkeypatch) -> None:
 
     from api.routes import pkm_routes_shared
 
-    monkeypatch.setenv("ONE_PAYMENT_CARDS_ENABLED", "true")
+    monkeypatch.setenv("ONE_WALLET_ENABLED", "true")
 
     class _GoodReq:
         summary = {"card_count": 1, "cards": [_entry()]}
 
-    pkm_routes_shared._enforce_payment_cards_write_policy(_GoodReq(), "payment_cards")
+    pkm_routes_shared._enforce_wallet_write_policy(_GoodReq(), "wallet")
 
     class _BadReq:
         summary = {"card_count": 1, "cards": [_entry(brand="rupay", issuing_region="US")]}
 
     with pytest.raises(HTTPException) as exc_info:
-        pkm_routes_shared._enforce_payment_cards_write_policy(_BadReq(), "payment_cards")
+        pkm_routes_shared._enforce_wallet_write_policy(_BadReq(), "wallet")
     assert exc_info.value.status_code == 422
-    assert exc_info.value.detail["code"] == "PAYMENT_CARD_ENVELOPE_INVALID"
+    assert exc_info.value.detail["code"] == "WALLET_CARD_ENVELOPE_INVALID"
 
 
 def test_other_domains_bypass_the_hook(monkeypatch) -> None:
     from api.routes import pkm_routes_shared
 
-    monkeypatch.delenv("ONE_PAYMENT_CARDS_ENABLED", raising=False)
+    monkeypatch.delenv("ONE_WALLET_ENABLED", raising=False)
 
     class _Req:
         summary = {"anything": True}
 
-    pkm_routes_shared._enforce_payment_cards_write_policy(_Req(), "financial")
+    pkm_routes_shared._enforce_wallet_write_policy(_Req(), "financial")

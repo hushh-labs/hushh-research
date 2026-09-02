@@ -53,6 +53,7 @@ export const ROUTE_ID_VALUES = [
   "gmail",
   "email_agent",
   "pkm",
+  "pkm_recent",
   "connected_systems",
   "profile_pkm",
   "profile_pkm_agent_lab",
@@ -79,7 +80,7 @@ export const ROUTE_ID_VALUES = [
   "one_location_circle_invite",
   "one_location_circle_join",
   "one_wallet_card",
-  "one_cards",
+  "one_wallet",
   "wallet_card_public",
   "portfolio_shared",
   "ria_home",
@@ -224,6 +225,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "gmail";
   if (pathname === ROUTES.EMAIL_AGENT) return "email_agent";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
+  if (pathname === ROUTES.PKM_RECENT) return "pkm_recent";
   if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";
   if (
     pathname === ROUTES.CONNECTED_SYSTEMS ||
@@ -310,7 +312,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   // a join code. Same reasoning as the public request and invite links above.
   if (pathname === "/circle/join") return "one_location_circle_join";
   if (pathname === ROUTES.ONE_WALLET_CARD) return "one_wallet_card";
-  if (pathname === ROUTES.ONE_CARDS) return "one_cards";
+  if (pathname === ROUTES.ONE_WALLET) return "one_wallet";
   // The scanned page emits no analytics of its own (isAnalyticsExemptRoute),
   // so this ID is never attached to a page view. It exists because "unknown"
   // is not inert: callers that fall through to it log the raw pathname, and on

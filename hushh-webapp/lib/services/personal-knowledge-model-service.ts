@@ -4008,14 +4008,14 @@ export class PersonalKnowledgeModelService {
   }
 
   /**
-   * Artifacts for the reserved `payment_cards` domain. The domain data has
+   * Artifacts for the reserved `wallet` domain. The domain data has
    * exactly two top-level branches - `summary` (non-secret card metadata) and
    * `secrets` (PAN/CVV/PIN/cardholder name), each keyed by card id - so the
    * manifest paths line up with the two consent-requestable branch scopes and
    * the `secrets` key matches the memory-context prune pattern. The plaintext
    * index summary carries only the non-secret envelope the server validates.
    */
-  private static buildPaymentCardsArtifacts(params: {
+  private static buildWalletArtifacts(params: {
     domain: string;
     domainData: Record<string, unknown>;
     previousManifest?: DomainManifest | null;
@@ -4077,8 +4077,8 @@ export class PersonalKnowledgeModelService {
         consent_label: "Card summaries",
         sensitivity_label: "confidential",
         segment_id: "summary",
-        scope_handle: "payment_cards.summary",
-        source_agent: "payment_cards_settings",
+        scope_handle: "wallet.summary",
+        source_agent: "wallet_settings",
       },
       {
         json_path: "secrets",
@@ -4088,8 +4088,8 @@ export class PersonalKnowledgeModelService {
         consent_label: "Card secrets",
         sensitivity_label: "restricted",
         segment_id: "secrets",
-        scope_handle: "payment_cards.secrets",
-        source_agent: "payment_cards_settings",
+        scope_handle: "wallet.secrets",
+        source_agent: "wallet_settings",
       },
     ];
     const structureDecision: StructureDecision = {
@@ -4104,7 +4104,7 @@ export class PersonalKnowledgeModelService {
         secrets: "restricted",
       },
       confidence: 1,
-      source_agent: "payment_cards_settings",
+      source_agent: "wallet_settings",
       contract_version: 1,
     };
     // The plan builder copies this handle into target_scope_handle, and the
@@ -4154,12 +4154,12 @@ export class PersonalKnowledgeModelService {
   }
 
   /**
-   * Commit a payment_cards domain mutation with the same bounded, idempotent
+   * Commit a wallet domain mutation with the same bounded, idempotent
    * retry contract as runtime secrets: transient throws replay the identical
    * built artifacts; a genuine version conflict re-reads fresh, re-applies the
    * mutation, and rebuilds with a new plan id.
    */
-  static async storePaymentCardsDomain(params: {
+  static async storeWalletDomain(params: {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
@@ -4168,7 +4168,7 @@ export class PersonalKnowledgeModelService {
     confirmation: PkmUserConfirmation;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
   }): Promise<StoreDomainDataResult> {
-    const domain = "payment_cards";
+    const domain = "wallet";
     const build = async (
       domainData: Record<string, unknown>,
       forceManifestReload: boolean,
@@ -4187,7 +4187,7 @@ export class PersonalKnowledgeModelService {
         summary: `s_${(await sha256Hex(`${params.userId}:${domain}:summary`)).slice(0, 12)}`,
         secrets: `s_${(await sha256Hex(`${params.userId}:${domain}:secrets`)).slice(0, 12)}`,
       };
-      const artifacts = this.buildPaymentCardsArtifacts({
+      const artifacts = this.buildWalletArtifacts({
         domain,
         domainData,
         previousManifest,

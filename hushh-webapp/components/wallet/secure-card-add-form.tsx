@@ -1,19 +1,20 @@
 "use client";
 
 /**
- * Secure add-card form, shared by /one/cards and the Agent One chat widget.
+ * Secure add-card form, shared by /one/wallet and the Agent One chat widget.
  * Card secrets are typed into this form only - never into the chat stream -
  * and are encrypted in the browser under the vault key before leaving it.
  */
 
 import { useMemo, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { detectBrand, validateCardForRegion } from "@/lib/cards/card-validation";
+import { detectBrand, validateCardForRegion } from "@/lib/wallet/card-validation";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
-import type { PaymentCardInput } from "@/lib/services/payment-cards-service";
+import type { WalletCardInput } from "@/lib/services/wallet-service";
 
 const ERROR_COPY: Record<string, string> = {
   pan_length_invalid: "That card number does not look complete.",
@@ -30,7 +31,7 @@ const ERROR_COPY: Record<string, string> = {
 };
 
 export interface SecureCardAddFormProps {
-  onSubmit: (card: PaymentCardInput) => Promise<void>;
+  onSubmit: (card: WalletCardInput) => Promise<void>;
   onCancel?: () => void;
   compact?: boolean;
 }
@@ -43,6 +44,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
   const [pin, setPin] = useState("");
   const [expiry, setExpiry] = useState("");
   const [issuingRegion, setIssuingRegion] = useState("");
+  const [revealSecrets, setRevealSecrets] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -60,7 +62,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
 
   const handleSubmit = async () => {
     const { month, year } = parseExpiry();
-    const card: PaymentCardInput = {
+    const card: WalletCardInput = {
       nickname,
       cardholderName,
       pan,
@@ -158,7 +160,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
           <Label htmlFor="card-cvv">CVV</Label>
           <Input
             id="card-cvv"
-            type="password"
+            type={revealSecrets ? "text" : "password"}
             value={cvv}
             onChange={(event) => setCvv(event.target.value)}
             inputMode="numeric"
@@ -167,10 +169,23 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
           />
         </div>
         <div className="flex flex-col gap-1">
-          <Label htmlFor="card-pin">PIN (optional)</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="card-pin">PIN (optional)</Label>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+              onClick={() => setRevealSecrets((current) => !current)}
+              aria-pressed={revealSecrets}
+              aria-label={revealSecrets ? "Hide CVV and PIN" : "Show CVV and PIN"}
+              data-testid="secure-card-toggle-secrets"
+            >
+              {revealSecrets ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+              {revealSecrets ? "Hide" : "Show"}
+            </button>
+          </div>
           <Input
             id="card-pin"
-            type="password"
+            type={revealSecrets ? "text" : "password"}
             value={pin}
             onChange={(event) => setPin(event.target.value)}
             inputMode="numeric"

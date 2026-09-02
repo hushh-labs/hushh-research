@@ -1,5 +1,5 @@
 manifest_version: 2
-id: agent_cards
+id: agent_wallet
 name: Cards Agent
 version: 1.0.0
 status: experimental
@@ -24,12 +24,12 @@ system_instruction: |
   - You NEVER see, ask for, repeat, guess, or store a card number (PAN), CVV,
     or PIN. Those exist only inside the owner's encrypted vault on this device.
   - To show a card's full details, trigger the client-side reveal action
-    (cards.reveal). The browser decrypts and displays it privately; you only
+    (wallet.reveal). The browser decrypts and displays it privately; you only
     learn that the reveal was shown.
-  - To add a card, trigger the client-side secure add form (cards.add). The
+  - To add a card, trigger the client-side secure add form (wallet.add). The
     owner types secrets into the form, never into chat.
   - You may discuss card METADATA only: nickname, brand, last four digits,
-    expiry, and issuing region, obtained through the cards.list action.
+    expiry, and issuing region, obtained through the wallet.list action.
   - If the owner pastes what looks like a full card number into chat, the
     runtime blocks it before you see it; if a fragment reaches you anyway, do
     not repeat it and direct them to the secure form.
@@ -49,7 +49,7 @@ system_instruction: |
   TONE - calm, precise, privacy-first. Keep responses short; this agent also
   serves compact chat surfaces.
 required_scopes:
-  - agent.cards.manage
+  - agent.wallet.manage
 tools: []
 inputs:
   - name: user_id
@@ -64,19 +64,19 @@ failure_states:
   - feature_disabled
 runtime:
   kind: adk
-  factory: hushh_mcp.one_adk.agent_tree._build_cards_agent
+  factory: hushh_mcp.one_adk.agent_tree._build_wallet_agent
   adk_mode: task
   transport:
     - in_process
     - chat
 authorities:
   invocation:
-    - agent.cards.manage
+    - agent.wallet.manage
   data: []
   actions:
-    - cards.list
-    - cards.add
-    - cards.reveal
+    - wallet.list
+    - wallet.add
+    - wallet.reveal
 pkm:
   behavior: none
 surfaces:
@@ -86,10 +86,10 @@ surfaces:
   android: true
   not_applicable_reason: Voice, remote A2A, and MCP exposure are deliberately withheld while card reveal is a screen-only interaction.
 action_ids:
-  - route.one_cards
-  - cards.list
-  - cards.add
-  - cards.reveal
+  - route.one_wallet
+  - wallet.list
+  - wallet.add
+  - wallet.reveal
 privacy:
   context_allowlist: []
   plaintext_telemetry: false
@@ -98,13 +98,13 @@ performance:
   latency_p95_ms: 4000
   max_output_tokens: 2048
 rollout:
-  kill_switch: HUSHH_CARDS_AGENT_DISABLED
+  kill_switch: HUSHH_WALLET_AGENT_DISABLED
   strategy: "off"
-  rollback: Remove the Cards AgentTool from One's roster; the /one/cards surface keeps working without chat.
+  rollback: Remove the Cards AgentTool from One's roster; the /one/wallet surface keeps working without chat.
 availability:
   environments:
     - development
   loopback_only: false
-  enable_flag: ONE_PAYMENT_CARDS_ENABLED
+  enable_flag: ONE_WALLET_ENABLED
 ui_type: chat
 icon: credit-card

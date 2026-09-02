@@ -591,20 +591,9 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           {mode.title}
         </span>
         {/*
-          The description was carried on every capability but rendered only as a
-          `title` attribute — a hover tooltip, which does not exist on a phone.
-          A roster of nine one-word labels asks the reader to already know what
-          each agent does, and the one people do not find is the one whose name
-          explains least.
+          List view is the compact scan: one label per row. The description
+          stays available as the row's title attribute and in grid view.
         */}
-        {mode.description ? (
-          <span
-            data-ui-role="row-description"
-            className="min-w-0 truncate text-[12px] leading-[16px] text-[#6E6E73] dark:text-[#98989D]"
-          >
-            {mode.description}
-          </span>
-        ) : null}
       </span>
       <span className="relative z-10 flex min-w-0 max-w-[132px] justify-end">
         <AgentMetric mode={mode} />

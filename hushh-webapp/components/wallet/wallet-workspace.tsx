@@ -1,25 +1,29 @@
 "use client";
 
 /**
- * Cards workspace - the /one/cards owner surface for the reserved
- * payment_cards PKM domain. Everything decrypts on this device under the
+ * Cards workspace - the /one/wallet owner surface for the reserved
+ * wallet PKM domain. Everything decrypts on this device under the
  * vault key; the server only ever holds ciphertext plus the non-secret
  * summary envelope. Distinct from the Wallet Profile surface.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, useRef } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Search } from "lucide-react";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
+import { Input } from "@/components/ui/input";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
-import { SecureCardAddForm } from "@/components/cards/secure-card-add-form";
-import { SecureCardReveal } from "@/components/cards/secure-card-reveal";
+import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  PaymentCardsService,
-  type PaymentCardSecrets,
-  type PaymentCardSummary,
-} from "@/lib/services/payment-cards-service";
+  WalletService,
+  type WalletCardSecrets,
+  type WalletCardSummary,
+} from "@/lib/services/wallet-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 type WorkspaceView =
@@ -28,24 +32,65 @@ type WorkspaceView =
   | { kind: "loading" }
   | { kind: "list" }
   | { kind: "add" }
-  | { kind: "reveal"; summary: PaymentCardSummary; secrets: PaymentCardSecrets }
+  | { kind: "reveal"; summary: WalletCardSummary; secrets: WalletCardSecrets }
   | { kind: "error"; message: string };
 
-export function CardsWorkspace() {
+const CARDS_PAGE_SIZE = 10;
+
+export function WalletWorkspace() {
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, getVaultOwnerToken } = useVault();
+  // Read the token getter through a ref: its identity changes with the vault
+  // context, and putting it in effect deps re-ran the list load on every render.
+  const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
+  getVaultOwnerTokenRef.current = getVaultOwnerToken;
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [view, setView] = useState<WorkspaceView>({ kind: "loading" });
-  const [cards, setCards] = useState<PaymentCardSummary[]>([]);
+  const [cards, setCards] = useState<WalletCardSummary[]>([]);
   const [busyCardId, setBusyCardId] = useState<string | null>(null);
+  // Search and page live in the URL (same shape as Consent Center's list), so a
+  // filtered page is deep-linkable and survives Next client navigation.
+  const routeQuery = searchParams?.get("q") || "";
+  const page = Math.max(1, Number(searchParams?.get("page") || "1") || 1);
+  const [searchValue, setSearchValue] = useState(routeQuery);
+  const deferredQuery = useDeferredValue(searchValue.trim());
+
+  useEffect(() => {
+    if (routeQuery === deferredQuery) return;
+    const next = new URLSearchParams(searchParams?.toString() || "");
+    if (deferredQuery) next.set("q", deferredQuery);
+    else next.delete("q");
+    next.delete("page");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [deferredQuery, routeQuery, pathname, router, searchParams]);
+
+  const goToPage = (target: number) => {
+    const next = new URLSearchParams(searchParams?.toString() || "");
+    if (target <= 1) next.delete("page");
+    else next.set("page", String(target));
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
+
+  const filteredCards = useMemo(
+    () => cards.filter((card) => WalletService.matchesQuery(card, deferredQuery)),
+    [cards, deferredQuery],
+  );
+  const pageCount = Math.max(1, Math.ceil(filteredCards.length / CARDS_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageCards = filteredCards.slice((safePage - 1) * CARDS_PAGE_SIZE, safePage * CARDS_PAGE_SIZE);
 
   const vaultContext = useCallback(() => {
-    const token = getVaultOwnerToken();
+    const token = getVaultOwnerTokenRef.current();
     if (!user?.uid || !vaultKey || !token) return null;
     return { userId: user.uid, vaultKey, vaultOwnerToken: token };
-  }, [user?.uid, vaultKey, getVaultOwnerToken]);
+  }, [user?.uid, vaultKey]);
 
   const refresh = useCallback(async () => {
-    if (!PaymentCardsService.isEnabled()) {
+    if (!WalletService.isEnabled()) {
       setView({ kind: "disabled" });
       return;
     }
@@ -56,7 +101,7 @@ export function CardsWorkspace() {
     }
     setView({ kind: "loading" });
     try {
-      const summaries = await PaymentCardsService.listCardSummaries(context);
+      const summaries = await WalletService.listCardSummaries(context);
       setCards(summaries);
       setView({ kind: "list" });
     } catch (error) {
@@ -79,7 +124,7 @@ export function CardsWorkspace() {
     if (!context) return;
     setBusyCardId(cardId);
     try {
-      const full = await PaymentCardsService.getCard({ ...context, cardId });
+      const full = await WalletService.getCard({ ...context, cardId });
       if (full) {
         setView({ kind: "reveal", summary: full.summary, secrets: full.secrets });
       }
@@ -93,11 +138,11 @@ export function CardsWorkspace() {
     if (!context) return;
     setBusyCardId(cardId);
     try {
-      await PaymentCardsService.deleteCard({
+      await WalletService.deleteCard({
         ...context,
         cardId,
         surface: "web",
-        source: "one_cards_remove",
+        source: "one_wallet_remove",
       });
       await refresh();
     } finally {
@@ -111,10 +156,10 @@ export function CardsWorkspace() {
       description="Encrypted in your vault. Shared only with your consent."
       innerClassName="mx-auto max-w-[640px]"
     >
-      <div className="flex w-full flex-col gap-4" data-testid="one-cards-workspace">
+      <div className="flex w-full flex-col gap-4" data-testid="one-wallet-workspace">
       <NativeTestBeacon
-        routeId="/one/cards"
-        marker="native-route-one-cards"
+        routeId="/one/wallet"
+        marker="native-route-one-wallet"
         authState={
           authLoading ? "pending" : user ? "authenticated" : "anonymous"
         }
@@ -132,7 +177,7 @@ export function CardsWorkspace() {
       />
       {view.kind === "list" ? (
         <div className="flex justify-end">
-          <Button onClick={() => setView({ kind: "add" })} data-testid="one-cards-add">
+          <Button onClick={() => setView({ kind: "add" })} data-testid="one-wallet-add">
             Add card
           </Button>
         </div>
@@ -171,8 +216,31 @@ export function CardsWorkspace() {
       ) : null}
 
       {view.kind === "list" && cards.length > 0 ? (
-        <ul className="flex flex-col gap-2" data-testid="one-cards-list">
-          {cards.map((card) => (
+        <div className="relative">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            value={searchValue}
+            onChange={(event) => setSearchValue(event.target.value)}
+            aria-label="Search cards"
+            placeholder="Search by nickname, network, last four, or region"
+            className="pl-9"
+            data-testid="one-wallet-search"
+          />
+        </div>
+      ) : null}
+
+      {view.kind === "list" && cards.length > 0 && filteredCards.length === 0 ? (
+        <p className="text-sm text-muted-foreground" data-testid="one-wallet-no-match">
+          No cards match that search.
+        </p>
+      ) : null}
+
+      {view.kind === "list" && pageCards.length > 0 ? (
+        <ul className="flex flex-col gap-2" data-testid="one-wallet-list">
+          {pageCards.map((card) => (
             <li
               key={card.cardId}
               className="flex items-center justify-between rounded-xl border border-border bg-card p-4"
@@ -191,7 +259,7 @@ export function CardsWorkspace() {
                   size="sm"
                   disabled={busyCardId === card.cardId}
                   onClick={() => void revealCard(card.cardId)}
-                  data-testid={`one-cards-reveal-${card.last4}`}
+                  data-testid={`one-wallet-reveal-${card.last4}`}
                 >
                   Reveal
                 </Button>
@@ -209,16 +277,27 @@ export function CardsWorkspace() {
         </ul>
       ) : null}
 
+      {view.kind === "list" && filteredCards.length > 0 ? (
+        <PaginatedListFooter
+          page={safePage}
+          limit={CARDS_PAGE_SIZE}
+          total={filteredCards.length}
+          hasMore={safePage < pageCount}
+          onPrevious={() => goToPage(safePage - 1)}
+          onNext={() => goToPage(safePage + 1)}
+        />
+      ) : null}
+
       {view.kind === "add" ? (
         <SecureCardAddForm
           onSubmit={async (card) => {
             const context = vaultContext();
             if (!context) throw new Error("Unlock your vault to save a card.");
-            await PaymentCardsService.addCard({
+            await WalletService.addCard({
               ...context,
               card,
               surface: "web",
-              source: "one_cards_add",
+              source: "one_wallet_add",
             });
             await refresh();
           }}
@@ -230,7 +309,7 @@ export function CardsWorkspace() {
         <SecureCardReveal
           summary={view.summary}
           secrets={view.secrets}
-          onDismiss={() => void refresh()}
+          onHide={() => setView({ kind: "list" })}
         />
       ) : null}
       </div>

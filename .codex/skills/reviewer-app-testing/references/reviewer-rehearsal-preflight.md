@@ -78,12 +78,12 @@ healthy server, review-mode response, or static script check is not a browser
 pass. Report the first failed boundary and mutation policy—never secrets,
 tokens, plaintext information, or screenshots containing them.
 
-## Payment Cards rehearsal
+## Wallet rehearsal
 
-`verify-reviewer-payment-cards.mjs` requires explicit
+`verify-reviewer-wallet.mjs` requires explicit
 `REVIEWER_ALLOW_SHARED_MUTATIONS=true`: it adds, reveals, and removes audit cards
 on the shared reviewer fixture and deletes the conversations it creates. It
-proves, in order: the visible vault challenge on cold entry to `/one/cards`; a
+proves, in order: the visible vault challenge on cold entry to `/one/wallet`; a
 `POST /api/pkm/store-domain` 200 for a valid card; client-side refusal of a
 region-locked brand outside its market and of a checksum failure, each with no
 network call; on-device reveal and hide; ciphertext-only owner reads of the
@@ -93,10 +93,21 @@ while assistant text never carries a secret, an unknown card fails closed
 without a widget, a pasted PAN is blocked before any `/api/one/agent-chat`
 call); no internal error text leaks; then cold-session re-unlock readback and
 cleanup. Non-2xx first-party response bodies are captured in
-`tmp/reviewer-payment-cards-report.json` (mode 0600) so a refusal names its
+`tmp/reviewer-wallet-report.json` (mode 0600) so a refusal names its
 validator code instead of a bare status. The first run of this rehearsal
 caught a real defect: manifest scope handles must be opaque `s_…` values, or
 the mutation plan built from them is rejected with 422 on every first write.
+
+### Same-session Memory proof (added 2026-09-02)
+
+The rehearsal's Memory step proves that a domain written on `/one/wallet` is
+visible on `/one/pkm` without a manual refresh, and that "Recently learned"
+opens `/one/pkm/recent`. It must travel with `reviewer.navigateInApp`: a
+`page.goto` is a document load, which drops the memory-only vault key (the
+vault challenge renders instead of categories) and resets the in-memory PKM
+invalidation epoch, so it would prove nothing about same-session freshness.
+The reveal flow retries the prompt once when the model answers in words
+without offering the action; a second silent turn is a real failure.
 
 ## Read-only guard exemptions
 
@@ -114,7 +125,7 @@ One handles a `confirm_required` action in two phases: it first asks in words
 card for a tap. A rehearsal that sends the request and waits for the widget
 will time out. Send the request, let the assistant settle, answer "Yes" once if
 no widget appeared, then confirm the staged card (`specialist-directive-confirm`)
-and wait for the widget. `verify-reviewer-payment-cards.mjs` encodes this as
+and wait for the widget. `verify-reviewer-wallet.mjs` encodes this as
 `revealFlow`. Actions that owe no confirmation (`allow_direct`) run on their
 own once the parked directive reaches the browser, so `directive_clicks=0` is
 the expected evidence for them.

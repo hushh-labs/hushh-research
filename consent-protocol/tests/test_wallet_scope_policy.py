@@ -1,4 +1,4 @@
-"""Reserved payment_cards domain: sharing policy + reserved-scope indicator.
+"""Reserved wallet domain: sharing policy + reserved-scope indicator.
 
 The domain is owner-managed (NL structuring can never invent it) yet
 deliberately shareable: exactly two branch wildcards are externally
@@ -23,18 +23,18 @@ from hushh_mcp.services.domain_contracts import (
 
 
 def test_exactly_the_two_branch_wildcards_are_requestable() -> None:
-    assert is_external_requestable_pkm_scope("attr.payment_cards.summary.*")
-    assert is_external_requestable_pkm_scope("attr.payment_cards.secrets.*")
+    assert is_external_requestable_pkm_scope("attr.wallet.summary.*")
+    assert is_external_requestable_pkm_scope("attr.wallet.secrets.*")
 
 
 @pytest.mark.parametrize(
     "scope",
     [
-        "attr.payment_cards.*",
-        "attr.payment_cards.secrets.pan",
-        "attr.payment_cards.summary.last4",
-        "attr.payment_cards.secrets",
-        "attr.payment_cards.other.*",
+        "attr.wallet.*",
+        "attr.wallet.secrets.pan",
+        "attr.wallet.summary.last4",
+        "attr.wallet.secrets",
+        "attr.wallet.other.*",
     ],
 )
 def test_domain_wildcard_and_exact_paths_are_refused(scope: str) -> None:
@@ -42,30 +42,28 @@ def test_domain_wildcard_and_exact_paths_are_refused(scope: str) -> None:
 
 
 def test_public_projection_is_closed() -> None:
-    policy = DOMAIN_SHARING_POLICY_REGISTRY["payment_cards"]
+    policy = DOMAIN_SHARING_POLICY_REGISTRY["wallet"]
     assert policy.allow_public_projection is False
     assert policy.allow_domain_wildcard is False
 
 
 def test_nl_structuring_cannot_invent_the_domain() -> None:
     with pytest.raises(ValueError, match="owner_managed_domain_slug"):
-        validate_dynamic_top_level_domain("payment_cards")
+        validate_dynamic_top_level_domain("wallet")
 
 
 def test_first_party_owner_write_path_is_allowed() -> None:
-    assert (
-        validate_dynamic_top_level_domain("payment_cards", allow_internal=True) == "payment_cards"
-    )
+    assert validate_dynamic_top_level_domain("wallet", allow_internal=True) == "wallet"
 
 
 @pytest.mark.parametrize(
     ("scope", "expected"),
     [
-        ("attr.payment_cards.summary.*", True),
-        ("attr.payment_cards.secrets.*", True),
+        ("attr.wallet.summary.*", True),
+        ("attr.wallet.secrets.*", True),
         ("attr.source_library.knowledge.*", True),
         ("attr.financial.portfolio.*", False),
-        ("agent.cards.manage", False),
+        ("agent.wallet.manage", False),
         ("vault.owner", False),
         (None, False),
         ("", False),
@@ -75,13 +73,13 @@ def test_reserved_domain_scope_truth_table(scope, expected) -> None:
     assert is_reserved_domain_scope(scope) is expected
 
 
-def test_agent_cards_scope_resolves_and_displays() -> None:
-    assert resolve_scope_to_enum("agent.cards.manage") is ConsentScope.AGENT_CARDS_MANAGE
-    meta = get_scope_display_metadata("agent.cards.manage")
+def test_agent_wallet_scope_resolves_and_displays() -> None:
+    assert resolve_scope_to_enum("agent.wallet.manage") is ConsentScope.AGENT_WALLET_MANAGE
+    meta = get_scope_display_metadata("agent.wallet.manage")
     assert meta["label"] == "Cards Management"
     assert meta["reserved"] is False
 
 
 def test_dynamic_display_metadata_carries_reserved_indicator() -> None:
-    assert get_scope_display_metadata("attr.payment_cards.summary.*")["reserved"] is True
+    assert get_scope_display_metadata("attr.wallet.summary.*")["reserved"] is True
     assert get_scope_display_metadata("attr.financial.portfolio.*")["reserved"] is False

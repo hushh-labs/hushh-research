@@ -36,7 +36,7 @@ def is_source_library_pkm_scope(scope: str | None) -> bool:
 def is_reserved_domain_scope(scope: str | None) -> bool:
     """Whether an ``attr.*`` scope addresses an owner-managed reserved PKM domain.
 
-    Reserved domains (``source_library``, ``payment_cards``) are protocol-owned:
+    Reserved domains (``source_library``, ``wallet``) are protocol-owned:
     natural-language structuring must never invent or repurpose them, and
     consent surfaces render them with an explicit reserved indicator so a
     reserved grant is never mistaken for an ordinary dynamic-domain grant.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Reviewer rehearsal for the Payment Cards plane: /one/cards surface + Agent
+ * Reviewer rehearsal for the Wallet plane: /one/wallet surface + Agent
  * One chat permutations. Composes the shared harness; adds only domain
  * assertions. Mutation-authorized (adds and removes audit cards on the shared
  * reviewer fixture, then cleans up), so it requires
@@ -21,7 +21,7 @@ const appOrigin = String(process.env.REVIEWER_APP_ORIGIN || "http://localhost:30
 const timeoutMs = Number(process.env.REVIEWER_APP_TIMEOUT_MS || 360_000);
 const turnTimeoutMs = Number(process.env.REVIEWER_TURN_TIMEOUT_MS || 180_000);
 const runTag = `Audit ${new Date().toISOString().slice(11, 19).replace(/:/g, "")}`;
-const reportPath = path.join(repoRoot, "tmp", "reviewer-payment-cards-report.json");
+const reportPath = path.join(repoRoot, "tmp", "reviewer-wallet-report.json");
 
 // Public test numbers only (Luhn-valid, non-chargeable).
 const VISA = { nickname: `${runTag} Visa`, pan: "4111111111111111", last4: "1111", cvv: "123", pin: "1234", expiry: "04/30", region: "US" };
@@ -98,7 +98,7 @@ async function fillAddForm(scope, card) {
 }
 
 async function cardRows(page) {
-  return page.locator('[data-testid="one-cards-list"] li').allInnerTexts().catch(() => []);
+  return page.locator('[data-testid="one-wallet-list"] li').allInnerTexts().catch(() => []);
 }
 
 /** Chat steps must run on /agent; a navigation action in an earlier turn may have moved the page. */
@@ -165,7 +165,17 @@ async function revealFlow(page, prompt, pan) {
   if (await widgetShowing()) return;
   baseline = await sendPrompt(page, "Yes, reveal it.");
   await confirmDirectives(page, { expectDirective: true, deadlineMs: turnTimeoutMs });
-  await page.waitForFunction((g) => [...document.querySelectorAll('[data-testid="secure-card-reveal"]')].some((el) => (el.textContent || "").includes(g)), grouped, { timeout: turnTimeoutMs });
+  const waitForWidget = (timeout) => page.waitForFunction((g) => [...document.querySelectorAll('[data-testid="secure-card-reveal"]')].some((el) => (el.textContent || "").includes(g)), grouped, { timeout });
+  try {
+    await waitForWidget(60_000);
+  } catch {
+    // The model occasionally answers in words without offering the reveal
+    // action. A person would ask once more; do the same, bounded to one retry,
+    // and let the second attempt carry the full turn deadline.
+    baseline = await sendPrompt(page, prompt);
+    await confirmDirectives(page, { expectDirective: true, deadlineMs: turnTimeoutMs });
+    await waitForWidget(turnTimeoutMs);
+  }
   await waitForAssistantSettled(page, baseline).catch(() => undefined);
 }
 
@@ -202,20 +212,20 @@ async function conversationIds(token) {
 
 /** Remove every leftover "Audit " card; each delete is a slow encrypted commit, so wait for the row count to drop. */
 async function removeAuditCards(page) {
-  const auditRows = () => page.locator('[data-testid="one-cards-list"] li').filter({ hasText: "Audit " });
+  const auditRows = () => page.locator('[data-testid="one-wallet-list"] li').filter({ hasText: "Audit " });
   for (let i = 0; i < 12; i += 1) {
     const before = await auditRows().count();
     if (before === 0) return;
     const remove = auditRows().first().getByRole("button", { name: "Remove" });
     await remove.waitFor({ state: "visible", timeout: 30_000 });
     await page.waitForFunction(() => {
-      const li = [...document.querySelectorAll('[data-testid="one-cards-list"] li')].find((el) => (el.textContent || "").includes("Audit "));
+      const li = [...document.querySelectorAll('[data-testid="one-wallet-list"] li')].find((el) => (el.textContent || "").includes("Audit "));
       const button = [...(li?.querySelectorAll("button") || [])].find((b) => (b.textContent || "").trim() === "Remove");
       return button instanceof HTMLButtonElement && !button.disabled;
     }, {}, { timeout: 30_000 });
     await remove.click({ noWaitAfter: true });
     await page.waitForFunction((expected) => {
-      const rows = [...document.querySelectorAll('[data-testid="one-cards-list"] li')].filter((el) => (el.textContent || "").includes("Audit "));
+      const rows = [...document.querySelectorAll('[data-testid="one-wallet-list"] li')].filter((el) => (el.textContent || "").includes("Audit "));
       return rows.length < expected;
     }, before, { timeout: 90_000 });
   }
@@ -224,28 +234,28 @@ async function removeAuditCards(page) {
 
 try {
   // ── Boundary 1: cold entry visibly hard-gates on the vault ──────────────
-  await step("cold entry to /one/cards shows the vault challenge first", async () => {
-    await reviewer.assertVisibleVaultChallenge(browser, "/one/cards");
+  await step("cold entry to /one/wallet shows the vault challenge first", async () => {
+    await reviewer.assertVisibleVaultChallenge(browser, "/one/wallet");
   });
 
-  // ── Surface: /one/cards ────────────────────────────────────────────────
-  session = await reviewer.openSession(browser, "/one/cards");
+  // ── Surface: /one/wallet ────────────────────────────────────────────────
+  session = await reviewer.openSession(browser, "/one/wallet");
   const { page } = session;
   const net = attachNetworkLog(page);
   ownerToken = await session.capture.ownerToken().catch(() => "");
   if (ownerToken) baselineConversationIds = await conversationIds(ownerToken);
 
-  await step("/one/cards renders its native beacon in a valid data state", async () => {
+  await step("/one/wallet renders its native beacon in a valid data state", async () => {
     // The beacon is an aria-hidden, zero-size marker: wait for it to be
     // attached (never "visible") and read its settled data state.
-    await page.getByTestId("native-route-one-cards").waitFor({ state: "attached", timeout: 60_000 });
-    await page.getByTestId("one-cards-workspace").waitFor({ state: "visible", timeout: 60_000 });
+    await page.getByTestId("native-route-one-wallet").waitFor({ state: "attached", timeout: 60_000 });
+    await page.getByTestId("one-wallet-workspace").waitFor({ state: "visible", timeout: 60_000 });
     await page.waitForFunction(() => {
-      const el = document.querySelector('[data-testid="native-route-one-cards"]');
+      const el = document.querySelector('[data-testid="native-route-one-wallet"]');
       const state = el?.getAttribute("data-native-data-state");
       return state && !["booting", "loading"].includes(state);
     }, {}, { timeout: 60_000 });
-    const state = await page.evaluate(() => document.querySelector('[data-testid="native-route-one-cards"]')?.getAttribute("data-native-data-state"));
+    const state = await page.evaluate(() => document.querySelector('[data-testid="native-route-one-wallet"]')?.getAttribute("data-native-data-state"));
     if (!["loaded", "empty-valid"].includes(state)) throw new Error(`unexpected data state ${state}`);
     return { note: `data_state=${state}` };
   });
@@ -255,7 +265,7 @@ try {
   });
 
   await step("form rejects a region-locked brand outside its market without any network call", async () => {
-    const addButton = page.getByTestId("one-cards-add");
+    const addButton = page.getByTestId("one-wallet-add");
     if (await addButton.isVisible().catch(() => false)) await addButton.click();
     else await page.getByRole("button", { name: /add a card/i }).click();
     const before = Date.now();
@@ -292,7 +302,7 @@ try {
   });
 
   await step("reveal decrypts on-device, shows PAN/CVV/PIN, and hides again", async () => {
-    await page.getByTestId("one-cards-reveal-1111").click();
+    await page.getByTestId("one-wallet-reveal-1111").click();
     const reveal = page.getByTestId("secure-card-reveal");
     await reveal.waitFor({ state: "visible", timeout: 30_000 });
     const ok = await page.evaluate(({ pan, cvv, pin }) => {
@@ -302,13 +312,15 @@ try {
     }, { pan: VISA.pan, cvv: VISA.cvv, pin: VISA.pin });
     if (!ok) throw new Error("reveal widget did not show the expected values");
     await page.getByTestId("secure-card-hide").click();
-    await page.getByTestId("secure-card-reveal-hidden").waitFor({ state: "visible", timeout: 10_000 });
+    // On the page, Hide returns straight to the list (no interstitial).
+    await page.getByTestId("secure-card-reveal").waitFor({ state: "detached", timeout: 10_000 });
+    await page.getByTestId("one-wallet-list").waitFor({ state: "visible", timeout: 10_000 });
     const stillVisible = await page.evaluate((pan) => document.body.innerText.includes(pan.replace(/(.{4})/g, "$1 ").trim()), VISA.pan);
     if (stillVisible) throw new Error("PAN still visible after hide");
   });
 
   await step("owner token never reads plaintext: server domain read returns ciphertext only", async () => {
-    const payload = await reviewer.fetchOwnerJson(`/api/pkm/domain-data/${encodeURIComponent(reviewer.reviewerUid)}/payment_cards`, ownerToken, { allow404: true });
+    const payload = await reviewer.fetchOwnerJson(`/api/pkm/domain-data/${encodeURIComponent(reviewer.reviewerUid)}/wallet`, ownerToken, { allow404: true });
     const raw = JSON.stringify(payload || {});
     if (raw.includes(VISA.pan) || raw.includes(VISA.cvv + "\"") || raw.includes("\"pan\"")) throw new Error("server payload exposes plaintext card data");
     if (!raw.includes("ciphertext")) throw new Error("server payload has no ciphertext envelope");
@@ -382,18 +394,44 @@ try {
     for (const needle of FORBIDDEN_LEAKS) if (await bodyHas(page, needle)) throw new Error(`leaked: ${needle}`);
   });
 
-  session.capture.assertNoCriticalApiFailures("payment cards rehearsal");
+  session.capture.assertNoCriticalApiFailures("wallet cards rehearsal");
 
   // ── Cold session: re-authenticate, re-unlock, read back ────────────────
   await session.context.close();
   session = null;
   await step("cold session re-unlock reads the cards back from ciphertext", async () => {
-    session = await reviewer.openSession(browser, "/one/cards");
+    session = await reviewer.openSession(browser, "/one/wallet");
     await session.page.waitForFunction((nick) => document.body.innerText.includes(nick), VISA.nickname, { timeout: 90_000 });
     const rows = await cardRows(session.page);
     const have = rows.filter((r) => r.includes(runTag)).length;
     if (have < 2) throw new Error(`expected 2 audit cards after cold re-unlock, saw ${have}: ${JSON.stringify(rows)}`);
     return { note: `cards_after_cold_reunlock=${have}` };
+  });
+
+  await step("list search filters by network and reports no-match, then clears", async () => {
+    const search = session.page.getByTestId("one-wallet-search");
+    await search.fill("mastercard");
+    await session.page.waitForFunction(() => document.querySelectorAll('[data-testid="one-wallet-list"] li').length === 1, {}, { timeout: 15_000 });
+    await search.fill("zzzz-no-such-card");
+    await session.page.getByTestId("one-wallet-no-match").waitFor({ state: "visible", timeout: 15_000 });
+    await search.fill("");
+    await session.page.waitForFunction(() => document.querySelectorAll('[data-testid="one-wallet-list"] li').length >= 2, {}, { timeout: 15_000 });
+  });
+
+  await step("Memory shows the wallet domain without a manual refresh, and Recently learned opens its own route", async () => {
+    // The cards were written on /one/wallet while /one/pkm was unmounted: the
+    // epoch-seeded revision must force a fresh metadata read on mount.
+    // In-app navigation only: a document load would drop the memory-only vault
+    // key and reset the epoch, proving nothing about same-session freshness.
+    await reviewer.navigateInApp(session.page, "/one/pkm");
+    await session.page.getByTestId("memory-category-wallet").waitFor({ state: "visible", timeout: 30_000 });
+    await session.page.getByTestId("memory-recently-learned-row").click();
+    await session.page.waitForURL("**/one/pkm/recent", { timeout: 15_000 });
+    await session.page.getByTestId("memory-recent-list").waitFor({ state: "visible", timeout: 30_000 });
+    const pageText = await session.page.locator("body").innerText();
+    if (/\b4111\s?1111\s?1111\s?1111\b/.test(pageText)) throw new Error("PAN rendered in Memory");
+    await reviewer.navigateInApp(session.page, "/one/wallet");
+    await session.page.getByTestId("one-wallet-list").waitFor({ state: "visible", timeout: 30_000 });
   });
 
   await step("remove cleans up every audit card", async () => {
@@ -411,6 +449,6 @@ try {
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, JSON.stringify({ origin: appOrigin, mutation_policy: preflight.mutationPolicy, run_tag: runTag, results }, null, 2), { mode: 0o600 });
   const failed = results.filter((r) => !r.ok);
-  process.stdout.write(`[reviewer-app-testing] payment_cards ${failed.length === 0 ? "PASS" : "FAIL"} steps=${results.length} failed=${failed.length} report=${path.relative(repoRoot, reportPath)}\n`);
+  process.stdout.write(`[reviewer-app-testing] wallet ${failed.length === 0 ? "PASS" : "FAIL"} steps=${results.length} failed=${failed.length} report=${path.relative(repoRoot, reportPath)}\n`);
   if (failed.length) process.exitCode = 1;
 }

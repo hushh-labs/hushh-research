@@ -106,7 +106,6 @@ const CONSUMER_HIDDEN_DOMAIN_KEYS = new Set([
   "kyc_connector",
   "kyc_workflow",
   "runtime_secrets",
-  "payment_cards",
 ]);
 
 const INTERNAL_ONLY_TOP_LEVEL_SCOPE_PATHS = new Set([

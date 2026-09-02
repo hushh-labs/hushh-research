@@ -4,7 +4,7 @@ import {
   detectBrand,
   luhnValid,
   validateCardForRegion,
-} from "@/lib/cards/card-validation";
+} from "@/lib/wallet/card-validation";
 
 // Standard public test numbers (Luhn-valid, non-chargeable).
 const VISA = "4111111111111111";

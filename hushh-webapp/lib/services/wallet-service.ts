@@ -1,12 +1,12 @@
 /**
- * Payment Cards service - the single boundary for the reserved `payment_cards`
+ * Wallet service - the single boundary for the reserved `wallet`
  * PKM domain. All storage rides PersonalKnowledgeModelService (client-side
  * AES-256-GCM under the vault key; the server holds ciphertext only), so this
  * module performs no fetch of its own.
  *
  * Domain data shape (inside the encrypted blob):
- *   { summary: { [cardId]: PaymentCardSummaryRecord },
- *     secrets: { [cardId]: PaymentCardSecretsRecord } }
+ *   { summary: { [cardId]: WalletCardSummaryRecord },
+ *     secrets: { [cardId]: WalletCardSecretsRecord } }
  *
  * Distinct from the Wallet Profile (`wallet-card-service.ts`), which is a
  * public identity pass and never holds payment credentials.
@@ -16,14 +16,14 @@ import {
   validateCardForRegion,
   type CardBrand,
   type CardValidationResult,
-} from "@/lib/cards/card-validation";
-import { isPaymentCardsBuildEnabled } from "@/lib/cards/payment-cards-availability";
+} from "@/lib/wallet/card-validation";
+import { isWalletBuildEnabled } from "@/lib/wallet/wallet-availability";
 import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
-export const PAYMENT_CARDS_DOMAIN = "payment_cards";
+export const WALLET_DOMAIN = "wallet";
 
-export interface PaymentCardSummary {
+export interface WalletCardSummary {
   cardId: string;
   nickname: string;
   brand: CardBrand;
@@ -34,14 +34,14 @@ export interface PaymentCardSummary {
   createdAt: string;
 }
 
-export interface PaymentCardSecrets {
+export interface WalletCardSecrets {
   pan: string;
   cvv: string;
   pin: string;
   cardholderName: string;
 }
 
-export interface PaymentCardInput {
+export interface WalletCardInput {
   nickname: string;
   pan: string;
   cvv?: string;
@@ -62,7 +62,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function toSummary(cardId: string, value: unknown): PaymentCardSummary | null {
+function toSummary(cardId: string, value: unknown): WalletCardSummary | null {
   if (!isRecord(value)) return null;
   return {
     cardId,
@@ -76,12 +76,12 @@ function toSummary(cardId: string, value: unknown): PaymentCardSummary | null {
   };
 }
 
-export class PaymentCardsService {
+export class WalletService {
   static isEnabled(): boolean {
-    return isPaymentCardsBuildEnabled();
+    return isWalletBuildEnabled();
   }
 
-  static validateCard(input: PaymentCardInput): CardValidationResult {
+  static validateCard(input: WalletCardInput): CardValidationResult {
     return validateCardForRegion({
       pan: input.pan,
       cvv: input.cvv,
@@ -97,7 +97,7 @@ export class PaymentCardsService {
   ): Promise<Record<string, unknown> | null> {
     const data = await PersonalKnowledgeModelService.loadDomainData({
       userId: params.userId,
-      domain: PAYMENT_CARDS_DOMAIN,
+      domain: WALLET_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
     }).catch(() => null);
@@ -106,19 +106,19 @@ export class PaymentCardsService {
 
   static async listCardSummaries(
     params: VaultContextParams,
-  ): Promise<PaymentCardSummary[]> {
+  ): Promise<WalletCardSummary[]> {
     const data = await this.loadDomain(params);
     const branch = isRecord(data?.summary) ? data.summary : {};
     return Object.entries(branch)
       .map(([cardId, value]) => toSummary(cardId, value))
-      .filter((entry): entry is PaymentCardSummary => entry !== null)
+      .filter((entry): entry is WalletCardSummary => entry !== null)
       .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
   }
 
   /** Decrypts one card fully. Call only from a reveal surface; never hand the result to a model. */
   static async getCard(
     params: VaultContextParams & { cardId: string },
-  ): Promise<{ summary: PaymentCardSummary; secrets: PaymentCardSecrets } | null> {
+  ): Promise<{ summary: WalletCardSummary; secrets: WalletCardSecrets } | null> {
     const data = await this.loadDomain(params);
     const summaryBranch = isRecord(data?.summary) ? data.summary : {};
     const secretsBranch = isRecord(data?.secrets) ? data.secrets : {};
@@ -138,11 +138,11 @@ export class PaymentCardsService {
 
   static async addCard(
     params: VaultContextParams & {
-      card: PaymentCardInput;
+      card: WalletCardInput;
       surface: PkmUserConfirmation["surface"];
       source: string;
     },
-  ): Promise<{ cardId: string; summary: PaymentCardSummary }> {
+  ): Promise<{ cardId: string; summary: WalletCardSummary }> {
     if (!this.isEnabled()) {
       throw new Error("Payment cards are not enabled in this environment.");
     }
@@ -167,7 +167,7 @@ export class PaymentCardsService {
       pin: params.card.pin ?? "",
       cardholder_name: params.card.cardholderName.trim(),
     };
-    await PersonalKnowledgeModelService.storePaymentCardsDomain({
+    await PersonalKnowledgeModelService.storeWalletDomain({
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
@@ -200,7 +200,7 @@ export class PaymentCardsService {
       source: string;
     },
   ): Promise<void> {
-    await PersonalKnowledgeModelService.storePaymentCardsDomain({
+    await PersonalKnowledgeModelService.storeWalletDomain({
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
@@ -231,7 +231,7 @@ export class PaymentCardsService {
       source: string;
     },
   ): Promise<void> {
-    await PersonalKnowledgeModelService.storePaymentCardsDomain({
+    await PersonalKnowledgeModelService.storeWalletDomain({
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
@@ -255,15 +255,26 @@ export class PaymentCardsService {
     });
   }
 
-  /** Metadata-only line rendering for chat resultSummary payloads. */
-  static describeSummaries(summaries: PaymentCardSummary[]): string {
+  /** Metadata-only line rendering for chat; bounded so a large vault stays readable. */
+  static describeSummaries(summaries: WalletCardSummary[], limit = 10): string {
     if (summaries.length === 0) return "No cards are stored yet.";
-    return summaries
-      .map(
-        (card) =>
-          `${card.nickname || card.brand} · ${card.brand} ····${card.last4} · ` +
-          `${String(card.expiryMonth).padStart(2, "0")}/${card.expiryYear} · ${card.issuingRegion}`,
-      )
-      .join("\n");
+    const lines = summaries.slice(0, limit).map(
+      (card) =>
+        `${card.nickname || card.brand} · ${card.brand} ····${card.last4} · ` +
+        `${String(card.expiryMonth).padStart(2, "0")}/${card.expiryYear} · ${card.issuingRegion}`,
+    );
+    const remaining = summaries.length - lines.length;
+    if (remaining > 0) {
+      lines.push(`…and ${remaining} more. Open Cards to search the full list.`);
+    }
+    return lines.join("\n");
+  }
+
+  /** Case-insensitive match on nickname, brand, last4, or issuing region. */
+  static matchesQuery(card: WalletCardSummary, query: string): boolean {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return [card.nickname, card.brand, card.last4, card.issuingRegion]
+      .some((value) => String(value || "").toLowerCase().includes(q));
   }
 }

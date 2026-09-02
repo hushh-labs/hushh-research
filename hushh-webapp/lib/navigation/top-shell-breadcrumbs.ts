@@ -155,6 +155,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.ONE_LOCATION]: "Location",
     [ROUTES.GMAIL]: "Gmail",
     [ROUTES.PKM]: "Memory",
+    [ROUTES.PKM_RECENT]: "Recently learned",
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
@@ -279,7 +280,7 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Cards is reached from the One home roster tile; the way out is One.
-  if (pathname === ROUTES.ONE_CARDS) {
+  if (pathname === ROUTES.ONE_WALLET) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "content",
@@ -950,6 +951,19 @@ function resolveTopShellBreadcrumbInner(
       width: "profile",
       align: "center",
       items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Memory" }],
+    };
+  }
+
+  if (pathname === ROUTES.PKM_RECENT) {
+    return {
+      backHref: ROUTES.PKM,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Memory", href: ROUTES.PKM },
+        { label: "Recently learned" },
+      ],
     };
   }
 

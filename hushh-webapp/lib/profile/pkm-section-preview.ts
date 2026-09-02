@@ -116,7 +116,6 @@ function isConsumerHiddenKey(key: string): boolean {
   return (
     HIDDEN_CONSUMER_KEYS.has(normalized) ||
     normalized === "runtime_secrets" ||
-    normalized === "payment_cards" ||
     SECRET_CONSUMER_KEY_PATTERN.test(normalized) ||
     TECHNICAL_CONSUMER_KEY_PATTERN.test(normalized)
   );

@@ -62,7 +62,7 @@ The current PKM runtime stores Personal Knowledge Model payloads as segmented en
 - Public scope discovery must use handles and coarse metadata, not path leakage.
 - Financial can remain protected while the broader PKM architecture expands across many domains.
 
-## Reserved domain: payment_cards (2026-09-01)
+## Reserved domain: wallet (2026-09-01)
 
 Payment cards are a reserved owner-managed PKM domain, not a new table or a
 `vault.*` scope. Decisions of record:
@@ -71,7 +71,7 @@ Payment cards are a reserved owner-managed PKM domain, not a new table or a
   two top-level branches, `summary` (nickname, brand, last4, expiry, issuing
   region per card id) and `secrets` (PAN, CVV, PIN, cardholder name per card
   id). Branch names line up 1:1 with the two consent-requestable scopes
-  (`attr.payment_cards.summary.*`, `attr.payment_cards.secrets.*`) and the
+  (`attr.wallet.summary.*`, `attr.wallet.secrets.*`) and the
   `secrets` key matches the client memory-context prune pattern, so card data
   can never ride into model context even if the domain-level guard regressed.
 - Encryption is client-side under the vault key (the `runtime_secrets`
@@ -87,7 +87,7 @@ Payment cards are a reserved owner-managed PKM domain, not a new table or a
   paths, and public projection stay closed. This records the founder decision
   (2026-09-01) that superseded the earlier "never store CVV/PIN" stance with
   the consumer-vault model.
-- The Cards specialist (`agent_cards`) has no server-side data authority; all
+- The Cards specialist (`agent_wallet`) has no server-side data authority; all
   card operations execute in the owner's browser through Action Gateway
   client handlers.
 

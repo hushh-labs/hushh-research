@@ -2065,7 +2065,7 @@ export function PortfolioReviewView({
                 )}
               </div>
 
-              <div className="grid grid-cols-3 gap-2 pt-6 border-t border-primary/10">
+              <div className="grid grid-cols-1 gap-2 border-t border-primary/10 pt-6 sm:grid-cols-3">
                 <div className="min-w-0 text-left pl-2 sm:pl-4">
                   <p className="text-lg font-semibold sm:text-xl">{activeHoldings.length}</p>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assets</p>
@@ -2123,7 +2123,7 @@ export function PortfolioReviewView({
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            <div className="grid grid-cols-2 gap-4 pt-2">
+            <div className="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2">
               <div>
                 <Label htmlFor="account-holder" className="text-xs">Account Holder</Label>
                 <Input

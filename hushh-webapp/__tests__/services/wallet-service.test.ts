@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockLoadDomainData, mockStorePaymentCardsDomain } = vi.hoisted(() => ({
+const { mockLoadDomainData, mockStoreWalletDomain } = vi.hoisted(() => ({
   mockLoadDomainData: vi.fn(),
-  mockStorePaymentCardsDomain: vi.fn(),
+  mockStoreWalletDomain: vi.fn(),
 }));
 
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     loadDomainData: mockLoadDomainData,
-    storePaymentCardsDomain: mockStorePaymentCardsDomain,
+    storeWalletDomain: mockStoreWalletDomain,
   },
 }));
 
-import { PaymentCardsService } from "@/lib/services/payment-cards-service";
+import { WalletService } from "@/lib/services/wallet-service";
 
 const CONTEXT = {
   userId: "user_1",
@@ -44,11 +44,11 @@ const DOMAIN_DATA = {
   },
 };
 
-describe("PaymentCardsService", () => {
+describe("WalletService", () => {
   beforeEach(() => {
-    vi.stubEnv("NEXT_PUBLIC_ONE_PAYMENT_CARDS_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_ONE_WALLET_ENABLED", "true");
     mockLoadDomainData.mockResolvedValue(DOMAIN_DATA);
-    mockStorePaymentCardsDomain.mockResolvedValue({ success: true });
+    mockStoreWalletDomain.mockResolvedValue({ success: true });
   });
 
   afterEach(() => {
@@ -57,7 +57,7 @@ describe("PaymentCardsService", () => {
   });
 
   it("lists metadata only", async () => {
-    const summaries = await PaymentCardsService.listCardSummaries(CONTEXT);
+    const summaries = await WalletService.listCardSummaries(CONTEXT);
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toMatchObject({
       cardId: CARD_ID,
@@ -69,15 +69,15 @@ describe("PaymentCardsService", () => {
   });
 
   it("getCard returns both halves for the reveal surface", async () => {
-    const full = await PaymentCardsService.getCard({ ...CONTEXT, cardId: CARD_ID });
+    const full = await WalletService.getCard({ ...CONTEXT, cardId: CARD_ID });
     expect(full?.secrets.pan).toBe("4111111111111111");
     expect(full?.secrets.pin).toBe("1234");
   });
 
   it("refuses addCard when the feature flag is off", async () => {
-    vi.stubEnv("NEXT_PUBLIC_ONE_PAYMENT_CARDS_ENABLED", "false");
+    vi.stubEnv("NEXT_PUBLIC_ONE_WALLET_ENABLED", "false");
     await expect(
-      PaymentCardsService.addCard({
+      WalletService.addCard({
         ...CONTEXT,
         surface: "web",
         source: "test",
@@ -95,7 +95,7 @@ describe("PaymentCardsService", () => {
 
   it("refuses an invalid card before any storage call", async () => {
     await expect(
-      PaymentCardsService.addCard({
+      WalletService.addCard({
         ...CONTEXT,
         surface: "web",
         source: "test",
@@ -109,14 +109,14 @@ describe("PaymentCardsService", () => {
         },
       }),
     ).rejects.toThrow("CARD_VALIDATION_FAILED");
-    expect(mockStorePaymentCardsDomain).not.toHaveBeenCalled();
+    expect(mockStoreWalletDomain).not.toHaveBeenCalled();
   });
 
   it("addCard nests secrets under the secrets branch with a card_ segment id", async () => {
-    const saved = await PaymentCardsService.addCard({
+    const saved = await WalletService.addCard({
       ...CONTEXT,
       surface: "chat",
-      source: "agent_chat_cards_add",
+      source: "agent_chat_wallet_add",
       card: {
         nickname: "Travel Amex",
         cardholderName: "A Person",
@@ -133,7 +133,7 @@ describe("PaymentCardsService", () => {
     expect(saved.summary.last4).toBe("0005");
     expect(saved.summary.issuingRegion).toBe("IN");
 
-    const call = mockStorePaymentCardsDomain.mock.calls[0][0];
+    const call = mockStoreWalletDomain.mock.calls[0][0];
     expect(call.scopePath).toBe("summary");
     expect(call.confirmation).toMatchObject({ confirmedByUser: true, surface: "chat" });
     const mutated = call.applyMutation({});
@@ -147,22 +147,40 @@ describe("PaymentCardsService", () => {
   });
 
   it("deleteCard removes both branches", async () => {
-    await PaymentCardsService.deleteCard({
+    await WalletService.deleteCard({
       ...CONTEXT,
       cardId: CARD_ID,
       surface: "web",
       source: "test",
     });
-    const call = mockStorePaymentCardsDomain.mock.calls[0][0];
+    const call = mockStoreWalletDomain.mock.calls[0][0];
     const mutated = call.applyMutation(structuredClone(DOMAIN_DATA));
     expect(mutated.summary).not.toHaveProperty(CARD_ID);
     expect(mutated.secrets).not.toHaveProperty(CARD_ID);
   });
 
   it("describeSummaries exposes last4 only", async () => {
-    const summaries = await PaymentCardsService.listCardSummaries(CONTEXT);
-    const text = PaymentCardsService.describeSummaries(summaries);
+    const summaries = await WalletService.listCardSummaries(CONTEXT);
+    const text = WalletService.describeSummaries(summaries);
     expect(text).toContain("····1111");
     expect(text).not.toContain("4111111111111111");
+  });
+
+  it("describeSummaries stays bounded for a large vault", async () => {
+    const [one] = await WalletService.listCardSummaries(CONTEXT);
+    const many = Array.from({ length: 53 }, (_, i) => ({ ...one, cardId: `card_${i}`, nickname: `Card ${i}` }));
+    const text = WalletService.describeSummaries(many);
+    expect(text.split("\n")).toHaveLength(11);
+    expect(text).toContain("and 43 more");
+  });
+
+  it("matchesQuery searches nickname, brand, last4, and region", async () => {
+    const [card] = await WalletService.listCardSummaries(CONTEXT);
+    expect(WalletService.matchesQuery(card, "everyday")).toBe(true);
+    expect(WalletService.matchesQuery(card, "VISA")).toBe(true);
+    expect(WalletService.matchesQuery(card, "1111")).toBe(true);
+    expect(WalletService.matchesQuery(card, "us")).toBe(true);
+    expect(WalletService.matchesQuery(card, "amex")).toBe(false);
+    expect(WalletService.matchesQuery(card, "")).toBe(true);
   });
 });
