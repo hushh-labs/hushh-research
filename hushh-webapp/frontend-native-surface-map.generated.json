@@ -9136,7 +9136,6 @@
         "ria.picks.open_category_top_picks",
         "ria.picks.open_source_kai",
         "ria.picks.open_source_my",
-        "ria.picks.open_view_debate",
         "ria.picks.save_package",
         "ria.picks.start_edit_package",
         "ria.picks.upload_csv_replace_top_picks",
@@ -9457,5 +9456,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0110dc1ea0cc9c2db4468d14b6dbc3e7da4c94b36d6849cb4c0b1809102458a5"
+  "content_sha256": "67ad60c1aeb89eab103b1e77f2b6701ea34226aab3f9245ea5ec2f8ad28f185a"
 }
