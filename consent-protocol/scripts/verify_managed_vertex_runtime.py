@@ -29,6 +29,7 @@ from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
     is_advisory,
     summarize,
 )
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name  # noqa: E402
 
 PROBE_TIMEOUT_SECONDS = 25
 
@@ -51,10 +52,10 @@ def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
             continue
         model = manifest.model_config_for_runtime()
         if model.provider == "gemini" and model.mode == "hushh_managed_vertex":
-            text_models.add(model.name)
+            text_models.add(resolve_fleet_model_name(model.name))
         for child in manifest.subagents:
             if child.model.provider == "gemini" and child.model.mode == "hushh_managed_vertex":
-                text_models.add(child.model.name)
+                text_models.add(resolve_fleet_model_name(child.model.name))
         heads = manifest.capabilities.get("heads")
         if isinstance(heads, dict):
             live_model = str(heads.get("live") or "").strip()
@@ -63,7 +64,7 @@ def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
             for key in ("text", "specialist_text", "grounded_search"):
                 head_model = str(heads.get(key) or "").strip()
                 if head_model:
-                    text_models.add(head_model)
+                    text_models.add(resolve_fleet_model_name(head_model))
     if not text_models:
         raise RuntimeError("No managed Gemini text model is declared by a product manifest")
     if len(live_models) != 1:

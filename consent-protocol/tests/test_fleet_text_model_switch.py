@@ -61,3 +61,23 @@ def test_three_eight_flash_shares_the_flash_contract_and_has_a_vertex_location()
     entry = registry.resolve_model_entry("gemini", "gemini-3.8-flash")
     assert entry.supported_vertex_locations == ("global",)
     assert entry.supports_prompt_caching is True
+
+
+def test_vertex_readiness_probe_never_probes_the_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The deploy-time probe collects manifest models; the alias must resolve to the
+    switched model before it reaches Vertex (UAT run 33676580380 probed the literal
+    "gemini-default" and failed as candidate_misconfigured)."""
+    import importlib.util
+
+    script = (
+        pathlib.Path(__file__).resolve().parents[1] / "scripts" / "verify_managed_vertex_runtime.py"
+    )
+    spec = importlib.util.spec_from_file_location("verify_managed_vertex_runtime", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.8-flash")
+    text_models, live_model = module._managed_manifest_models()
+    assert "gemini-default" not in text_models
+    assert "gemini-3.8-flash" in text_models
+    assert live_model == "gemini-3.1-flash-live-preview"
