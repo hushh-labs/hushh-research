@@ -173,10 +173,14 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
 #endif
     }
 
-    func testInstalledAppUsesOneAsItsSpeakableSystemName() {
+    func testInstalledAppSeparatesBundleIdentityFromSpeakableSystemName() {
         XCTAssertEqual(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
             "One"
+        )
+        XCTAssertEqual(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String,
+            "Hussh One"
         )
         XCTAssertEqual(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleSpokenName") as? String,
