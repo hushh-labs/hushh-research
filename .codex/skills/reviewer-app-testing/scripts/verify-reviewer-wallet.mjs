@@ -30,7 +30,7 @@ const RUPAY = "6521111111111114";
 const FORBIDDEN_LEAKS = ["one_adk_sessions", "DB operation failed", "[SQL:", "psycopg2", "payload_ciphertext"];
 
 if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS !== "true") {
-  throw new Error("Payment cards rehearsal adds and removes cards on the shared reviewer fixture. Set REVIEWER_ALLOW_SHARED_MUTATIONS=true only with explicit mutation authority.");
+  throw new Error("Wallet rehearsal adds and removes cards on the shared reviewer fixture. Set REVIEWER_ALLOW_SHARED_MUTATIONS=true only with explicit mutation authority.");
 }
 
 const results = [];

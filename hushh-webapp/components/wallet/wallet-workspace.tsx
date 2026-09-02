@@ -35,7 +35,7 @@ type WorkspaceView =
   | { kind: "reveal"; summary: WalletCardSummary; secrets: WalletCardSecrets }
   | { kind: "error"; message: string };
 
-const CARDS_PAGE_SIZE = 10;
+const WALLET_PAGE_SIZE = 10;
 
 export function WalletWorkspace() {
   const { user, loading: authLoading } = useAuth();
@@ -79,9 +79,9 @@ export function WalletWorkspace() {
     () => cards.filter((card) => WalletService.matchesQuery(card, deferredQuery)),
     [cards, deferredQuery],
   );
-  const pageCount = Math.max(1, Math.ceil(filteredCards.length / CARDS_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filteredCards.length / WALLET_PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
-  const pageCards = filteredCards.slice((safePage - 1) * CARDS_PAGE_SIZE, safePage * CARDS_PAGE_SIZE);
+  const pageCards = filteredCards.slice((safePage - 1) * WALLET_PAGE_SIZE, safePage * WALLET_PAGE_SIZE);
 
   const vaultContext = useCallback(() => {
     const token = getVaultOwnerTokenRef.current();
@@ -280,7 +280,7 @@ export function WalletWorkspace() {
       {view.kind === "list" && filteredCards.length > 0 ? (
         <PaginatedListFooter
           page={safePage}
-          limit={CARDS_PAGE_SIZE}
+          limit={WALLET_PAGE_SIZE}
           total={filteredCards.length}
           hasMore={safePage < pageCount}
           onPrevious={() => goToPage(safePage - 1)}

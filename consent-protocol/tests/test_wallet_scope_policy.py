@@ -76,7 +76,7 @@ def test_reserved_domain_scope_truth_table(scope, expected) -> None:
 def test_agent_wallet_scope_resolves_and_displays() -> None:
     assert resolve_scope_to_enum("agent.wallet.manage") is ConsentScope.AGENT_WALLET_MANAGE
     meta = get_scope_display_metadata("agent.wallet.manage")
-    assert meta["label"] == "Cards Management"
+    assert meta["label"] == "Wallet Management"
     assert meta["reserved"] is False
 
 

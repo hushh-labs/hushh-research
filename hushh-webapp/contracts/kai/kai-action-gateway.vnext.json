@@ -14460,17 +14460,20 @@
     {
       "action_id": "route.one_wallet",
       "surface_id": "one_wallet",
-      "label": "Open Cards",
+      "label": "Open Wallet",
       "aliases": [
+        "open my wallet",
+        "go to wallet",
+        "show my wallet",
         "open my cards",
-        "go to cards",
         "show my cards page"
       ],
       "search_keywords": [
         "cards",
-        "wallet cards",
         "credit card",
-        "debit card"
+        "debit card",
+        "wallet",
+        "wallet cards"
       ],
       "meaning": "Navigates to the owner's private wallet cards surface.",
       "speaker_persona": "one",

@@ -28,6 +28,18 @@ working route until both are in place. Service-account JSON is not accepted. Exi
 Gemini configuration remains readable after the UI move from Profile; legacy
 BYOK values default to `developer_api`, so no storage migration is required.
 
+### Fleet text model switch (2026-09-02)
+
+Every text agent manifest names the alias `gemini-default`; the alias resolves to
+`constants.GEMINI_MODEL`, which reads `HUSSH_GEMINI_TEXT_MODEL` (deploy substitution
+`_HUSSH_GEMINI_TEXT_MODEL`) and falls back to `FLEET_TEXT_MODEL_DEFAULT`. One value moves
+the whole fleet; a lane may flip it only after its project's Vertex
+`constraints/vertexai.allowedModels` policy admits the id. UAT runs `gemini-3.8-flash`
+(admitted in `hushh-pda-uat` on 2026-09-02); production stays on the default until its
+allowlist changes. Deliberate pins stay explicit in their manifests: the memory chain on
+`gemini-3.1-pro-preview`, the reducer on `gemini-3.1-flash-lite`, and the Live head.
+`tests/test_fleet_text_model_switch.py` refuses any manifest that pins a Flash generation.
+
 ## Lifecycle
 
 1. A person chooses managed Gemini or BYOK in AI access.
