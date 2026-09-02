@@ -127,9 +127,11 @@ release:
   a confirmation gate. Siri may open the existing SOS review surface, but it
   cannot send the alert in this release.
 
-The installed iOS display and spoken name is `One`, so Apple's mandatory
-`applicationName` phrase token produces direct requests such as “Open One
-Location Agent” instead of requiring the harder-to-pronounce HUSSH brand name.
+The internal iOS bundle name remains the unique, previously accepted
+`Hussh One`. The installed display name and `CFBundleSpokenName` are `One`, so
+Apple's mandatory `applicationName` phrase token continues to produce direct
+requests such as “Open One Location Agent” without changing the signed bundle
+identifier or creating a second Siri runtime.
 One bounded `OneLocationDestinationEntity` represents the ten reviewed,
 non-mutating Location destinations (including map, requests, settings,
 Check-In, SOS review, and emergency SMS contacts). Its `OpenIntent` tells Siri

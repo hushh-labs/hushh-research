@@ -315,6 +315,12 @@ jobs:
           echo "next_build=${NEXT_BUILD}" >> "$GITHUB_OUTPUT"
           echo "Next build number: ${NEXT_BUILD}"
 
+      - name: Test App Store Connect processing gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/test_wait_for_testflight_build.py
+
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
@@ -421,61 +427,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "${RUNNER_TEMP}/asc-venv/bin/python" - <<'EOF'
-          import urllib.request, json, time, jwt, os, sys
-
-          p8_path = os.environ["RUNNER_TEMP"] + "/asc.p8"
-          key_id = os.environ["ASC_KEY_ID"]
-          issuer_id = os.environ["ASC_ISSUER_ID"]
-          bundle_id = os.environ.get("IOS_BUNDLE_ID", "com.hushh.app")
-          target_version = "${{ steps.build_number.outputs.next_build }}"
-
-          with open(p8_path, "rb") as f:
-              p8_bytes = f.read()
-
-          def mint_token():
-              now = int(time.time())
-              payload = {"iss": issuer_id, "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"}
-              headers = {"kid": key_id, "typ": "JWT"}
-              return jwt.encode(payload, p8_bytes, algorithm="ES256", headers=headers)
-
-          token = mint_token()
-          req = urllib.request.Request(f"https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]={bundle_id}", headers={"Authorization": f"Bearer {token}"})
-          with urllib.request.urlopen(req) as r:
-              app_id = json.loads(r.read())["data"][0]["id"]
-
-          print(f"Polling App Store Connect for Build {target_version} processing status...")
-          success = False
-          for attempt in range(1, 31):
-              token = mint_token()
-              url = f"https://api.appstoreconnect.apple.com/v1/builds?filter[app]={app_id}&limit=10&sort=-uploadedDate&include=buildBetaDetail"
-              req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-              try:
-                  with urllib.request.urlopen(req) as r:
-                      data = json.loads(r.read())
-                  for b in data.get("data", []):
-                      attr = b.get("attributes") or {}
-                      ver = attr.get("version")
-                      state = attr.get("processingState")
-                      enc = attr.get("usesNonExemptEncryption")
-                      if str(ver) == str(target_version):
-                          print(f"Attempt {attempt}: Build {target_version} found! ProcessingState: {state}, EncryptionExempt: {enc == False}")
-                          if state == "VALID":
-                              print(f"==> Build {target_version} processing is VALID and TestFlight distribution is ready!")
-                              success = True
-                              break
-                          elif state in ("FAILED", "INVALID"):
-                              print(f"==> Build {target_version} processing failed on App Store Connect with state: {state}")
-                              sys.exit(1)
-              except Exception as exc:
-                  print(f"Attempt {attempt}: transient error querying ASC API: {exc}")
-              if success:
-                  break
-              time.sleep(15)
-
-          if not success:
-              print(f"==> Warning: Polling timed out before build {target_version} reached VALID state.")
-          EOF
+          MARKETING="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "${PBXPROJ}" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/wait_for_testflight_build.py \
+            --p8-path "${RUNNER_TEMP}/asc.p8" \
+            --key-id "${ASC_KEY_ID}" \
+            --issuer-id "${ASC_ISSUER_ID}" \
+            --bundle-id "${IOS_BUNDLE_ID}" \
+            --marketing-version "${MARKETING}" \
+            --build-number "${{ steps.build_number.outputs.next_build }}" \
+            --timeout-seconds 1200 \
+            --poll-interval-seconds 15
+          echo "upload_state=COMPLETE" >> "$GITHUB_OUTPUT"
+          echo "processing_state=VALID" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
         if: always()
@@ -507,6 +470,8 @@ jobs:
             echo "| Bundle | ${IOS_BUNDLE_ID} |"
             echo "| Backend | UAT (hushh-pda-uat) |"
             echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'dry run (no upload)' || 'upload to TestFlight' }} |"
+            echo "| Apple upload | ${{ steps.poll_asc.outputs.upload_state || (github.event.inputs.dry_run == 'true' && 'not uploaded' || 'not verified') }} |"
+            echo "| TestFlight processing | ${{ steps.poll_asc.outputs.processing_state || (github.event.inputs.dry_run == 'true' && 'not uploaded' || 'not verified') }} |"
             if [ -n "${{ github.event.inputs.notes }}" ]; then
               echo "| Notes | ${{ github.event.inputs.notes }} |"
             fi
