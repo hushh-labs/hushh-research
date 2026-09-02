@@ -92,6 +92,20 @@ class TestCounterpart:
         assert ctype == "investor"
         assert cid == "xyz"
 
+    def test_person_actor_type_uses_public_reference(self):
+        meta = {
+            "requester_actor_type": "person",
+            "requester_entity_id": "22222222-2222-4222-8222-222222222222",
+        }
+        ctype, cid = SVC._counterpart("one_person:other", meta)
+        assert ctype == "person"
+        assert cid == "22222222-2222-4222-8222-222222222222"
+
+    def test_person_prefixed_agent_id(self):
+        ctype, cid = SVC._counterpart("one_person:22222222-2222-4222-8222-222222222222", {})
+        assert ctype == "person"
+        assert cid == "22222222-2222-4222-8222-222222222222"
+
     def test_self_agent_returns_self(self):
         ctype, cid = SVC._counterpart("self", {})
         assert ctype == "self"
@@ -146,6 +160,10 @@ class TestDeveloperLabel:
     def test_investor_requester_label_fallback(self):
         meta = {"requester_actor_type": "investor", "requester_label": "John Doe"}
         assert SVC._developer_label("agent", meta) == "John Doe"
+
+    def test_person_requester_label_fallback(self):
+        meta = {"requester_actor_type": "person", "requester_label": "Kushal"}
+        assert SVC._developer_label("one_person:opaque", meta) == "Kushal"
 
     def test_agent_id_last_resort(self):
         assert SVC._developer_label("my_agent_id", {}) == "my_agent_id"

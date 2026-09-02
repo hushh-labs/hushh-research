@@ -191,7 +191,7 @@ class PersonProfileService:
             self._connections.get_information_scope_catalog,
             viewer_user_id,
             subject_user_id,
-            limit=50,
+            limit=500,
         )
         scopes = []
         scope_by_name: dict[str, dict[str, Any]] = {}
@@ -280,7 +280,10 @@ class PersonProfileService:
                 "CONSENT_GRANTED": "granted",
                 "CONSENT_DENIED": "denied",
                 "REVOKED": "revoked",
+                "TIMEOUT": "expired",
             }.get(action, "pending")
+            if state == "pending" and expires_at and int(expires_at) <= now_ms:
+                state = "expired"
             if state == "granted" and expires_at and int(expires_at) <= now_ms:
                 state = "expired"
             if item.get("cancelled_at") and state == "pending":

@@ -618,6 +618,12 @@ function toPendingConsent(
 function pendingLookupItemToConsentEntry(
   item: PendingConsentLookupItem,
 ): ConsentCenterEntry {
+  const requesterActorType = String(
+    item.metadata?.requester_actor_type || "",
+  ).trim();
+  const requesterEntityId = String(
+    item.metadata?.requester_entity_id || "",
+  ).trim();
   const requesterLabel =
     item.requester_label || item.developer || item.agent_id || "Requester";
   return {
@@ -627,8 +633,11 @@ function pendingLookupItemToConsentEntry(
     action: "REQUESTED",
     scope: item.scope,
     scope_description: item.scope_description || null,
-    counterpart_type: "developer",
-    counterpart_id: item.agent_id || item.developer || requesterLabel,
+    counterpart_type: requesterActorType === "person" ? "person" : "developer",
+    counterpart_id:
+      requesterActorType === "person" && requesterEntityId
+        ? requesterEntityId
+        : item.agent_id || item.developer || requesterLabel,
     counterpart_label: requesterLabel,
     counterpart_image_url: item.requester_image_url || null,
     counterpart_website_url: item.requester_website_url || null,
@@ -658,9 +667,8 @@ function ConsentCounterpartAvatar({ entry }: { entry: ConsentCenterEntry }) {
       ? "ria"
       : entry.counterpart_type === "developer"
         ? "developer"
-        : "investor";
-  const Icon =
-    kind === "ria" ? Landmark : kind === "developer" ? Code2 : UserRound;
+        : "person";
+  const Icon = kind === "ria" ? Landmark : kind === "developer" ? Code2 : UserRound;
   const label = resolveCounterpartLabel(entry);
   const initials = label
     .split(/\s+/)
@@ -1938,7 +1946,11 @@ export function ConsentCenterPage() {
         return;
       }
       if (!entry.scope) return;
-      void handleRevoke(entry.scope);
+      if (entry.request_id) {
+        void handleRevoke(entry.scope, entry.request_id);
+      } else {
+        void handleRevoke(entry.scope);
+      }
     },
     [
       handleLocationRevoke,

@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-02",
-  "total_routes": 120,
-  "native_required_routes": 103,
+  "total_routes": 122,
+  "native_required_routes": 105,
   "excluded_routes": 17,
   "routes": [
     {
@@ -683,6 +683,20 @@
       ]
     },
     {
+      "route": "/one/pkm/recent",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Frecent",
+      "expectedMarker": "native-route-pkm-recent",
+      "expectedRoute": "/one/pkm/recent",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/one/profile",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile",
@@ -1220,6 +1234,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Fwallet-card",
       "expectedMarker": "native-route-one-wallet-card",
       "expectedRoute": "/one/wallet-card",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/wallet",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fcards",
+      "expectedMarker": "native-route-one-wallet",
+      "expectedRoute": "/one/wallet",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

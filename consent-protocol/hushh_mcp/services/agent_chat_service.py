@@ -2188,7 +2188,9 @@ class AgentChatService:
                 action_id="pkm.add",
                 label="Add to PKM",
                 execution="frontend",
-                slots={},
+                # The model scopes what gets structured; the browser falls
+                # back to the whole turn only when this is absent.
+                slots={"source_text": memory_text[:50_000]},
                 message="Checking PKM and saving what fits.",
                 reason=reason[:160] if reason else None,
             )

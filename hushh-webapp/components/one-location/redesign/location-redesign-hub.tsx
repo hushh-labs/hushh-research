@@ -182,7 +182,7 @@ import {
   lastInteractionByUserId,
   sectionRecipients,
 } from "@/lib/one-location/recipient-sections";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, buildPersonProfileRoute } from "@/lib/navigation/routes";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
@@ -3262,12 +3262,15 @@ function PersonRow({
   first,
   action,
   expansion,
+  profileHref,
 }: {
   name: string;
   photoUrl?: string | null;
   verified?: boolean;
   fromContacts?: boolean;
   subtitle: string;
+  /** When this person has a request profile, the name opens it. */
+  profileHref?: string | null;
   /** True when there's a live connection (you're sharing or they're sharing). */
   active: boolean;
   first: boolean;
@@ -3310,9 +3313,20 @@ function PersonRow({
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex min-w-0 items-start gap-1.5">
-            <p className="min-w-0 flex-1 break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
-              {name}
-            </p>
+            {profileHref ? (
+              <Link
+                href={profileHref}
+                className="min-w-0 flex-1 break-words text-left text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground underline-offset-4 hover:underline"
+                aria-label={`Open profile: ${name}`}
+                data-testid="one-location-person-profile-link"
+              >
+                {name}
+              </Link>
+            ) : (
+              <p className="min-w-0 flex-1 break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
+                {name}
+              </p>
+            )}
             {fromContacts ? (
               <ContactSourceBadge className="mt-px shrink-0" />
             ) : null}
@@ -3629,6 +3643,11 @@ export function PeopleHub({
                       <PersonRow
                         key={r.userId}
                         name={name}
+                        profileHref={
+                          r.publicPersonRef
+                            ? buildPersonProfileRoute(r.publicPersonRef, { from: ROUTES.ONE_LOCATION })
+                            : null
+                        }
                         photoUrl={r.photoUrl}
                         verified={Boolean(r.isRia)}
                         fromContacts={r.connectedFromContacts}

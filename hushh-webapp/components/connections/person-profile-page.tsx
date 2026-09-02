@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Copy, Eye, EyeOff, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   SectionCard,
@@ -31,6 +32,7 @@ import {
   PersonProfileService,
   type PublicPersonProfile,
   type ViewerPersonProfile,
+  type InformationRequestBundle,
 } from "@/lib/services/person-profile-service";
 import {
   resolvePersonRefFromProfilePathname,
@@ -43,6 +45,37 @@ type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
 function scopeTitle(scope: ViewerPersonProfile["requestableScopes"][number]) {
   return scope.label || scope.domain || "Information";
+}
+
+/** Bound to the backend's real range (1 hour to 30 days, whole hours). */
+const REQUEST_DURATION_OPTIONS = [
+  { hours: 24, label: "24 hours" },
+  { hours: 72, label: "3 days" },
+  { hours: 168, label: "7 days" },
+  { hours: 720, label: "30 days" },
+] as const;
+const DEFAULT_REQUEST_DURATION_HOURS = 168;
+/** Search and domain chips appear once the catalog is long enough to need them. */
+const SCOPE_SEARCH_THRESHOLD = 6;
+
+function requestDurationLabel(hours: number): string {
+  return REQUEST_DURATION_OPTIONS.find((option) => option.hours === hours)?.label ?? `${hours} hours`;
+}
+
+function scopeMatchesQuery(
+  scope: ViewerPersonProfile["requestableScopes"][number],
+  query: string,
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [scope.label, scope.description, scope.domain]
+    .some((value) => String(value || "").toLowerCase().includes(needle));
+}
+
+function domainChipClass(active: boolean): string {
+  return active
+    ? "rounded-full border border-[var(--app-accent)] bg-[var(--app-accent)]/10 px-3 py-1 text-xs font-medium capitalize"
+    : "rounded-full border border-border px-3 py-1 text-xs font-medium capitalize text-muted-foreground";
 }
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
@@ -74,6 +107,16 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [selectedScopeRefs, setSelectedScopeRefs] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const [purpose, setPurpose] = useState("");
+  const [durationHours, setDurationHours] = useState<number>(DEFAULT_REQUEST_DURATION_HOURS);
+  const [scopeQuery, setScopeQuery] = useState("");
+  const [scopeDomain, setScopeDomain] = useState<string | null>(null);
+  const [bundleDetails, setBundleDetails] = useState<Record<string, InformationRequestBundle>>({});
+  const [loadingBundleId, setLoadingBundleId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  // /connect and the agent's discovery card land here with ?request=1: bring
+  // the requestable catalog into view instead of the identity header.
+  const requestIntent = searchParams?.get("request") === "1";
+  const availableSectionRef = useRef<HTMLElement | null>(null);
   const [requesting, setRequesting] = useState(false);
   const [relationshipBusy, setRelationshipBusy] = useState(false);
   const [decryptedByRequest, setDecryptedByRequest] = useState<Record<string, Record<string, unknown>>>({});
@@ -123,6 +166,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setSelectedScopeRefs(new Set());
     setReviewOpen(false);
     setPurpose("");
+    setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
+    setScopeQuery("");
+    setScopeDomain(null);
+    setBundleDetails({});
     setDecryptedByRequest({});
     setRevealedRequests(new Set());
   }, [resolvedPersonRef]);
@@ -133,14 +180,37 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setRevealedRequests(new Set());
   }, [isVaultUnlocked]);
 
+  useEffect(() => {
+    if (!requestIntent || !viewerProfile) return;
+    const node = availableSectionRef.current;
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [requestIntent, viewerProfile]);
+
+  const allScopes = useMemo(() => viewerProfile?.requestableScopes || [], [viewerProfile]);
+  const scopeDomains = useMemo(
+    () => [...new Set(allScopes.map((scope) => scope.domain || "Other"))],
+    [allScopes],
+  );
+  const filteredScopes = useMemo(
+    () =>
+      allScopes.filter(
+        (scope) =>
+          (!scopeDomain || (scope.domain || "Other") === scopeDomain) &&
+          scopeMatchesQuery(scope, scopeQuery),
+      ),
+    [allScopes, scopeDomain, scopeQuery],
+  );
+  const scopeToolsVisible = allScopes.length > SCOPE_SEARCH_THRESHOLD;
   const groupedScopes = useMemo(() => {
     const groups = new Map<string, ViewerPersonProfile["requestableScopes"]>();
-    for (const scope of viewerProfile?.requestableScopes || []) {
+    for (const scope of filteredScopes) {
       const domain = scope.domain || "Other";
       groups.set(domain, [...(groups.get(domain) || []), scope]);
     }
     return [...groups.entries()];
-  }, [viewerProfile]);
+  }, [filteredScopes]);
 
   const selectedScopes = useMemo(
     () => (viewerProfile?.requestableScopes || []).filter((scope) => selectedScopeRefs.has(scope.scopeRef)),
@@ -164,7 +234,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         personRef: resolvedPersonRef,
         scopeRefs: selectedScopes.map((scope) => scope.scopeRef),
         purpose: purpose.trim(),
-        durationSeconds: 7 * 24 * 60 * 60,
+        durationSeconds: durationHours * 3600,
         connectorKeyId: connector.connector_key_id,
         idempotencyKey: crypto.randomUUID(),
         vaultOwnerToken,
@@ -182,6 +252,19 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       toast.error(reason instanceof Error ? reason.message : "Request could not be sent.");
     } finally {
       setRequesting(false);
+    }
+  };
+
+  const loadBundleDetails = async (bundleId: string) => {
+    if (!vaultOwnerToken || bundleDetails[bundleId] || loadingBundleId) return;
+    setLoadingBundleId(bundleId);
+    try {
+      const bundle = await PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken });
+      setBundleDetails((current) => ({ ...current, [bundleId]: bundle }));
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Request details are unavailable.");
+    } finally {
+      setLoadingBundleId(null);
     }
   };
 
@@ -591,11 +674,52 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               )}
             </section>
 
-            <section aria-labelledby="available-to-request" className="space-y-3">
+            <section
+              aria-labelledby="available-to-request"
+              className="space-y-3"
+              ref={availableSectionRef}
+              data-testid="person-profile-available"
+            >
               <PageHeader
                 title="Available to request"
                 description="Choose only what is needed. The person reviews every request before access is granted."
               />
+              {scopeToolsVisible ? (
+                <div className="space-y-2">
+                  <Input
+                    value={scopeQuery}
+                    onChange={(event) => setScopeQuery(event.target.value)}
+                    placeholder="Search fields"
+                    aria-label="Search fields"
+                    data-testid="person-profile-scope-search"
+                  />
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by domain">
+                    <button
+                      type="button"
+                      aria-pressed={!scopeDomain}
+                      className={domainChipClass(!scopeDomain)}
+                      onClick={() => setScopeDomain(null)}
+                    >
+                      All
+                    </button>
+                    {scopeDomains.map((domain) => (
+                      <button
+                        key={domain}
+                        type="button"
+                        aria-pressed={scopeDomain === domain}
+                        className={domainChipClass(scopeDomain === domain)}
+                        onClick={() => setScopeDomain((current) => (current === domain ? null : domain))}
+                        data-testid={`person-profile-domain-chip-${domain}`}
+                      >
+                        {domain.replaceAll("_", " ")}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground" data-testid="person-profile-scope-count">
+                    {filteredScopes.length} of {allScopes.length} fields
+                  </p>
+                </div>
+              ) : null}
               {groupedScopes.length ? (
                 <div className="space-y-4">
                   {groupedScopes.map(([domain, scopes]) => (
@@ -633,6 +757,22 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     </SectionCard>
                   ))}
                 </div>
+              ) : allScopes.length ? (
+                <SectionCard>
+                  <p className="text-sm text-muted-foreground" data-testid="person-profile-scope-no-match">
+                    No fields match.{" "}
+                    <button
+                      type="button"
+                      className="font-medium text-foreground underline underline-offset-4"
+                      onClick={() => {
+                        setScopeQuery("");
+                        setScopeDomain(null);
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </p>
+                </SectionCard>
               ) : (
                 <SectionCard>
                   <p className="text-sm text-muted-foreground">
@@ -640,7 +780,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   </p>
                 </SectionCard>
               )}
-              {groupedScopes.length ? (
+              {allScopes.length ? (
                 <div className="flex justify-end pt-1">
                   <Button
                     type="button"
@@ -671,7 +811,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 <SectionCard>
                   <div className="divide-y divide-border/60">
                     {viewerProfile.requestHistory.map((item) => (
-                      <div key={item.requestId} className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                      <div key={item.requestId} className="flex flex-wrap items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
                         <div>
                           <p className="text-sm font-semibold">{item.label}</p>
                           <p className="mt-1 text-sm text-muted-foreground">{item.purpose}</p>
@@ -684,6 +824,25 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                         <StatusPill tone={item.status === "granted" ? "ready" : "neutral"}>
                           {item.status}
                         </StatusPill>
+                        {bundleDetails[item.bundleId] ? (
+                          <p className="basis-full text-xs text-muted-foreground" data-testid="person-profile-bundle-details">
+                            {bundleDetails[item.bundleId]!.items.map((entry) => entry.label).join(", ")}
+                            {" · "}
+                            {requestDurationLabel(Math.round(bundleDetails[item.bundleId]!.durationSeconds / 3600))}
+                            {bundleDetails[item.bundleId]!.cancelled ? " · cancelled" : ""}
+                          </p>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="none"
+                            effect="fade"
+                            disabled={loadingBundleId === item.bundleId}
+                            onClick={() => void loadBundleDetails(item.bundleId)}
+                            aria-label={`Details for ${item.label}`}
+                          >
+                            {loadingBundleId === item.bundleId ? "Loading…" : "Details"}
+                          </Button>
+                        )}
                         {item.status === "pending" ? (
                           <Button
                             type="button"
@@ -713,7 +872,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           <DialogHeader>
             <DialogTitle>Request information from {profile.displayName}</DialogTitle>
             <DialogDescription>
-              They will see the exact fields, purpose, sensitivity, and seven-day access duration before deciding.
+              They will see the exact fields, purpose, sensitivity, and the {requestDurationLabel(durationHours)} access duration before deciding.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -727,6 +886,21 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 ))}
               </div>
             </SectionCard>
+            <label className="block space-y-2 text-sm font-medium">
+              Access duration
+              <select
+                className="block h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-normal"
+                value={durationHours}
+                onChange={(event) => setDurationHours(Number(event.target.value))}
+                data-testid="person-profile-duration-select"
+              >
+                {REQUEST_DURATION_OPTIONS.map((option) => (
+                  <option key={option.hours} value={option.hours}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="block space-y-2 text-sm font-medium">
               Purpose
               <Textarea

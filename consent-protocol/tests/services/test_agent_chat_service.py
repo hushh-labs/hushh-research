@@ -473,7 +473,9 @@ def test_agent_chat_translates_gemini_function_call_to_pkm_add(test_vault_key):
     assert action_plan.call_id == "gemini-call-3"
     assert action_plan.action_id == "pkm.add"
     assert action_plan.execution == "frontend"
-    assert action_plan.slots == {}
+    assert action_plan.slots == {
+        "source_text": "My name is Akshat Kumar and I study at IIT Bombay."
+    }
     assert action_plan.message == "Checking PKM and saving what fits."
     assert action_plan.reason == "durable personal context"
 

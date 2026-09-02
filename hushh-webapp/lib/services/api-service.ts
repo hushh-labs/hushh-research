@@ -2372,6 +2372,7 @@ export class ApiService {
     token: string;
     userId: string;
     scope?: string;
+    requestId?: string;
   }): Promise<Response> {
     const vaultOwnerToken = data.token;
     trackEvent("consent_action_submitted", {
@@ -2418,6 +2419,7 @@ export class ApiService {
         const result = await HushhConsent.revokeConsent({
           userId: data.userId,
           scope: normalizedScope,
+          requestId: data.requestId,
           vaultOwnerToken,
         });
 

@@ -633,6 +633,40 @@
         "in_process_dispatch": false,
         "one_specialist_tool": null
       }
+    },
+    {
+      "id": "agent_wallet",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_WALLET_AGENT_DISABLED",
+        "rollback": "Remove the Cards AgentTool from One's roster; the /one/wallet surface keeps working without chat.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": "hushh_mcp.one_adk.agent_tree._build_wallet_agent",
+        "kind": "adk",
+        "transport": [
+          "in_process",
+          "chat"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, and MCP exposure are deliberately withheld while card reveal is a screen-only interaction.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
     }
   ],
   "compatibility_surfaces": [
@@ -1484,8 +1518,14 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
-        "delegate_agent_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
+        "delegate_agent_ids": [
+          "agent_wallet"
+        ],
         "playbook_id": "route.agent"
       }
     },
@@ -1536,7 +1576,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.blog.slug"
       }
@@ -2250,11 +2294,15 @@
           "route.one_feed",
           "route.one_location",
           "route.one_pkm",
-          "route.voice_settings"
+          "route.voice_settings",
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
         ],
         "delegate_agent_ids": [
           "agent_location",
-          "agent_nav"
+          "agent_nav",
+          "agent_wallet"
         ],
         "playbook_id": "route.one.home"
       }
@@ -2398,7 +2446,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.connected.systems.systemid"
       }
@@ -2491,7 +2543,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.email"
       }
@@ -3425,7 +3481,7 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
         "resource_classes": [
           "unknown"
         ]
@@ -3444,6 +3500,31 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.pkm"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm-recent",
+      "page_file": "app/one/pkm/recent/page.tsx",
+      "pathname": "/one/pkm/recent",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_pkm"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.pkm.recent"
       }
     },
     {
@@ -3758,7 +3839,7 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
         "resource_classes": [
           "unknown"
         ]
@@ -4313,7 +4394,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.puppy"
       }
@@ -4654,6 +4739,36 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-wallet",
+      "page_file": "app/one/wallet/page.tsx",
+      "pathname": "/one/wallet",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_wallet",
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
+        "delegate_agent_ids": [
+          "agent_wallet"
+        ],
+        "playbook_id": "route.one_wallet"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
           "unknown"
@@ -4667,7 +4782,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.wallet.card"
       }
@@ -4935,7 +5054,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.research.protocol"
       }
@@ -5309,7 +5432,11 @@
         }
       ],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.welcome"
       }
@@ -5318,27 +5445,27 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "ad1c14d11ad34a758103eb32781f0ee09d5fc4f21070f9d90faabef025b58703",
-    "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
-    "cache_manifest": "958809a57ef67623d3aa0f6c0370cb9e827e7564ad48bc570212488f4f9ff85e",
+    "action_gateway": "3db0d33a06f37da5543f7215962414cab26534a9d78f504233d63e9d3af4246c",
+    "agent_registry": "6ae9153367cf399a8b534f44b98f286aabf134f27fadb8ed32a4ab707956e15e",
+    "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
     "data_plane": "25ee768e87ca24a3b84ec95dc20adc6f17f615de7243030dd3ad591299a11763",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "376cf3193426e923607c74d060cdfe4678e6661dc22042b25f34a36c89e5bbfa",
-    "route_index": "b586a44fa796738570e86a4a48782db76d3fb35d27a75033adf579ac41168959",
-    "route_layout": "4bd05e7396a1b9459bf4789823b25e03ef9c61946830ea6a26e84b1462999275",
-    "surface_map": "ec5f917810faba9caddc35bd1c02c9ad775e6b58adabee6f2a9a1b5214f572ad",
+    "one_specialist_tools": "e2eca1cf8dca4ff3bd66d289ae64120ca6f7dc87fa5692d445780d1c17e2219f",
+    "route_index": "c01a8f88aba69f168fc20843a062a2a70ceca700a60b6fe4ed7ed623d6786c43",
+    "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
+    "surface_map": "3ac14d4e5369302b3a77f6dd81a8a930447a919fe4031e6017debbb39e3b3d44",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 198,
-    "agents": 19,
+    "actions": 206,
+    "agents": 20,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 137,
+    "physical_routes": 139,
     "semantic_routes": 14,
     "table_families": 57
   }

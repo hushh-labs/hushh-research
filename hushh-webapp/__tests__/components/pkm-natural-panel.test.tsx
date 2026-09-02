@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within, cleanup } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
@@ -185,18 +185,40 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     addToPKM.mockResolvedValue({ attempted: 1, saved: 1, failed: 0, domains: ["financial"], results: [] });
   });
 
-  async function openMainScreen() {
-    render(<PkmNaturalPanel />);
-    return screen.findByRole("button", { name: "Open memory: Risk Profile" });
+  // Home shows one "Recently learned" row into /one/pkm/recent; the memory
+  // rows themselves render in the recent view.
+  async function openMainScreen(view: "home" | "recent" = "home") {
+    render(<PkmNaturalPanel view={view} />);
+    if (view === "recent") {
+      return screen.findByRole("button", { name: "Open memory: Risk Profile" });
+    }
+    return screen.findByTestId("memory-recently-learned-row");
   }
 
-  it("shows search, Recently learned, and Categories with newest memory first", async () => {
+  it("shows search, one Recently learned row into its route, and Categories", async () => {
     await openMainScreen();
 
     expect(screen.getByRole("searchbox", { name: "Search Memory" })).toBeTruthy();
 
-    const recent = screen.getByTestId("memory-recently-learned");
-    const recentNames = within(recent)
+    const recentRow = screen.getByTestId("memory-recently-learned-row");
+    expect(recentRow).toHaveTextContent("Recently learned");
+    expect(recentRow).toHaveTextContent("3 memories");
+    expect(screen.queryByRole("button", { name: "Open memory: Risk Profile" })).toBeNull();
+    fireEvent.click(within(recentRow).getByRole("button"));
+    expect(push).toHaveBeenCalledWith("/one/pkm/recent");
+
+    expect(screen.getByText("Categories")).toBeTruthy();
+
+    // Tab viewport tracks the active pane's height (no frozen tallest-pane
+    // height leaving dead space under shorter tabs like Sharing).
+    expect(
+      document.querySelector("[data-swipe-views-height-mode]")?.getAttribute("data-swipe-views-height-mode"),
+    ).toBe("active");
+  });
+
+  it("recent view lists memories newest first", async () => {
+    await openMainScreen("recent");
+    const recentNames = within(screen.getByTestId("memory-recent-list"))
       .getAllByRole("button")
       .map((node) => node.getAttribute("aria-label"));
     // Financial (updated today) sorts ahead of Preferences (updated a week ago).
@@ -205,15 +227,6 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(recentNames.indexOf("Open memory: Risk Profile")).toBeLessThan(
       recentNames.indexOf("Open memory: Seat Choice"),
     );
-
-    expect(screen.getByText("Recently learned")).toBeTruthy();
-    expect(screen.getByText("Categories")).toBeTruthy();
-
-    // Tab viewport tracks the active pane's height (no frozen tallest-pane
-    // height leaving dead space under shorter tabs like Sharing).
-    expect(
-      document.querySelector("[data-swipe-views-height-mode]")?.getAttribute("data-swipe-views-height-mode"),
-    ).toBe("active");
   });
 
   it("lists only consumer-visible, non-empty categories with correct counts", async () => {
@@ -286,7 +299,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   });
 
   it("shows value and per-scope sharing only — never a guessed source or timestamp", async () => {
-    await openMainScreen();
+    await openMainScreen("recent");
     fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
 
     expect(await screen.findByRole("heading", { name: "Risk Profile" })).toBeTruthy();
@@ -300,7 +313,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     // profile scope is shared for financial in this fixture.
     await waitFor(() => expect(meta).toHaveTextContent("Shared"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+    // Categories live on the home; the recent view only lists memories.
+    cleanup();
+    await openMainScreen();
     fireEvent.click(screen.getByRole("button", { name: "Open category: Financial" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open Accounts" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open memory: Primary Bank" }));
@@ -327,7 +342,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       return { saveState: "saved", success: true, fullBlob: { financial: plan.domainData } };
     });
 
-    await openMainScreen();
+    await openMainScreen("recent");
     fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
     await screen.findByRole("heading", { name: "Risk Profile" });
     await waitFor(() =>
@@ -366,7 +381,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       return { saveState: "saved", success: true, fullBlob: { financial: plan.domainData } };
     });
 
-    await openMainScreen();
+    await openMainScreen("recent");
     fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
     await screen.findByRole("heading", { name: "Risk Profile" });
     await waitFor(() =>
@@ -390,7 +405,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       new Error("impact unavailable"),
     );
 
-    await openMainScreen();
+    await openMainScreen("recent");
     fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
     await screen.findByRole("heading", { name: "Risk Profile" });
 
@@ -462,7 +477,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   // ── Issue #6307: item sharing acts in place, never opens the Consent Center ──
   describe("memory item sharing — in place, no Consent Center redirect", () => {
     async function openRiskProfileSharing() {
-      await openMainScreen();
+      await openMainScreen("recent");
       fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
       await screen.findByRole("heading", { name: "Risk Profile" });
       fireEvent.click(screen.getByRole("button", { name: "Open sharing settings" }));
@@ -568,7 +583,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         },
       );
 
-      await openMainScreen();
+      await openMainScreen("recent");
       fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
       await screen.findByRole("heading", { name: "Risk Profile" });
       const meta = screen.getByTestId("memory-detail-meta");
@@ -592,7 +607,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         "updateScopeExposure",
       );
 
-      await openMainScreen();
+      await openMainScreen("recent");
       fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
       await screen.findByRole("heading", { name: "Risk Profile" });
       fireEvent.click(screen.getByRole("button", { name: "Open sharing settings" }));

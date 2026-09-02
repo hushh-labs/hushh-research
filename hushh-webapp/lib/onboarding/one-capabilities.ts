@@ -3,6 +3,7 @@ import {
   BookMarked,
   CalendarDays,
   ContactRound,
+  CreditCard,
   FileCheck2,
   KeyRound,
   Landmark,
@@ -16,6 +17,7 @@ import {
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
+import { isWalletBuildEnabled } from "@/lib/wallet/wallet-availability";
 import {
   ONE_SETUP_CAPABILITY_IDS,
   type OneSetupCapabilityId,
@@ -141,6 +143,18 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     href: ROUTES.KAI_HOME,
     icon: lucideCapabilityIcon(Landmark),
     tone: "finance",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    id: "cards",
+    agentId: "agent_wallet",
+    title: "Cards",
+    description: "Every credit and debit card, encrypted in your vault.",
+    previewLabel: "Your cards, in your vault",
+    href: ROUTES.ONE_WALLET,
+    icon: lucideCapabilityIcon(CreditCard),
+    tone: "pkm",
     group: "workflow",
     requiresVault: true,
   },
@@ -339,5 +353,7 @@ export function isOneCapabilityEnabled(capability: OneCapability | string | unde
     return false;
   }
   if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
+  // Cards ships dark: the tile exists only where the build lane opts in.
+  if (resolved.id === "cards") return isWalletBuildEnabled();
   return true;
 }

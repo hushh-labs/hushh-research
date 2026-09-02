@@ -47,6 +47,16 @@ import {
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
+import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
+import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
+import { detectLikelyPan, redactLikelyPans, countLikelyPans } from "@/lib/wallet/pan-paste-guard";
+import {
+  WalletService,
+  type WalletCardSecrets,
+  type WalletCardSummary,
+} from "@/lib/services/wallet-service";
 import {
   SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
@@ -248,6 +258,8 @@ type AgentPkmReview = {
   sourceMessage: string;
   cards: AgentPkmPreviewCard[];
   saving: boolean;
+  /** Cards the owner still wants saved; starts as every reviewable card. */
+  selectedCardIds?: Set<string>;
 };
 
 type AgentPkmActivity = {
@@ -255,6 +267,20 @@ type AgentPkmActivity = {
   text: string;
   status: "streaming" | "done" | "error";
 };
+
+/**
+ * Inline secure card widget in the chat surface. The decrypted values live
+ * only in this client state; they are never written into messages, model
+ * context, history, or telemetry.
+ */
+type AgentCardWidget =
+  | { id: string; kind: "add" }
+  | {
+      id: string;
+      kind: "reveal";
+      summary: WalletCardSummary;
+      secrets: WalletCardSecrets;
+    };
 
 type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
@@ -1330,6 +1356,7 @@ export function AgentChatWorkspace({
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
+  const [cardWidgets, setCardWidgets] = useState<AgentCardWidget[]>([]);
   /**
    * PKM auto-save is landed but NOT WIRED, and this is the note that says so.
    *
@@ -1394,6 +1421,9 @@ export function AgentChatWorkspace({
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
+  // Set by the FCM effect below; lets a server tool result (pending requests
+  // One listed) render the same cards a push would, without a second lookup path.
+  const appendPendingConsentRequestRef = useRef<((requestId: string) => Promise<void>) | null>(null);
   const updateConversationId = useCallback(
     (nextConversationId: string | null) => {
       conversationIdRef.current = nextConversationId;
@@ -1835,6 +1865,7 @@ export function AgentChatWorkspace({
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
     setPkmReviews([]);
+    setCardWidgets([]);
     updateConversationId(null);
     setConversations([]);
     setHistoryActionPendingId(null);
@@ -1865,6 +1896,7 @@ export function AgentChatWorkspace({
     setInput("");
     setIsLoadingHistory(false);
     setPkmReviews([]);
+    setCardWidgets([]);
     setPendingAppAction(null);
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
@@ -2194,9 +2226,11 @@ export function AgentChatWorkspace({
       }
     };
 
+    appendPendingConsentRequestRef.current = appendPendingConsentRequest;
     window.addEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
     return () => {
       cancelled = true;
+      appendPendingConsentRequestRef.current = null;
       window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
     };
   }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
@@ -2309,6 +2343,8 @@ export function AgentChatWorkspace({
       setEmailDraftAnchorMessageId(null);
       setEmailDeliveryHistory([]);
       setPkmReviews([]);
+      setCardWidgets([]);
+    setCardWidgets([]);
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
     },
@@ -2468,6 +2504,25 @@ export function AgentChatWorkspace({
     [appendDebugEvent, pkmReviews],
   );
 
+  const togglePkmReviewCards = useCallback(
+    (reviewId: string, cardIds: string[], selected: boolean) => {
+      setPkmReviews((current) =>
+        current.map((review) => {
+          if (review.id !== reviewId || review.saving) return review;
+          const next = new Set(
+            review.selectedCardIds ?? review.cards.map((card) => card.card_id),
+          );
+          for (const cardId of cardIds) {
+            if (selected) next.add(cardId);
+            else next.delete(cardId);
+          }
+          return { ...review, selectedCardIds: next };
+        }),
+      );
+    },
+    [],
+  );
+
   const handleSavePkmReview = useCallback(
     (reviewId: string) => {
       if (savingPkmReviewIdsRef.current.has(reviewId)) return;
@@ -2492,9 +2547,12 @@ export function AgentChatWorkspace({
 
       const saveInBackground = async () => {
         try {
+          const selectedCards = review.selectedCardIds
+            ? review.cards.filter((card) => review.selectedCardIds!.has(card.card_id))
+            : review.cards;
           const result = await addToPKM({
             userId: user.uid,
-            cards: review.cards,
+            cards: selectedCards,
             sourceMessage: review.sourceMessage,
             vaultKey,
             vaultOwnerToken: token,
@@ -2719,6 +2777,26 @@ export function AgentChatWorkspace({
   ) => {
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
+    // Pre-model paste guard: a message that appears to contain a full card
+    // number must never reach /api/one/agent-chat, history, or telemetry.
+    // Block before ANY network call and route to the secure add form.
+    if (detectLikelyPan(text)) {
+      appendMessage({
+        id: `msg-${Date.now()}-pan-blocked`,
+        role: "assistant",
+        text: "That looked like a full card number, so it was blocked on this device and never sent. Use the secure form to save a card.",
+        timestamp: formatNow(),
+        status: "done",
+        renderAsPlainAssistantMessage: true,
+      });
+      if (WalletService.isEnabled()) {
+        setCardWidgets((current) => [
+          ...current,
+          { id: `pan-guard-${Date.now()}`, kind: "add" },
+        ]);
+      }
+      return;
+    }
     // A person starting a new turn owns the workspace. Invalidate any ambient
     // initial-history restoration so a late warmup cannot replace this turn.
     historyRestoreEpochRef.current += 1;
@@ -2873,10 +2951,17 @@ export function AgentChatWorkspace({
       upsertPkmStatusMessage("Checking what belongs in Memory...", "streaming");
 
       try {
+        const labContext = await loadPkmAgentLabContext({
+          userId,
+          vaultOwnerToken: token,
+        }).catch(() => null);
         const preview = await prepareNaturalLanguagePkm({
           userId,
           message: sourceText,
           currentDomains: turnPkmContext.domains,
+          currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
+          findDuplicate: (candidate) =>
+            AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
           vaultOwnerToken: token,
           source: "agent_chat_explicit_memory",
           onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
@@ -2962,6 +3047,135 @@ export function AgentChatWorkspace({
           label: toolEvent.label,
           routeBefore: pathname,
           resultSummary: "Memory review prepared.",
+        };
+      }
+
+      // Cards actions execute entirely on this device: the browser decrypts
+      // under the vault key and renders secure widgets. Only metadata (and
+      // never PAN/CVV/PIN) flows back to the model through resultSummary.
+      if (
+        toolEvent.actionId === "wallet.list" ||
+        toolEvent.actionId === "wallet.add" ||
+        toolEvent.actionId === "wallet.reveal"
+      ) {
+        if (!WalletService.isEnabled()) {
+          return {
+            status: "failed",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary: "Payment cards are not enabled in this environment.",
+            reason: "feature_disabled",
+          };
+        }
+        if (!vaultKey || !token) {
+          return {
+            status: "failed",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary: "Unlock your vault to work with your cards.",
+            reason: "vault_locked",
+          };
+        }
+        const cardsContext = {
+          userId,
+          vaultKey,
+          vaultOwnerToken: token,
+        };
+        if (toolEvent.actionId === "wallet.list") {
+          const summaries =
+            await WalletService.listCardSummaries(cardsContext);
+          const described = WalletService.describeSummaries(summaries);
+          // Metadata only (nickname, brand, last4, expiry, region): safe to
+          // show in the conversation and to hand back to the model.
+          appendMessage({
+            id: `msg-${Date.now()}-cards-list`,
+            role: "assistant",
+            text:
+              summaries.length === 0
+                ? "No cards are stored yet."
+                : `Your cards:\n${described}`,
+            timestamp: formatNow(),
+            status: "done",
+            renderAsPlainAssistantMessage: true,
+          });
+          return {
+            status: "succeeded",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary: described,
+          };
+        }
+        if (toolEvent.actionId === "wallet.add") {
+          setCardWidgets((current) => [
+            ...current,
+            { id: `${debugTurnId}-card-add-${current.length}`, kind: "add" },
+          ]);
+          return {
+            status: "succeeded",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary:
+              "A secure add-card form was opened on this device. Card details go into the form, never into chat.",
+          };
+        }
+        const cardRef =
+          typeof toolEvent.slots.card_ref === "string"
+            ? toolEvent.slots.card_ref.trim().toLowerCase()
+            : "";
+        const summaries =
+          await WalletService.listCardSummaries(cardsContext);
+        const match = summaries.find(
+          (card) =>
+            card.cardId.toLowerCase() === cardRef ||
+            card.nickname.trim().toLowerCase() === cardRef ||
+            card.last4 === cardRef.replace(/\D/g, "").slice(-4),
+        );
+        if (!match) {
+          return {
+            status: "failed",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary:
+              summaries.length === 0
+                ? "No cards are stored yet."
+                : "No stored card matches that reference. Ask for the card list first.",
+            reason: "card_not_found",
+          };
+        }
+        const full = await WalletService.getCard({
+          ...cardsContext,
+          cardId: match.cardId,
+        });
+        if (!full) {
+          return {
+            status: "failed",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary: "That card could not be decrypted on this device.",
+            reason: "card_decrypt_failed",
+          };
+        }
+        setCardWidgets((current) => [
+          ...current,
+          {
+            id: `${debugTurnId}-card-reveal-${current.length}`,
+            kind: "reveal",
+            summary: full.summary,
+            secrets: full.secrets,
+          },
+        ]);
+        return {
+          status: "succeeded",
+          actionId: toolEvent.actionId,
+          label: toolEvent.label,
+          routeBefore: pathname,
+          resultSummary: `Card "${full.summary.nickname || full.summary.brand}" ending ${full.summary.last4} was shown privately on this device.`,
         };
       }
 
@@ -3260,7 +3474,28 @@ export function AgentChatWorkspace({
               toolEvent,
             );
             upsertTurnStreamEvent(visibleEvent);
+            // A parked run_app_action directive that owes no confirmation
+            // runs right away, exactly as the Live relay would run it; one
+            // that does owe a confirmation (or a trusted tap) is staged.
+            if (
+              toolEvent.raw.parked === true &&
+              toolEvent.actionId &&
+              !toolEvent.requiresConfirmation &&
+              !toolEvent.trustedActivationRequired
+            ) {
+              const callKey = toolEvent.callId;
+              if (executedToolCalls.has(callKey)) return;
+              executedToolCalls.add(callKey);
+              void executeFrontendTool(toolEvent);
+              return;
+            }
             stageToolForConfirmation(toolEvent);
+          },
+          onPendingConsentRequests: (requestIds) => {
+            if (streamAbortController.signal.aborted) return;
+            for (const requestId of requestIds) {
+              void appendPendingConsentRequestRef.current?.(requestId);
+            }
           },
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
@@ -3808,7 +4043,7 @@ export function AgentChatWorkspace({
     enqueueWorkspaceOperation(operation);
   };
 
-  const enqueueMemoryImport = (textInput: string) => {
+  const enqueueMemoryImport = (textInput: string, removedCardNumbers = 0) => {
     const sourceText = textInput.trim();
     if (!sourceText) return;
     enqueueWorkspaceOperation({
@@ -3852,10 +4087,20 @@ export function AgentChatWorkspace({
             vaultOwnerToken: token,
             vaultKey,
           });
+          // Existing manifests let the structurer land facts in scopes that
+          // already exist; the duplicate check reads this session's decrypted
+          // working set and never leaves the device.
+          const labContext = await loadPkmAgentLabContext({
+            userId: user.uid,
+            vaultOwnerToken: token,
+          }).catch(() => null);
           const prepared = await prepareNaturalLanguagePkm({
             userId: user.uid,
             message: sourceText,
             currentDomains: context.domains,
+            currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
+            findDuplicate: (candidate) =>
+              AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
             vaultOwnerToken: token,
             source: "agent_chat_profile_import",
             onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
@@ -3892,9 +4137,31 @@ export function AgentChatWorkspace({
           const reviewBlockCount = prepared.sourceCoverage.filter(
             (block) => block.disposition === "review_required",
           ).length;
+          const failedBlockCount = prepared.sourceCoverage.filter(
+            (block) => block.disposition === "failed",
+          ).length;
+          const duplicateCount = prepared.sourceCoverage.reduce(
+            (total, block) => total + (block.duplicateCount || 0),
+            0,
+          );
+          const excludedSecretCount = prepared.sourceCoverage.reduce(
+            (total, block) => total + (block.excludedSecretCount || 0),
+            0,
+          );
+          const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
+          const parts = [
+            `I organized ${reviewableCards.length} ${plural(reviewableCards.length, "item", "items")} from ${prepared.sourceCoverage.length} ${plural(prepared.sourceCoverage.length, "section", "sections")}, grouped by where each would live.`,
+            reviewBlockCount ? `${reviewBlockCount} ${plural(reviewBlockCount, "section needs", "sections need")} your decision.` : "",
+            duplicateCount ? `${duplicateCount} ${plural(duplicateCount, "item is", "items are")} already in Memory and ${plural(duplicateCount, "was", "were")} left out.` : "",
+            removedCardNumbers ? `${removedCardNumbers} card ${plural(removedCardNumbers, "number was", "numbers were")} removed on this device before analysis and never sent; use the secure Wallet form for cards.` : "",
+            excludedSecretCount ? `${excludedSecretCount} ${plural(excludedSecretCount, "item looks", "items look")} like a card number, password, or id and ${plural(excludedSecretCount, "was", "were")} excluded; use the secure Wallet form for cards.` : "",
+            failedBlockCount ? `${failedBlockCount} ${plural(failedBlockCount, "section", "sections")} could not be prepared; paste ${plural(failedBlockCount, "it", "them")} again on ${plural(failedBlockCount, "its", "their")} own.` : "",
+            ignoredBlockCount ? `${ignoredBlockCount} ${plural(ignoredBlockCount, "section was", "sections were")} intentionally excluded.` : "",
+            "Keep or skip each item, then save.",
+          ].filter(Boolean);
           updateMessage(assistantMessageId, (message) => ({
             ...message,
-            text: `I accounted for all ${prepared.sourceCoverage.length} source ${prepared.sourceCoverage.length === 1 ? "block" : "blocks"} and organized ${reviewableCards.length} memory ${reviewableCards.length === 1 ? "section" : "sections"} for review.${reviewBlockCount ? ` ${reviewBlockCount} ${reviewBlockCount === 1 ? "block needs" : "blocks need"} your decision.` : ""}${ignoredBlockCount ? ` ${ignoredBlockCount} ${ignoredBlockCount === 1 ? "block was" : "blocks were"} intentionally excluded.` : ""} Review the destination, sensitivity, and sharing posture before saving.`,
+            text: parts.join(" "),
             status: "done",
           }));
         } catch (error) {
@@ -4028,6 +4295,32 @@ export function AgentChatWorkspace({
     setComposerExpanded(false);
     const purpose = composerPurpose;
     setComposerPurpose(null);
+    // The memory-import path sends plaintext to the PKM structuring API, so
+    // the card-number paste guard must run here too, not only in runAgentTurn.
+    // A long recap is not thrown away for one card line: the number is
+    // redacted on this device before anything leaves it, and the summary says
+    // so. A plain chat message carrying a card number is still blocked.
+    if (purpose === "memory" && detectLikelyPan(text)) {
+      enqueueMemoryImport(redactLikelyPans(text), countLikelyPans(text));
+      return;
+    }
+    if (detectLikelyPan(text)) {
+      appendMessage({
+        id: `msg-${Date.now()}-pan-blocked`,
+        role: "assistant",
+        text: "That looked like a full card number, so it was blocked on this device and never sent. Use the secure form to save a card.",
+        timestamp: formatNow(),
+        status: "done",
+        renderAsPlainAssistantMessage: true,
+      });
+      if (WalletService.isEnabled()) {
+        setCardWidgets((current) => [
+          ...current,
+          { id: `pan-guard-${Date.now()}`, kind: "add" },
+        ]);
+      }
+      return;
+    }
     if (purpose === "memory") {
       enqueueMemoryImport(text);
       return;
@@ -4162,6 +4455,7 @@ export function AgentChatWorkspace({
       return;
     }
     setPkmReviews([]);
+    setCardWidgets([]);
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
@@ -4595,10 +4889,63 @@ export function AgentChatWorkspace({
                   key={review.id}
                   cards={review.cards}
                   saving={review.saving}
+                  selectedCardIds={review.selectedCardIds}
+                  onToggleCard={(cardId, selected) => togglePkmReviewCards(review.id, [cardId], selected)}
+                  onToggleGroup={(cardIds, selected) => togglePkmReviewCards(review.id, cardIds, selected)}
                   onSave={() => void handleSavePkmReview(review.id)}
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
               ))}
+
+              {cardWidgets.map((widget) =>
+                widget.kind === "add" ? (
+                  <SecureCardAddForm
+                    key={widget.id}
+                    compact
+                    onSubmit={async (card) => {
+                      const token = getVaultOwnerToken();
+                      if (!user?.uid || !vaultKey || !token) {
+                        throw new Error("Unlock your vault to save a card.");
+                      }
+                      const saved = await WalletService.addCard({
+                        userId: user.uid,
+                        vaultKey,
+                        vaultOwnerToken: token,
+                        card,
+                        surface: "chat",
+                        source: "agent_chat_wallet_add",
+                      });
+                      setCardWidgets((current) =>
+                        current.filter((item) => item.id !== widget.id),
+                      );
+                      appendMessage({
+                        id: `msg-${Date.now()}-card-saved`,
+                        role: "assistant",
+                        text: `Saved card "${saved.summary.nickname || saved.summary.brand}" ending ${saved.summary.last4}.`,
+                        timestamp: formatNow(),
+                        status: "done",
+                        renderAsPlainAssistantMessage: true,
+                      });
+                    }}
+                    onCancel={() =>
+                      setCardWidgets((current) =>
+                        current.filter((item) => item.id !== widget.id),
+                      )
+                    }
+                  />
+                ) : (
+                  <SecureCardReveal
+                    key={widget.id}
+                    summary={widget.summary}
+                    secrets={widget.secrets}
+                    onDismiss={() =>
+                      setCardWidgets((current) =>
+                        current.filter((item) => item.id !== widget.id),
+                      )
+                    }
+                  />
+                ),
+              )}
 
               {pendingAppAction ? (
                 <SpecialistDirectiveCard

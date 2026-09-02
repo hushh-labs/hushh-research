@@ -132,6 +132,14 @@ CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
         status="active_core",
     ),
     DomainContractEntry(
+        domain_key="wallet",
+        display_name="Wallet",
+        icon_name="credit-card",
+        color_hex="#B45309",
+        description="Owner-stored credit and debit cards, encrypted client-side under the vault key",
+        status="active_core",
+    ),
+    DomainContractEntry(
         domain_key="entertainment",
         display_name="Entertainment",
         icon_name="tv",
@@ -271,9 +279,29 @@ SOURCE_LIBRARY_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
     ),
 )
 
+WALLET_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
+    DomainSubintentEntry(
+        domain_key="wallet.summary",
+        parent_domain="wallet",
+        display_name="Card Summaries",
+        icon_name="credit-card",
+        color_hex="#B45309",
+        description="Card nicknames, brand, last four digits, expiry, and issuing region",
+    ),
+    DomainSubintentEntry(
+        domain_key="wallet.secrets",
+        parent_domain="wallet",
+        display_name="Card Secrets",
+        icon_name="key-round",
+        color_hex="#B45309",
+        description="Full card number, CVV, PIN, and cardholder name, revealed only on explicit owner consent",
+    ),
+)
+
 CANONICAL_SUBINTENT_REGISTRY = (
     *FINANCIAL_SUBINTENT_REGISTRY,
     *SOURCE_LIBRARY_SUBINTENT_REGISTRY,
+    *WALLET_SUBINTENT_REGISTRY,
 )
 CANONICAL_SUBINTENT_KEYS = tuple(entry.domain_key for entry in CANONICAL_SUBINTENT_REGISTRY)
 CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBINTENT_KEYS}))
@@ -281,7 +309,7 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 # These domains are protocol-reserved and writable only through first-party
 # owner-authorized PKM paths.  They must never be invented or repurposed by the
 # semantic structure agent as arbitrary user domains.
-OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"source_library"})
+OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"source_library", "wallet"})
 
 DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
     "identity": DomainSharingPolicy(
@@ -330,6 +358,23 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
             }
         ),
         requestable_scopes=frozenset(),
+        allow_public_projection=False,
+    ),
+    "wallet": DomainSharingPolicy(
+        domain_key="wallet",
+        allow_domain_wildcard=False,
+        # Reserved owner-managed domain, but deliberately shareable: external
+        # systems may request card summaries or full card secrets as exactly
+        # these branch wildcards, and every grant is an explicit owner approval
+        # delivered through the consent-gated encrypted export path.  The
+        # domain-level wildcard and exact-path scopes stay non-requestable.
+        allowed_manifest_path_prefixes=("summary", "secrets"),
+        requestable_scopes=frozenset(
+            {
+                "attr.wallet.summary.*",
+                "attr.wallet.secrets.*",
+            }
+        ),
         allow_public_projection=False,
     ),
 }

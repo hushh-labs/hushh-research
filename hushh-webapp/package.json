@@ -120,7 +120,7 @@
     "jspdf": "^4.2.1",
     "libphonenumber-js": "^1.13.10",
     "lucide-react": "^0.577.0",
-    "next": "^16.2.10",
+    "next": "^16.2.11",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.4.3",
     "react": "^19.2.5",
@@ -151,7 +151,7 @@
     "eslint-config-next": "^16.2.4",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^25.0.0",
-    "mermaid": "11.16.0",
+    "mermaid": "11.17.2",
     "playwright": "^1.59.1",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.4.0",
@@ -164,39 +164,29 @@
     "@tootallnate/once": "3.0.1",
     "@xmldom/xmldom": "0.8.13",
     "@eslint/config-array": {
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.13"
-      }
+      "minimatch": "3.1.5"
     },
     "@eslint/eslintrc": {
       "ajv": "6.14.0",
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.13"
-      }
+      "minimatch": "3.1.5",
+      "js-yaml": "4.3.1"
     },
     "eslint": {
       "ajv": "6.14.0",
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.13"
-      }
+      "minimatch": "3.1.5"
     },
     "firebase-admin": {
       "node-forge": "1.4.0"
     },
-    "dompurify": "3.4.12",
-    "fast-xml-parser": "5.10.0",
+    "dompurify": "3.4.13",
+    "fast-xml-parser": "5.10.1",
     "flatted": "3.4.2",
     "@capacitor/cli": {
-      "glob": "13.0.6"
+      "glob": "13.0.6",
+      "tar": "7.5.21"
     },
     "glob": {
-      "minimatch": {
-        ".": "10.2.4",
-        "brace-expansion": "5.0.5"
-      }
+      "minimatch": "10.2.4"
     },
     "micromatch": {
       "picomatch": "2.3.2"
@@ -219,17 +209,24 @@
     "router": {
       "path-to-regexp": "8.4.0"
     },
-    "postcss": "8.5.18",
+    "postcss": {
+      ".": "8.5.23",
+      "nanoid": "3.3.18"
+    },
     "uuid": "11.1.1",
     "google-gax": "4.6.1",
     "hono": "4.12.8",
     "http-proxy-agent": "7.0.2",
-    "protobufjs": "7.6.3",
+    "protobufjs": "7.6.5",
     "proto3-json-serializer": "3.0.5",
     "retry-request": "8.0.2",
-    "tar": "7.5.16",
+    "tar": "7.5.21",
     "teeny-request": "10.1.0",
     "typescript-eslint": "8.57.0",
-    "yauzl": "3.2.1"
+    "yauzl": "3.2.1",
+    "browserslist": "4.28.7",
+    "sharp": "0.35.0",
+    "brace-expansion@<2": "1.1.18",
+    "brace-expansion@>=2": "5.0.9"
   }
 }

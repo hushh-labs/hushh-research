@@ -256,6 +256,7 @@ export interface HushhConsentPlugin {
   revokeConsent(options: {
     userId: string;
     scope: string;
+    requestId?: string;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean; lockVault?: boolean }>;
 }

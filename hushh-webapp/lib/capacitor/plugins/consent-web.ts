@@ -116,6 +116,7 @@ export class HushhConsentWeb extends WebPlugin {
   async revokeConsent(options: {
     userId: string;
     scope: string;
+    requestId?: string;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean; lockVault?: boolean }> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -129,6 +130,7 @@ export class HushhConsentWeb extends WebPlugin {
       body: JSON.stringify({
         userId: options.userId,
         scope: options.scope,
+        ...(options.requestId ? { requestId: options.requestId } : {}),
       }),
     });
 

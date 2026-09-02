@@ -166,10 +166,12 @@
       ],
       "reachability": {
         "routes": [
-          "/one/pkm"
+          "/one/pkm",
+          "/one/pkm/recent"
         ],
         "screens": [
-          "pkm"
+          "pkm",
+          "pkm_recent"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []

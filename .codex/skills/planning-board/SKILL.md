@@ -1,6 +1,6 @@
 ---
 name: planning-board
-description: Use when inspecting, summarizing, creating, triaging, or updating work on the Hussh Engineering Core GitHub board.
+description: Use when inspecting, summarizing, creating, triaging, or updating work on the Hussh Engineering Core (Project 73) or Hussh Action Items (Project 79) GitHub boards.
 ---
 
 # Hussh Planning Board Skill
@@ -8,7 +8,8 @@ description: Use when inspecting, summarizing, creating, triaging, or updating w
 ## Purpose and Trigger
 
 - Primary scope: `planning-board-intake`
-- Trigger on `Hussh Engineering Core` board summaries, issue-backed board item creation, triage, and field updates.
+- Trigger on `Hussh Engineering Core` or `Hussh Action Items` board summaries, issue-backed board item creation, triage, and field updates.
+- Board selection: `board_ops.py --board engineering-core` (default, Project 73) or `--board action-items` (Project 79, the `Inbox → Accepted → In Progress → Ready for QA → Ready For UAT → Done` lifecycle). Field differences are resolved against the live field catalog; see the per-board references.
 - Avoid overlap with `repo-operations` and `repo-context`.
 
 ## Coverage and Ownership
@@ -41,8 +42,9 @@ Non-owned surfaces:
 ## Read First
 
 1. `.codex/skills/planning-board/references/engineering-core-board.md`
-2. `docs/project_context_map.md`
-3. `docs/reference/operations/coding-agent-mcp.md`
+2. `.codex/skills/planning-board/references/action-items-board.md`
+3. `docs/project_context_map.md`
+4. `docs/reference/operations/coding-agent-mcp.md`
 
 ## Workflow
 

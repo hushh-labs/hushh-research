@@ -433,6 +433,14 @@ the relay forwards it exactly once as a `clientDirective` frame, ordered with
 the event stream. The client executes it (`agent-bar.tsx` handles
 `kind: "navigate"` via `router.push`).
 
+Typed Agent Chat (AG-UI) has no session-state relay, so `run_app_action`
+also returns the parked `directive` (`actionId`, `slots`, `needsConfirmation`,
+`trustedActivationRequired`) in its tool result. `agent-chat-client.ts`
+turns a `ready_to_run` / `confirm_pending` result into a frontend tool event:
+the workspace runs it immediately when no confirmation is owed, and stages the
+confirmation card otherwise. Before this, typed chat could only say "running
+now" for a local handler and nothing ran (2026-09-02).
+
 `open_screen` is allowlist-governed: `APP_ROUTES` in `agent_tree.py` maps
 screen ids to routes; anything outside the map is refused by construction.
 `run_app_action` is the broader governed-action lane: it looks up an exact

@@ -1,0 +1,179 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_wallet_widgets",
+  "surface_title": "One Cards Widgets",
+  "docs_references": [
+    "docs/reference/one/one-agent-hierarchy.md",
+    "docs/reference/iam/consent-scope-catalog.md"
+  ],
+  "defaults": {
+    "delegate_agent_id": "agent_wallet",
+    "reachability": {
+      "routes": [
+        "/agent",
+        "/one",
+        "/one/wallet"
+      ],
+      "screens": [
+        "app",
+        "one_agents",
+        "one_wallet"
+      ],
+      "hidden_navigable": true,
+      "navigation_prerequisites": [
+        "signed-in vault-owner token and an unlocked vault are required for card operations"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "wallet.list",
+      "label": "List my cards",
+      "meaning": "Lists card nicknames, brand, last four digits, expiry, and issuing region from the owner's vault, decrypted on this device only.",
+      "aliases": [
+        "list my cards",
+        "what cards do I have",
+        "show my saved cards"
+      ],
+      "search_keywords": [
+        "cards",
+        "wallet cards",
+        "credit card",
+        "debit card"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "agent_chat_wallet_list"
+      },
+      "control_ids": [
+        "agent-chat-wallet-list"
+      ],
+      "state_exposure": [
+        "card metadata (nickname, brand, last4, expiry, region)"
+      ],
+      "goal": {
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Decrypt card summaries on this device",
+            "service": "frontend.wallet.list",
+            "failure_behavior": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "wallet.add",
+      "label": "Add a card",
+      "meaning": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat.",
+      "aliases": [
+        "add a card",
+        "save my card",
+        "store a new card"
+      ],
+      "search_keywords": [
+        "add card",
+        "new card",
+        "save card"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "agent_chat_wallet_add"
+      },
+      "control_ids": [
+        "secure-card-add-form"
+      ],
+      "state_exposure": [
+        "whether the secure add form is open"
+      ],
+      "goal": {
+        "required_inputs": [],
+        "slot_schema": {
+          "nickname": {
+            "type": "string",
+            "maxLength": 60
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Open the secure add-card form",
+            "service": "frontend.wallet.add",
+            "failure_behavior": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "wallet.reveal",
+      "label": "Reveal a card",
+      "meaning": "Decrypts one stored card in the browser and shows it in a secure inline widget that auto-hides; the details never reach the model or the server.",
+      "aliases": [
+        "show my card details",
+        "reveal my card",
+        "what is my card number"
+      ],
+      "search_keywords": [
+        "reveal card",
+        "card number",
+        "cvv",
+        "card details"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "agent_chat_wallet_reveal"
+      },
+      "control_ids": [
+        "secure-card-reveal"
+      ],
+      "state_exposure": [
+        "which stored card was shown (nickname and last4 only)"
+      ],
+      "goal": {
+        "required_inputs": [
+          {
+            "name": "card_ref",
+            "slot": "card_ref",
+            "prompt": "Which card should I show? Use its nickname or last four digits.",
+            "required": true
+          }
+        ],
+        "slot_schema": {
+          "card_ref": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Decrypt and show the card privately on this device",
+            "service": "frontend.wallet.reveal",
+            "failure_behavior": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

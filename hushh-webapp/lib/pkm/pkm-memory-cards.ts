@@ -83,6 +83,9 @@ const INTERNAL_PKM_DOMAINS = new Set([
   "kyc_connector",
   "kyc_workflow",
   "runtime_secrets",
+  // The wallet domain itself is memory-visible (nickname, network, last4);
+  // its `secrets` branch is pruned by SECRET_KEY_PATTERN below, so PAN, CVV,
+  // and PIN reach only the on-device reveal widget.
 ]);
 
 function compact(value: unknown): string {

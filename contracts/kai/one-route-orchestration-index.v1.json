@@ -57,7 +57,7 @@
       "route_pattern": "/agent",
       "page_file": "app/agent/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.agent",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -87,13 +87,19 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
-        "mode": "no_delegation",
-        "allowed_delegate_agent_ids": []
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_wallet"
+        ]
       },
-      "trust_boundary": "none",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-agent"
     },
     {
@@ -143,7 +149,7 @@
       "route_pattern": "/blog/[slug]",
       "page_file": "app/blog/[slug]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.blog.slug",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -173,7 +179,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1406,14 +1416,18 @@
         "route.one_feed",
         "route.one_location",
         "route.one_pkm",
-        "route.voice_settings"
+        "route.voice_settings",
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "one_action_gate",
         "allowed_delegate_agent_ids": [
           "agent_location",
-          "agent_nav"
+          "agent_nav",
+          "agent_wallet"
         ]
       },
       "trust_boundary": "consent",
@@ -1610,7 +1624,7 @@
       "route_pattern": "/one/connected-systems/[systemId]",
       "page_file": "app/one/connected-systems/[systemId]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.connected.systems.systemid",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1640,7 +1654,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1704,7 +1722,7 @@
       "route_pattern": "/one/email",
       "page_file": "app/one/email/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.email",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1734,7 +1752,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -3272,6 +3294,53 @@
       "native_surface_id": "native-route-pkm"
     },
     {
+      "route_pattern": "/one/pkm/recent",
+      "page_file": "app/one/pkm/recent/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.pkm.recent",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.pkm.recent",
+        "purpose": "Help the person browse the latest memories One has kept, through its generated controls.",
+        "screen": "pkm_recent",
+        "entry_cue": "You can say “Open Memory” to return to the Memory home from this list.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.one_pkm",
+        "happy_path_action_ids": [
+          "route.one_pkm"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": "/one/pkm/recent",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "pkm_recent",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.one_pkm"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "consent",
+      "native_surface_id": "native-route-pkm-recent"
+    },
+    {
       "route_pattern": "/one/profile",
       "page_file": "app/one/profile/page.tsx",
       "route_mode": "standard",
@@ -4802,7 +4871,7 @@
       "route_pattern": "/one/puppy",
       "page_file": "app/one/puppy/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.puppy",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4832,7 +4901,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -5446,10 +5519,64 @@
       "native_surface_id": "native-route-ria-onboarding"
     },
     {
+      "route_pattern": "/one/wallet",
+      "page_file": "app/one/wallet/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one_wallet",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one_wallet",
+        "purpose": "Help the owner store, list, reveal, or remove vault-encrypted wallet cards without card secrets entering chat.",
+        "screen": "one_wallet",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [
+          "wallet.list",
+          "wallet.add",
+          "wallet.reveal"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally without inventing a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_wallet",
+      "voice_contract_file": "app/one/wallet/page.voice-action-contract.json",
+      "action_ids": [
+        "route.one_wallet",
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_wallet"
+        ]
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-one-wallet"
+    },
+    {
       "route_pattern": "/one/wallet-card",
       "page_file": "app/one/wallet-card/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.wallet.card",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -5479,7 +5606,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -5861,7 +5992,7 @@
       "route_pattern": "/research/protocol",
       "page_file": "app/research/protocol/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.research.protocol",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -5891,7 +6022,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6471,7 +6606,7 @@
       "route_pattern": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.welcome",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6501,7 +6636,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",

@@ -13,6 +13,15 @@
           "cap.one.invoke"
         ]
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -151,6 +160,13 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": "HUSHH_LOCAL_CRM_ENABLED",
+        "environments": [
+          "development"
+        ],
+        "loopback_only": true
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -209,6 +225,13 @@
       "status": "experimental",
       "subagents": [
         {
+          "availability": {
+            "enable_flag": "HUSHH_LOCAL_CRM_ENABLED",
+            "environments": [
+              "development"
+            ],
+            "loopback_only": true
+          },
           "description": "Maps a CRM's public field catalogue to the verified-profile semantics needed for safe onboarding.",
           "id": "crm_schema_mapper",
           "inputs": [
@@ -287,6 +310,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -370,6 +402,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -377,7 +418,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Approval-draft and client-request workflow specialist under One.",
+      "description": "Approval-draft, client-request, and owner-consented Gmail information-request workflow specialist under One.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -437,11 +478,11 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "1d169d936a81f8595655177069c54c1f9fa7ff0c6ad9e94ba71d26706446d76c",
+      "system_instruction_sha256": "a02d9db8adc0466768889d75cf4ac320f785a30fe4e61d35907fb63d5351c532",
       "telemetry_namespace": "agent.email",
       "tools": [],
       "ui_type": "chat",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "action_ids": [],
@@ -449,6 +490,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -545,6 +595,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -628,6 +687,15 @@
         "invocation": [
           "agent.kai.analyze"
         ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -717,6 +785,15 @@
       "status": "experimental",
       "subagents": [
         {
+          "availability": {
+            "enable_flag": null,
+            "environments": [
+              "development",
+              "uat",
+              "production"
+            ],
+            "loopback_only": false
+          },
           "description": "Advisor-workspace subagent owned by Kai Finance.",
           "id": "agent_ria",
           "inputs": [],
@@ -753,6 +830,15 @@
           "telemetry_namespace": "agent.kai.ria"
         },
         {
+          "availability": {
+            "enable_flag": null,
+            "environments": [
+              "development",
+              "uat",
+              "production"
+            ],
+            "loopback_only": false
+          },
           "description": "Personal portfolio-review subagent owned by Kai Finance.",
           "id": "agent_investor",
           "inputs": [],
@@ -832,6 +918,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {
         "approved_disclosure_formatter": {
@@ -948,6 +1043,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -1085,6 +1189,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -1122,7 +1235,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_intent/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.1-pro-preview",
       "name": "Memory Intent Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1215,7 +1328,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "873b8d288587c7083fefef6bec87d7e7d3d953a5e7e80da47778984e1ae73196",
+      "system_instruction_sha256": "8aa618e35814e9fff42dc12bf336007c1ca4febcbcb29048a5dc41d9dd3e38eb",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -1227,6 +1340,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -1371,6 +1493,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -1398,7 +1529,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_segmentation/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.1-pro-preview",
       "name": "Memory Segmentation Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1461,7 +1592,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "fe3f0683065e67e48dc57b2186deb7754e79b80e099b27148fe2a0d0a8ea6f6f",
+      "system_instruction_sha256": "44f8f84be468807b58660c9369b9594a1e686b0456587e9240d80b5d29dc9750",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -1473,6 +1604,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {
         "direct_subagents": [
@@ -1560,6 +1700,15 @@
         "invocation": [
           "one.internal"
         ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -1677,6 +1826,15 @@
           "cap.one.invoke"
         ]
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {
         "heads": {
           "live": "gemini-3.1-flash-live-preview",
@@ -1685,6 +1843,7 @@
         },
         "specialist_roster": [
           "agent_kai",
+          "agent_wallet",
           "agent_nav",
           "agent_kyc",
           "agent_email",
@@ -1775,7 +1934,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "a2b0351622f9b900559ee22a426593e4c659b0b2852ba8c5e8409809901494c2",
+      "system_instruction_sha256": "8965c08c82e1bd6a64fa26b10a53f08aa49bb26ee359299209c31c3a31283ee2",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",
@@ -1787,6 +1946,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -1904,6 +2072,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -2042,6 +2219,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -2189,6 +2375,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -2271,6 +2466,129 @@
       },
       "system_instruction_sha256": "f26e3f760cd855eedd8966c5c89352e844cf1493edf7f5eed9aecf27b80cb769",
       "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [
+        "route.one_wallet",
+        "wallet.list",
+        "wallet.add",
+        "wallet.reveal"
+      ],
+      "authorities": {
+        "actions": [
+          "wallet.list",
+          "wallet.add",
+          "wallet.reveal"
+        ],
+        "data": [],
+        "invocation": [
+          "agent.wallet.manage"
+        ]
+      },
+      "availability": {
+        "enable_flag": "ONE_WALLET_ENABLED",
+        "environments": [
+          "development"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex",
+          "byok"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Payment-cards specialist that helps the owner store, list, and reveal vault-encrypted credit and debit cards without card secrets ever entering model context.",
+      "evaluations": [],
+      "failure_states": [
+        "vault_locked",
+        "feature_disabled"
+      ],
+      "icon": "credit-card",
+      "id": "agent_wallet",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "consent_token",
+          "type": "string"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/wallet/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-3.7-flash",
+        "provider": "gemini"
+      },
+      "name": "Cards Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "response",
+          "type": "string"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 4000,
+        "max_output_tokens": 2048
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "agent.wallet.manage"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_WALLET_AGENT_DISABLED",
+        "rollback": "Remove the Cards AgentTool from One's roster; the /one/wallet surface keeps working without chat.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": "hushh_mcp.one_adk.agent_tree._build_wallet_agent",
+        "kind": "adk",
+        "transport": [
+          "in_process",
+          "chat"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, and MCP exposure are deliberately withheld while card reveal is a screen-only interaction.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "5d17579fa588e8e61791865ff3e95dd21a60dacc771d7c0371849c8c8c8080d2",
+      "telemetry_namespace": "agent.cards",
       "tools": [],
       "ui_type": "chat",
       "version": "1.0.0"

@@ -65,7 +65,9 @@ from hushh_mcp.one_adk.action_tools import (
     list_my_location_shares,
     list_my_outgoing_location_requests,
     list_pending_connection_requests,
+    list_pending_information_requests,
     list_pending_location_requests,
+    propose_information_request,
     run_app_action,
     start_app_goal,
 )
@@ -76,6 +78,7 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+from hushh_mcp.runtime_settings import one_wallet_enabled
 from hushh_mcp.services.action_gateway import (
     AVAILABLE_ACTION_IDS_CAP,
     get_action_gateway_action,
@@ -96,16 +99,17 @@ ONE_APP_NAME = "hussh_one"
 _AGENTS_ROOT = Path(__file__).resolve().parents[1] / "agents"
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def _load_product_agent_manifest(agent_id: str) -> AgentManifestV2:
     """Load the authored AgentManifestV2; Python builders are projections only."""
-    if agent_id not in {"one", "kai"}:
+    if agent_id not in {"one", "kai", "wallet"}:
         raise ValueError(f"Unsupported product-agent manifest: {agent_id}")
     return ManifestLoader.load(str(_AGENTS_ROOT / agent_id / "agent.yaml"))
 
 
 _ONE_MANIFEST = _load_product_agent_manifest("one")
 _KAI_MANIFEST = _load_product_agent_manifest("kai")
+_WALLET_MANIFEST = _load_product_agent_manifest("wallet")
 
 # Session-state keys the relay seeds before the first turn. Tools read them
 # via tool_context.state; the model neither sees nor supplies them.
@@ -1537,6 +1541,25 @@ def _build_finance_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
+def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
+    """Cards head: metadata-only conversation over client-executed actions.
+
+    Unlike Finance, no PKM context is ever injected - the manifest's
+    context_allowlist is empty by design. Every real operation (list, add,
+    reveal) executes client-side through the Action Gateway, where the browser
+    decrypts under the vault key; card secrets never reach this agent, the
+    model, or the server in plaintext.
+    """
+    specialist_model = model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    return LlmAgent(
+        name="wallet",
+        model=specialist_model,
+        description=_WALLET_MANIFEST.description,
+        instruction=str(_WALLET_MANIFEST.system_instruction),
+        tools=[],
+    )
+
+
 def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
     """The full /one specialist roster, shared by every One head.
 
@@ -1605,6 +1628,8 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         list_my_outgoing_location_requests,
         list_my_connections,
         discover_person_information,
+        list_pending_information_requests,
+        propose_information_request,
         list_pending_connection_requests,
         calendar_summary,
         calendar_events,
@@ -1616,6 +1641,13 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
     ]
     if _CRM_PRODUCT_AVAILABLE:
         tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)
+    # Evaluated at roster-build time (not import) so tests and per-deploy env
+    # both see the live flag. Off by default: no Cards specialist in the tree.
+    if one_wallet_enabled():
+        tools.insert(
+            tools.index(ask_email_agent),
+            AgentTool(agent=_build_wallet_agent(model=specialist_model)),
+        )
     return tools
 
 

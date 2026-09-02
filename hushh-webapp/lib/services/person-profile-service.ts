@@ -97,6 +97,18 @@ export class PersonProfileService {
     return payload.exports || [];
   }
 
+  static async getInformationRequest(input: {
+    bundleId: string;
+    vaultOwnerToken: string;
+  }): Promise<InformationRequestBundle> {
+    return jsonOrThrow<InformationRequestBundle>(
+      await ApiService.apiFetch(
+        `/api/one/information-requests/${encodeURIComponent(input.bundleId)}`,
+        { headers: { Authorization: `Bearer ${input.vaultOwnerToken}` } },
+      ),
+    );
+  }
+
   static async cancelInformationRequest(input: {
     bundleId: string;
     vaultOwnerToken: string;
