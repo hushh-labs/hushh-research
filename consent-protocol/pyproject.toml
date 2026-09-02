@@ -34,7 +34,7 @@ dependencies = [
     "grpcio-status==1.76.0",
     "gunicorn==25.3.0",
     "httpx>=0.27.1,<0.29",
-    "mcp==1.26.0",
+    "mcp==1.28.1",
     "opentelemetry-api>=1.33.0",
     "opentelemetry-exporter-gcp-trace>=1.8.0",
     "opentelemetry-instrumentation-fastapi>=0.54b0",
