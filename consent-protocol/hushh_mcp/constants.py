@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from enum import Enum
-from typing import Optional
+from typing import Mapping, Optional
 
 # ==================== Consent Scopes ====================
 
@@ -377,7 +377,15 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # on 3.1 pro preview, the reducer on 3.1 flash lite, the Live head) are
 # deliberate and stay explicit in their manifests.
 FLEET_TEXT_MODEL_DEFAULT = "gemini-3.7-flash"
-GEMINI_MODEL = (os.getenv("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
+
+
+def fleet_text_model_from_env(environ: "Mapping[str, str] | None" = None) -> str:
+    """The switched fleet text model: HUSSH_GEMINI_TEXT_MODEL, else the proven default."""
+    source = os.environ if environ is None else environ
+    return (source.get("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
+
+
+GEMINI_MODEL = fleet_text_model_from_env()
 
 # Vertex AI model (for Google Cloud deployments)
 GEMINI_MODEL_VERTEX = GEMINI_MODEL
