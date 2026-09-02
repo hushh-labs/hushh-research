@@ -16,8 +16,7 @@ import {
 import {
   CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
-  isFocusedConnectCircleTask,
-  readConnectCircleAction,
+  isFocusedConnectCircleTask,  readConnectCircleAction,
 } from "@/lib/navigation/connect-routes";
 import {
   buildNearbyCheckInResumeHref,
@@ -1026,8 +1025,7 @@ function resolveTopShellBreadcrumbInner(
       action,
       searchParams?.get("circleId") ?? null,
     );
-    if (label && isFocusedTask) {
-      return {
+    if (label && isFocusedTask) {      return {
         // Back closes the flow and returns to the list, naming the tab
         // explicitly -- the App Router refuses a navigation whose only change
         // is the whole query string disappearing.
@@ -1036,8 +1034,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         hideBack: false,
-        items: [{ label }],
-      };
+        items: [{ label }],      };
     }
   }
 

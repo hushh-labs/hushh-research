@@ -110,8 +110,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       hideBack: false,
       items: [{ label: "One" }],
-    });
-  });
+    });  });
 
   it("uses the shared top-left back affordance for Calendar", () => {
     expect(resolveTopShellBreadcrumb("/one/calendar")).toEqual({

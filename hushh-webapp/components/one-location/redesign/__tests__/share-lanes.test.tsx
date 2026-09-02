@@ -288,6 +288,11 @@ const HUB = path.join(
   "components/one-location/redesign/location-redesign-hub.tsx",
 );
 const source = readFileSync(HUB, "utf8");
+const LIVE_SHARE_STATUS_CARD = path.join(
+  process.cwd(),
+  "components/one-location/redesign/live-share-status-card.tsx",
+);
+const liveShareStatusCardSource = readFileSync(LIVE_SHARE_STATUS_CARD, "utf8");
 
 describe("hub wiring", () => {
   it("no longer binds a person's Stop to the FIRST grant it can find", () => {
@@ -295,7 +300,9 @@ describe("hub wiring", () => {
     // exact shape of the bug: one tap, one grant stopped, the other left live
     // with nothing on screen admitting it exists.
     expect(source).not.toContain("(g) => g.recipientUserId === r.userId");
-    expect(source).toContain("ownerGroupsByUserId.get(r.userId)");
+    expect(source).toContain("const ownerGroupsByUserId = useMemo(() => {");
+    expect(source).toContain("ownerGroupsByUserId.get(recipient.userId)");
+    expect(source).toContain("ShareLanesDisclosure");
   });
 
   it("renders every people-listing surface from grouped grants", () => {
@@ -323,6 +330,8 @@ describe("hub wiring", () => {
     // The common case must not have grown a step: the chevron appears only for
     // somebody who genuinely holds two.
     expect(source).toContain("group.grants.length === 1");
-    expect(source).toContain("shareGroup.grants.length === 1");
+    expect(liveShareStatusCardSource).toContain(
+      "status.grantCount === 1 && Boolean(status.stoppableGrantId)",
+    );
   });
 });

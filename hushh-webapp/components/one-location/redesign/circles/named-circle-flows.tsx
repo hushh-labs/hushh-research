@@ -942,8 +942,7 @@ export function JoinCircleFlow({
               <UsersRound className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">
-                {preview.name}
+              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">                {preview.name}
               </p>
               <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
                 {preview.ownerDisplayName} ·{" "}

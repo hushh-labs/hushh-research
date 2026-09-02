@@ -253,7 +253,7 @@ export function TopShellTabs({
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
                   usesModuleSegmentedTabs
                     ? isActive
-                      ? "font-semibold text-[color:var(--app-label)]"
+                      ? "font-semibold text-[color:var(--app-accent)]"
                       : "font-medium text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]"
                     : isActive
                       ? "text-[color:var(--app-accent)]"

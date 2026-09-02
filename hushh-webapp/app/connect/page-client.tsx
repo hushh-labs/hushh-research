@@ -507,8 +507,7 @@ export default function ConnectPageClient() {
   const isFocusedCircleTask = isFocusedConnectCircleTask(
     surface,
     circleFlowAction,
-    circleFlowId,
-  );
+    circleFlowId,  );
 
   // Every navigation on this page passes `scroll: false`, because the surface
   // strip and the Circle flows are query-only states that must not jump the
@@ -547,8 +546,7 @@ export default function ConnectPageClient() {
   const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const loadMoreDirectoryRef = useRef<HTMLDivElement | null>(null);
   const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
-  const useWebDirectoryPopover = !isNative();
-  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
+  const useWebDirectoryPopover = !isNative();  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
     .trim()
     .slice(0, 160);
   const [query, setQuery] = useState<string>(
@@ -2329,8 +2327,7 @@ export default function ConnectPageClient() {
     >
       {isFocusedCircleTask ? (
         <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
-          <div className="mx-auto w-full max-w-[560px]">
-            <ConnectCirclesTab
+          <div className="mx-auto w-full max-w-[560px]">            <ConnectCirclesTab
               onStateChange={setCirclesState}
               currentUserId={user?.uid ?? null}
               onRequestConnection={sendConnectRequest}
@@ -2350,8 +2347,7 @@ export default function ConnectPageClient() {
           </AppPageHeaderRegion>
 
           <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
-            <SurfaceStack compact>
-          <div
+            <SurfaceStack compact>          <div
             ref={connectStackRef}
             className="relative space-y-4 sm:space-y-5"
           >
@@ -2395,8 +2391,7 @@ export default function ConnectPageClient() {
                       {useWebDirectoryPopover ? (
                         <Popover
                           open={directoryMenuOpen}
-                          onOpenChange={setDirectoryMenuOpen}
-                        >
+                          onOpenChange={setDirectoryMenuOpen}                        >
                           <PopoverTrigger asChild>
                             <button
                               ref={directoryMenuButtonRef}
@@ -3152,8 +3147,7 @@ export default function ConnectPageClient() {
           </div>
             </SurfaceStack>
           </AppPageContentRegion>
-        </>
-      )}
+        </>      )}
 
       <Dialog
         open={batchConnectDraft !== null}
