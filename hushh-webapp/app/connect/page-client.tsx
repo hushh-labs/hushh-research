@@ -18,6 +18,7 @@ import {
 
 import {
   AppPageContentRegion,
+  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
@@ -45,10 +46,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import {
@@ -91,8 +98,15 @@ import {
   CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
   CONNECT_SEARCH_PLACEHOLDER,
 } from "./connect-search-layout";
+import { CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME } from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import {
+  CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME,
+  CONNECT_PAGE_CONTENT_CLASSNAME,
+  CONNECT_WRAPPING_TEXT_CLASSNAME,
+  CONNECT_WRAPPING_TITLE_ROW_CLASSNAME,
+} from "./connect-surface-layout";
 
 type ConnectTab = "people" | "advisors" | "nearby";
 
@@ -493,6 +507,7 @@ export default function ConnectPageClient() {
   const isFocusedCircleTask = isFocusedConnectCircleTask(
     surface,
     circleFlowAction,
+    circleFlowId,
   );
 
   // Every navigation on this page passes `scroll: false`, because the surface
@@ -532,6 +547,7 @@ export default function ConnectPageClient() {
   const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const loadMoreDirectoryRef = useRef<HTMLDivElement | null>(null);
   const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
+  const useWebDirectoryPopover = !isNative();
   const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
     .trim()
     .slice(0, 160);
@@ -654,6 +670,7 @@ export default function ConnectPageClient() {
   }, [surface]);
 
   useEffect(() => {
+    if (useWebDirectoryPopover) return;
     if (!directoryMenuOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       const menu = directoryMenuRef.current;
@@ -671,7 +688,7 @@ export default function ConnectPageClient() {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [directoryMenuOpen]);
+  }, [directoryMenuOpen, useWebDirectoryPopover]);
   /**
    * The people picked for a bulk request, held whole rather than by id.
    *
@@ -2244,6 +2261,35 @@ export default function ConnectPageClient() {
     },
   );
 
+  const directoryMenuItems = CONNECT_DIRECTORY_TABS.map((option) => {
+    const active = tab === option.value;
+    return (
+      <button
+        key={option.value}
+        type="button"
+        role="menuitemradio"
+        aria-checked={active}
+        className={cn(
+          "flex min-h-11 w-full items-center justify-between px-3 text-left text-[15px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+          useWebDirectoryPopover ? "rounded-[12px]" : "rounded-[10px]",
+          active
+            ? "text-[color:var(--app-accent)]"
+            : "text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+        )}
+        onClick={() => {
+          setTab(option.value);
+          setDirectoryMenuOpen(false);
+          window.requestAnimationFrame(() =>
+            directoryMenuButtonRef.current?.focus(),
+          );
+        }}
+      >
+        <span>{option.label}</span>
+        {active ? <Check className="h-4 w-4" aria-hidden="true" /> : null}
+      </button>
+    );
+  });
+
   return (
     <AppPageShell
       as="main"
@@ -2282,8 +2328,8 @@ export default function ConnectPageClient() {
       }}
     >
       {isFocusedCircleTask ? (
-        <AppPageContentRegion className="min-w-0 overflow-x-hidden pb-6 sm:pb-8">
-          <div className="mx-auto w-full max-w-[560px] pt-5 sm:pt-6">
+        <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
+          <div className="mx-auto w-full max-w-[560px]">
             <ConnectCirclesTab
               onStateChange={setCirclesState}
               currentUserId={user?.uid ?? null}
@@ -2294,14 +2340,17 @@ export default function ConnectPageClient() {
           </div>
         </AppPageContentRegion>
       ) : (
-      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden pb-[var(--app-bottom-content-clearance)]">
-        <PageHeader
-          title="Connect"
-          titleRole="agent"
-          className="[&_[data-slot=page-header-row]]:!items-center"
-        />
+        <>
+          <AppPageHeaderRegion>
+            <PageHeader
+              title="Connect"
+              titleRole="agent"
+              className="[&_[data-slot=page-header-row]]:!items-center"
+            />
+          </AppPageHeaderRegion>
 
-        <SurfaceStack compact>
+          <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
+            <SurfaceStack compact>
           <div
             ref={connectStackRef}
             className="relative space-y-4 sm:space-y-5"
@@ -2338,63 +2387,74 @@ export default function ConnectPageClient() {
               {surface !== "circles" ? (
                 <div className="flex min-h-11 items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div ref={directoryMenuRef} className="relative">
-                      <button
-                        ref={directoryMenuButtonRef}
-                        type="button"
-                        aria-haspopup="menu"
-                        aria-expanded={directoryMenuOpen}
-                        aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
-                        className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-                        onClick={() =>
-                          setDirectoryMenuOpen((current) => !current)
-                        }
-                      >
-                        {CONNECT_TAB_LABEL[tab]}
-                        <ChevronDown
-                          className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                          aria-hidden
-                        />
-                      </button>
-                      {directoryMenuOpen ? (
-                        <div
-                          role="menu"
-                          className="absolute left-0 top-full z-30 mt-1 w-[184px] overflow-hidden rounded-[14px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] p-1 shadow-[0_10px_30px_rgba(0,0,0,0.10)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                    <div
+                      ref={directoryMenuRef}
+                      data-testid="connect-directory-menu-anchor"
+                      className="relative"
+                    >
+                      {useWebDirectoryPopover ? (
+                        <Popover
+                          open={directoryMenuOpen}
+                          onOpenChange={setDirectoryMenuOpen}
                         >
-                          {CONNECT_DIRECTORY_TABS.map((option) => {
-                            const active = tab === option.value;
-                            return (
-                              <button
-                                key={option.value}
-                                type="button"
-                                role="menuitemradio"
-                                aria-checked={active}
-                                className={cn(
-                                  "flex min-h-11 w-full items-center justify-between rounded-[10px] px-3 text-left text-[15px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
-                                  active
-                                    ? "text-[color:var(--app-accent)]"
-                                    : "text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
-                                )}
-                                onClick={() => {
-                                  setTab(option.value);
-                                  setDirectoryMenuOpen(false);
-                                  window.requestAnimationFrame(() =>
-                                    directoryMenuButtonRef.current?.focus(),
-                                  );
-                                }}
-                              >
-                                <span>{option.label}</span>
-                                {active ? (
-                                  <Check
-                                    className="h-4 w-4"
-                                    aria-hidden="true"
-                                  />
-                                ) : null}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
+                          <PopoverTrigger asChild>
+                            <button
+                              ref={directoryMenuButtonRef}
+                              type="button"
+                              aria-haspopup="menu"
+                              aria-expanded={directoryMenuOpen}
+                              aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                            >
+                              {CONNECT_TAB_LABEL[tab]}
+                              <ChevronDown
+                                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                                aria-hidden
+                              />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            role="menu"
+                            data-testid="connect-directory-menu"
+                            align="start"
+                            side="bottom"
+                            sideOffset={6}
+                            collisionPadding={16}
+                            className={CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME}
+                          >
+                            {directoryMenuItems}
+                          </PopoverContent>
+                        </Popover>
+                      ) : (
+                        <>
+                          <button
+                            ref={directoryMenuButtonRef}
+                            type="button"
+                            aria-haspopup="menu"
+                            aria-expanded={directoryMenuOpen}
+                            aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                            onClick={() =>
+                              setDirectoryMenuOpen((current) => !current)
+                            }
+                          >
+                            {CONNECT_TAB_LABEL[tab]}
+                            <ChevronDown
+                              className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                              aria-hidden
+                            />
+                          </button>
+                          {directoryMenuOpen ? (
+                            <div
+                              role="menu"
+                              data-testid="connect-directory-menu"
+                              className="absolute left-0 top-full z-30 mt-1 w-[184px] overflow-hidden rounded-[14px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] p-1 shadow-[0_10px_30px_rgba(0,0,0,0.10)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                            >
+                              {directoryMenuItems}
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2419,7 +2479,7 @@ export default function ConnectPageClient() {
                   <div className="space-y-4 sm:space-y-5">
                     <SettingsGroup
                       title={
-                        <span className="min-w-0 truncate">
+                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                           {connectionsHeading}
                         </span>
                       }
@@ -2455,7 +2515,7 @@ export default function ConnectPageClient() {
                       separatorInset
                       contentClassName={
                         sortedConnections.length > 0
-                          ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
+                          ? CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME
                           : undefined
                       }
                       testId="connect-my-connections-group"
@@ -2496,8 +2556,10 @@ export default function ConnectPageClient() {
                             // column. The People list below has never stacked; these
                             // two lists sit on the same screen and now agree.
                             title={
-                              <span className="flex min-w-0 items-center gap-1.5">
-                                <span className="min-w-0 truncate">
+                              <span
+                                className={CONNECT_WRAPPING_TITLE_ROW_CLASSNAME}
+                              >
+                                <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                                   {connection.displayName || connection.userId}
                                 </span>
                                 {connection.connectedFromContacts ? (
@@ -2506,7 +2568,8 @@ export default function ConnectPageClient() {
                               </span>
                             }
                             // SettingsRow derives `data-voice-label` from a string
-                            // title, and this one is now an element so it can truncate.
+                            // title, and this one is an element so it can wrap with
+                            // its provenance badge.
                             // Passing the name keeps the attribute the row already had.
                             voiceLabel={
                               connection.displayName || connection.userId
@@ -2864,13 +2927,13 @@ export default function ConnectPageClient() {
                                   />
                                 }
                                 title={
-                                  <span className="block min-w-0 truncate">
+                                  <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                                     {title}
                                   </span>
                                 }
                                 description={
                                   description ? (
-                                    <span className="block min-w-0 truncate">
+                                    <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                                       {description}
                                     </span>
                                   ) : undefined
@@ -3087,8 +3150,9 @@ export default function ConnectPageClient() {
               </>
             )}
           </div>
-        </SurfaceStack>
-      </AppPageContentRegion>
+            </SurfaceStack>
+          </AppPageContentRegion>
+        </>
       )}
 
       <Dialog
@@ -3131,7 +3195,9 @@ export default function ConnectPageClient() {
                         />
                       }
                       title={
-                        <span className="block min-w-0 truncate">{title}</span>
+                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                          {title}
+                        </span>
                       }
                       density="compact"
                       trailing={
@@ -3201,7 +3267,7 @@ export default function ConnectPageClient() {
                       icon={BadgeCheck}
                       iconTone="green"
                       title={
-                        <span className="block min-w-0 truncate">
+                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                           {row.title}
                         </span>
                       }

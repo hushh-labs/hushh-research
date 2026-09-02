@@ -106,6 +106,44 @@ async def test_connect_requests_read_and_send_scopes_together(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_native_connect_returns_only_the_public_server_client_id(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+
+    result = await service.start_native_connect()
+
+    assert result == {
+        "configured": True,
+        "server_client_id": "test-client-id",
+    }
+
+
+@pytest.mark.asyncio
+async def test_native_connect_exchanges_the_one_time_code_without_a_browser_redirect(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+    captured: dict[str, str] = {}
+
+    async def complete_authorized_connect(**kwargs):
+        captured.update(kwargs)
+        return {"connected": True}
+
+    monkeypatch.setattr(service, "_complete_authorized_connect", complete_authorized_connect)
+
+    result = await service.complete_native_connect(
+        user_id="user_123",
+        server_auth_code="one-time-server-code",
+    )
+
+    assert result == {"connected": True}
+    assert captured == {
+        "user_id": "user_123",
+        "code": "one-time-server-code",
+        "redirect_uri": "",
+    }
+
+
+@pytest.mark.asyncio
 async def test_legacy_readonly_connection_requires_reconnect_for_send(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)

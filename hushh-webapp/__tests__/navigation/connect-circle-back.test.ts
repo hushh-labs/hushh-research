@@ -28,7 +28,11 @@ describe("back closes a Circle flow instead of leaving Connect", () => {
     // A flow is a query-only state on the same screen, never a step in the
     // trail -- the same reasoning the Location agent and the profile panel use.
     for (const action of ["create-circle", "join-circle", "circle-detail"]) {
-      const back = backFor(`tab=circles&action=${action}`, "/one/kai");
+      const circleId = action === "circle-detail" ? "&circleId=c1" : "";
+      const back = backFor(
+        `tab=circles&action=${action}${circleId}`,
+        "/one/kai",
+      );
       expect(back?.href, action).toBe(`${ROUTES.CONNECT}?tab=circles`);
       expect(back?.mode, action).toBe("replace");
     }
@@ -56,5 +60,14 @@ describe("back closes a Circle flow instead of leaving Connect", () => {
   it("does not treat an unrelated tab's action as a Circle flow", () => {
     const back = backFor("tab=all&action=create-circle", "/one/kai");
     expect(back?.href).toBe("/one/kai");
+  });
+
+  it("does not hide normal navigation for a Circle detail link without an id", () => {
+    const back = backFor(
+      "tab=circles&action=circle-detail",
+      "/one/kai",
+    );
+    expect(back?.href).toBe("/one/kai");
+    expect(back?.mode).toBe("push");
   });
 });

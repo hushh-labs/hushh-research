@@ -31,55 +31,30 @@ function timeAgo(iso: string | null | undefined): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-function gmailThreadUrl(threadId: string): string {
-  return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
-}
 
 function NudgeCard({ nudge }: { nudge: GmailNudge }) {
-  const isMeeting = nudge.type === "upcoming_meeting";
-  // Meetings show just the title line (no timing subtitle); needs-reply shows sender.
-  const subtitle = isMeeting
-    ? null
-    : `From ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
+  const subtitle = `From ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
   return (
     <div className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
       <div className="min-w-0 space-y-1">
         <div className="flex items-center gap-2">
           <span
             aria-hidden
-            className={`inline-block h-2 w-2 shrink-0 rounded-full ${isMeeting ? "bg-sky-500" : "bg-amber-500"}`}
+            className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500"
           />
           <p className="truncate text-sm font-semibold text-foreground">{nudge.title}</p>
         </div>
-        {subtitle ? (
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-        ) : null}
+        <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
       </div>
-      {isMeeting ? (
-        <Button
-          variant="muted"
-          size="sm"
-          onClick={() =>
-            window.open(
-              nudge.meeting_url ?? gmailThreadUrl(nudge.thread_id),
-              "_blank",
-              "noopener,noreferrer",
-            )
-          }
-        >
-          {nudge.meeting_url ? "Join" : "View"}
+      {/* Draft-reply flow isn't built yet — surface it as coming soon, disabled. */}
+      <div className="flex shrink-0 items-center gap-2">
+        <Badge variant="secondary" className="whitespace-nowrap text-[10px]">
+          Draft coming soon
+        </Badge>
+        <Button variant="muted" size="sm" disabled>
+          Draft
         </Button>
-      ) : (
-        // Draft-reply flow isn't built yet — surface it as coming soon, disabled.
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge variant="secondary" className="whitespace-nowrap text-[10px]">
-            Draft coming soon
-          </Badge>
-          <Button variant="muted" size="sm" disabled>
-            Draft
-          </Button>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -161,9 +136,8 @@ function NudgeGroup({
 
 /**
  * Inbox flashcards for the connected Gmail account: "Needs a reply" (unanswered
- * inbound threads) then "Upcoming meeting" (calendar invites). One fetch, same
- * gmail.readonly connection as receipts — no new scope. Renders nothing until
- * Gmail is connected.
+ * inbound threads). One fetch, same gmail.readonly connection as receipts — no
+ * new scope. Renders nothing until Gmail is connected.
  */
 export default function GmailNudgesSection({
   userId,
@@ -211,29 +185,17 @@ export default function GmailNudgesSection({
   if (!isConnected) return null;
 
   const needsReply = nudges.filter((nudge) => nudge.type === "needs_reply");
-  const meetings = nudges.filter((nudge) => nudge.type === "upcoming_meeting");
 
   return (
-    <>
-      <NudgeGroup
-        eyebrow="Needs a reply"
-        blurb="Inbox threads waiting on your response."
-        emptyText="You’re all caught up — nothing needs a reply right now."
-        nudges={needsReply}
-        loading={loading}
-        loaded={loaded}
-        error={error}
-        onRefresh={() => void load()}
-      />
-      <NudgeGroup
-        eyebrow="Upcoming meeting"
-        blurb="Calendar invites coming up."
-        emptyText="No upcoming meetings from your inbox."
-        nudges={meetings}
-        loading={loading}
-        loaded={loaded}
-        error={error}
-      />
-    </>
+    <NudgeGroup
+      eyebrow="Needs a reply"
+      blurb="Inbox threads waiting on your response."
+      emptyText="You’re all caught up — nothing needs a reply right now. ✅"
+      nudges={needsReply}
+      loading={loading}
+      loaded={loaded}
+      error={error}
+      onRefresh={() => void load()}
+    />
   );
 }

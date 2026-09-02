@@ -476,8 +476,10 @@ export function PlacesNearby({
                   icon={MapPin}
                   iconTone="gray"
                   title={
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">{card.name}</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+                        {card.name}
+                      </span>
                       <NearbyTagBadge>
                         {placesCategoryLabel(card.category)}
                       </NearbyTagBadge>

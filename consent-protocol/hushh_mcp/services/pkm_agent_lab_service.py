@@ -405,6 +405,10 @@ _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
 # One retry absorbs transient provider tail latency without introducing another
 # runtime configuration surface or extending the shared preview deadline.
 _AGENT_CONTRACT_MAX_ATTEMPTS = 2
+_PKM_SALIENCE_AGENT_TIMEOUT_SECONDS = max(
+    _AGENT_CONTRACT_TIMEOUT_SECONDS,
+    float(os.getenv("PKM_SALIENCE_AGENT_TIMEOUT_SECONDS", "15") or "15"),
+)
 _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
     # The graph is bounded but sequential after segmentation. Five additional
@@ -868,14 +872,14 @@ class PKMAgentLabService:
         *,
         message: str,
     ) -> list[dict[str, Any]]:
-        fallback = cls._fallback_segmented_messages(message)
         if not isinstance(raw, dict):
-            return fallback
+            return []
 
         items = raw.get("segments")
         if not isinstance(items, list):
-            return fallback
+            return []
 
+        normalized_message = cls._safe_excerpt(message, limit=50000).casefold()
         sanitized: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in items:
@@ -888,6 +892,11 @@ class PKMAgentLabService:
             if not source_text:
                 continue
             normalized = source_text.casefold()
+            # Segmentation may select only a direct part of the owner's text.
+            # Never let a rewritten or invented clause become a persistence
+            # candidate, even if a provider returned valid JSON.
+            if normalized not in normalized_message:
+                continue
             if normalized in seen:
                 continue
             seen.add(normalized)
@@ -899,9 +908,7 @@ class PKMAgentLabService:
                     or "Segmented memory candidate.",
                 }
             )
-        if len(fallback) == 1 and len(sanitized) == 1:
-            return fallback
-        return sanitized or fallback
+        return sanitized
 
     @classmethod
     def _stable_entity_id(
@@ -1449,6 +1456,12 @@ class PKMAgentLabService:
         from google.genai import types as genai_types
 
         active_model = model_override or manifest.model or GEMINI_MODEL
+        is_salience_model = active_model == "gemini-3.1-pro-preview"
+        thinking_level = (
+            genai_types.ThinkingLevel.LOW
+            if is_salience_model
+            else genai_types.ThinkingLevel.MINIMAL
+        )
         config = build_generate_content_config(
             genai_types,
             active_model,
@@ -1456,16 +1469,17 @@ class PKMAgentLabService:
             # These calls are deterministic schema workers inside a bounded,
             # sequential PKM graph. Gemini's default thinking can consume the
             # shared preview deadline before the final structure contract runs.
-            # Minimal thinking preserves Gemini 3.5 Flash semantics while
-            # keeping the user-facing chain within its existing latency budget.
+            # Flash stays bounded for the fast structural stages; the two
+            # salience stages use the higher-capability model deliberately.
             thinking_config=genai_types.ThinkingConfig(
-                thinking_level=genai_types.ThinkingLevel.MINIMAL,
+                thinking_level=thinking_level,
             ),
             response_mime_type="application/json",
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
             response_schema=response_schema,
         )
-        for attempt in range(1, _AGENT_CONTRACT_MAX_ATTEMPTS + 1):
+        max_attempts = 1 if is_salience_model else _AGENT_CONTRACT_MAX_ATTEMPTS
+        for attempt in range(1, max_attempts + 1):
             remaining_seconds = (
                 max(0.0, deadline - time.perf_counter()) if deadline is not None else None
             )
@@ -1479,11 +1493,15 @@ class PKMAgentLabService:
                 )
                 record("budget_exhausted", attempts=attempt - 1)
                 return None
-            effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
+            effective_timeout = (
+                _PKM_SALIENCE_AGENT_TIMEOUT_SECONDS
+                if is_salience_model
+                else _AGENT_CONTRACT_TIMEOUT_SECONDS
+            )
             if remaining_seconds is not None:
                 effective_timeout = max(
                     0.25,
-                    min(_AGENT_CONTRACT_TIMEOUT_SECONDS, remaining_seconds),
+                    min(effective_timeout, remaining_seconds),
                 )
             try:
                 response = await asyncio.wait_for(
@@ -1505,7 +1523,7 @@ class PKMAgentLabService:
                 record("invalid_response", attempts=attempt)
                 return None
             except asyncio.TimeoutError:
-                can_retry = attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
+                can_retry = attempt < max_attempts
                 retry_budget_seconds = (
                     max(0.0, deadline - time.perf_counter()) if deadline is not None else None
                 )
@@ -1515,7 +1533,7 @@ class PKMAgentLabService:
                         "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
                         getattr(manifest, "id", "unknown"),
                         attempt,
-                        _AGENT_CONTRACT_MAX_ATTEMPTS,
+                        max_attempts,
                         round(effective_timeout, 3),
                         round(retry_budget_seconds, 3)
                         if retry_budget_seconds is not None
@@ -1531,10 +1549,7 @@ class PKMAgentLabService:
                 record("timeout", attempts=attempt)
                 return None
             except Exception as exc:
-                can_retry = (
-                    attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
-                    and self._is_retryable_provider_error(exc)
-                )
+                can_retry = attempt < max_attempts and self._is_retryable_provider_error(exc)
                 if can_retry:
                     retry_delay_seconds = self._provider_retry_delay_seconds(attempt)
                     retry_budget_seconds = (
@@ -1549,7 +1564,7 @@ class PKMAgentLabService:
                             "max_attempts=%s delay_seconds=%s error_type=%s",
                             getattr(manifest, "id", "unknown"),
                             attempt,
-                            _AGENT_CONTRACT_MAX_ATTEMPTS,
+                            max_attempts,
                             round(retry_delay_seconds, 3),
                             type(exc).__name__,
                         )
@@ -1653,17 +1668,19 @@ class PKMAgentLabService:
         header = (
             "You are the Memory Segmentation Agent for Hussh Kai.\n"
             "Return JSON only with segments, source_agent, contract_version.\n"
-            "Split a single natural-language prompt into 1 to 8 meaningful memory candidates.\n"
+            "Select zero to eight direct quotes that could be durable PKM memory candidates.\n"
         )
         if strict_small_model:
             return (
                 f"{header}"
                 f"Message: {message}\n"
                 "Rules:\n"
+                "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
+                "- Keep only direct owner-stated claims that remain useful after this conversation.\n"
+                "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
                 "- Keep each segment self-contained and short.\n"
-                "- Split only when the prompt clearly contains multiple durable or semi-durable ideas.\n"
-                "- Do not invent facts that were not stated.\n"
-                "- If the prompt is one coherent memory, return one segment only.\n"
+                "- source_text must be an exact contiguous quote from the message.\n"
+                "- Split only when the prompt clearly contains multiple independent durable ideas.\n"
                 "- contract_version must be 1.\n"
                 'Examples: {"message":"I like to swim and prefer early breakfasts.","segments":[{"source_text":"I like to swim.","confidence":0.91,"reason":"Exercise preference."},{"source_text":"I prefer early breakfasts.","confidence":0.84,"reason":"Separate food habit."}]} '
                 '{"message":"I usually book aisle seats.","segments":[{"source_text":"I usually book aisle seats.","confidence":0.97,"reason":"Single travel preference."}]}'
@@ -1672,10 +1689,11 @@ class PKMAgentLabService:
             f"{header}"
             f"Natural language message: {message}\n"
             "Rules:\n"
-            "- Return 1 segment for a single coherent memory.\n"
-            "- Return multiple segments only when the prompt clearly contains multiple distinct memories, routines, preferences, or facts.\n"
-            "- Do not split purely stylistic repetition.\n"
-            "- Keep source_text close to the user's own wording.\n"
+            "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
+            "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
+            "- Return one segment for one eligible claim; return multiple segments only for independent eligible claims.\n"
+            "- Do not split stylistic repetition, explanations, or connective narrative.\n"
+            "- source_text must be an exact contiguous quote from the user's message.\n"
             "- Never emit more than 8 segments.\n"
             "- contract_version must be 1.\n"
         )
@@ -3575,7 +3593,10 @@ class PKMAgentLabService:
 
         write_mode = str(raw_structure.get("write_mode") or "").strip().lower()
         if write_mode not in _WRITE_MODES:
-            write_mode = "can_save"
+            # A missing structure decision is not owner approval. Keep the
+            # malformed result review-only instead of synthesizing a write.
+            write_mode = "confirm_first"
+            validation_hints.append("invalid_write_mode_requires_review")
 
         if intent_frame.get("save_class") == "ephemeral":
             write_mode = "do_not_save"

@@ -243,16 +243,18 @@ Disallowed prompt evolution:
 
 ## Model policy
 
-Current PKM classifier candidate:
+Current PKM classifier candidates:
 
-- `gemini-3.7-flash`
+- `gemini-3.1-pro-preview` for Memory Segmentation and Memory Intent, where durable-salience decisions are made
+- `gemini-3.7-flash` for Financial Guard, Memory Merge, and PKM Structure
 
 Live prompt-hardening posture:
 
-- `gemini-3.7-flash`
-- minimal-thinking / strict-small-model mode
+- Segmentation can return zero candidates; it must quote only exact user-provided durable claims.
+- A missing, invalid, or timed-out segmentation/structure response never produces a saveable card.
+- KYC auto-saves only the same eligible `can_save` cards as the owner opt-in auto-save path.
 
-The PKM classifier stays on this minimal posture until live eval shows a concrete reason to change it.
+Only the two salience contracts use the higher-capability model. Keep the remaining PKM graph on the bounded Flash path unless a no-write evaluation proves a broader change is needed.
 
 ## Reviewer-shaped prompt chains
 

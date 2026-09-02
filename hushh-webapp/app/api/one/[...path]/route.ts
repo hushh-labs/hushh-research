@@ -33,7 +33,8 @@ function privateResponseHeaders(upstream?: Response): Headers {
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const causeCode =
-    typeof (error as Error & { cause?: { code?: unknown } }).cause?.code === "string"
+    typeof (error as Error & { cause?: { code?: unknown } }).cause?.code ===
+    "string"
       ? (error as Error & { cause: { code: string } }).cause.code
       : "";
   const message = error.message.toLowerCase();
@@ -61,8 +62,19 @@ function isUpstreamTimeoutError(error: unknown): boolean {
  * read once at module scope and would unbound every JSON route on this proxy
  * at once, which is precisely the blanket behavior being retired.
  */
-function resolveOneUpstreamTimeoutMs(path: string, acceptHeader: string | null): number | null {
+function resolveOneUpstreamTimeoutMs(
+  path: string,
+  acceptHeader: string | null,
+): number | null {
   if (path === "pod/lifecycle/stream") {
+    return null;
+  }
+  // Agent chat is an SSE connection. An AbortSignal.timeout stays attached to
+  // the response body after fetch resolves, so it would cut off a valid
+  // response mid-stream even while the backend is still sending keep-alives.
+  // Let the browser disconnect signal own that stream's lifetime instead
+  // (ported from main, 701a370d4).
+  if (path === "agent-chat") {
     return null;
   }
   // The one-click cloud completion legitimately runs long: create project,
@@ -79,7 +91,8 @@ function resolveOneUpstreamTimeoutMs(path: string, acceptHeader: string | null):
   // Streaming routes (agent-chat, any `/stream` endpoint, or a caller that
   // asks for text/event-stream) hold open far longer than a JSON call, so the
   // 45s API deadline would sever them mid-body. They get the stream budget.
-  const acceptsEventStream = acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
+  const acceptsEventStream =
+    acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
   const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");
   if (acceptsEventStream || isKnownStreamRoute) {
     return ONE_STREAM_TIMEOUT_MS;
@@ -92,7 +105,7 @@ function resolveOneUpstreamTimeoutMs(path: string, acceptHeader: string | null):
  * the upstream fetch and nothing else does. */
 function resolveUpstreamSignal(
   requestSignal: AbortSignal,
-  timeoutMs: number | null
+  timeoutMs: number | null,
 ): AbortSignal {
   if (!timeoutMs) {
     return requestSignal;
@@ -116,8 +129,12 @@ function resolveUpstreamSignal(
   } else if (timeoutSignal.aborted) {
     abortFrom(timeoutSignal);
   } else {
-    requestSignal.addEventListener("abort", () => abortFrom(requestSignal), { once: true });
-    timeoutSignal.addEventListener("abort", () => abortFrom(timeoutSignal), { once: true });
+    requestSignal.addEventListener("abort", () => abortFrom(requestSignal), {
+      once: true,
+    });
+    timeoutSignal.addEventListener("abort", () => abortFrom(timeoutSignal), {
+      once: true,
+    });
   }
   return controller.signal;
 }
@@ -129,7 +146,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const authHeader = request.headers.get("authorization");
   const hushhConsentHeader = request.headers.get("x-hushh-consent");
   const voiceTurnIdHeader =
-    request.headers.get("x-voice-turn-id") || request.headers.get("X-Voice-Turn-Id");
+    request.headers.get("x-voice-turn-id") ||
+    request.headers.get("X-Voice-Turn-Id");
   const acceptHeader = request.headers.get("accept");
   const contentType = request.headers.get("content-type") || "";
 
@@ -150,7 +168,10 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers,
       body,
-      signal: resolveUpstreamSignal(request.signal, resolveOneUpstreamTimeoutMs(path, acceptHeader)),
+      signal: resolveUpstreamSignal(
+        request.signal,
+        resolveOneUpstreamTimeoutMs(path, acceptHeader),
+      ),
     });
 
     // A streamed upstream must be handed through untouched. The JSON path below
@@ -188,37 +209,38 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       requestId,
       {
         error: "One API unavailable",
-        message: "The request could not be completed right now. Please try again.",
+        message:
+          "The request could not be completed right now. Please try again.",
       },
-      { status: statusCode, headers: privateResponseHeaders() }
+      { status: statusCode, headers: privateResponseHeaders() },
     );
   }
 }
 
 export async function GET(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }
 
 export async function POST(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }
 
 export async function PATCH(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }
 
 export async function DELETE(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }

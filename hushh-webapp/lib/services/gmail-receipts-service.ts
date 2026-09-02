@@ -103,6 +103,11 @@ export interface GmailConnectStartResponse {
   expires_at: string;
 }
 
+export interface GmailNativeConnectStartResponse {
+  configured: boolean;
+  server_client_id: string;
+}
+
 export interface GmailSyncQueueResponse {
   accepted: boolean;
   reason?: string;
@@ -266,6 +271,47 @@ export class GmailReceiptsService {
       result: "success",
     });
     return (await response.json()) as GmailConnectStartResponse;
+  }
+
+  static async startNativeConnect(params: {
+    idToken: string;
+  }): Promise<GmailNativeConnectStartResponse> {
+    const response = await ApiService.apiFetch(
+      GMAIL_RECEIPTS_API_TEMPLATES.connectNativeStart,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${params.idToken}` },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(await extractError(response, "Failed to start native Gmail OAuth."));
+    }
+    return (await response.json()) as GmailNativeConnectStartResponse;
+  }
+
+  static async completeNativeConnect(params: {
+    idToken: string;
+    userId: string;
+    serverAuthCode: string;
+  }): Promise<GmailConnectionStatus> {
+    const response = await ApiService.apiFetch(
+      GMAIL_RECEIPTS_API_TEMPLATES.connectNativeComplete,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.idToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+          server_auth_code: params.serverAuthCode,
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(await extractError(response, "Failed to complete native Gmail OAuth."));
+    }
+    return (await response.json()) as GmailConnectionStatus;
   }
 
   static async completeConnect(params: {

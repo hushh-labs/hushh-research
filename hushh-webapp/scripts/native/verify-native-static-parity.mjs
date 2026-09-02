@@ -73,15 +73,15 @@ if (!contactsUsageMatch?.[1]?.trim()) {
 
 // Keep the distributed bundle identity at the unique, previously accepted
 // "Hussh One" while the visible and spoken system name remains the intentional
-// Siri-facing "One". These fields are separate contracts and must not collapse
+// Siri-facing "Agent One". These fields are separate contracts and must not collapse
 // back to the globally generic bundle name that App Store Connect rejected.
 //
 // Scoped to visible/spoken copy on purpose. The `hushh` CFBundleURLScheme and
 // com.hushh.app bundle identifier remain load-bearing for deep links/signing.
 const expectedIosNames = new Map([
-  ["CFBundleDisplayName", "One"],
+  ["CFBundleDisplayName", "Agent One"],
   ["CFBundleName", "Hussh One"],
-  ["CFBundleSpokenName", "One"],
+  ["CFBundleSpokenName", "Agent One"],
 ]);
 for (const [key, expected] of expectedIosNames) {
   const match = infoPlist.match(

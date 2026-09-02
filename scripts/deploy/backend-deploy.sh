@@ -53,6 +53,26 @@ if [[ -n "${_CLOUD_RUN_CAPACITY:-}" ]]; then
   done
   export _CLOUD_RUN_MAX_INSTANCES _CLOUD_RUN_MIN_INSTANCES _CLOUD_RUN_NO_TRAFFIC _CLOUD_RUN_CPU _CLOUD_RUN_CONCURRENCY
 fi
+if [[ -n "${_DB_POOL_SETTINGS:-}" ]]; then
+  IFS=',' read -r -a _pool_pairs <<<"${_DB_POOL_SETTINGS}"
+  for _pair in "${_pool_pairs[@]}"; do
+    _key="${_pair%%=*}"; _value="${_pair#*=}"
+    case "${_key}" in
+      acquire_timeout) _DB_POOL_ACQUIRE_TIMEOUT_SECONDS="${_value}" ;;
+      max) _DB_POOL_MAX_SIZE="${_value}" ;;
+      min) _DB_POOL_MIN_SIZE="${_value}" ;;
+      sa_max_overflow) _DB_SQLALCHEMY_MAX_OVERFLOW="${_value}" ;;
+      sa_pool_size) _DB_SQLALCHEMY_POOL_SIZE="${_value}" ;;
+      *) echo "_DB_POOL_SETTINGS carries an unknown key: ${_key}" >&2; exit 1 ;;
+    esac
+  done
+  for _required in _DB_POOL_ACQUIRE_TIMEOUT_SECONDS _DB_POOL_MAX_SIZE _DB_POOL_MIN_SIZE _DB_SQLALCHEMY_MAX_OVERFLOW _DB_SQLALCHEMY_POOL_SIZE; do
+    if [[ -z "${!_required:-}" ]]; then
+      echo "_DB_POOL_SETTINGS is missing ${_required}." >&2; exit 1
+    fi
+  done
+  export _DB_POOL_ACQUIRE_TIMEOUT_SECONDS _DB_POOL_MAX_SIZE _DB_POOL_MIN_SIZE _DB_SQLALCHEMY_MAX_OVERFLOW _DB_SQLALCHEMY_POOL_SIZE
+fi
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
@@ -241,6 +261,10 @@ append_optional_env "ONE_EMAIL_WEBHOOK_AUDIENCE" "${_ONE_EMAIL_WEBHOOK_AUDIENCE}
 append_optional_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "ONE_EMAIL_WEBHOOK_AUTH_ENABLED" "${_ONE_EMAIL_WEBHOOK_AUTH_ENABLED}"
 append_optional_env "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED" "${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
+# Ported from main (2026-09): the Gmail personal-information-request monitor's scheduler identity.
+append_optional_env "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED" "${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED}"
+append_optional_env "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE" "${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE}"
+append_optional_env "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL" "${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
 append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
 append_optional_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"

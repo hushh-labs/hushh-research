@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
 import { AgentBar } from "@/components/agent/agent-bar";
 import { Navbar } from "@/components/navbar";
@@ -21,6 +21,14 @@ const BOTTOM_SCROLL_TRANSFORM =
 export function AppBottomShell({ model }: { model: BottomShellModel }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
+  // AgentBar reads client-only auth and agent-popover state. Rendering its
+  // markup only after the first client commit keeps the server and hydration
+  // trees identical while preserving the shared shell slot.
+  const [agentBarMounted, setAgentBarMounted] = useState(false);
+
+  useEffect(() => {
+    setAgentBarMounted(true);
+  }, []);
 
   useLayoutEffect(() => {
     if (model.hidden) {
@@ -96,7 +104,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
             data-bottom-shell-agent-slot
             className="flex w-full justify-center"
           >
-            <AgentBar layout="slot" />
+            {agentBarMounted ? <AgentBar layout="slot" /> : null}
           </div>
           <div
             ref={navigationSlotRef}

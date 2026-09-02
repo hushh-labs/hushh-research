@@ -418,7 +418,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Approval-draft and client-request workflow specialist under One.",
+      "description": "Approval-draft, client-request, and owner-consented Gmail information-request workflow specialist under One.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -478,11 +478,11 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "1d169d936a81f8595655177069c54c1f9fa7ff0c6ad9e94ba71d26706446d76c",
+      "system_instruction_sha256": "a02d9db8adc0466768889d75cf4ac320f785a30fe4e61d35907fb63d5351c532",
       "telemetry_namespace": "agent.email",
       "tools": [],
       "ui_type": "chat",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "action_ids": [],
@@ -1235,7 +1235,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_intent/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.1-pro-preview",
       "name": "Memory Intent Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1328,7 +1328,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "873b8d288587c7083fefef6bec87d7e7d3d953a5e7e80da47778984e1ae73196",
+      "system_instruction_sha256": "8aa618e35814e9fff42dc12bf336007c1ca4febcbcb29048a5dc41d9dd3e38eb",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -1529,7 +1529,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_segmentation/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.1-pro-preview",
       "name": "Memory Segmentation Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1592,7 +1592,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "fe3f0683065e67e48dc57b2186deb7754e79b80e099b27148fe2a0d0a8ea6f6f",
+      "system_instruction_sha256": "44f8f84be468807b58660c9369b9594a1e686b0456587e9240d80b5d29dc9750",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

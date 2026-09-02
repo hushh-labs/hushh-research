@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   shareLink: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+  isNative: vi.fn(() => false),
   // The real hook hands back the same user across renders. Rebuilding it per
   // render would retrigger every effect keyed on it and spin forever, which
   // would say nothing about the page.
@@ -54,6 +55,10 @@ vi.mock("@/lib/capacitor", () => ({
     }),
     openAppSettings: async () => ({ opened: false }),
   },
+}));
+
+vi.mock("@/lib/capacitor/platform", () => ({
+  isNative: mocks.isNative,
 }));
 
 // Only the network-facing call is replaced. `describeContactSyncOutcome` and
@@ -190,6 +195,7 @@ const EVERYONE = Array.from({ length: 100 }, (_, index) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.isNative.mockReturnValue(false);
   // A leaked search query in sessionStorage would silently seed the next
   // test's render, the same way a leaked `?tab=` would.
   window.sessionStorage.clear();
@@ -1669,9 +1675,10 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
   });
 
-  it("keeps My connections scrollable when the list grows", async () => {
-    // Three connections fit naturally. A hundred should not turn the top of
-    // Connect into a full-page receipt before the search field appears.
+  it("keeps one page scroll on phones and caps My connections on larger screens", async () => {
+    // A nested roster scroller traps touch gestures on phones and lets the
+    // fixed bottom chrome obscure whichever row owns the gesture. Phones use
+    // the app scroll root; larger screens can keep the bounded roster.
     mocks.listConnections.mockResolvedValue(
       Array.from({ length: 12 }, (_, index) => ({
         connectionId: `c-${index}`,
@@ -1688,10 +1695,12 @@ describe("Connect — the phone-width geometry QA reported", () => {
       '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
     );
     expect(list).toBeTruthy();
-    expect(list!.className).toContain("max-h-[232px]");
-    expect(list!.className).toContain("overflow-y-auto");
-    expect(list!.className).toContain("overscroll-contain");
     expect(list!.className).toContain("sm:max-h-[320px]");
+    expect(list!.className).toContain("sm:overflow-y-auto");
+    expect(list!.className).toContain("sm:overscroll-contain");
+    expect(list!.className).not.toMatch(/(?:^|\s)max-h-\[232px\](?:\s|$)/);
+    expect(list!.className).not.toMatch(/(?:^|\s)overflow-y-auto(?:\s|$)/);
+    expect(list!.className).not.toMatch(/(?:^|\s)overscroll-contain(?:\s|$)/);
   });
 
   it("asks for the search field in two words", async () => {
@@ -1975,6 +1984,42 @@ describe("Connect — inviting someone who is not on One yet", () => {
 });
 
 describe("Connect — Circles", () => {
+  it("opens the directory filter as a portalled material popover on web", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /Current directory:/ }));
+
+    const menu = await screen.findByTestId("connect-directory-menu");
+    const anchor = screen.getByTestId("connect-directory-menu-anchor");
+    expect(anchor.contains(menu)).toBe(false);
+    expect(menu).toHaveAttribute("data-slot", "popover-content");
+    expect(menu.className).toContain("backdrop-blur-2xl");
+    expect(menu.className).toContain("shadow-[0_18px_48px");
+    expect(menu.className).not.toContain("absolute");
+    expect(within(menu).getByRole("menuitemradio", { name: "People" }))
+      .toBeTruthy();
+    expect(within(menu).getByRole("menuitemradio", { name: "RIAs" }))
+      .toBeTruthy();
+    expect(
+      within(menu).getByRole("menuitemradio", { name: "Around you" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the existing inline directory menu when running in native", async () => {
+    mocks.isNative.mockReturnValue(true);
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /Current directory:/ }));
+
+    const menu = await screen.findByTestId("connect-directory-menu");
+    const anchor = screen.getByTestId("connect-directory-menu-anchor");
+    expect(anchor.contains(menu)).toBe(true);
+    expect(menu).not.toHaveAttribute("data-slot", "popover-content");
+    expect(menu.className).toContain("absolute left-0 top-full");
+  });
+
   it("opens on People when the URL says nothing", async () => {
     render(<ConnectPageClient />);
 
@@ -2028,6 +2073,20 @@ describe("Connect — Circles", () => {
     expect(
       screen.queryByRole("button", { name: /Current directory:/ }),
     ).toBeNull();
+    expect(screen.queryByLabelText("Search people")).toBeNull();
+  });
+
+  it("renders Circle detail as a focused task without duplicate tabs or bottom-chrome content", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Connect" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Circles" })).toBeNull();
     expect(screen.queryByLabelText("Search people")).toBeNull();
   });
 

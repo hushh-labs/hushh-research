@@ -406,6 +406,23 @@
       "expected_row_growth": "low_per_user_action"
     },
     {
+      "id": "gmail_personal_information_request_monitor",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "gmail_personal_information_request_preferences",
+        "gmail_personal_information_request_scan_states",
+        "gmail_personal_information_requests"
+      ],
+      "primary_access_path": "Email Agent opt-in personal Gmail monitor, owner review queue, and scheduled eligible-user scanner",
+      "retention_policy": "Keep all monitor queue and scan-deduplication metadata for no longer than 30 days. Full Gmail messages and attachments are processed transiently and are never persisted by this workflow.",
+      "deletion_behavior": "Cascade-delete preferences, scan state, and workflow metadata with the vault owner. Turning monitoring off immediately deletes its queue and scan metadata, clears monitor coordination metadata, and blocks in-flight classification inserts.",
+      "trust_boundary": "Stores explicit monitoring preference, a monotonic opt-in generation, opaque Gmail History baseline/page-token/intra-page offset/lease metadata, Gmail provider identifiers, timestamps, classifier confidence, requested field labels, exact manifest leaf scope handles and segment identifiers, attachment-presence metadata, and keyed source/sender fingerprints. The history baseline is captured at opt-in so only later inbox messages are considered; the generation prevents stale scans from writing after consent changes. It never stores email subject/body/headers/addresses, attachment content, OAuth tokens, PKM values, decrypted exports, or generated drafts.",
+      "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
+      "expected_row_growth": "bounded_recent_inbox_metadata_per_user"
+    },
+    {
       "id": "google_integrations_provider_state",
       "owner": "backend-runtime-governance",
       "data_class": "provider_cache",
