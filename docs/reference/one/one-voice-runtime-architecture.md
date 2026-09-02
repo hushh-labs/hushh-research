@@ -128,18 +128,18 @@ release:
   cannot send the alert in this release.
 
 The internal iOS bundle name remains the unique, previously accepted
-`Hussh One`. The installed display name and `CFBundleSpokenName` are `One`, so
+`Hussh One`. The installed display name and `CFBundleSpokenName` are `Agent One`, so
 Apple's mandatory `applicationName` phrase token continues to produce direct
-requests such as “Open One Location Agent” without changing the signed bundle
+requests such as “Open Agent One Location Agent” without changing the signed bundle
 identifier or creating a second Siri runtime.
 One bounded `OneLocationDestinationEntity` represents the ten reviewed,
 non-mutating Location destinations (including map, requests, settings,
 Check-In, SOS review, and emergency SMS contacts). Its `OpenIntent` tells Siri
-that “Location Agent” is content inside One rather than a separate app.
+that “Location Agent” is content inside Agent One rather than a separate app.
 
 Apple limits an app to ten zero-setup App Shortcuts. The provider deliberately
 publishes eight focused shortcuts: share, ask, stop, location on/off, create
-Circle, Check-In, open a structured Location destination, and Talk to One.
+Circle, Check-In, open a structured Location destination, and Talk to Agent One.
 Mutation intents keep Apple's parameter follow-ups and native confirmation,
 then hand the exact generated action to the existing browser executor. The
 other App Intents remain discoverable in the Shortcuts app. Android and web

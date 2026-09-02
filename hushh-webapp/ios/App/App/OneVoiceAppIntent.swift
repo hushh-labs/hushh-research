@@ -9,7 +9,7 @@ struct OneContactEntity: AppEntity, Identifiable, Hashable {
     let id: String
     let name: String
 
-    static let typeDisplayRepresentation: TypeDisplayRepresentation = "One Contact"
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Agent One Contact"
     static let defaultQuery = OneContactEntityQuery()
 
     var displayRepresentation: DisplayRepresentation {
@@ -45,7 +45,7 @@ struct OneCircleEntity: AppEntity, Identifiable, Hashable {
     let id: String
     let name: String
 
-    static let typeDisplayRepresentation: TypeDisplayRepresentation = "One Circle"
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Agent One Circle"
     static let defaultQuery = OneCircleEntityQuery()
 
     var displayRepresentation: DisplayRepresentation {
@@ -61,7 +61,7 @@ struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
     let id: String
 
     static let typeDisplayRepresentation: TypeDisplayRepresentation =
-        "One Location Destination"
+        "Agent One Location Destination"
     static let defaultQuery = OneLocationDestinationEntityQuery()
 
     static let supportedActionIDs: [OneSystemActionID] = [
@@ -94,12 +94,12 @@ struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
         case .openLocation:
             return makeDisplay(
                 title: "Location Agent",
-                synonyms: ["One Location Agent", "Location Overview"]
+                synonyms: ["Agent One Location Agent", "One Location Agent", "Location Overview"]
             )
         case .openLocationMap:
             return makeDisplay(
                 title: "Location Map",
-                synonyms: ["One Location Map", "Map"]
+                synonyms: ["Agent One Location Map", "One Location Map", "Map"]
             )
         case .openActiveShares:
             return makeDisplay(
@@ -129,7 +129,7 @@ struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
         case .openCheckIn:
             return makeDisplay(
                 title: "Location Check In",
-                synonyms: ["Check In", "One Check In"]
+                synonyms: ["Check In", "Agent One Check In", "One Check In"]
             )
         case .openEmergencySOS:
             return makeDisplay(
@@ -142,7 +142,7 @@ struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
                 synonyms: ["SMS Contacts", "Emergency Contacts"]
             )
         default:
-            return "One Location"
+            return "Agent One Location"
         }
     }
 
@@ -371,12 +371,12 @@ private enum OneAppIntentActionExecutor {
             slots: request.slots,
             confirmedBySystem: request.confirmedBySystem
         ) else {
-            return "One could not prepare that action."
+            return "Agent One could not prepare that action."
         }
         guard let completion = await OneSystemActionInvocationCoordinator.shared.waitForCompletion(
             id: invocation.id
         ) else {
-            return "Continue in One to finish. Your request is waiting."
+            return "Continue in Agent One to finish. Your request is waiting."
         }
         return completion.summary
     }
@@ -386,9 +386,9 @@ private enum OneAppIntentActionExecutor {
 
 @available(iOS 16.0, *)
 struct TalkToHusshOneIntent: AppIntent {
-    static let title: LocalizedStringResource = "Talk to One"
+    static let title: LocalizedStringResource = "Talk to Agent One"
     static let description = IntentDescription(
-        "Open One and begin a conversation with your private agent."
+        "Open Agent One and begin a conversation with your private agent."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -409,7 +409,7 @@ struct TalkToHusshOneIntent: AppIntent {
 struct ShareLocationWithOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Share Location"
     static let description = IntentDescription(
-        "Share your live location with an existing One connection."
+        "Share your live location with an existing Agent One connection."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -445,7 +445,7 @@ struct ShareLocationWithOneIntent: AppIntent {
 struct AskForLocationWithOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask for Location"
     static let description = IntentDescription(
-        "Ask an existing One connection to share their location."
+        "Ask an existing Agent One connection to share their location."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -516,7 +516,7 @@ struct StopLocationSharingWithOneIntent: AppIntent {
 struct SetOneLocationStateIntent: AppIntent {
     static let title: LocalizedStringResource = "Set Location State"
     static let description = IntentDescription(
-        "Turn One Location updates on or off."
+        "Turn Agent One Location updates on or off."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -529,7 +529,7 @@ struct SetOneLocationStateIntent: AppIntent {
     var state: OneLocationStateIntentValue
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Turn One Location \(\.$state)")
+        Summary("Turn Agent One Location \(\.$state)")
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -544,7 +544,7 @@ struct SetOneLocationStateIntent: AppIntent {
 @available(iOS 16.0, *)
 struct CreateOneCircleIntent: AppIntent {
     static let title: LocalizedStringResource = "Create a Circle"
-    static let description = IntentDescription("Create an empty One Circle.")
+    static let description = IntentDescription("Create an empty Agent One Circle.")
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
     static let openAppWhenRun = true
@@ -571,7 +571,7 @@ struct CreateOneCircleIntent: AppIntent {
 @available(iOS 16.0, *)
 struct RenameOneCircleIntent: AppIntent {
     static let title: LocalizedStringResource = "Rename a Circle"
-    static let description = IntentDescription("Rename an existing One Circle.")
+    static let description = IntentDescription("Rename an existing Agent One Circle.")
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
     static let openAppWhenRun = true
@@ -620,12 +620,12 @@ extension OneLocationOpenIntent {
 
 /// The canonical system-level opening action. `OpenIntent` tells Siri this is
 /// app-owned content, while the destination entity resolves phrases such as
-/// "Open One Location Agent" without creating a parallel route executor.
+/// "Open Agent One Location Agent" without creating a parallel route executor.
 @available(iOS 16.0, *)
 struct OpenOneLocationDestinationIntent: OpenIntent {
-    static let title: LocalizedStringResource = "Open One Location"
+    static let title: LocalizedStringResource = "Open Agent One Location"
     static let description = IntentDescription(
-        "Open a destination in the existing One Location experience."
+        "Open a destination in the existing Agent One Location experience."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -636,17 +636,17 @@ struct OpenOneLocationDestinationIntent: OpenIntent {
 
     @Parameter(
         title: "Destination",
-        requestValueDialog: "Which One Location destination?"
+        requestValueDialog: "Which Agent One Location destination?"
     )
     var target: OneLocationDestinationEntity
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Open \(\.$target) in One")
+        Summary("Open \(\.$target) in Agent One")
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let actionID = target.actionID else {
-            return .result(dialog: "That One Location destination is unavailable.")
+            return .result(dialog: "That Agent One Location destination is unavailable.")
         }
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.open(actionID)
@@ -658,7 +658,7 @@ struct OpenOneLocationDestinationIntent: OpenIntent {
 @available(iOS 16.0, *)
 struct OpenOneLocationIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Open Location Agent"
-    static let description = IntentDescription("Open the existing One Location experience.")
+    static let description = IntentDescription("Open the existing Agent One Location experience.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -671,7 +671,7 @@ struct OpenOneLocationIntent: OneLocationOpenIntent {
 @available(iOS 16.0, *)
 struct OpenOneLocationMapIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Open Location Map"
-    static let description = IntentDescription("Open the existing One Location map.")
+    static let description = IntentDescription("Open the existing Agent One Location map.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -684,7 +684,7 @@ struct OpenOneLocationMapIntent: OneLocationOpenIntent {
 @available(iOS 16.0, *)
 struct ViewOneActiveSharesIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "View Active Location Shares"
-    static let description = IntentDescription("Open the list of active One Location shares.")
+    static let description = IntentDescription("Open the list of active Agent One Location shares.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -710,7 +710,7 @@ struct ViewOneSharedLocationsIntent: OneLocationOpenIntent {
 @available(iOS 16.0, *)
 struct ReviewOneLocationRequestsIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Review Location Requests"
-    static let description = IntentDescription("Open One Location requests awaiting review.")
+    static let description = IntentDescription("Open Agent One Location requests awaiting review.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -723,7 +723,7 @@ struct ReviewOneLocationRequestsIntent: OneLocationOpenIntent {
 @available(iOS 16.0, *)
 struct OpenOneLocationSettingsIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Open Location Privacy Settings"
-    static let description = IntentDescription("Open One Location privacy settings.")
+    static let description = IntentDescription("Open Agent One Location privacy settings.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -750,7 +750,7 @@ struct CreateOneTemporaryLocationLinkIntent: OneLocationOpenIntent {
 struct CheckInWithOneIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Check In"
     static let description = IntentDescription(
-        "Open the existing One Check-In flow to choose recipients and review before sending."
+        "Open the existing Agent One Check-In flow to choose recipients and review before sending."
     )
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -765,7 +765,7 @@ struct CheckInWithOneIntent: OneLocationOpenIntent {
 struct OpenOneEmergencySOSIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Open Emergency SOS"
     static let description = IntentDescription(
-        "Open the existing One SOS review screen without sending an alert."
+        "Open the existing Agent One SOS review screen without sending an alert."
     )
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -841,7 +841,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Show \(\.$target) in \(.applicationName)",
                 "Call \(.applicationName) \(\.$target)"
             ],
-            shortTitle: "Open One Location",
+            shortTitle: "Open Agent One Location",
             systemImageName: "location.circle.fill"
         )
         AppShortcut(
@@ -850,7 +850,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Talk to \(.applicationName)",
                 "Ask \(.applicationName)"
             ],
-            shortTitle: "Talk to One",
+            shortTitle: "Talk to Agent One",
             systemImageName: "waveform.circle.fill"
         )
     }
