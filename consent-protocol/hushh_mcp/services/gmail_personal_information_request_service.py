@@ -340,6 +340,8 @@ class PersonalGmailInformationRequestService:
         }
 
     async def set_preference(self, *, user_id: str, enabled: bool) -> dict[str, Any]:
+        if enabled:
+            await self._require_private_vault(user_id=user_id)
         monitor_state = await self._monitor_state(user_id=user_id) if enabled else {}
         monitor_history_id = (
             await self.gmail_service.capture_personal_inbox_monitor_history_id(user_id=user_id)
@@ -430,6 +432,23 @@ class PersonalGmailInformationRequestService:
                         user_id,
                     )
         return await self.get_preference(user_id=user_id)
+
+    @staticmethod
+    async def _require_private_vault(*, user_id: str) -> None:
+        """Fail clearly before the preference FK can turn an opt-in into a 503."""
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            has_vault = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM vault_keys WHERE user_id = $1)",
+                user_id,
+            )
+        if not has_vault:
+            raise PersonalGmailInformationRequestError(
+                "Open your private vault before turning on KYC monitoring.",
+                code="PERSONAL_GMAIL_MONITOR_VAULT_REQUIRED",
+                status_code=409,
+            )
 
     async def list_workflows(
         self,

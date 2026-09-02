@@ -16,7 +16,7 @@ import {
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const EXTERNAL_AGENT_PROMPT =
-  "Create a concise, reviewable summary of identity and verification details I have explicitly provided to you. Include only information useful for verification, organized by field.";
+  "Create a concise, reviewable summary of the personal and KYC details I have explicitly provided to you. Include only information useful for KYC, organized by field.";
 
 export function GmailVerificationOnboarding({
   userId,
@@ -25,8 +25,6 @@ export function GmailVerificationOnboarding({
   onRequestVaultUnlock,
   deferred,
   onDeferredChange,
-  showForm,
-  onShowFormChange,
   details,
   onDetailsChange,
   children,
@@ -37,8 +35,6 @@ export function GmailVerificationOnboarding({
   onRequestVaultUnlock: () => void;
   deferred: boolean;
   onDeferredChange: (deferred: boolean) => void;
-  showForm: boolean;
-  onShowFormChange: (show: boolean) => void;
   details: string;
   onDetailsChange: (details: string) => void;
   children: ReactNode;
@@ -107,7 +103,7 @@ export function GmailVerificationOnboarding({
       }
       setProfileReady(true);
       onDetailsChange("");
-      toast.success("Verification details saved privately.");
+      toast.success("KYC details saved privately.");
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -124,7 +120,7 @@ export function GmailVerificationOnboarding({
       <SurfaceInset
         aria-busy="true"
         aria-live="polite"
-        aria-label="Checking verification setup"
+        aria-label="Checking KYC setup"
         className="space-y-3 px-4 py-5 sm:px-5"
       >
         <div className="space-y-2">
@@ -145,10 +141,11 @@ export function GmailVerificationOnboarding({
           </div>
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-foreground">
-              Set up verification
+              Set up KYC
             </h2>
             <p className="text-sm text-muted-foreground">
-              Open your private vault before adding details for future replies.
+              Open your private vault before importing details for future KYC
+              replies.
             </p>
           </div>
         </div>
@@ -159,54 +156,23 @@ export function GmailVerificationOnboarding({
     );
   }
 
-  if (!showForm) {
-    return (
-      <SurfaceInset className="space-y-4 px-4 py-5 sm:px-5">
-        <div className="flex items-start gap-3">
-          <div className="rounded-xl bg-primary/10 p-2 text-primary">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold text-foreground">
-              Set up verification
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Add private details you may choose to use in a verification reply.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={() => onShowFormChange(true)}>
-            Add private details
-          </Button>
-          <Button
-            type="button"
-            variant="muted"
-            onClick={() => onDeferredChange(true)}
-          >
-            Skip for now
-          </Button>
-        </div>
-      </SurfaceInset>
-    );
-  }
-
   return (
     <SurfaceInset className="space-y-4 px-4 py-5 sm:px-5">
       <div className="space-y-1">
         <h2 className="text-base font-semibold text-foreground">
-          Your verification profile
+          Build your KYC profile
         </h2>
         <p className="text-sm text-muted-foreground">
-          Add only information you may want to review before sharing.
+          Ask another AI for an export, paste it here, then save only the
+          details you want One to use for future KYC replies.
         </p>
       </div>
       <Textarea
         value={details}
         onChange={(event) => onDetailsChange(event.target.value)}
-        placeholder="Add identity or verification details, or paste a reviewable summary from another AI."
+        placeholder="Paste the KYC details you want to save privately. You can edit this before saving."
         className="min-h-36 resize-y"
-        aria-label="Verification details"
+        aria-label="KYC details"
         disabled={saving}
       />
       <div className="rounded-xl border border-border/60 bg-background/60 p-3">
@@ -214,8 +180,8 @@ export function GmailVerificationOnboarding({
           Import from another AI
         </p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Ask for a scoped verification summary, then review what you paste
-          before saving.
+          Copy this prompt into ChatGPT, Claude, or another agent. Then paste
+          the export above and review it before saving.
         </p>
         <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2">
           <p className="text-xs leading-5 text-muted-foreground">
@@ -226,7 +192,7 @@ export function GmailVerificationOnboarding({
             size="icon"
             variant="muted"
             onClick={() => void copyPrompt()}
-            aria-label="Copy verification export prompt"
+            aria-label="Copy KYC export prompt"
           >
             {copied ? (
               <Check className="h-4 w-4 text-emerald-600" />
@@ -242,7 +208,7 @@ export function GmailVerificationOnboarding({
           onClick={() => void save()}
           disabled={saving || !details.trim()}
         >
-          {saving ? "Saving…" : "Save private details"}
+          {saving ? "Saving…" : "Save KYC details"}
         </Button>
         <Button
           type="button"

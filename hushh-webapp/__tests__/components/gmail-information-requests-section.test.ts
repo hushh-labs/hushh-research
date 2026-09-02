@@ -122,7 +122,7 @@ describe("personal Gmail information-request scope boundary", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByText("Verification requests")).toBeVisible(),
+      expect(screen.getByText("KYC requests")).toBeVisible(),
     );
     expect(gmailServiceMocks.getPreference).toHaveBeenCalledTimes(1);
   });
@@ -133,13 +133,48 @@ describe("personal Gmail information-request scope boundary", () => {
         "Personal Gmail monitoring is temporarily unavailable. Please try again.",
       ),
     );
-    renderSection();
+    render(
+      createElement(GmailInformationRequestsSection, {
+        userId: "owner",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "vault-owner-token",
+        isConnected: true,
+        idTokenProvider: () => Promise.resolve("firebase-token"),
+        onRequestVaultUnlock: vi.fn(),
+      }),
+    );
 
     await screen.findByRole("button", { name: "Turn on monitoring" });
     fireEvent.click(screen.getByRole("button", { name: "Turn on monitoring" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Personal Gmail monitoring is temporarily unavailable. Please try again.",
+    );
+  });
+
+  it("opens the private vault instead of issuing an invalid monitor opt-in", async () => {
+    const onRequestVaultUnlock = vi.fn();
+    render(
+      createElement(GmailInformationRequestsSection, {
+        userId: "owner",
+        vaultKey: null,
+        vaultOwnerToken: null,
+        isConnected: true,
+        idTokenProvider: () => Promise.resolve("firebase-token"),
+        onRequestVaultUnlock,
+      }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Unlock to turn on monitoring",
+      }),
+    );
+
+    expect(onRequestVaultUnlock).toHaveBeenCalledOnce();
+    expect(gmailServiceMocks.setPreference).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Open your private vault before turning on KYC monitoring.",
     );
   });
 

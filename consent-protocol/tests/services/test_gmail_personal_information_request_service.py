@@ -13,6 +13,7 @@ from hushh_mcp.services.gmail_delivery_service import (
     normalize_draft,
 )
 from hushh_mcp.services.gmail_personal_information_request_service import (
+    PersonalGmailInformationRequestError,
     PersonalGmailInformationRequestService,
     _classification_from,
     _message_text,
@@ -349,7 +350,7 @@ def test_threaded_reply_context_is_part_of_the_reviewed_envelope(monkeypatch):
 def test_personal_monitor_migration_is_metadata_only():
     migration = (
         Path(__file__).parents[2]
-        / "db/migrations/191_gmail_personal_information_request_monitor.sql"
+        / "db/migrations/192_gmail_personal_information_request_monitor.sql"
     ).read_text()
 
     assert "gmail_personal_information_request_preferences" in migration
@@ -365,7 +366,7 @@ def test_personal_monitor_migration_is_metadata_only():
 def test_personal_monitor_history_cursor_prevents_inbox_backfill():
     migration = (
         Path(__file__).parents[2]
-        / "db/migrations/193_gmail_personal_information_request_monitor_history_cursor.sql"
+        / "db/migrations/194_gmail_personal_information_request_monitor_history_cursor.sql"
     ).read_text()
     source = Path(monitor_module.__file__).read_text()
 
@@ -373,6 +374,38 @@ def test_personal_monitor_history_cursor_prevents_inbox_backfill():
     assert "prevents historical inbox backfill" in migration
     assert "list_personal_inbox_monitor_history_page" in source
     assert "list_personal_inbox_monitor_page(" not in source
+
+
+@pytest.mark.asyncio
+async def test_monitor_opt_in_requires_a_private_vault_before_any_gmail_baseline(monkeypatch):
+    class Connection:
+        async def fetchval(self, query: str, user_id: str):
+            assert "vault_keys" in query
+            assert user_id == "owner"
+            return False
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def get_pool():
+        return Pool()
+
+    monkeypatch.setattr(monitor_module, "get_pool", get_pool)
+    service = PersonalGmailInformationRequestService()
+
+    with pytest.raises(PersonalGmailInformationRequestError) as error:
+        await service._require_private_vault(user_id="owner")
+
+    assert error.value.code == "PERSONAL_GMAIL_MONITOR_VAULT_REQUIRED"
+    assert error.value.status_code == 409
 
 
 @pytest.mark.asyncio

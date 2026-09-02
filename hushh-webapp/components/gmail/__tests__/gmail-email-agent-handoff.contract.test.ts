@@ -10,11 +10,12 @@ const source = readFileSync(
 
 describe("Gmail Email Agent handoff contract", () => {
   it("queues the intro as a normal Agent Chat transcript", () => {
-    expect(source).toContain("transcript: buildGmailAgentHandoffPrompt()");
+    expect(source).toContain("transcript = buildGmailAgentHandoffPrompt(");
+    expect(source).toContain("gmail.status?.google_email || user?.email || \"\"");
     expect(source).toContain("createHandoff({");
     expect(source).toContain("agentPopover.openAgent();");
     expect(source).not.toContain(
-      "emailDraftInstruction: buildGmailAgentHandoffPrompt()",
+      "emailDraftInstruction: buildGmailAgentHandoffPrompt(",
     );
   });
 });

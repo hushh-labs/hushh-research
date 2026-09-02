@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Literal, cast
 
@@ -19,6 +20,7 @@ from hushh_mcp.services.gmail_personal_information_request_service import (
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
 router = APIRouter(prefix="/api/one/email/information-requests", tags=["Email Agent"])
+logger = logging.getLogger(__name__)
 
 
 class MonitoringPreferenceRequest(BaseModel):
@@ -188,6 +190,11 @@ async def set_monitoring_preference(
             await _service().set_preference(user_id=payload.user_id, enabled=payload.enabled),
         )
     except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
+        logger.exception(
+            "gmail.personal_information_request.preference_update_failed enabled=%s error=%s",
+            payload.enabled,
+            type(exc).__name__,
+        )
         raise _as_http_error(exc) from exc
 
 

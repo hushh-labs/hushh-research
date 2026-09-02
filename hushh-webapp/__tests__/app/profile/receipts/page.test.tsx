@@ -233,6 +233,7 @@ vi.mock("lucide-react", () => ({
   RotateCcw: () => <span />,
   Send: () => <span />,
   ShieldCheck: () => <span />,
+  ShoppingBag: () => <span />,
   Sparkles: () => <span />,
   Trash2: () => <span />,
 }));
@@ -517,6 +518,11 @@ describe("ProfileReceiptsPage", () => {
     mocks.gmailOAuthPopup.popup.sessionStorage.removeItem.mockReset();
     if (typeof window !== "undefined") {
       window.sessionStorage.clear();
+      window.localStorage.clear();
+      window.localStorage.setItem(
+        "hushh.gmail.receipts.onboarding.v1:user-123",
+        "complete",
+      );
     }
     mocks.useAuth.mockReturnValue({
       user: {
@@ -604,6 +610,20 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.toast.message).toHaveBeenCalledWith(
       "Syncing your receipts now.",
     );
+  });
+
+  it("shows the receipt orientation before a first-time workspace visit", async () => {
+    window.localStorage.removeItem(
+      "hushh.gmail.receipts.onboarding.v1:user-123",
+    );
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+    expect(
+      await screen.findByText(/does not scan KYC requests here/i),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Explore receipts" }));
+    expect(await screen.findByText(/No receipts yet/i)).toBeVisible();
   });
 
   it("removes the redundant Gmail eyebrow", () => {
@@ -774,7 +794,9 @@ describe("ProfileReceiptsPage", () => {
       has_more: false,
     });
 
-    const firstRender = render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    const firstRender = render(
+      <ProfileReceiptsPage initialWorkspace="receipts" />,
+    );
     expect((await screen.findAllByText("Cached Shop")).length).toBeGreaterThan(
       0,
     );
@@ -808,7 +830,9 @@ describe("ProfileReceiptsPage", () => {
       cachedResponse,
     );
 
-    const renderResult = render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    const renderResult = render(
+      <ProfileReceiptsPage initialWorkspace="receipts" />,
+    );
 
     expect(
       (await screen.findAllByText("Current Watermark Shop")).length,
@@ -1090,7 +1114,7 @@ describe("ProfileReceiptsPage", () => {
       await screen.findByRole("button", { name: /connect gmail/i }),
     ).toBeVisible();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Verification" }));
+    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
     expect(
       screen.getByRole("button", { name: /connect gmail/i }),
     ).toBeVisible();

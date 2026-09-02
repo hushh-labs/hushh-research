@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { GmailWorkspaceNavigation } from "@/components/gmail/gmail-workspace-navigation";
 
 describe("Gmail workspace navigation", () => {
-  it("keeps Gmail focused on overview, receipts, and verification", () => {
+  it("keeps Gmail focused on overview, KYC, and receipts", () => {
     const onValueChange = vi.fn();
 
     render(
@@ -21,11 +21,11 @@ describe("Gmail workspace navigation", () => {
       "aria-selected",
       "true",
     );
+    expect(screen.getByRole("tab", { name: "KYC" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "Receipts" })).toBeVisible();
-    expect(screen.getByRole("tab", { name: "Verification" })).toBeVisible();
     expect(screen.queryByRole("tab", { name: /Inbox assistant/i })).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Verification" }));
-    expect(onValueChange).toHaveBeenCalledWith("verification");
+    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    expect(onValueChange).toHaveBeenCalledWith("kyc");
   });
 });

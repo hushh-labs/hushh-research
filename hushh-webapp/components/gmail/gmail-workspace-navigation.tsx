@@ -2,12 +2,12 @@
 
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 
-export type GmailWorkspace = "overview" | "receipts" | "verification";
+export type GmailWorkspace = "overview" | "kyc" | "receipts";
 
 const OPTIONS = [
   { value: "overview", label: "Overview" },
+  { value: "kyc", label: "KYC" },
   { value: "receipts", label: "Receipts" },
-  { value: "verification", label: "Verification" },
 ] as const;
 
 export function GmailWorkspaceNavigation({

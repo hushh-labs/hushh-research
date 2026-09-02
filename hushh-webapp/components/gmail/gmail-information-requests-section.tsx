@@ -382,9 +382,9 @@ function ActivityCard({
 }
 
 /**
- * The owner-facing personal-Gmail opt-in and metadata-only request queue. It
- * stays beside Gmail's existing receipt and nudge features, while platform
- * mailbox KYC remains available at /one/kyc during migration.
+ * The owner-facing personal-Gmail opt-in and metadata-only KYC request queue.
+ * It stays inside the Gmail agent; the legacy platform-mailbox KYC surface is
+ * intentionally not used by this workflow.
  */
 export default function GmailInformationRequestsSection({
   userId,
@@ -430,7 +430,9 @@ export default function GmailInformationRequestsSection({
   const [listView, setListView] = useState<"requests" | "activity">("requests");
   const [activityLoaded, setActivityLoaded] = useState(false);
   const [activityLoading, setActivityLoading] = useState(false);
-  const [activityNextOffset, setActivityNextOffset] = useState<number | null>(null);
+  const [activityNextOffset, setActivityNextOffset] = useState<number | null>(
+    null,
+  );
   const [activityTotalCount, setActivityTotalCount] = useState(0);
   const [showDisableConfirm, setShowDisableConfirm] = useState(false);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
@@ -488,6 +490,13 @@ export default function GmailInformationRequestsSection({
   const setMonitoring = useCallback(
     async (enabled: boolean) => {
       if (!userId || !idTokenProvider) return false;
+      if (enabled && (!vaultKey || !vaultOwnerToken)) {
+        setError(
+          "Open your private vault before turning on KYC monitoring. This keeps request history and any future drafts owner-controlled.",
+        );
+        onRequestVaultUnlock();
+        return false;
+      }
       setUpdating(true);
       setError(null);
       try {
@@ -527,14 +536,14 @@ export default function GmailInformationRequestsSection({
         setError(
           updateError instanceof Error
             ? updateError.message
-            : "We could not update personal information-request monitoring.",
+            : "We could not update KYC monitoring.",
         );
         return false;
       } finally {
         setUpdating(false);
       }
     },
-    [idTokenProvider, userId, vaultOwnerToken],
+    [idTokenProvider, onRequestVaultUnlock, userId, vaultKey, vaultOwnerToken],
   );
 
   const scan = useCallback(async () => {
@@ -584,45 +593,52 @@ export default function GmailInformationRequestsSection({
     }
   }, [idTokenProvider, nextOffset, vaultOwnerToken]);
 
-  const loadActivity = useCallback(async (append = false) => {
-    if (
-      !vaultOwnerToken ||
-      !idTokenProvider ||
-      activityLoadingRef.current ||
-      (append && activityNextOffset === null)
-    ) {
-      return;
-    }
-    activityLoadingRef.current = true;
-    setActivityLoading(true);
-    setError(null);
-    try {
-      const firebaseIdToken = await idTokenProvider();
-      const response = await GmailInformationRequestsService.list({
-        firebaseIdToken,
-        vaultOwnerToken,
-        limit: 25,
-        offset: append ? activityNextOffset || 0 : 0,
-        view: "activity",
-      });
-      setActivityWorkflows((current) =>
-        append ? [...current, ...response.workflows] : response.workflows,
-      );
-      setActivityNextOffset(response.next_offset);
-      setActivityTotalCount(response.total_count);
-      setActivityLoaded(true);
-    } catch {
-      setError("We could not load verification activity.");
-    } finally {
-      activityLoadingRef.current = false;
-      setActivityLoading(false);
-    }
-  }, [activityNextOffset, idTokenProvider, vaultOwnerToken]);
+  const loadActivity = useCallback(
+    async (append = false) => {
+      if (
+        !vaultOwnerToken ||
+        !idTokenProvider ||
+        activityLoadingRef.current ||
+        (append && activityNextOffset === null)
+      ) {
+        return;
+      }
+      activityLoadingRef.current = true;
+      setActivityLoading(true);
+      setError(null);
+      try {
+        const firebaseIdToken = await idTokenProvider();
+        const response = await GmailInformationRequestsService.list({
+          firebaseIdToken,
+          vaultOwnerToken,
+          limit: 25,
+          offset: append ? activityNextOffset || 0 : 0,
+          view: "activity",
+        });
+        setActivityWorkflows((current) =>
+          append ? [...current, ...response.workflows] : response.workflows,
+        );
+        setActivityNextOffset(response.next_offset);
+        setActivityTotalCount(response.total_count);
+        setActivityLoaded(true);
+      } catch {
+        setError("We could not load KYC activity.");
+      } finally {
+        activityLoadingRef.current = false;
+        setActivityLoading(false);
+      }
+    },
+    [activityNextOffset, idTokenProvider, vaultOwnerToken],
+  );
 
   const changeListView = useCallback(
     (next: "requests" | "activity") => {
       setListView(next);
-      if (next === "activity" && !activityLoaded && !activityLoadingRef.current) {
+      if (
+        next === "activity" &&
+        !activityLoaded &&
+        !activityLoadingRef.current
+      ) {
         void loadActivity();
       }
     },
@@ -861,7 +877,7 @@ export default function GmailInformationRequestsSection({
     <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="font-medium text-foreground">Verification requests</p>
+          <p className="font-medium text-foreground">KYC requests</p>
           <p className="text-sm leading-6 text-muted-foreground">
             Review new requests, choose the details to share, and approve every
             reply.
@@ -883,9 +899,8 @@ export default function GmailInformationRequestsSection({
         </div>
       ) : (
         <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
-          Check new unread Inbox messages for verification requests. Existing
-          email is never scanned, and monitoring never grants sharing or send
-          permission.
+          Check new unread Inbox messages for KYC requests. Existing email is
+          never scanned, and monitoring never grants sharing or send permission.
         </div>
       )}
 
@@ -902,16 +917,24 @@ export default function GmailInformationRequestsSection({
           className="min-h-11"
           variant={enabled ? "muted" : "blue-gradient"}
           disabled={updating || loading}
-          onClick={() =>
-            enabled ? setShowDisableConfirm(true) : void setMonitoring(true)
-          }
+          onClick={() => {
+            if (enabled) {
+              setShowDisableConfirm(true);
+              return;
+            }
+            void setMonitoring(true);
+          }}
         >
           {updating ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Mail className="mr-2 h-4 w-4" />
           )}
-          {enabled ? "Turn off monitoring" : "Turn on monitoring"}
+          {enabled
+            ? "Turn off monitoring"
+            : vaultKey && vaultOwnerToken
+              ? "Turn on monitoring"
+              : "Unlock to turn on monitoring"}
         </Button>
         {enabled ? (
           <Button
@@ -936,8 +959,8 @@ export default function GmailInformationRequestsSection({
       {enabled && !vaultOwnerToken ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p>
-            Unlock your private vault to view requests, check Gmail, or prepare
-            a draft.
+            Unlock your private vault to view KYC requests, check Gmail, or
+            prepare a draft.
           </p>
           <Button
             type="button"
@@ -967,12 +990,12 @@ export default function GmailInformationRequestsSection({
             },
           ]}
           mobileColumns={2}
-          ariaLabel="Verification request views"
+          ariaLabel="KYC request views"
         />
       ) : null}
 
       {enabled && listView === "requests" && workflows.length ? (
-        <div className="space-y-2" role="tabpanel" aria-label="Verification requests">
+        <div className="space-y-2" role="tabpanel" aria-label="KYC requests">
           <p className="text-xs text-muted-foreground">
             Showing {workflows.length} of {totalCount} requests
           </p>
@@ -997,12 +1020,12 @@ export default function GmailInformationRequestsSection({
         </div>
       ) : enabled && listView === "requests" && vaultOwnerToken && !loading ? (
         <p className="text-xs text-muted-foreground">
-          No verification requests found yet.
+          No KYC requests found yet.
         </p>
       ) : null}
 
       {enabled && listView === "activity" && activityWorkflows.length ? (
-        <div className="space-y-2" role="tabpanel" aria-label="Verification activity">
+        <div className="space-y-2" role="tabpanel" aria-label="KYC activity">
           {activityWorkflows.map((workflow) => (
             <ActivityCard key={workflow.workflow_id} workflow={workflow} />
           ))}
@@ -1025,7 +1048,7 @@ export default function GmailInformationRequestsSection({
         </p>
       ) : enabled && listView === "activity" && activityLoaded ? (
         <p className="text-xs text-muted-foreground">
-          No verification activity yet. Sent messages remain available in Gmail.
+          No KYC activity yet. Sent messages remain available in Gmail.
         </p>
       ) : null}
 
@@ -1034,7 +1057,7 @@ export default function GmailInformationRequestsSection({
         onOpenChange={(open) => {
           if (!open) setSelectedWorkflowId(null);
         }}
-        eyebrow="Verification request"
+        eyebrow="KYC request"
         title="Review request"
         description="Choose the exact private details to include, then review the reply before sending."
         mobilePresentation="fullscreen"
@@ -1070,13 +1093,15 @@ export default function GmailInformationRequestsSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Turn off monitoring?</AlertDialogTitle>
             <AlertDialogDescription>
-              This stops future checks and permanently deletes verification-request
-              activity and monitoring metadata. Your Gmail emails are not deleted.
-              Turning it on again starts from future messages only.
+              This stops future checks and permanently deletes KYC-request
+              activity and monitoring metadata. Your Gmail emails are not
+              deleted. Turning it on again starts from future messages only.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
-            <AlertDialogCancel disabled={updating}>Keep monitoring on</AlertDialogCancel>
+            <AlertDialogCancel disabled={updating}>
+              Keep monitoring on
+            </AlertDialogCancel>
             <AlertDialogAction
               disabled={updating}
               onClick={(event) => {

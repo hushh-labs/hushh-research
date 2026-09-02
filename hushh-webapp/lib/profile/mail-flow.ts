@@ -49,7 +49,7 @@ export interface GmailStatusSummary {
  * `describeGmailReceiptScanProgress`, which carries live counts.
  */
 export const GMAIL_INBOX_SIGNAL_EXPLANATION =
-  "One syncs purchase receipts into a private shopping summary. You can separately turn on verification-request monitoring after connecting.";
+  "One syncs purchase receipts into a private shopping summary. You can separately turn on KYC-request monitoring after connecting.";
 
 export function describeGmailReceiptScanProgress(params: {
   scanned: number;

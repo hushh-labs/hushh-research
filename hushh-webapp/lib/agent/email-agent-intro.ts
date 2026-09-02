@@ -8,7 +8,11 @@ export function buildEmailAgentIntroPrompt(recipient: string): string {
   return `Can you send an email to '${normalizedRecipient}', In the email explain features of the email agent.`;
 }
 
-/** Gmail's workspace opens One for a conversation, not a pre-addressed send. */
-export function buildGmailAgentHandoffPrompt(): string {
-  return "Help me with my Gmail. I want to review every draft before anything is sent.";
+/** Gmail's workspace opens One with a guided, owner-addressed draft request. */
+export function buildGmailAgentHandoffPrompt(recipient: string): string {
+  const normalizedRecipient = recipient.trim();
+  if (!normalizedRecipient) {
+    return "Help me prepare an email explaining the Gmail agent's features in detail. I want to review the draft before anything is sent.";
+  }
+  return `Send an email to '${normalizedRecipient}' explaining all the features of the Gmail agent in detail. Prepare the draft for my review and do not send it without my explicit approval.`;
 }
