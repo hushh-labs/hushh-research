@@ -163,6 +163,7 @@ tests/test_pod_resource_tier_is_per_person.py
 tests/test_pod_relay.py
 tests/test_pod_data_door_projection.py
 tests/test_pod_data_door_email.py
+tests/test_pod_data_door_calendar.py
 tests/test_pod_data_door_specialist.py
 tests/test_pod_specialist_broker.py
 tests/test_pod_pkm_resolver.py

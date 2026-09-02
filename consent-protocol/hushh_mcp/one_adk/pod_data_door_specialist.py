@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 _SPECIALIST_DOOR_NAMES: dict[str, str] = {
     "agent_location": "location",
     "agent_email": "email",
+    "agent_calendar": "calendar",
 }
 
 
@@ -150,12 +151,69 @@ def _format_email_summary(projection: dict[str, Any]) -> str:
     return " ".join(lines)
 
 
+def _event_when(event: dict[str, Any]) -> str:
+    """When an event happens, from the projected boundary only. All-day events
+    render their date; timed events render date and clock in the event's own
+    offset. Unparseable input renders as 'time unknown' rather than raising."""
+    start = event.get("start") if isinstance(event.get("start"), dict) else {}
+    if event.get("all_day") or ("date" in start and "dateTime" not in start):
+        return f"all day {start.get('date') or 'date unknown'}"
+    raw = str(start.get("dateTime") or "")
+    try:
+        from datetime import datetime  # noqa: PLC0415
+
+        when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return "time unknown"
+    return when.strftime("%b %d at %H:%M")
+
+
+def _format_calendar_summary(projection: dict[str, Any]) -> str:
+    """A faithful, deterministic summary of the owner's upcoming events.
+
+    Built only from the fail-closed projection -- titles and times -- so it can
+    never name an attendee, a location, a description or a link the door did not
+    carry. Read-only by construction: it ends by saying where a change is made.
+    """
+    if not isinstance(projection, dict):
+        return "I could not read your calendar just now."
+
+    if not projection.get("connected", False):
+        reason = str(projection.get("reason") or "").strip().lower()
+        if reason == "not_connected":
+            return (
+                "Your Google Calendar isn't connected yet. Connect it in settings and "
+                "I can tell you what's coming up."
+            )
+        if reason == "needs_reauth":
+            return (
+                "Your Google Calendar connection needs reconnecting. Reconnect it in "
+                "settings and I can read your schedule again."
+            )
+        return "I couldn't reach your calendar just now."
+
+    events = [e for e in (projection.get("events") or []) if isinstance(e, dict)]
+    if not events:
+        return "Nothing is on your calendar for the next day and a half."
+
+    items = [
+        f"{str(e.get('title') or 'Untitled event').strip()} ({_event_when(e)})" for e in events[:8]
+    ]
+    more = len(events) - len(items)
+    tail = f", and {more} more" if more > 0 else ""
+    return (
+        f"Coming up on your calendar: {'; '.join(items)}{tail}. "
+        "To add or change an event, use the Calendar screen."
+    )
+
+
 #: door name -> the deterministic summary that renders its projection. Adding a
 #: door means adding its summarizer here; an unmapped door has no renderer and so
 #: never serves, which is the fail-closed default.
 _SUMMARIZERS: dict[str, Any] = {
     "location": _format_location_summary,
     "email": _format_email_summary,
+    "calendar": _format_calendar_summary,
 }
 
 

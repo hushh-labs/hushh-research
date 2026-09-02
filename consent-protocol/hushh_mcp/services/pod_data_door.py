@@ -48,7 +48,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from datetime import datetime, timedelta, timezone
+from typing import Any, Awaitable, Callable, Optional
 
 # --- Location egress allowlists -------------------------------------------------
 # Only these fields may EVER reach a pod through the door. Everything else in the
@@ -287,6 +288,57 @@ def project_email_state(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _project_calendar_time(value: Any) -> Optional[dict[str, str]]:
+    """An event boundary as Google returns it: ``dateTime`` (timed) or ``date``
+    (all-day). Only those two strings survive; the zone name and anything else
+    added upstream are dropped by omission."""
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, str] = {}
+    for key in ("dateTime", "date"):
+        if isinstance(value.get(key), str) and value[key]:
+            out[key] = value[key]
+    return out or None
+
+
+def project_calendar_state(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project the owner's upcoming events for pod egress (fail-closed).
+
+    Keeps ``connected``, an optional coded ``reason`` (``not_connected`` /
+    ``needs_reauth``), the calendar's ``time_zone``, and per event ONLY its title,
+    start, end, status and an all-day flag. Drops the event id and etag (resource
+    handles), the description (free text that routinely carries dial-ins and
+    private notes), the location, every attendee (addresses), the HTML link and
+    the updated stamp. A field added upstream is dropped by omission.
+    """
+    if not isinstance(raw, dict):
+        return {"connected": False, "reason": "unavailable", "time_zone": None, "events": []}
+    reason = raw.get("reason")
+    events: list[dict[str, Any]] = []
+    for event in raw.get("events") or []:
+        if not isinstance(event, dict):
+            continue
+        start = _project_calendar_time(event.get("start"))
+        end = _project_calendar_time(event.get("end"))
+        status = event.get("status")
+        events.append(
+            {
+                "title": str(event.get("title") or "Untitled event"),
+                "start": start,
+                "end": end,
+                "status": str(status) if isinstance(status, str) and status else None,
+                "all_day": bool(start and "date" in start and "dateTime" not in start),
+            }
+        )
+    time_zone = raw.get("time_zone")
+    return {
+        "connected": bool(raw.get("connected", True)),
+        "reason": str(reason) if isinstance(reason, str) and reason else None,
+        "time_zone": time_zone if isinstance(time_zone, str) and time_zone else None,
+        "events": events,
+    }
+
+
 @dataclass(frozen=True)
 class PodDataDoorRead:
     """One read the door exposes: a name, and the projection its output passes
@@ -306,6 +358,7 @@ class PodDataDoorRead:
 POD_DATA_DOOR_READS: dict[str, PodDataDoorRead] = {
     "location": PodDataDoorRead(name="location", project=project_location_state),
     "email": PodDataDoorRead(name="email", project=project_email_state),
+    "calendar": PodDataDoorRead(name="calendar", project=project_calendar_state),
 }
 
 
@@ -358,9 +411,53 @@ async def _read_email(owner_id: str) -> dict[str, Any]:
 #: Name -> the read that fetches raw owner state. Every value is a READ; there is
 #: no sibling write table by design. Async because an OAuth-backed reader (email,
 #: and calendar next) does network I/O; the sync location read wraps in a thread.
+#: How far ahead the calendar door looks. "Today and tomorrow" in every zone the
+#: owner could be in, without the broker knowing their zone: 36 hours forward, and
+#: one hour back so a meeting already in progress is not dropped.
+_CALENDAR_LOOKBACK = timedelta(hours=1)
+_CALENDAR_HORIZON = timedelta(hours=36)
+
+
+async def _read_calendar(owner_id: str) -> dict[str, Any]:
+    """Read the owner's UPCOMING events through the hub (OAuth, read-only).
+
+    Same contract as the email reader: the two EXPECTED "no live read" cases
+    (not connected / needs reauth, which is also what an insufficient scope means
+    to the person) come back as coded markers so the door renders a next step
+    rather than degrading to runtime_unavailable. Configuration faults (503) and
+    anything unexpected propagate. Read only: this never proposes, executes, or
+    touches a proposal.
+    """
+    from hushh_mcp.services.google_calendar_service import get_google_calendar_service
+    from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+    now = datetime.now(timezone.utc)
+    try:
+        listed = await get_google_calendar_service().list_events(
+            user_id=owner_id,
+            start_at=(now - _CALENDAR_LOOKBACK).isoformat(),
+            end_at=(now + _CALENDAR_HORIZON).isoformat(),
+            max_results=20,
+        )
+    except GoogleConnectionError as exc:
+        # The connection service says 403 for BOTH "never connected" ("Connect
+        # Google Calendar first") and "connected without this permission"
+        # ("Additional ... permission is required"). The person needs a different
+        # next step for each, so the message decides which marker to return.
+        status = getattr(exc, "status_code", None)
+        message = str(exc)
+        if status == 404 or (status == 403 and message.startswith("Connect ")):
+            return {"connected": False, "reason": "not_connected", "events": []}
+        if status in (401, 403):
+            return {"connected": False, "reason": "needs_reauth", "events": []}
+        raise
+    return {"connected": True, **(listed if isinstance(listed, dict) else {})}
+
+
 _READERS: dict[str, Callable[[str], Awaitable[dict[str, Any]]]] = {
     "location": _read_location,
     "email": _read_email,
+    "calendar": _read_calendar,
 }
 
 

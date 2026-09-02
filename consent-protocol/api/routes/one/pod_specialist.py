@@ -69,6 +69,7 @@ router = APIRouter(prefix="/api/one/pod/specialist", tags=["personal-agent"])
 _REQUIRED_SCOPE: dict[str, str] = {
     "location": "cap.location.live.view",
     "email": "cap.email.inbox.view",
+    "calendar": "cap.calendar.events.view",
 }
 
 

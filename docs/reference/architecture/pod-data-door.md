@@ -18,7 +18,7 @@ flowchart TB
   relay["Hub relay<br/>mints a short-TTL per-specialist scope, best-effort"]
   pod["Keyless pod<br/>no DB credential, no OAuth token"]
   broker["Hub broker (pod_specialist)<br/>verify_pod_identity + re-validate scope + owner bind"]
-  read["One fixed READ-ONLY read on the owner's own project<br/>location: list_state(read_only) · email: list_nudges (OAuth)"]
+  read["One fixed READ-ONLY read on the owner's own project<br/>location: list_state(read_only) · email: list_nudges (OAuth) · calendar: list_events (OAuth)"]
   projection["Fail-closed projection (pod_data_door)<br/>allow-list only: no body, no PII, no key, no resource handle"]
   summary["Deterministic summary rendered IN the pod<br/>_format_X_summary, from the projection"]
 
@@ -51,12 +51,13 @@ flowchart TB
 4. **The gate is the GRANT's presence, not a second flag.** No grant couriered → the
    specialist falls through to `runtime_unavailable` (today's behaviour, untouched).
 
-## Status (2026-09-01)
+## Status (2026-09-02)
 
 | Specialist | Door | Read | Notes |
 |---|---|---|---|
 | location | **OPEN** | `list_state(read_only=True)` (sync DB) | first door; suppresses even expiry housekeeping |
 | email | **OPEN** | `list_nudges` (async, OAuth) | inbox attention summary; `cap.email.inbox.view` |
+| calendar | **OPEN** (2026-09-02) | `list_events` (async, OAuth, 36h window) | upcoming events, titles and times only; `cap.calendar.events.view`; read-only, the summary points at the Calendar screen for changes |
 | nav, connections | next | dispatch specialists (hook fires) | same recipe as email |
 | calendar | designed | `list_events` (async, OAuth) | in-process tool, needs the tool→broker bridge below |
 | finance/Kai | designed (partial) | `get_status` connection status (sync DB) | see the finance split |
@@ -117,7 +118,7 @@ Adding a door is a deliberate, reviewable act across these points:
 ## Tests
 
 `consent-protocol/tests/test_pod_data_door_projection.py` (location + the async
-contract), `test_pod_data_door_email.py` (email projection drops, reader edge-case
+contract), `test_pod_data_door_email.py` (email projection drops, reader edge-case), `test_pod_data_door_calendar.py` (calendar projection drops, reader markers, one-name agreement, read-only summary
 markers, deterministic summary branches, and one-name-across-three-maps),
 `test_pod_data_door_specialist.py`, and `test_pod_specialist_broker.py`.
 
