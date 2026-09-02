@@ -89,7 +89,9 @@ export function OneSetupHub() {
     enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
-  const [finalizationError, setFinalizationError] = useState<string | null>(null);
+  const [finalizationError, setFinalizationError] = useState<string | null>(
+    null,
+  );
   const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   /**
@@ -115,7 +117,9 @@ export function OneSetupHub() {
   }>({ userId: null, cloud: "loading", runtime: "loading" });
   const prereqMatchesUser = prereqSnapshot.userId === (user?.uid ?? null);
   const cloudState = prereqMatchesUser ? prereqSnapshot.cloud : "loading";
-  const runtimeChoiceState = prereqMatchesUser ? prereqSnapshot.runtime : "loading";
+  const runtimeChoiceState = prereqMatchesUser
+    ? prereqSnapshot.runtime
+    : "loading";
   const returnTo = useMemo(() => {
     const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
     if (!raw) return null;
@@ -200,7 +204,8 @@ export function OneSetupHub() {
     stage: string;
     stagesReached: number;
   } | null>(null);
-  const cloudComplete_forJob = prereqMatchesUser && prereqSnapshot.cloud === "complete";
+  const cloudComplete_forJob =
+    prereqMatchesUser && prereqSnapshot.cloud === "complete";
   useEffect(() => {
     if (!user?.uid || cloudComplete_forJob) {
       setCloudSetupJob(null);
@@ -222,7 +227,9 @@ export function OneSetupHub() {
         }
         setCloudSetupJob(null);
         if (status.status === "recorded") {
-          void PreVaultUserStateService.bootstrapState(user.uid, { force: true })
+          void PreVaultUserStateService.bootstrapState(user.uid, {
+            force: true,
+          })
             .then((state) => {
               if (!cancelled) {
                 setPrereqSnapshot({
@@ -680,9 +687,7 @@ export function OneSetupHub() {
           localFirstStage === "migrating" ? (
             <GuidedConnectionScreen
               agentReady={
-                user?.uid
-                  ? isPersonalAgentReadyFromCachedFeed(user.uid)
-                  : false
+                user?.uid ? isPersonalAgentReadyFromCachedFeed(user.uid) : false
               }
               busy={localFirstStage === "migrating"}
               onContinue={() => void runGuidedConnection()}
@@ -722,114 +727,128 @@ export function OneSetupHub() {
                     className={styles.setupProgressFill}
                     style={{
                       width:
-                        total > 0 ? `${Math.round((done / total) * 100)}%` : "0%",
+                        total > 0
+                          ? `${Math.round((done / total) * 100)}%`
+                          : "0%",
                     }}
                   />
                 </div>
               </div>
             ) : null}
             <div className={styles.flatChecklist}>
+              {/* The cloud comes first and stays first. Where the agent lives
+                  decides everything after it (which AI can be chosen, where
+                  records go), so this group is pinned at the top in both
+                  states instead of sinking into "Complete" once connected, and
+                  the capability lists below appear only once the cloud is in
+                  place (founder direction, 2026-09-02). */}
               <SettingsGroup
-                title="Remaining"
-                testId="one-setup-capabilities-remaining"
+                title="Start here"
+                testId="one-setup-foundation"
                 separatorInset
               >
-                {!cloudComplete ? (
-                  <SetupNavigationTile
-                    id="cloud"
-                    title="Where your agent lives"
-                    description={
-                      cloudSetupRunning
+                <SetupNavigationTile
+                  id="cloud"
+                  title={
+                    cloudComplete ? "Your cloud" : "Where your agent lives"
+                  }
+                  description={
+                    cloudComplete
+                      ? "Your private agent runs in your own Google Cloud project."
+                      : cloudSetupRunning
                         ? "Being set up in the background. Keep going; this finishes on its own."
                         : "Your own Google Cloud project, or hosted by hussh for now. You can move it later."
-                    }
-                    href={ROUTES.ONE_SETUP_CLOUD}
-                    voiceControlId="one_setup_tile_cloud"
-                    icon={lucideCapabilityIcon(Cloud)}
-                    tone="connected"
-                    statusLabel={cloudSetupRunning ? cloudSetupStageLabel : "Required"}
-                  />
-                ) : null}
-                {!runtimeChoiceComplete ? (
-                  <SetupNavigationTile
-                    id="connections"
-                    title="Choose your AI"
-                    description={
-                      cloudComplete
+                  }
+                  href={ROUTES.ONE_SETUP_CLOUD}
+                  voiceControlId="one_setup_tile_cloud"
+                  icon={lucideCapabilityIcon(Cloud)}
+                  tone="connected"
+                  statusLabel={
+                    cloudComplete
+                      ? "Connected"
+                      : cloudSetupRunning
+                        ? cloudSetupStageLabel
+                        : "Required"
+                  }
+                  statusTone={cloudComplete ? undefined : "required"}
+                  isCurrent={!cloudComplete}
+                  isComplete={cloudComplete}
+                />
+                <SetupNavigationTile
+                  id="connections"
+                  title="Choose your AI"
+                  description={
+                    runtimeChoiceComplete
+                      ? "Change this any time."
+                      : cloudComplete
                         ? "Use ours, or bring your own."
                         : "Connect your cloud first, then choose."
-                    }
-                    href={ROUTES.ONE_SETUP_CONNECTIONS}
-                    voiceControlId="one_setup_tile_connections"
-                    icon={lucideCapabilityIcon(PlugZap)}
-                    tone="connected"
-                    statusLabel={cloudComplete ? "Required" : "After your cloud"}
-                    // The one row that blocks the exit. A muted grey "Required"
-                    // reads like every other trailing label, so it gets the
-                    // accent pill and the current-step role — but only once the
-                    // cloud step ahead of it is done; before that the cloud row
-                    // is the current step, not this one.
-                    statusTone={cloudComplete ? "required" : "muted"}
-                    isCurrent={cloudComplete}
-                  />
-                ) : null}
-                {remainingItems.map((item) => (
-                  <CapabilitySetupTile
-                    key={item.id}
-                    capabilityId={item.id}
-                    title={item.copy.setupTitle}
-                    description={item.copy.setupBlurb}
-                    actionLabel={item.copy.actionLabel}
-                    resumeActionLabel={item.copy.resumeActionLabel}
-                    href={item.copy.href}
-                    voiceControlId={item.voiceControlId}
-                    icon={item.icon}
-                    tone={item.tone}
-                    status={item.status}
-                    isExploreOnly={item.isExploreOnly}
-                    isCurrent={item.isCurrent}
-                  />
-                ))}
+                  }
+                  href={ROUTES.ONE_SETUP_CONNECTIONS}
+                  voiceControlId="one_setup_tile_connections"
+                  icon={lucideCapabilityIcon(PlugZap)}
+                  tone="connected"
+                  statusLabel={
+                    runtimeChoiceComplete
+                      ? "Selected"
+                      : cloudComplete
+                        ? "Required"
+                        : "After your cloud"
+                  }
+                  // The one row that blocks the exit. A muted grey "Required"
+                  // reads like every other trailing label, so it gets the
+                  // accent pill and the current-step role — but only once the
+                  // cloud step ahead of it is done; before that the cloud row
+                  // is the current step, not this one.
+                  statusTone={
+                    runtimeChoiceComplete
+                      ? undefined
+                      : cloudComplete
+                        ? "required"
+                        : "muted"
+                  }
+                  isCurrent={cloudComplete && !runtimeChoiceComplete}
+                  isComplete={runtimeChoiceComplete}
+                />
+                {/* The agent's live build status, IN the journey where it
+                    started. The honest presence surface existed only on the
+                    home screen, so the person who just pressed "Use Hussh's
+                    AI" had to leave setup to learn whether anything was
+                    happening (audit finding, 2026-08-21). It renders nothing
+                    until there is an agent state to report. */}
+                {runtimeChoiceComplete ? <OneAgentPresence /> : null}
               </SettingsGroup>
-              {completeItems.length > 0 || runtimeChoiceComplete || cloudComplete ? (
+              {cloudComplete && remainingItems.length > 0 ? (
+                <SettingsGroup
+                  title="Remaining"
+                  testId="one-setup-capabilities-remaining"
+                  separatorInset
+                >
+                  {remainingItems.map((item) => (
+                    <CapabilitySetupTile
+                      key={item.id}
+                      capabilityId={item.id}
+                      title={item.copy.setupTitle}
+                      description={item.copy.setupBlurb}
+                      actionLabel={item.copy.actionLabel}
+                      resumeActionLabel={item.copy.resumeActionLabel}
+                      href={item.copy.href}
+                      voiceControlId={item.voiceControlId}
+                      icon={item.icon}
+                      tone={item.tone}
+                      status={item.status}
+                      isExploreOnly={item.isExploreOnly}
+                      isCurrent={item.isCurrent}
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : null}
+              {cloudComplete && completeItems.length > 0 ? (
                 <SettingsGroup
                   title="Complete"
                   testId="one-setup-capabilities-complete"
                   separatorInset
                 >
-                  {cloudComplete ? (
-                    <SetupNavigationTile
-                      id="cloud"
-                      title="Your cloud"
-                      description="Your private agent runs in your own Google Cloud project."
-                      href={ROUTES.ONE_SETUP_CLOUD}
-                      voiceControlId="one_setup_tile_cloud"
-                      icon={lucideCapabilityIcon(Cloud)}
-                      tone="connected"
-                      statusLabel="Connected"
-                      isComplete
-                    />
-                  ) : null}
-                  {runtimeChoiceComplete ? (
-                    <SetupNavigationTile
-                      id="connections"
-                      title="Choose your AI"
-                      description="Change this any time."
-                      href={ROUTES.ONE_SETUP_CONNECTIONS}
-                      voiceControlId="one_setup_tile_connections"
-                      icon={lucideCapabilityIcon(PlugZap)}
-                      tone="connected"
-                      statusLabel="Selected"
-                      isComplete
-                    />
-                  ) : null}
-                  {/* The agent's live build status, IN the journey where it
-                      started. The honest presence surface existed only on the
-                      home screen, so the person who just pressed "Use Hussh's
-                      AI" had to leave setup to learn whether anything was
-                      happening (audit finding, 2026-08-21). It renders nothing
-                      until there is an agent state to report. */}
-                  {runtimeChoiceComplete ? <OneAgentPresence /> : null}
                   {completeItems.map((item) => (
                     <CapabilitySetupTile
                       key={item.id}
@@ -859,9 +878,7 @@ export function OneSetupHub() {
                 controlId="one-setup-master-ack"
                 actionId="setup.hub_master_ack"
                 testId="one-setup-master-ack"
-                purpose={
-                  "Finish setup and protect what you save."
-                }
+                purpose={"Finish setup and protect what you save."}
                 supportingText={
                   !cloudComplete
                     ? "Connect your cloud first."

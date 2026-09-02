@@ -30,9 +30,9 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('variant="blue-gradient"');
     expect(source).toContain('effect="fill"');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
-    expect(source.lastIndexOf("FinanceSetupDraftService.finalizeForVault")).toBeLessThan(
-      source.indexOf("await acknowledgeOneSetupExit"),
-    );
+    expect(
+      source.lastIndexOf("FinanceSetupDraftService.finalizeForVault"),
+    ).toBeLessThan(source.indexOf("await acknowledgeOneSetupExit"));
   });
 
   it("uses the same responsive in-flow terminal action as a capability workspace", () => {
@@ -113,8 +113,17 @@ describe("One setup hub terminal action contract", () => {
     // current-step role so it is legible as the thing to do first. The cloud
     // row's label is dynamic now (it reads "Setting up (step N of 6)" while
     // the background job runs), and "Required" stays its resting default.
-    expect(hub).toContain('cloudSetupRunning ? cloudSetupStageLabel : "Required"');
-    expect(hub).toContain('statusTone={cloudComplete ? "required" : "muted"}');
+    // The cloud row is pinned first in both states; its label walks
+    // Connected -> setting-up stage -> Required, and the AI row's tone goes
+    // accent only once the cloud ahead of it is done.
+    expect(hub).toContain("? cloudSetupStageLabel");
+    expect(hub).toContain(
+      'statusTone={cloudComplete ? undefined : "required"}',
+    );
+    expect(hub).toContain(
+      "isCurrent={cloudComplete && !runtimeChoiceComplete}",
+    );
+    expect(hub).toContain('"After your cloud"');
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
@@ -216,7 +225,9 @@ describe("One setup hub terminal action contract", () => {
     // ...and a visible edge with it. `muted` is the page surface in the light
     // theme, so the fill alone leaves no control on screen.
     expect(footer).toContain("disabled:!border-border");
-    expect(footer).toContain("aria-disabled={isBlockedTappableAction || undefined}");
+    expect(footer).toContain(
+      "aria-disabled={isBlockedTappableAction || undefined}",
+    );
     expect(hub).not.toContain("disabled:opacity-40");
 
     // ...but "looks gated" must not mean "eats the tap". The master action
@@ -230,9 +241,13 @@ describe("One setup hub terminal action contract", () => {
     );
     // One block, not a stacked description -- the two-line toast ceiling.
     expect(hub).toContain('toast.info("Choose your AI first."');
-    expect(hub).not.toContain("description: \"Pick how One gets its AI");
-    expect(hub).not.toContain('title={\n                !runtimeChoiceComplete');
-    expect(hub).not.toContain('? "Choose your AI first."\n                    : "Set up the rest later."');
+    expect(hub).not.toContain('description: "Pick how One gets its AI');
+    expect(hub).not.toContain(
+      "title={\n                !runtimeChoiceComplete",
+    );
+    expect(hub).not.toContain(
+      '? "Choose your AI first."\n                    : "Set up the rest later."',
+    );
 
     // The header summary still names it on both layouts, so the blocker is
     // legible before the tap as well as after it.
@@ -332,7 +347,7 @@ describe("One setup hub terminal action contract", () => {
     // bottom-safe-area clearance, so mobile does not need a separate header CTA.
     expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
     expect(source).not.toContain('<div className="hidden sm:block">');
-    expect(source).toContain('<SetupCompletionFooter');
+    expect(source).toContain("<SetupCompletionFooter");
   });
 
   it("does not reserve header space for a duplicate mobile action", () => {
@@ -341,7 +356,9 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).not.toContain('<div className="flex flex-wrap items-start gap-3">');
+    expect(source).not.toContain(
+      '<div className="flex flex-wrap items-start gap-3">',
+    );
     expect(source).not.toContain('<div className="min-w-[8rem] flex-1">');
     expect(source).not.toContain('<div className="min-w-0 flex-1">');
     expect(source).not.toContain("basis-[8rem]");
@@ -354,7 +371,9 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain("setVaultInvitationOpen(true);");
-    expect(source).toContain("const completeSetupAfterVault = useCallback(async ()");
+    expect(source).toContain(
+      "const completeSetupAfterVault = useCallback(async ()",
+    );
     const masterHandler = source.slice(source.indexOf("const handleMasterAck"));
     expect(masterHandler).not.toContain("acknowledgeOneSetupExit");
     expect(source).toContain("Set a lock");
@@ -385,14 +404,18 @@ describe("One setup hub terminal action contract", () => {
     expect(source).not.toContain("showVaultInvitation");
     expect(source).not.toContain('data-testid="one-setup-vault-invitation"');
     expect(source).not.toContain("A private place for what matters");
-    expect(source).not.toContain('data-testid="one-setup-vault-invitation-open"');
+    expect(source).not.toContain(
+      'data-testid="one-setup-vault-invitation-open"',
+    );
 
     // ...and the promise that screen carried moves onto the step that needs it.
     const vaultFlow = readFileSync(
       join(process.cwd(), "components/vault/vault-flow.tsx"),
       "utf8",
     );
-    expect(vaultFlow).toContain('description="Only you can open what you save."');
+    expect(vaultFlow).toContain(
+      'description="Only you can open what you save."',
+    );
   });
 
   it("keeps AI access one tap from the hub instead of behind a prologue", () => {
@@ -450,7 +473,10 @@ describe("One setup hub terminal action contract", () => {
 
   it("requires a vault before collecting KYC identity information", () => {
     const kycPrefaceSource = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/kyc-identity-preface.tsx"),
+      join(
+        process.cwd(),
+        "components/onboarding/setup/kyc-identity-preface.tsx",
+      ),
       "utf8",
     );
     expect(kycPrefaceSource).toContain("VaultUnlockDialog");
@@ -466,7 +492,10 @@ describe("One setup hub terminal action contract", () => {
     }
 
     const emailSetupSource = readFileSync(
-      join(process.cwd(), "app/one/setup/email/email-onboarding-setup-client.tsx"),
+      join(
+        process.cwd(),
+        "app/one/setup/email/email-onboarding-setup-client.tsx",
+      ),
       "utf8",
     );
     const kycRouteSource = readFileSync(
