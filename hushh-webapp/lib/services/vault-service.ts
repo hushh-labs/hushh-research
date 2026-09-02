@@ -899,7 +899,9 @@ export class VaultService {
               response = await fetchWithToken(refreshedToken);
             }
           }
-          if (!response.ok) {
+          if (response.status === 404) {
+            hasVault = false;
+          } else if (!response.ok) {
             const payload = await response.json().catch(() => undefined);
             const message =
               typeof (payload as { error?: unknown } | undefined)?.error ===
@@ -920,9 +922,10 @@ export class VaultService {
                   : undefined,
             });
             throw error;
+          } else {
+            const data = await response.json();
+            hasVault = Boolean(data.hasVault);
           }
-          const data = await response.json();
-          hasVault = data.hasVault;
         } catch (error) {
           if (error instanceof VaultAuthSessionNotReadyError) {
             throw error;

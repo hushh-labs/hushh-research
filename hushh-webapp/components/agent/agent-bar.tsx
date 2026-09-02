@@ -2428,6 +2428,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       data-ui-role="talk-to-one"
       data-agent-bar-layout={layout}
       data-ambient-chrome-ignore
+      suppressHydrationWarning
       className={cn(
         "pointer-events-none flex flex-col items-center",
         layout === "slot"
