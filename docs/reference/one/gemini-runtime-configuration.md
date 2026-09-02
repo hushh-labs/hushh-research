@@ -41,6 +41,25 @@ allowlist changes. Every text agent, including the memory chain and the summary 
 case, and never `gemini-3.1-pro-preview`). Only the Live head keeps an explicit pin.
 `tests/test_fleet_text_model_switch.py` refuses any manifest that pins a Flash generation.
 
+### Knobs removed as valueless (2026-09-02)
+
+There is one name for the fleet text model and one way to override it. These were
+removed because each was either an alias of `GEMINI_MODEL` or an environment key no
+lane set, and every one of them implied a choice that did not exist:
+
+| Removed | Why |
+|---|---|
+| `GEMINI_MODEL_VERTEX` | Always equal to `GEMINI_MODEL`; the name implied a separate Vertex model. |
+| `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL` | Same value again, under a third name. |
+| `KAI_PORTFOLIO_IMPORT_MODEL` (env) | Read by the portfolio route, set by no lane. |
+| `AGENT_ONE_SPECIALIST_MODEL` (env) | Set by no lane, and it froze the specialist model at import. |
+| `GMAIL_RECEIPT_LLM_MODEL` (env) | Pinned `gemini-2.5-flash-lite` in the local env, quietly outside the Flash-only rule. |
+| `KAI_RECEIPT_MEMORY_LLM_MODEL` (env) | Read by the receipt memory service, set by no lane. |
+
+Removing them is behaviour-preserving in every deployed lane, because no lane set any of
+them. Locally, Gmail receipt extraction moves off the pinned 2.5 generation and onto the
+fleet model like everything else.
+
 ### Who chooses the model (2026-09-02)
 
 The environment names a default, never the only possibility. A turn resolves its model

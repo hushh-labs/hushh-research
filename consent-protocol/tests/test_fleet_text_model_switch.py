@@ -39,8 +39,10 @@ def test_switch_moves_the_fleet_default() -> None:
     assert fleet_text_model_from_env({}) == FLEET_TEXT_MODEL_DEFAULT
     assert fleet_text_model_from_env({"HUSSH_GEMINI_TEXT_MODEL": "   "}) == FLEET_TEXT_MODEL_DEFAULT
     assert GEMINI_MODEL == fleet_text_model_from_env()
-    assert constants.GEMINI_MODEL_VERTEX == GEMINI_MODEL
-    assert constants.KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL == GEMINI_MODEL
+    # There is exactly one name for the fleet text model. GEMINI_MODEL_VERTEX and
+    # KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL were aliases of this value and are gone.
+    assert not hasattr(constants, "GEMINI_MODEL_VERTEX")
+    assert not hasattr(constants, "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL")
 
 
 def test_alias_resolves_to_the_switched_model(monkeypatch: pytest.MonkeyPatch) -> None:
