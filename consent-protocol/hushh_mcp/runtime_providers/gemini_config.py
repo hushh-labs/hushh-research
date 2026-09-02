@@ -85,6 +85,33 @@ def _sanitize_thinking_config_for_flash_v3(thinking_cfg: Any) -> Any:
     return thinking_cfg
 
 
+def _coerce_thinking_level_for_31_pro(thinking_cfg: Any) -> Any:
+    """3.1 Pro preview rejects thinking_level MINIMAL (400 INVALID_ARGUMENT, verified live
+    2026-09-02) but accepts LOW; map the one unsupported level and leave everything else."""
+    if thinking_cfg is None:
+        return None
+    if isinstance(thinking_cfg, dict):
+        level = thinking_cfg.get("thinking_level")
+        if level is not None and str(getattr(level, "value", level)).upper().endswith("MINIMAL"):
+            return {**thinking_cfg, "thinking_level": _low_thinking_level_like(level)}
+        return thinking_cfg
+    level = getattr(thinking_cfg, "thinking_level", None)
+    if level is not None and str(getattr(level, "value", level)).upper().endswith("MINIMAL"):
+        try:
+            thinking_cfg.thinking_level = _low_thinking_level_like(level)
+        except Exception:
+            return thinking_cfg
+    return thinking_cfg
+
+
+def _low_thinking_level_like(level: Any) -> Any:
+    """Return LOW in the same shape as the incoming level (enum member or string)."""
+    enum_type = type(level)
+    if hasattr(enum_type, "LOW"):
+        return enum_type.LOW
+    return "LOW"
+
+
 def generation_config_kwargs(model: str | None, **kwargs: Any) -> dict[str, Any]:
     """Return provider-compatible kwargs without changing non-3.x flash callers."""
     result = {key: value for key, value in kwargs.items() if value is not None}
@@ -100,6 +127,8 @@ def generation_config_kwargs(model: str | None, **kwargs: Any) -> dict[str, Any]
     elif is_gemini_31_pro_preview(model):
         for field in _GEMINI_31_PRO_UNSUPPORTED_FIELDS:
             result.pop(field, None)
+        if "thinking_config" in result:
+            result["thinking_config"] = _coerce_thinking_level_for_31_pro(result["thinking_config"])
     return result
 
 

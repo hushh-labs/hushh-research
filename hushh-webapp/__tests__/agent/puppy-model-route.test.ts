@@ -64,6 +64,45 @@ describe("GET /api/hermes/models", () => {
     expect(byId).toEqual({ lmstudio: true, openai: false });
   });
 
+  it("reads the shape Hermes actually sends: slug, string models, a capabilities map", async () => {
+    process.env.HERMES_API_SERVER_KEY = "k";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          provider: "lmstudio",
+          model: "google/gemma-4-26b-a4b-qat",
+          providers: [
+            {
+              slug: "lmstudio",
+              name: "LM Studio",
+              is_current: true,
+              models: ["google/gemma-4-26b-a4b-qat", "qwen/qwen3.8-27b"],
+              capabilities: {
+                "google/gemma-4-26b-a4b-qat": { fast: false, reasoning: true },
+                "qwen/qwen3.8-27b": { fast: false, reasoning: false },
+              },
+            },
+            // Unconfigured cloud entries come back with no models at all.
+            { slug: "openrouter", name: "OpenRouter", models: [], capabilities: {} },
+          ],
+        }),
+      ),
+    );
+
+    const body = await (await GET(request("http://localhost/api/hermes/models"))).json();
+    // Before this mapping every provider and model rendered as "": the picker
+    // was the one surface that lied about the runtime.
+    expect(body.providers.map((p: { id: string }) => p.id)).toEqual(["lmstudio", "openrouter"]);
+    expect(body.providers[0].isCurrent).toBe(true);
+    expect(body.providers[0].onDevice).toBe(true);
+    expect(body.providers[0].models).toEqual([
+      { id: "google/gemma-4-26b-a4b-qat", supportsReasoning: true },
+      { id: "qwen/qwen3.8-27b", supportsReasoning: false },
+    ]);
+    expect(body.current).toEqual({ model: "google/gemma-4-26b-a4b-qat", provider: "lmstudio" });
+  });
+
   it("never forwards the loopback key to the browser", async () => {
     process.env.HERMES_API_SERVER_KEY = "super-secret-host-rce-key";
     vi.stubGlobal(

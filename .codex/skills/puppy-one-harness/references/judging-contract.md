@@ -216,4 +216,4 @@ On-path is progress, not arrival. A true goal-achievement probe needs a
 multi-turn rollout in a sandboxed worktree with a deterministic gate deciding
 success; until that exists, goal progress is the honest ceiling of what a
 single-action judgement can claim, and it is reported beside structural and
-agreement as a third number that is never added to either.
+agreement as a third number that is never added to either. The device's real daily jobs are graded under this same discipline; see `.codex/skills/puppy-one-harness/references/cron-quality-suite.md`.

@@ -446,6 +446,20 @@ class TrustedDeviceHeartbeatRequest(BaseModel):
     busy: bool | None = None
     active_sessions: int | None = Field(default=None, ge=0, le=10_000)
     next_cron_at: int | None = Field(default=None, ge=0)
+    # Machine specs and power, so the owner sees the machine their agent runs
+    # on. Every one of these is on the service allow-list; before they were
+    # declared here, Pydantic dropped them at the route boundary and the
+    # service never saw them. Names only: brand and processor describe a
+    # machine, never identify one. Ranges are enforced again by the service,
+    # which drops rather than clamps.
+    brand: str | None = Field(default=None, max_length=120)
+    processor: str | None = Field(default=None, max_length=120)
+    ram_total_gb: float | None = Field(default=None, ge=0, le=4096)
+    ram_used_pct: float | None = Field(default=None, ge=0, le=100)
+    battery_pct: float | None = Field(default=None, ge=0, le=100)
+    battery_minutes_remaining: int | None = Field(default=None, ge=0, le=100_000)
+    battery_charging: bool | None = None
+    on_ac: bool | None = None
 
 
 @router.post("/trusted-devices/{device_id}/heartbeat")
