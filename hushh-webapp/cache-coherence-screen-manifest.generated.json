@@ -10,15 +10,15 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 137,
-    "physical_page_count": 137,
-    "route_contract_count": 137,
-    "surface_map_count": 137,
+    "total_screens": 138,
+    "physical_page_count": 138,
+    "route_contract_count": 138,
+    "surface_map_count": 138,
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
       "redirect/alias": 45,
-      "vault-backed": 51,
+      "vault-backed": 52,
       "hidden flow": 17,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
@@ -1431,6 +1431,51 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/one/calendar",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/cards",
+      "page_file": "app/one/cards/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fcards",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4557,7 +4602,6 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -6127,5 +6171,5 @@
       ]
     }
   ],
-  "content_sha256": "a18fc68629bfdaf6ef9badfb2790bedcbb41ab0218b6cddd1c3b8b33ec195e36"
+  "content_sha256": "4c854e921e003b4cb2a847e58583868eb40108ddd3fbe9be9af0fcba5c16de8c"
 }
