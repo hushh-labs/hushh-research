@@ -149,6 +149,11 @@ export function openGmailOAuthPopup(
 
   try {
     popup.document.title = "Connecting Gmail";
+    if (popup.document.body) {
+      popup.document.body.textContent = "Opening secure Google sign-in…";
+      popup.document.body.style.cssText =
+        "margin:0;display:grid;min-height:100vh;place-items:center;background:#0a0a0a;color:#f5f5f5;font:16px system-ui,sans-serif;";
+    }
     popup.focus();
   } catch {
     // The browser owns focus policy. The retained popup remains usable.

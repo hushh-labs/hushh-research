@@ -67,7 +67,7 @@
     "audit:ui-surfaces": "node ./scripts/architecture/audit-ui-surfaces.mjs",
     "cap:build": "node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_BUILD=true next build --webpack --debug-build-paths \"app/**/page.tsx,!app/api/**\"",
     "cap:sync:android": "npx cross-env CAPACITOR_PLATFORM=android npx cap sync android",
-    "cap:sync:ios": "node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_PLATFORM=ios npx cap sync ios",
+    "cap:sync:ios": "npm run sync:native-firebase-configs -- --platform ios && node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_PLATFORM=ios npx cap sync ios",
     "ios:run": "npm run cap:build && npm run cap:sync:ios && npx cap run ios",
     "ios:prepare:uat": "node ./scripts/native/prepare-ios-uat-archive.mjs",
     "ios:prepare:prod": "node ./scripts/native/prepare-ios-prod-archive.mjs",

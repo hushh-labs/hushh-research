@@ -8,6 +8,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   previewAgentPkmMemory: mocks.preview,
   addToPKM: mocks.save,
+  getPkmAutoSaveCards: (cards: Array<{ write_mode?: string; sharing_impact?: { active_recipient_count?: number } }>) =>
+    cards.filter(
+      (card) =>
+        card.write_mode === "can_save" &&
+        (card.sharing_impact?.active_recipient_count || 0) === 0,
+    ),
 }));
 
 import {
@@ -52,6 +58,49 @@ describe("ingestNaturalLanguagePkm", () => {
       source: "kyc_identity_onboarding",
     }));
     expect(result.save.saved).toBe(1);
+  });
+
+  it("fails closed for a KYC import with no durable proposal cards", async () => {
+    mocks.preview.mockResolvedValueOnce({ cards: [] });
+    mocks.save.mockResolvedValueOnce({ attempted: 0, saved: 0, failed: 0, domains: [], results: [] });
+
+    const result = await ingestNaturalLanguagePkm({
+      userId: "user_1",
+      message: "Thanks for helping with this form.",
+      currentDomains: ["identity"],
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+      source: "kyc_identity_onboarding",
+      confirmation: { confirmedByUser: true, surface: "web", source: "kyc_identity_onboarding" },
+      writePolicy: "auto_save_only",
+    });
+
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ cards: [] }));
+    expect(result.save).toMatchObject({ attempted: 0, saved: 0, failed: 0 });
+  });
+
+  it("does not let KYC save review-only proposal cards", async () => {
+    const cards = [
+      { card_id: "review", source_text: "I might travel soon.", write_mode: "confirm_first" },
+      { card_id: "eligible", source_text: "I avoid dairy.", write_mode: "can_save" },
+    ];
+    mocks.preview.mockResolvedValueOnce({ cards });
+    mocks.save.mockResolvedValueOnce({ attempted: 1, saved: 1, failed: 0, domains: ["health"], results: [] });
+
+    await ingestNaturalLanguagePkm({
+      userId: "user_1",
+      message: "I might travel soon. I avoid dairy.",
+      currentDomains: ["identity"],
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+      source: "kyc_identity_onboarding",
+      confirmation: { confirmedByUser: true, surface: "web", source: "kyc_identity_onboarding" },
+      writePolicy: "auto_save_only",
+    });
+
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({
+      cards: [expect.objectContaining({ source_text: "I avoid dairy." })],
+    }));
   });
 
   it("recursively narrows a model-truncated proposal before any card is saved", async () => {

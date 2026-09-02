@@ -20,9 +20,12 @@ const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
 });
 
 function requestTimeoutMs(path: string, acceptHeader: string | null): number {
-  const acceptsEventStream = acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
+  const acceptsEventStream =
+    acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
   const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");
-  return acceptsEventStream || isKnownStreamRoute ? ONE_STREAM_TIMEOUT_MS : ONE_API_TIMEOUT_MS;
+  return acceptsEventStream || isKnownStreamRoute
+    ? ONE_STREAM_TIMEOUT_MS
+    : ONE_API_TIMEOUT_MS;
 }
 
 function privateResponseHeaders(upstream?: Response): Headers {
@@ -75,11 +78,20 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       body = await request.text();
     }
 
+    // Agent chat is an SSE connection. An AbortSignal.timeout stays attached to
+    // the response body after fetch resolves, so it would cut off a valid
+    // response mid-stream even while the backend is still sending keep-alives.
+    // Let the browser disconnect signal own that stream's lifetime instead.
+    const upstreamSignal =
+      path === "agent-chat"
+        ? request.signal
+        : AbortSignal.timeout(requestTimeoutMs(path, acceptHeader));
+
     const response = await fetch(url, {
       method: request.method,
       headers,
       body,
-      signal: AbortSignal.timeout(requestTimeoutMs(path, acceptHeader)),
+      signal: upstreamSignal,
     });
 
     // A streamed upstream must be handed through untouched. The JSON path below
