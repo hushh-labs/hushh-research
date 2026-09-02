@@ -13,17 +13,16 @@ import {
   RefreshCw,
   Search as SearchIcon,
   Share2,
-  UserPlus,
   X,
 } from "lucide-react";
 
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
@@ -52,10 +51,20 @@ import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  CONNECT_CIRCLE_ACTION_PARAM,
+  CONNECT_CIRCLE_ID_PARAM,
+  CONNECT_SEARCH_QUERY_PARAM,
+  CONNECT_SURFACE_PARAM,
+  connectCircleTaskTitle,
+  isFocusedConnectCircleTask,
+  readConnectCircleAction,
+  readConnectSurface,
+  type ConnectSurface,
+} from "@/lib/navigation/connect-routes";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import {
   ConnectionsService,
   type ConnectionAudience,
@@ -67,6 +76,7 @@ import {
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
@@ -80,7 +90,6 @@ import {
   CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
   CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
   CONNECT_SEARCH_PLACEHOLDER,
-  CONNECT_SELECT_TOGGLE_CLASSNAME,
 } from "./connect-search-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
@@ -103,10 +112,6 @@ type ConnectTab = "people" | "advisors" | "nearby";
  * Carried in `?tab=` because a circle detail is a place you can be sent, and a
  * hub tab that only exists in `useState` cannot be linked to or returned to.
  */
-type ConnectSurface = "all" | "circles";
-
-const CONNECT_SURFACE_PARAM = "tab";
-
 const CONNECT_SEARCH_QUERY_STORAGE_KEY = "hushh:connect:people-search-query";
 
 // The People search box is local state, not URL state (unlike surface/
@@ -203,12 +208,7 @@ const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   nearby: "Around you",
 };
 
-type ConnectPrimaryTab = "connections" | "circles";
-
-const CONNECT_PRIMARY_TABS = [
-  { value: "connections", label: "Connections" },
-  { value: "circles", label: "Circles" },
-] as const;
+const CONNECT_SURFACE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.connect;
 
 const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(
   (value) => ({ value, label: CONNECT_TAB_LABEL[value] }),
@@ -481,12 +481,19 @@ export default function ConnectPageClient() {
    * somebody who mistyped a link, and the default is not written to the URL on
    * mount -- that would eat one `router.back()` step for every arrival.
    */
-  const surface: ConnectSurface =
-    searchParams.get(CONNECT_SURFACE_PARAM) === "circles" ? "circles" : "all";
+  const surface: ConnectSurface = readConnectSurface(
+    searchParams.get(CONNECT_SURFACE_PARAM),
+  );
   /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
    *  below, because opening one is a new screen even though the path is not. */
-  const circleFlowAction = searchParams.get("action") ?? "";
-  const circleFlowId = searchParams.get("circleId") ?? "";
+  const circleFlowAction = readConnectCircleAction(
+    searchParams.get(CONNECT_CIRCLE_ACTION_PARAM),
+  );
+  const circleFlowId = searchParams.get(CONNECT_CIRCLE_ID_PARAM) ?? "";
+  const isFocusedCircleTask = isFocusedConnectCircleTask(
+    surface,
+    circleFlowAction,
+  );
 
   // Every navigation on this page passes `scroll: false`, because the surface
   // strip and the Circle flows are query-only states that must not jump the
@@ -495,13 +502,11 @@ export default function ConnectPageClient() {
   // scrolled halfway down handed that offset to the circles list, and to every
   // Circle flow opened after it. The Location hub hit this and fixed it the
   // same way.
-  useScrollReset(`${surface}:${circleFlowAction}:${circleFlowId}`, {
+  useScrollReset(`${surface}:${circleFlowAction ?? ""}:${circleFlowId}`, {
     behavior: "auto",
   });
 
   const [tab, setTab] = useState<ConnectTab>("people");
-  const primaryTab: ConnectPrimaryTab =
-    surface === "circles" ? "circles" : "connections";
   /**
    * What the Circles tab is doing, reported up.
    *
@@ -527,7 +532,22 @@ export default function ConnectPageClient() {
   const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const loadMoreDirectoryRef = useRef<HTMLDivElement | null>(null);
   const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
-  const [query, setQuery] = useState<string>(readStoredConnectSearchQuery);
+  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
+    .trim()
+    .slice(0, 160);
+  const [query, setQuery] = useState<string>(
+    () => searchQueryParam || readStoredConnectSearchQuery(),
+  );
+  const appliedSearchQueryParamRef = useRef(searchQueryParam || null);
+  useEffect(() => {
+    if (
+      searchQueryParam &&
+      appliedSearchQueryParamRef.current !== searchQueryParam
+    ) {
+      appliedSearchQueryParamRef.current = searchQueryParam;
+      setQuery(searchQueryParam);
+    }
+  }, [searchQueryParam]);
   useEffect(() => {
     writeStoredConnectSearchQuery(query);
   }, [query]);
@@ -553,12 +573,6 @@ export default function ConnectPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
-  const [scopeDraft, setScopeDraft] = useState<{
-    person: DirectoryPerson;
-    catalog: ConnectionScopeCatalog;
-    requestedHandles: string[];
-    offeredHandles: string[];
-  } | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   /**
    * Publish the pinned header's height so the search row can sit under it.
@@ -876,25 +890,12 @@ export default function ConnectPageClient() {
   // The directory is every account on Hussh, so listing all of it unprompted
   // stops being useful as soon as sign-ups outgrow a screen or two: the person
   // you came to connect with is buried among strangers, and paging through them
-  // is the tedious part.
+  // is the tedious part. Unsearched, this surface therefore shows a short
+  // suggested sample and nothing more — enough that someone who does not yet
+  // know a name has somewhere to start, small enough that it is never the thing
+  // you have to scroll past. Naming a name is what opens the full directory.
   const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery.length > 0;
-  // Reported: the People tab opened straight onto that unfiltered directory --
-  // a page of 20 strangers before anyone had asked to see one. Your own
-  // connections render separately, above this, and were never the problem.
-  //
-  // Explicit ask, tracked in state rather than derived from `hasQuery` alone
-  // (`peopleDirectoryRevealed`), plus `hasQuery` itself as a second, independent
-  // reason: a search restored from `readStoredConnectSearchQuery` on a fresh
-  // mount is also an explicit ask, just one made in an earlier visit, and it
-  // must reopen the section it belongs to rather than sit invisible.
-  //
-  // Advisors and Nearby keep browsing on arrival -- unaffected. Searching a
-  // verified-advisor directory or nearby businesses is the whole point of
-  // those tabs, not a fallback for not knowing who you want.
-  const [peopleDirectoryRevealed, setPeopleDirectoryRevealed] = useState(false);
-  const showPeopleDirectory =
-    tab !== "people" || peopleDirectoryRevealed || hasQuery;
 
   // A new query, or a new page size, is a new result set: go back to page one
   // rather than asking for page 4 of something the reader has just redefined.
@@ -912,23 +913,6 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
-  /**
-   * "My connections" is a disclosure, closed until asked for.
-   *
-   * Reported: "Connections wala ek accordion tab ki tarah ho jo click krne pe
-   * he open ho ... currently it looks long for me".
-   *
-   * It was two stacked lists of people on one screen -- the ones you already
-   * know, and the ones you are looking for -- and the first one pushed the
-   * second below the fold on a phone even though the second is what the screen
-   * is FOR. Searching is the reason someone opens Connect; reviewing who you
-   * already have is the occasional visit.
-   *
-   * Closed by default rather than remembering the last state: the default is
-   * the answer to "what is this screen for", and it should not drift per
-   * person. The scroll region it had is unchanged and simply lives inside now.
-   */
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const connectionsHeading = isAdvisorTab
     ? `My RIAs (${connectionsTotalCount})`
     : `My connections (${connectionsTotalCount})`;
@@ -1005,13 +989,6 @@ export default function ConnectPageClient() {
     let cancelled = false;
     async function run() {
       if (!user) return;
-      // Collapsed on the People tab: no reason to ask the server for a page
-      // of strangers nobody has asked to see yet.
-      if (!showPeopleDirectory) {
-        setLoading(false);
-        setError(null);
-        return;
-      }
       try {
         if (currentPage <= 1) setHasMore(false);
         setLoading(true);
@@ -1066,7 +1043,6 @@ export default function ConnectPageClient() {
     currentPage,
     pageSize,
     directoryAudience,
-    showPeopleDirectory,
     // A contact sync can connect people who are sitting in this list right
     // now. Their rows carry a `relationship` the server decided before the
     // sync ran, so without this the directory keeps offering "Connect" to
@@ -1074,16 +1050,6 @@ export default function ConnectPageClient() {
     // refused. Bumping the nonce re-asks the server for the same page.
     directoryRefreshNonce,
   ]);
-
-  // Single place that focuses the search box on reveal, rather than the two
-  // call sites (this button, the search-people voice handler) each doing it
-  // inline. Inline worked for search-people before this change because the
-  // input was always already mounted; now the input often does not exist
-  // until this exact state flips, so focusing has to wait for the render
-  // that mounts it rather than fire in the same tick as the state update.
-  useEffect(() => {
-    if (peopleDirectoryRevealed) searchInputRef.current?.focus();
-  }, [peopleDirectoryRevealed]);
 
   const selectSurface = useCallback(
     (next: ConnectSurface) => {
@@ -1114,19 +1080,6 @@ export default function ConnectPageClient() {
       router.push(`${ROUTES.CONNECT}?${params.toString()}`, { scroll: false });
     },
     [router, searchParams, surface],
-  );
-
-  const selectPrimaryTab = useCallback(
-    (next: ConnectPrimaryTab) => {
-      if (next === "circles") {
-        selectSurface("circles");
-        return;
-      }
-      if (surface !== "all") {
-        selectSurface("all");
-      }
-    },
-    [selectSurface, surface],
   );
 
   const loadNextDirectoryBatch = useCallback(() => {
@@ -1189,7 +1142,6 @@ export default function ConnectPageClient() {
           ...current,
           [person.userId]: request.id,
         }));
-        setScopeDraft(null);
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
         // A Circle roster open behind this sheet is now stale: the row that
         // said "Connect" should say "Requested". Re-read rather than patch.
@@ -1212,54 +1164,14 @@ export default function ConnectPageClient() {
 
   const sendConnectRequest = useCallback(
     async (person: DirectoryPerson) => {
-      if (!user) return;
-      try {
-        setBusyId(person.userId);
-        const idToken = await user.getIdToken();
-        const catalog = await ConnectionsService.getScopeCatalog({
-          idToken,
-          counterpartUserId: person.userId,
-        });
-        // Always shown, including when there is nothing to grant. Sending
-        // straight through on an empty catalog made the two outcomes look
-        // identical from the outside: a request that carried access and a
-        // request that carried none both appeared as one tap and a toast, so
-        // "no dialog" read as a broken sheet rather than as an answer. A
-        // request that grants nothing is worth saying out loud.
-        setScopeDraft({
-          person,
-          catalog,
-          requestedHandles: [],
-          offeredHandles: [],
-        });
-      } catch (catalogError) {
-        toast.error(
-          catalogError instanceof Error
-            ? catalogError.message
-            : "Could not prepare this connection request",
-        );
-      } finally {
-        setBusyId((current) => (current === person.userId ? null : current));
-      }
+      await sendConnectionRequest(person);
     },
-    [user],
+    [sendConnectionRequest],
   );
 
   /**
-   * A match from the results sheet goes through this page's own review, not
-   * straight to the server.
-   *
-   * `config/protected-behaviors.json` locks
-   * `connect-request-asks-before-it-shares`: on Connect a request opens the
-   * capability review pre-granting nothing, and the only permitted bypass is a
-   * catalog empty on both sides. The hook's own `requestConnection` calls
-   * `ConnectionsService.sendRequest` outright -- harmless while the sheet lived
-   * only on Location, a second unreviewed path the moment it renders here. So
-   * the sheet hands the person over and this page asks, exactly as a directory
-   * row does.
-   *
-   * The sheet closes first, deliberately: the review is a dialog, and leaving
-   * the sheet underneath it would stack two layers over one decision.
+   * A match from the results sheet follows the same one-tap request path as a
+   * directory row. Connect no longer opens an extra capability dialog here.
    */
   const requestConnectionFromContactMatch = useCallback(
     async (matchUserId: string) => {
@@ -1289,23 +1201,6 @@ export default function ConnectPageClient() {
       if (cta.action === "connect") void sendConnectRequest(person);
     },
     [isSelectionMode, router, sendConnectRequest, user],
-  );
-
-  const toggleDraftHandle = useCallback(
-    (
-      direction: "requestedHandles" | "offeredHandles",
-      handle: string,
-      checked: boolean,
-    ) => {
-      setScopeDraft((current) => {
-        if (!current) return current;
-        const nextHandles = checked
-          ? [...new Set([...current[direction], handle])]
-          : current[direction].filter((candidate) => candidate !== handle);
-        return { ...current, [direction]: nextHandles };
-      });
-    },
-    [],
   );
 
   const handleRemove = useCallback(
@@ -1728,8 +1623,72 @@ export default function ConnectPageClient() {
   // generic "app" screen, so One knew a person was somewhere in the app and
   // nothing more -- and Connect could not be named as a destination, which is
   // why an empty people list elsewhere had nowhere to send anyone.
-  const connectVoiceSurfaceMetadata = useMemo(
-    () => ({
+  const connectVoiceSurfaceMetadata = useMemo(() => {
+    const circleTaskTitle = connectCircleTaskTitle(circleFlowAction);
+    if (isFocusedCircleTask && circleTaskTitle) {
+      return {
+        screenId: "connect.circle_task",
+        title: circleTaskTitle,
+        purpose:
+          circleFlowAction === "create-circle"
+            ? "This screen names a Circle and chooses its type."
+            : "This screen reviews a Circle invite code before joining.",
+        primaryEntity: null,
+        selectedEntity: null,
+        spokenSubject: circleTaskTitle,
+        sections: [
+          {
+            id: "circle_task",
+            title: circleTaskTitle,
+            purpose:
+              circleFlowAction === "create-circle"
+                ? "Create one Circle, then add people after it exists."
+                : "Enter a 12-character invite code and review the Circle before joining.",
+          },
+        ],
+        actions: [
+          {
+            id:
+              circleFlowAction === "create-circle"
+                ? "connect.circle_create"
+                : "connect.circle_review",
+            actionId:
+              circleFlowAction === "create-circle"
+                ? "connect.circle_create"
+                : "connect.circle_review",
+            label:
+              circleFlowAction === "create-circle"
+                ? "Create Circle"
+                : "Review Circle",
+            purpose:
+              circleFlowAction === "create-circle"
+                ? "Create the named Circle."
+                : "Review the invite code.",
+          },
+        ],
+        controls: [],
+        concepts: [],
+        activeSection: circleTaskTitle,
+        activeTab: "circles",
+        visibleModules: [circleTaskTitle],
+        focusedWidget: circleTaskTitle,
+        availableActions: [
+          circleFlowAction === "create-circle"
+            ? "Create Circle"
+            : "Review Circle",
+        ],
+        activeControlId: null,
+        lastInteractedControlId: null,
+        busyOperations: loading ? ["connect_circle_task_load"] : [],
+        screenMetadata: {
+          connect_surface: surface,
+          circle_action: circleFlowAction,
+          searching: false,
+        },
+      };
+    }
+
+    return {
       screenId: "connect",
       title: "Connect",
       purpose:
@@ -1796,7 +1755,7 @@ export default function ConnectPageClient() {
         },
       ],
       // Only the search box carries a `data-voice-control-id` anchor. The tab
-      // strip is the shared SegmentedTabs, which has no per-option control id,
+      // strip is the shared TopShellTabs, which has no per-option control id,
       // so claiming one here would describe a hook that does not exist.
       controls: [
         {
@@ -1851,11 +1810,14 @@ export default function ConnectPageClient() {
         has_load_error: Boolean(error),
         searching: query.trim().length > 0,
       },
-    }),
+    };
+  },
     [
+      circleFlowAction,
       circlesState.count,
       connectionsTotalCount,
       error,
+      isFocusedCircleTask,
       loading,
       query,
       surface,
@@ -1893,12 +1855,7 @@ export default function ConnectPageClient() {
     selectSurface("all");
     setTab("people");
     setQuery(person);
-    // A spoken search is an explicit ask too, same as tapping "Add people" --
-    // set alongside `hasQuery` so the section is guaranteed open even on the
-    // very first search of a session, before the reveal-focus effect has ever
-    // run. Focus itself is that effect's job now, once the input this needs
-    // to focus has actually mounted (see the comment beside it).
-    setPeopleDirectoryRevealed(true);
+    searchInputRef.current?.focus();
     return {
       status: "succeeded",
       summary: "Searching Connect for the name you gave.",
@@ -2291,7 +2248,7 @@ export default function ConnectPageClient() {
     <AppPageShell
       as="main"
       fitContent
-      width="standard"
+      width="agent"
       className="relative isolate"
       nativeTest={{
         routeId: "/one/connect",
@@ -2324,11 +2281,26 @@ export default function ConnectPageClient() {
         errorMessage: surface === "circles" ? circlesState.error : error,
       }}
     >
-      <AppPageHeaderRegion className="mx-auto w-full max-w-[720px]">
-        <PageHeader title="Connect" />
-      </AppPageHeaderRegion>
+      {isFocusedCircleTask ? (
+        <AppPageContentRegion className="min-w-0 overflow-x-hidden pb-6 sm:pb-8">
+          <div className="mx-auto w-full max-w-[560px] pt-5 sm:pt-6">
+            <ConnectCirclesTab
+              onStateChange={setCirclesState}
+              currentUserId={user?.uid ?? null}
+              onRequestConnection={sendConnectRequest}
+              onCancelConnectionRequest={cancelConnectionRequest}
+              refreshToken={circleRefreshToken}
+            />
+          </div>
+        </AppPageContentRegion>
+      ) : (
+      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden pb-[var(--app-bottom-content-clearance)]">
+        <PageHeader
+          title="Connect"
+          titleRole="agent"
+          className="[&_[data-slot=page-header-row]]:!items-center"
+        />
 
-      <AppPageContentRegion className="mx-auto w-full max-w-[720px] pb-[var(--app-bottom-content-clearance)]">
         <SurfaceStack compact>
           <div
             ref={connectStackRef}
@@ -2356,24 +2328,16 @@ export default function ConnectPageClient() {
               data-pinned="false"
               className={CONNECT_STICKY_HEADER_CLASSNAME}
             >
-              <SegmentedTabs
-                value={primaryTab}
-                onValueChange={(value) =>
-                  selectPrimaryTab(value as ConnectPrimaryTab)
-                }
-                options={[...CONNECT_PRIMARY_TABS]}
+              <TopShellTabs
+                tabSet={{
+                  ...CONNECT_SURFACE_TAB_DEFINITION,
+                  activeValue: surface,
+                }}
+                navigationMode="push"
               />
               {surface !== "circles" ? (
                 <div className="flex min-h-11 items-center justify-between gap-3">
-                  {isSelectionMode ? (
-                    <span
-                      className="type-callout font-semibold text-[color:var(--app-primary-label)]"
-                      aria-live="polite"
-                    >
-                      {selectedPeople.size} of {MAX_BULK_CONNECTION_REQUESTS}{" "}
-                      selected
-                    </span>
-                  ) : (
+                  <div className="min-w-0 flex-1">
                     <div ref={directoryMenuRef} className="relative">
                       <button
                         ref={directoryMenuButtonRef}
@@ -2432,46 +2396,7 @@ export default function ConnectPageClient() {
                         </div>
                       ) : null}
                     </div>
-                  )}
-                  {/*
-                    Sync sits with the directory PICKER, and Select sits on the
-                    directory itself. They were the other way round.
-
-                    Reported as "the positioning of the select button and sync
-                    button got interchanged", and the reason it read that way is
-                    what each one acts on. Sync fills the People directory from
-                    the address book -- it belongs beside the control that says
-                    WHICH directory you are looking at. Select turns that
-                    directory's rows into checkboxes, so it belongs on the
-                    directory's own header, next to the rows it changes, rather
-                    than a scroll away above a list it does not touch.
-
-                    Same gate it carried below: People only. An advisor is found
-                    by their verified profile, not by being in your phone, and
-                    `available` is false on a desktop browser with no Google
-                    client configured -- the one case where there is genuinely
-                    nothing to read.
-                  */}
-                  {!isAdvisorTab && contactSync.available ? (
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      aria-label="Sync contacts"
-                      aria-busy={contactSync.syncing}
-                      title="Sync contacts"
-                      disabled={contactSync.syncing}
-                      onClick={() => void contactSync.sync()}
-                      className={CONNECT_INLINE_BUTTON_CLASSNAME}
-                    >
-                      <BookUser
-                        aria-hidden="true"
-                        className="mr-1.5 h-3.5 w-3.5"
-                      />
-                      {contactSync.syncing ? "Syncing\u2026" : "Sync contacts"}
-                    </Button>
-                  ) : null}
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -2493,37 +2418,10 @@ export default function ConnectPageClient() {
                 ) : (
                   <div className="space-y-4 sm:space-y-5">
                     <SettingsGroup
-                      // The heading IS the toggle, which is what a disclosure
-                      // is -- so it carries `aria-expanded` and `aria-controls`
-                      // and the group's own `title` stays a plain label rather
-                      // than becoming a second thing to press.
-                      //
-                      // `<button>` inside `title` would be the mistake the
-                      // `titleAction` note below records: a control rendered
-                      // inside a `role="heading"` node is folded into the
-                      // heading's accessible name and never offered as a
-                      // control. So the button IS the title node, and the
-                      // heading role moves onto it.
                       title={
-                        <button
-                          type="button"
-                          data-testid="connect-my-connections-toggle"
-                          aria-expanded={connectionsOpen}
-                          aria-controls="connect-my-connections-panel"
-                          onClick={() => setConnectionsOpen((open) => !open)}
-                          className="-mx-1 flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-[10px] px-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-                        >
-                          <span className="min-w-0 truncate">
-                            {connectionsHeading}
-                          </span>
-                          <ChevronDown
-                            aria-hidden="true"
-                            className={cn(
-                              "h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)] transition-transform duration-200 ease-out motion-reduce:transition-none",
-                              connectionsOpen && "rotate-180",
-                            )}
-                          />
-                        </button>
+                        <span className="min-w-0 truncate">
+                          {connectionsHeading}
+                        </span>
                       }
                       // Refresh sits in `titleAction`, not inside `title`. It used
                       // to be a child of the title node, which `SettingsGroup`
@@ -2533,7 +2431,6 @@ export default function ConnectPageClient() {
                       // announced as "Your connections Refresh contacts", and the
                       // button itself was never offered as something to press.
                       titleAction={
-                        connectionsOpen ? (
                         <Button
                           type="button"
                           variant="none"
@@ -2554,21 +2451,13 @@ export default function ConnectPageClient() {
                             )}
                           />
                         </Button>
-                        ) : null
                       }
                       separatorInset
-                      // Collapsed, the group is its header and nothing else --
-                      // `hidden` rather than unmounting, so the scroll position
-                      // and any in-flight row state survive a close/open, and
-                      // the panel keeps a stable node for `aria-controls` to
-                      // point at whether or not it is showing.
-                      contentClassName={cn(
-                        !connectionsOpen && "hidden",
-                        connectionsOpen && sortedConnections.length > 0
+                      contentClassName={
+                        sortedConnections.length > 0
                           ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
-                          : undefined,
-                      )}
-                      contentId="connect-my-connections-panel"
+                          : undefined
+                      }
                       testId="connect-my-connections-group"
                     >
                       {sortedConnections.length === 0 ? (
@@ -2596,10 +2485,6 @@ export default function ConnectPageClient() {
                                   connection.displayName || connection.userId
                                 }
                                 verified={Boolean(connection.isRia)}
-                                // Compact rows, so the 58px separator inset
-                                // they draw lands on the text -- the same
-                                // rhythm the Circles tab beside this one has.
-                                size="compact"
                               />
                             }
                             // Deliberately NOT stackTrailingOnMobile. That prop drops
@@ -2730,7 +2615,6 @@ export default function ConnectPageClient() {
                       </div>
                     ) : null}
 
-                    {showPeopleDirectory ? (
                     <div className="space-y-4">
                       <SettingsGroup
                         title={CONNECT_TAB_LABEL[tab]}
@@ -2746,40 +2630,29 @@ export default function ConnectPageClient() {
                         // where there is genuinely nothing to read. Hiding it
                         // there is kinder than a button that exists only to
                         // explain that it cannot work.
-                        // Select acts on THESE rows, so it sits on their
-                        // header rather than a scroll away in the sticky bar.
-                        // `titleAction`, not inside `title`, for the reason the
-                        // connections group above documents: a control rendered
-                        // inside a `role="heading"` node is folded into the
-                        // heading's accessible name and never offered as
-                        // something to press.
-                        // No `nearby` guard: that tab short-circuits to its own
-                        // directories component well above this node, so the
-                        // type here is already narrowed to People | RIAs.
                         titleAction={
-                          <>
+                          !isAdvisorTab && contactSync.available ? (
                             <Button
                               type="button"
                               variant="none"
-                              effect="fill"
+                              effect="fade"
                               size="sm"
-                              showRipple={false}
-                              className={CONNECT_SELECT_TOGGLE_CLASSNAME}
-                              disabled={loading || people.length === 0}
-                              aria-label={
-                                isSelectionMode
-                                  ? "Cancel selecting people"
-                                  : "Select people"
-                              }
-                              onClick={() => {
-                                setIsSelectionMode((current) => !current);
-                                setSelectedPeople(new Map());
-                                setShowLimitBanner(false);
-                              }}
+                              aria-label="Sync contacts"
+                              aria-busy={contactSync.syncing}
+                              title="Sync contacts"
+                              disabled={contactSync.syncing}
+                              onClick={() => void contactSync.sync()}
+                              className={CONNECT_INLINE_BUTTON_CLASSNAME}
                             >
-                              {isSelectionMode ? "Cancel" : "Select"}
+                              <BookUser
+                                aria-hidden="true"
+                                className="mr-1.5 h-3.5 w-3.5"
+                              />
+                              {contactSync.syncing
+                                ? "Syncing\u2026"
+                                : "Sync contacts"}
                             </Button>
-                          </>
+                          ) : null
                         }
                         description={
                           isSelectionMode ? (
@@ -2988,7 +2861,6 @@ export default function ConnectPageClient() {
                                     photoUrl={person.photoUrl}
                                     label={title}
                                     verified={Boolean(person.isRia)}
-                                    size="compact"
                                   />
                                 }
                                 title={
@@ -3210,26 +3082,6 @@ export default function ConnectPageClient() {
                           )}
                       </SettingsGroup>
                     </div>
-                    ) : (
-                      <SettingsGroup>
-                        <SettingsRow
-                          leading={
-                            <span
-                              aria-hidden="true"
-                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]"
-                            >
-                              <UserPlus className="h-4 w-4" />
-                            </span>
-                          }
-                          title="Add people"
-                          description="Search Hussh for someone to connect with."
-                          chevron
-                          onClick={() => setPeopleDirectoryRevealed(true)}
-                          testId="connect-add-people"
-                          ariaLabel="Add people"
-                        />
-                      </SettingsGroup>
-                    )}
                   </div>
                 )}
               </>
@@ -3237,137 +3089,7 @@ export default function ConnectPageClient() {
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
-
-      <Dialog
-        open={scopeDraft !== null}
-        onOpenChange={(open) => {
-          if (!open && busyId === null) setScopeDraft(null);
-        }}
-      >
-        <DialogContent
-          showCloseButton={false}
-          className="gap-5 bg-[color:var(--app-card-surface-default-solid)]"
-        >
-          <DialogHeader className="text-left">
-            <DialogTitle>Send connection request</DialogTitle>
-            <DialogDescription>
-              Start safe. Add sharing only if you choose.
-            </DialogDescription>
-          </DialogHeader>
-
-          {scopeDraft ? (
-            <div className="space-y-4">
-              {scopeDraft.catalog.items.length > 0 ? (
-                <SettingsGroup
-                  title="Ask from them"
-                  description="Optional. They can decline."
-                  separatorInset
-                >
-                  {scopeDraft.catalog.items.map((item) => (
-                    <SettingsRow
-                      key={`request-${item.handle}`}
-                      title={item.label}
-                      description={item.description}
-                      density="compact"
-                      trailing={
-                        <Checkbox
-                          checked={scopeDraft.requestedHandles.includes(
-                            item.handle,
-                          )}
-                          onCheckedChange={(checked) =>
-                            toggleDraftHandle(
-                              "requestedHandles",
-                              item.handle,
-                              checked === true,
-                            )
-                          }
-                          aria-label={`Request ${item.label}`}
-                        />
-                      }
-                    />
-                  ))}
-                </SettingsGroup>
-              ) : null}
-              {scopeDraft.catalog.offerableItems.length > 0 ? (
-                <SettingsGroup
-                  title="Offer now"
-                  description="Optional. They approve before access."
-                  separatorInset
-                >
-                  {scopeDraft.catalog.offerableItems.map((item) => (
-                    <SettingsRow
-                      key={`offer-${item.handle}`}
-                      title={item.label}
-                      description={item.description}
-                      density="compact"
-                      trailing={
-                        <Checkbox
-                          checked={scopeDraft.offeredHandles.includes(
-                            item.handle,
-                          )}
-                          onCheckedChange={(checked) =>
-                            toggleDraftHandle(
-                              "offeredHandles",
-                              item.handle,
-                              checked === true,
-                            )
-                          }
-                          aria-label={`Offer ${item.label}`}
-                        />
-                      }
-                    />
-                  ))}
-                </SettingsGroup>
-              ) : null}
-              {scopeDraft.catalog.items.length === 0 &&
-              scopeDraft.catalog.offerableItems.length === 0 ? (
-                <SettingsGroup title="Connection access" separatorInset>
-                  <SettingsRow
-                    icon={Lock}
-                    iconTone="gray"
-                    title="No access yet"
-                    description="This only sends a request."
-                    density="compact"
-                    disabled
-                  />
-                </SettingsGroup>
-              ) : null}
-            </div>
-          ) : null}
-
-          <DialogFooter className="w-full flex-row items-center justify-between gap-3 sm:justify-between">
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              className="min-w-[96px]"
-              disabled={busyId !== null}
-              onClick={() => setScopeDraft(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="blue"
-              effect="fill"
-              className="min-w-[148px]"
-              disabled={!scopeDraft || busyId === scopeDraft.person.userId}
-              onClick={() => {
-                if (!scopeDraft) return;
-                void sendConnectionRequest(
-                  scopeDraft.person,
-                  scopeDraft.requestedHandles,
-                  scopeDraft.offeredHandles,
-                );
-              }}
-            >
-              {scopeDraft && busyId === scopeDraft.person.userId
-                ? "Sending…"
-                : "Send request"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      )}
 
       <Dialog
         open={batchConnectDraft !== null}
@@ -3406,7 +3128,6 @@ export default function ConnectPageClient() {
                           photoUrl={person.photoUrl}
                           label={title}
                           verified={Boolean(person.isRia)}
-                          size="compact"
                         />
                       }
                       title={

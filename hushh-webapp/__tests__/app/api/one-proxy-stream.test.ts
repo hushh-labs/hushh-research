@@ -48,6 +48,7 @@ beforeEach(() => {
 
 describe("/api/one proxy", () => {
   it("passes an event-stream through instead of parsing it as JSON", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     const frames = 'event: results\ndata: {"event":"results","category":"hotels_stays","items":[]}\n\n';
     mocks.fetch.mockResolvedValue(
       new Response(frames, {
@@ -64,6 +65,7 @@ describe("/api/one proxy", () => {
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     expect(response.headers.get("x-accel-buffering")).toBe("no");
     expect(response.headers.get("cache-control")).toContain("no-transform");
+    expect(timeoutSpy).toHaveBeenCalledWith(285_000);
     // The bytes must survive intact — this is what was being dropped.
     await expect(response.text()).resolves.toContain("hotels_stays");
   });
@@ -86,6 +88,7 @@ describe("/api/one proxy", () => {
   });
 
   it("still buffers an ordinary JSON route exactly as before", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     mocks.fetch.mockResolvedValue(
       new Response(JSON.stringify({ items: [1, 2] }), {
         status: 200,
@@ -99,6 +102,7 @@ describe("/api/one proxy", () => {
     );
 
     expect(response.headers.get("content-type")).toContain("application/json");
+    expect(timeoutSpy).toHaveBeenCalledWith(45_000);
     await expect(response.json()).resolves.toMatchObject({ items: [1, 2] });
   });
 });

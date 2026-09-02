@@ -41,6 +41,17 @@ export type OneLocationGrantLaneGroup = {
   ordinaryGrant: OneLocationGrant | null;
 };
 
+export type OneLocationShareTimeSummary =
+  | { kind: "same_timed"; endsAt: string }
+  | { kind: "all_open_ended" }
+  | { kind: "different" };
+
+function parseTime(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
 /**
  * Collapse a flat grant list into one entry per person, preserving order.
  *
@@ -95,4 +106,37 @@ export function groupGrantsByCounterpart(
  */
 export function grantLaneLabel(grant: OneLocationGrant): string {
   return isSmsTriggeredGrant(grant) ? "Save My Soul" : "Location share";
+}
+
+/**
+ * Honest end-time summary for a folded active-share card.
+ *
+ * A multi-share card must not say "Last ends" because that hides that someone
+ * may lose access earlier. It only names an end time when every running grant
+ * has the same finite expiry.
+ */
+export function summarizeShareEndTimes(
+  grants: OneLocationGrant[],
+): OneLocationShareTimeSummary | null {
+  const active = grants.filter((grant) => grant.status === "active");
+  if (!active.length) return null;
+
+  const finiteEnds = new Map<number, string>();
+  let openEndedCount = 0;
+
+  for (const grant of active) {
+    if (grant.durationMode === "until_stopped") {
+      openEndedCount += 1;
+      continue;
+    }
+    const time = parseTime(grant.expiresAt);
+    if (time === null) return { kind: "different" };
+    finiteEnds.set(time, grant.expiresAt ?? "");
+  }
+
+  if (openEndedCount === active.length) return { kind: "all_open_ended" };
+  if (openEndedCount > 0 || finiteEnds.size !== 1) return { kind: "different" };
+
+  const [, endsAt] = Array.from(finiteEnds.entries())[0] ?? [];
+  return endsAt ? { kind: "same_timed", endsAt } : { kind: "different" };
 }

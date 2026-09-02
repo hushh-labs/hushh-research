@@ -232,6 +232,7 @@ function deriveConnectorTaskKind(
     .trim()
     .toLowerCase();
   if (triggerSource === "connect") return "gmail_bootstrap";
+  if (triggerSource === "user_manual") return "gmail_manual_sync";
   if (
     triggerSource === "auto_daily" ||
     triggerSource === "backfill" ||

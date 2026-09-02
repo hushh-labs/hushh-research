@@ -66,12 +66,13 @@ that cannot complete.
 
 Current inventory policy:
 
-- 89 functional routes are native-required and must pass on iOS and Android.
-- 14 routes are explicit web-only exclusions: `/kai/optimize`,
-  `/one/kai/optimize`, `/welcome`, `/oauth/authorize`, `/developers`,
-  `/one/profile/pkm-agent-lab`, `/one/calendar`, `/one/setup/calendar`,
-  `/one/profile/google/oauth/return`, `/one/profile/integrations`, `/blog`,
-  `/blog/[slug]`, `/research`, and `/research/protocol`.
+- 103 routes are native-required and must pass on iOS and Android: 98
+  functional routes and 5 callback routes.
+- 17 routes are explicit exclusions: `/blog`, `/blog/[slug]`, `/circle/join`,
+  `/developers`, `/kai/optimize`, `/oauth/authorize`, `/one/calendar`,
+  `/one/kai/optimize`, `/one/location/check-in/hotel`, `/one/profile/google/oauth/return`,
+  `/one/profile/integrations`, `/one/profile/pkm-agent-lab`, `/one/puppy`,
+  `/one/setup/calendar`, `/research`, `/research/protocol`, and `/welcome`.
 - New parity exceptions are not accepted unless this document and the route inventory change in the same PR.
 
 Nested route families are classified explicitly even when they render through a shared web workspace. The profile family uses `/one/profile/<panel>` routes with the shared `native-route-profile` marker; dynamic detail identifiers remain query-backed fixtures in `native-route-inventory.json` so Capacitor static export does not require unbounded dynamic paths.
@@ -214,6 +215,10 @@ Native parity for authenticated flows now includes the verified phone mandate af
 - `/register-phone` is a contract route even though it bypasses the standard shell.
 - One Voice/Kai compatibility surfaces require native microphone permission metadata:
   `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
+- Siri/App Shortcuts is an explicit iOS system-surface specialization. Its
+  `HushhVoiceInvocation` bridge exposes metadata-only pending/claim/complete
+  handoff methods on iOS; Android and web return unsupported/no pending
+  invocation and do not create a parallel assistant integration.
 - One Location Agent requires foreground-only location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,
   `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on
@@ -224,6 +229,10 @@ Native parity for authenticated flows now includes the verified phone mandate af
   land users on the funding trade surface.
 - `/one/location` is part of the native route inventory because live location is
   a platform permission surface, not a web-only route.
+- `/one/location/check-in/hotel` is explicitly excluded until a supported hotel
+  stay provider exists. The route fails closed and must not become a native
+  functional screen without updating the provider, inventory, and route
+  contracts together.
 - Web, iOS, and Android must all produce the same product truth: a signed-in user without
   `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
 - Android still requires a documented OTP smoke on device or UAT because the repo does not

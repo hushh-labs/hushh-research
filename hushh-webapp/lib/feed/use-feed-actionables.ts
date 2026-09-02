@@ -23,6 +23,7 @@ import {
   CacheService,
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import {
   locationApproveActionLabel,
   locationAskPromptLine,
@@ -92,6 +93,11 @@ export interface FeedActionable {
   id: string;
   icon: LucideIcon;
   iconTone: FeedIconTone;
+  /** Person identity to render before falling back to the domain icon. */
+  person?: {
+    displayName: string;
+    photoUrl: string | null;
+  } | null;
   /** Running work animates its leading glyph. */
   spinning?: boolean;
   title: string;
@@ -177,9 +183,10 @@ function consentSummary(entry: ConsentCenterEntry): string {
 export function isIncomingLocationRequestActionable(
   request: OneLocationAccessRequest,
   userId: string,
+  nowMs = Date.now(),
 ): boolean {
   return (
-    request.status === "pending" &&
+    isLocationRequestPending(request, nowMs) &&
     request.ownerUserId === userId &&
     request.requesterUserId !== userId
   );
@@ -607,6 +614,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `sms-emergency:${grant.id}`,
         icon: Siren,
         iconTone: "red",
+        person:
+          label !== "A contact"
+            ? {
+                displayName: label,
+                photoUrl: grant.ownerPhotoUrl ?? null,
+              }
+            : null,
         // Only a still-live alert gets the pinned "Live" emergency treatment.
         // A revoked/expired one renders as a plain "Needs you" row (see
         // feed-page.tsx) — Siren icon + red icon-well tint are all that's
@@ -647,6 +661,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `location:${request.id}`,
         icon: MapPin,
         iconTone: "blue",
+        person:
+          label !== "Someone"
+            ? {
+                displayName: label,
+                photoUrl: request.requesterPhotoUrl ?? null,
+              }
+            : null,
         title: label,
         // Names the amount, and says when it is extra time on a live share.
         description:
@@ -712,6 +733,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `circle-invite:${invite.id}`,
         icon: Users,
         iconTone: "blue",
+        person:
+          label !== "Someone"
+            ? {
+                displayName: label,
+                photoUrl: null,
+              }
+            : null,
         title: label,
         description: `Invited you to join ${circleName}.`,
         actions: [
@@ -772,6 +800,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `connection:${request.id}`,
         icon: UserRound,
         iconTone: "green",
+        person:
+          label !== "Someone"
+            ? {
+                displayName: label,
+                photoUrl: null,
+              }
+            : null,
         title: label,
         description: request.message?.trim() || "Wants to connect with you.",
         href: requiresScopeReview ? reviewHref : null,

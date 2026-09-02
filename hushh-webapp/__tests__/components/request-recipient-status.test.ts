@@ -78,8 +78,14 @@ describe("someone you already asked", () => {
   it("reports the most recent ask when there are several", () => {
     const status = statusFor({
       requestedByMe: [
-        request({ id: "old", requestedAt: new Date(NOW - 5 * 3_600_000).toISOString() }),
-        request({ id: "new", requestedAt: new Date(NOW - 60_000).toISOString() }),
+        request({
+          id: "old",
+          requestedAt: new Date(NOW - 5 * 3_600_000).toISOString(),
+        }),
+        request({
+          id: "new",
+          requestedAt: new Date(NOW - 60_000).toISOString(),
+        }),
       ],
     });
     expect(status.subtitle).toBe("Asked 1m ago, waiting on them");
@@ -103,14 +109,53 @@ describe("someone you already asked", () => {
     expect(status.pendingRequestId).toBe("req_live");
   });
 
+  it("expires after one day and makes ask again the row action", () => {
+    const status = statusFor({
+      requestedByMe: [
+        request({
+          id: "req_expired",
+          requestedAt: new Date(NOW - 24 * 3_600_000).toISOString(),
+          expiresAt: new Date(NOW).toISOString(),
+        }),
+      ],
+    });
+
+    expect(status.subtitle).toBe("Request expired · Ask again");
+    expect(status.statusLabel).toBe("Expired");
+    expect(status.selectable).toBe(true);
+    expect(status.pendingRequestId).toBeUndefined();
+  });
+
+  it("honours a server deadline and leaves linked requests with null expiry pending", () => {
+    const explicit = request({
+      expiresAt: new Date(NOW).toISOString(),
+      requestedAt: new Date(NOW - 60_000).toISOString(),
+    });
+    expect(statusFor({ requestedByMe: [explicit] }).statusLabel).toBe(
+      "Expired",
+    );
+
+    const linked = request({
+      expiresAt: null,
+      requestedAt: new Date(NOW - 3 * 24 * 3_600_000).toISOString(),
+    });
+    expect(statusFor({ requestedByMe: [linked] }).statusLabel).toBe("Asked");
+  });
+
   it("offers the take-back for the ask it is reporting", () => {
     // The subtitle names the newest ask; a take-back wired to the older one
     // would end a request the row is not talking about and leave the visible
     // one standing.
     const status = statusFor({
       requestedByMe: [
-        request({ id: "old", requestedAt: new Date(NOW - 5 * 3_600_000).toISOString() }),
-        request({ id: "new", requestedAt: new Date(NOW - 60_000).toISOString() }),
+        request({
+          id: "old",
+          requestedAt: new Date(NOW - 5 * 3_600_000).toISOString(),
+        }),
+        request({
+          id: "new",
+          requestedAt: new Date(NOW - 60_000).toISOString(),
+        }),
       ],
     });
     expect(status.pendingRequestId).toBe("new");
@@ -122,7 +167,7 @@ describe("someone already sharing with you", () => {
     // Asking somebody to share while they already are is the clearest possible
     // sign the list is not looking at anything.
     const status = statusFor({ receivedGrants: [grant({})] });
-    expect(status.subtitle).toBe("Sharing with you, 55 more min");
+    expect(status.subtitle).toBe("Sharing with you, 55 min left");
     expect(status.statusLabel).toBe("Live");
     expect(status.selectable).toBe(false);
   });
@@ -137,7 +182,7 @@ describe("someone already sharing with you", () => {
       receivedGrants: [grant({})],
     });
     expect(status.subtitle).toBe(
-      "Sharing with you, 55 more min · asked for 4 hours more",
+      "Sharing with you, 55 min left · asked for 4 hours more",
     );
     expect(status.statusLabel).toBe("Asked");
     expect(status.selectable).toBe(false);
@@ -157,7 +202,7 @@ describe("someone already sharing with you", () => {
       receivedGrants: [grant({})],
     });
     expect(status.subtitle).toBe(
-      "Sharing with you, 55 more min · asked for more time",
+      "Sharing with you, 55 min left · asked for more time",
     );
   });
 
@@ -167,14 +212,31 @@ describe("someone already sharing with you", () => {
       receivedGrants: [grant({})],
     });
     expect(status.subtitle).toBe(
-      "Sharing with you, 55 more min · asked for no end time",
+      "Sharing with you, 55 min left · asked for no end time",
     );
   });
 
   it("ignores a grant that is no longer active", () => {
-    const status = statusFor({ receivedGrants: [grant({ status: "revoked" })] });
+    const status = statusFor({
+      receivedGrants: [grant({ status: "revoked" })],
+    });
     expect(status.subtitle).toBe("Ready for private sharing");
     expect(status.selectable).toBe(true);
+  });
+
+  it("stops treating a cached timed grant as live at its exact deadline", () => {
+    const ended = statusFor({
+      receivedGrants: [grant({ expiresAt: new Date(NOW).toISOString() })],
+    });
+    expect(ended.subtitle).toBe("Ready for private sharing");
+    expect(ended.statusLabel).toBeUndefined();
+    expect(ended.selectable).toBe(true);
+
+    const openEnded = statusFor({
+      receivedGrants: [grant({ expiresAt: null })],
+    });
+    expect(openEnded.statusLabel).toBe("Live");
+    expect(openEnded.selectable).toBe(false);
   });
 });
 
@@ -205,16 +267,16 @@ describe("relative labels", () => {
 
   it("never reports remaining time on access that already ended", () => {
     expect(shortRemaining(NOW - 1, NOW)).toBeNull();
-    expect(shortRemaining(NOW + 55 * 60_000, NOW)).toBe("55 more min");
-    expect(shortRemaining(NOW + 60 * 60_000, NOW)).toBe("1 more hour");
-    expect(shortRemaining(NOW + 3 * 3_600_000, NOW)).toBe("3 more hours");
+    expect(shortRemaining(NOW + 55 * 60_000, NOW)).toBe("55 min");
+    expect(shortRemaining(NOW + 60 * 60_000, NOW)).toBe("1 hour");
+    expect(shortRemaining(NOW + 3 * 3_600_000, NOW)).toBe("3 hours");
   });
 
   it("never overstates the time left", () => {
     // 90 minutes used to round to "2 more hours". A countdown that claims more
     // time than exists is worse than none: it is the number people use to
     // decide when to leave, or when to ask for more.
-    expect(shortRemaining(NOW + 90 * 60_000, NOW)).toBe("1h 30m more");
-    expect(shortRemaining(NOW + 119 * 60_000, NOW)).toBe("1h 59m more");
+    expect(shortRemaining(NOW + 90 * 60_000, NOW)).toBe("1h 30m");
+    expect(shortRemaining(NOW + 119 * 60_000, NOW)).toBe("1h 59m");
   });
 });

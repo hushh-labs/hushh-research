@@ -36,6 +36,7 @@ Usage:
     )
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -472,7 +473,7 @@ class ConsentDBService:
         if limit:
             query = query.limit(limit)
 
-        response = query.execute()
+        response = await asyncio.to_thread(query.execute)
         rows: List[Dict[str, Any]] = []
         for row in response.data or []:
             row_scope = row.get("scope")
@@ -1102,18 +1103,22 @@ class ConsentDBService:
         device-bound owner capabilities must fail closed when revocation state
         cannot be confirmed.
         """
-        rows = (
-            self._get_db()
-            .table("trusted_devices")
-            .select("device_id")
-            .eq("user_id", user_id)
-            .eq("device_id", device_id)
-            .eq("status", "active")
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
+
+        def query_rows() -> List[Dict[str, Any]]:
+            return (
+                self._get_db()
+                .table("trusted_devices")
+                .select("device_id")
+                .eq("user_id", user_id)
+                .eq("device_id", device_id)
+                .eq("status", "active")
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+
+        rows = await asyncio.to_thread(query_rows)
         return bool(rows)
 
     async def is_token_active(
@@ -1155,7 +1160,9 @@ class ConsentDBService:
                 )
                 if normalized_agent_id:
                     query = query.eq("agent_id", normalized_agent_id)
-                rows = query.order("issued_at", desc=True).limit(1).execute().data or []
+                rows = await asyncio.to_thread(
+                    lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+                )
             except DatabaseExecutionError as exc:
                 if not self._is_missing_internal_access_events_error(exc):
                     raise
@@ -1180,7 +1187,9 @@ class ConsentDBService:
             )
             if normalized_agent_id:
                 query = query.eq("agent_id", normalized_agent_id)
-            rows = query.order("issued_at", desc=True).limit(1).execute().data or []
+            rows = await asyncio.to_thread(
+                lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+            )
 
         if not rows:
             return False
@@ -1491,7 +1500,7 @@ class ConsentDBService:
         # Remove None values
         data = {k: v for k, v in data.items() if v is not None}
 
-        response = db.table("consent_audit").insert(data).execute()
+        response = await asyncio.to_thread(lambda: db.table("consent_audit").insert(data).execute())
 
         # Extract event ID from response
         if response.data and len(response.data) > 0:
@@ -1537,15 +1546,18 @@ class ConsentDBService:
         }
         data = {k: v for k, v in data.items() if v is not None}
 
-        try:
-            response = db.table("internal_access_events").insert(data).execute()
-        except DatabaseExecutionError as exc:
-            if not self._is_missing_internal_access_events_error(exc):
-                raise
-            logger.warning(
-                "internal_access_events_missing fallback=consent_audit action=insert_internal_event"
-            )
-            response = db.table("consent_audit").insert(data).execute()
+        def insert_event():
+            try:
+                return db.table("internal_access_events").insert(data).execute()
+            except DatabaseExecutionError as exc:
+                if not self._is_missing_internal_access_events_error(exc):
+                    raise
+                logger.warning(
+                    "internal_access_events_missing fallback=consent_audit action=insert_internal_event"
+                )
+                return db.table("consent_audit").insert(data).execute()
+
+        response = await asyncio.to_thread(insert_event)
         if response.data and len(response.data) > 0:
             event_id = response.data[0].get("id")
             logger.info("Inserted internal %s event: %s", action, event_id)

@@ -71,22 +71,25 @@ if (!contactsUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSContactsUsageDescription.");
 }
 
-// Brand spelling in the strings iOS actually shows a person: the app name under
-// the icon, in Settings, and in every permission prompt. These are already
-// correct, and this asserts they stay that way — issue #5422 was a brand
-// misspelling that shipped because nothing checked notification/app copy.
+// Keep the distributed bundle identity at the unique, previously accepted
+// "Hussh One" while the visible and spoken system name remains the intentional
+// Siri-facing "Agent One". These fields are separate contracts and must not collapse
+// back to the globally generic bundle name that App Store Connect rejected.
 //
-// Scoped to display copy on purpose. `hushh` is load-bearing elsewhere in this
-// same file — the `hushh` CFBundleURLScheme and the com.hushh.app bundle
-// identifier — and renaming either would break deep links and code signing.
-const IOS_PRODUCT_NAME = "Hussh One";
-for (const key of ["CFBundleDisplayName", "CFBundleName"]) {
+// Scoped to visible/spoken copy on purpose. The `hushh` CFBundleURLScheme and
+// com.hushh.app bundle identifier remain load-bearing for deep links/signing.
+const expectedIosNames = new Map([
+  ["CFBundleDisplayName", "Agent One"],
+  ["CFBundleName", "Hussh One"],
+  ["CFBundleSpokenName", "Agent One"],
+]);
+for (const [key, expected] of expectedIosNames) {
   const match = infoPlist.match(
     new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
   );
-  if (match?.[1] !== IOS_PRODUCT_NAME) {
+  if (match?.[1] !== expected) {
     fail(
-      `iOS Info.plist ${key} must be "${IOS_PRODUCT_NAME}" (found "${match?.[1] ?? "missing"}").`
+      `iOS Info.plist ${key} must be "${expected}" (found "${match?.[1] ?? "missing"}").`
     );
   }
 }

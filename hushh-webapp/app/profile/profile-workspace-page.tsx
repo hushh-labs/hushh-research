@@ -11,15 +11,12 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
-  Bug,
   CodeXml,
-  Code2,
   ContactRound,
   ExternalLink,
   Fingerprint,
   Folder,
   KeyRound,
-  LifeBuoy,
   Loader2,
   LogOut,
   Mail,
@@ -40,7 +37,6 @@ import {
   UserRound,
   Wallet,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
@@ -49,15 +45,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import {
-  SurfaceCard,
-  SurfaceCardContent,
-  SurfaceCardDescription,
-  SurfaceCardHeader,
-  SurfaceCardTitle,
-  SurfaceInset,
-  SurfaceStack,
-} from "@/components/app-ui/surfaces";
+import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import {
   PkmAccessManagerPanel,
   PkmAccessConnectionDetailPanel,
@@ -135,8 +123,10 @@ import {
 } from "@/lib/profile/mail-flow";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { cn } from "@/lib/utils";
 import { AccountService } from "@/lib/services/account-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
@@ -303,26 +293,75 @@ function buildPkmEntityDeletionCandidate(
   return root;
 }
 
-const SUPPORT_KIND_COPY: Record<
+const SUPPORT_INTENT_PRESENTATION: Record<
   SupportMessageKind,
-  { title: string; description: string; subject: string }
+  {
+    label: string;
+    accessibleLabel: string;
+    placeholder: string;
+    submitLabel: string;
+    successTitle: string;
+    successDescription: string;
+    internalSubject: string;
+  }
 > = {
   bug_report: {
-    title: "Report a bug",
-    description: "Tell us what broke.",
-    subject: "Bug report",
+    label: "Problem",
+    accessibleLabel: "Problem, report something that is not working",
+    placeholder: "What happened, and what did you expect?",
+    submitLabel: "Send report",
+    successTitle: "Report sent",
+    successDescription: "Thanks -- we'll review it.",
+    internalSubject: "Bug report",
   },
   support_request: {
-    title: "Contact support",
-    description: "Get help with One.",
-    subject: "Support request",
+    label: "Help",
+    accessibleLabel: "Help, get help using One",
+    placeholder: "What do you need help with?",
+    submitLabel: "Send request",
+    successTitle: "Request sent",
+    successDescription: "We received your support request.",
+    internalSubject: "Support request",
   },
   developer_reachout: {
-    title: "Reach the developer",
-    description: "Send product feedback.",
-    subject: "Developer feedback",
+    label: "Feedback",
+    accessibleLabel: "Feedback, share an idea or improvement",
+    placeholder: "What should we improve?",
+    submitLabel: "Send feedback",
+    successTitle: "Feedback sent",
+    successDescription: "Thanks for helping us improve One.",
+    internalSubject: "Developer feedback",
   },
 };
+
+type SupportComposerState =
+  | { status: "editing" }
+  | { status: "sending" }
+  | { status: "sent"; kind: SupportMessageKind }
+  | { status: "error"; message: string };
+
+const SUPPORT_INTENT_OPTIONS = (
+  Object.keys(SUPPORT_INTENT_PRESENTATION) as SupportMessageKind[]
+).map((kind) => ({
+  value: kind,
+  label: SUPPORT_INTENT_PRESENTATION[kind].label,
+  accessibleLabel: SUPPORT_INTENT_PRESENTATION[kind].accessibleLabel,
+}));
+
+function normalizeSupportKind(value: string | null): SupportMessageKind | null {
+  if (
+    value === "bug_report" ||
+    value === "support_request" ||
+    value === "developer_reachout"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function isValidReplyEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 
 function normalizeProfileVaultReturnTo(value: string | null): string | null {
   const normalized = String(value ?? "").trim();
@@ -663,9 +702,16 @@ function ProfilePageContent() {
     useState(false);
   const [supportKind, setSupportKind] =
     useState<SupportMessageKind>("support_request");
-  const [supportSubject, setSupportSubject] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
-  const [sendingSupportMessage, setSendingSupportMessage] = useState(false);
+  const [supportReplyEmail, setSupportReplyEmail] = useState("");
+  const [supportMessageError, setSupportMessageError] = useState<string | null>(
+    null,
+  );
+  const [supportReplyEmailError, setSupportReplyEmailError] = useState<
+    string | null
+  >(null);
+  const [supportComposerState, setSupportComposerState] =
+    useState<SupportComposerState>({ status: "editing" });
   const [gmailActionBusy, setGmailActionBusy] = useState<
     "connect" | "disconnect" | "sync" | null
   >(null);
@@ -677,6 +723,9 @@ function ProfilePageContent() {
     string | null
   >(null);
   const vaultUnlockCompletingRef = useRef(false);
+  const supportMessageRef = useRef<HTMLTextAreaElement | null>(null);
+  const supportReplyEmailRef = useRef<HTMLInputElement | null>(null);
+  const supportSuccessHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const legacyProfileRedirectHref = useMemo(
     () => buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
@@ -688,6 +737,27 @@ function ProfilePageContent() {
   );
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
+  const supportComposeKind =
+    activePanel === "support" && activeDetail?.startsWith("support-compose:")
+      ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
+      : null;
+  const supportQueryKind =
+    activePanel === "support"
+      ? normalizeSupportKind(searchParams.get("kind"))
+      : null;
+  const supportRouteKind = supportComposeKind ?? supportQueryKind;
+  const sendingSupportMessage = supportComposerState.status === "sending";
+  const supportPresentation = SUPPORT_INTENT_PRESENTATION[supportKind];
+  const hasAccountReplyEmail = Boolean(user?.email?.trim());
+  const effectiveReplyEmail = hasAccountReplyEmail
+    ? user?.email?.trim() || ""
+    : supportReplyEmail.trim();
+  const supportReplyLine = effectiveReplyEmail
+    ? `Replies go to ${effectiveReplyEmail}`
+    : "No reply email added.";
+  const supportMessageErrorId = "support-message-error";
+  const supportReplyEmailErrorId = "support-reply-email-error";
+  const supportSendStatusId = "support-send-status";
   const profileNativeRouteId = useMemo(
     () =>
       pathname === ROUTES.PROFILE || pathname.startsWith(`${ROUTES.PROFILE}/`)
@@ -719,6 +789,42 @@ function ProfilePageContent() {
     if (!legacyProfileRedirectHref) return;
     router.replace(legacyProfileRedirectHref, { scroll: false });
   }, [legacyProfileRedirectHref, router]);
+
+  useEffect(() => {
+    if (!supportRouteKind || supportRouteKind === supportKind) return;
+    setSupportKind(supportRouteKind);
+    setSupportMessageError(null);
+    setSupportReplyEmailError(null);
+  }, [supportKind, supportRouteKind]);
+
+  const legacySupportRouteHref = useMemo(() => {
+    if (activePanel !== "support") return null;
+    if (activeDetail === "support-routing") {
+      return buildProfileRoute({
+        panel: "support",
+        detail: null,
+        searchParams,
+      });
+    }
+    if (supportComposeKind) {
+      return buildProfileRoute({
+        panel: "support",
+        detail: `support-compose:${supportComposeKind}`,
+        searchParams,
+      });
+    }
+    return null;
+  }, [activeDetail, activePanel, searchParams, supportComposeKind]);
+
+  useEffect(() => {
+    if (!legacySupportRouteHref) return;
+    router.replace(legacySupportRouteHref, { scroll: false });
+  }, [legacySupportRouteHref, router]);
+
+  useEffect(() => {
+    if (supportComposerState.status !== "sent") return;
+    supportSuccessHeadingRef.current?.focus();
+  }, [supportComposerState.status]);
 
   const provider = getProvider(user);
   const gmailRouteHref = searchParamsString
@@ -1587,19 +1693,6 @@ function ProfilePageContent() {
     }
   };
 
-  function openSupportComposer(kind: SupportMessageKind) {
-    setSupportKind(kind);
-    setSupportSubject(SUPPORT_KIND_COPY[kind].subject);
-    setSupportMessage("");
-    updateProfileView(
-      {
-        panel: "support",
-        detail: `support-compose:${kind}`,
-      },
-      "push",
-    );
-  }
-
   function requestVaultUnlock(
     reason:
       "profile_data" | "delete_account" | "reset_account" = "profile_data",
@@ -1627,20 +1720,41 @@ function ProfilePageContent() {
   }
 
   async function submitSupportMessage() {
-    if (!user) return;
-    const trimmedSubject = supportSubject.trim();
+    if (!user || sendingSupportMessage) return;
+
     const trimmedMessage = supportMessage.trim();
+    const trimmedReplyEmail = supportReplyEmail.trim();
+    const presentation = SUPPORT_INTENT_PRESENTATION[supportKind];
 
-    if (trimmedSubject.length < 3) {
-      toast.error("Add a short subject so we can triage this quickly.");
-      return;
-    }
     if (trimmedMessage.length < 10) {
-      toast.error("Add a bit more detail so we can help properly.");
+      setSupportMessageError("Add a few more details.");
+      setSupportComposerState({ status: "editing" });
+      supportMessageRef.current?.focus();
       return;
     }
 
-    setSendingSupportMessage(true);
+    if (
+      !hasAccountReplyEmail &&
+      trimmedReplyEmail &&
+      !isValidReplyEmail(trimmedReplyEmail)
+    ) {
+      setSupportReplyEmailError("Enter a valid email.");
+      setSupportComposerState({ status: "editing" });
+      supportReplyEmailRef.current?.focus();
+      return;
+    }
+
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setSupportComposerState({
+        status: "error",
+        message: "You're offline. Reconnect to send your message.",
+      });
+      return;
+    }
+
+    setSupportMessageError(null);
+    setSupportReplyEmailError(null);
+    setSupportComposerState({ status: "sending" });
     try {
       const idToken = await user.getIdToken();
       const pageUrl =
@@ -1649,29 +1763,26 @@ function ProfilePageContent() {
         idToken,
         userId: user.uid,
         kind: supportKind,
-        subject: trimmedSubject,
+        subject: presentation.internalSubject,
         message: trimmedMessage,
-        userEmail: user.email,
+        userEmail: user.email?.trim() || trimmedReplyEmail || null,
         userDisplayName: user.displayName,
         persona: personaState?.active_persona || null,
         pageUrl,
       });
-      toast.success(
-        result.delivery_mode === "test"
-          ? `Sent in test mode to ${result.recipient}.`
-          : `Sent to ${result.recipient}.`,
-      );
-      updateProfileView({ panel: "support", detail: null }, "replace");
+
+      if (!result.accepted) {
+        throw new Error("Support message was not accepted.");
+      }
+
+      setSupportComposerState({ status: "sent", kind: supportKind });
       setSupportMessage("");
     } catch (error) {
       console.error("[ProfilePage] Failed to send support message:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We couldn't send your message right now.",
-      );
-    } finally {
-      setSendingSupportMessage(false);
+      setSupportComposerState({
+        status: "error",
+        message: "We couldn't send your message. Try again.",
+      });
     }
   }
 
@@ -2041,10 +2152,6 @@ function ProfilePageContent() {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
   } = useVoiceSurfaceControlTracking();
-  const supportComposeKind =
-    activePanel === "support" && activeDetail?.startsWith("support-compose:")
-      ? (activeDetail.slice("support-compose:".length) as SupportMessageKind)
-      : null;
   const securitySummaryText = vaultAccess.needsVaultCreation
     ? "Vault not created yet"
     : loadingVaultMethod
@@ -2057,16 +2164,16 @@ function ProfilePageContent() {
       {
         id: "profile_my_data",
         label: "Memory",
-        purpose: "opens your saved details and the sharing controls for them.",
+        purpose: "opens your saved details and sharing controls.",
         role: "card",
-        voiceAliases: [
-          "personal knowledge model",
-          "my saved details",
-          "pkm",
-          "access",
-          "sharing",
-          "consent access",
-        ],
+        voiceAliases: ["personal knowledge model", "my saved details", "pkm"],
+      },
+      {
+        id: "profile_access",
+        label: "Access & sharing",
+        purpose: "opens consent-backed access and sharing controls.",
+        role: "card",
+        voiceAliases: ["access", "sharing", "consent access"],
       },
       {
         id: "profile_security",
@@ -2166,14 +2273,14 @@ function ProfilePageContent() {
             : activePanel === "my-data"
               ? "Memory"
               : activePanel === "connected-systems"
-                ? "Connected Systems"
-                : activePanel === "preferences"
-                  ? PROFILE_LABELS.preferences
-                  : activePanel === "security"
-                    ? PROFILE_LABELS.security
-                    : activePanel === "gmail"
-                      ? "Gmail receipts"
-                      : PROFILE_LABELS.support,
+                  ? "Connected Systems"
+                  : activePanel === "preferences"
+                    ? PROFILE_LABELS.preferences
+                    : activePanel === "security"
+                      ? PROFILE_LABELS.security
+                      : activePanel === "gmail"
+                        ? "Gmail receipts"
+                        : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
@@ -2195,7 +2302,12 @@ function ProfilePageContent() {
             ...(gmailPresentation.isConnected ? ["Disconnect Gmail"] : []),
           ]
         : activePanel === "support"
-          ? ["Report a bug", "Get support", "Reach developer"]
+          ? [
+              "Choose Problem",
+              "Choose Help",
+              "Choose Feedback",
+              "Send support message",
+            ]
           : activePanel === "connected-systems"
             ? [
                 "Load Salesforce CRM schema",
@@ -2230,14 +2342,14 @@ function ProfilePageContent() {
             : activePanel === "my-data"
               ? "Memory"
               : activePanel === "connected-systems"
-                ? "Connected Systems"
-                : activePanel === "preferences"
-                  ? PROFILE_LABELS.preferences
-                  : activePanel === "security"
-                    ? PROFILE_LABELS.security
-                    : activePanel === "gmail"
-                      ? "Gmail receipts"
-                      : PROFILE_LABELS.support
+                  ? "Connected Systems"
+                  : activePanel === "preferences"
+                    ? PROFILE_LABELS.preferences
+                    : activePanel === "security"
+                      ? PROFILE_LABELS.security
+                      : activePanel === "gmail"
+                        ? "Gmail receipts"
+                        : PROFILE_LABELS.support
           : "Profile",
         purpose:
           "This surface manages account details, appearance, help, and vault privacy.",
@@ -2260,7 +2372,8 @@ function ProfilePageContent() {
           {
             id: "support",
             title: PROFILE_LABELS.support,
-            purpose: "Support routing and compose flows.",
+            purpose:
+              "Send a problem report, support request, or product feedback.",
           },
         ],
         actions: availableActions.map((action) => ({
@@ -2282,8 +2395,8 @@ function ProfilePageContent() {
         ? "passphrase_dialog"
         : showVaultUnlock
           ? "vault_unlock"
-          : supportComposeKind
-            ? "support_compose"
+          : activePanel === "support"
+            ? "support_form"
             : activeDetail
               ? `${activePanel}_${activeDetail}`
               : activePanel
@@ -2342,7 +2455,6 @@ function ProfilePageContent() {
     securitySummaryText,
     sendingSupportMessage,
     showVaultUnlock,
-    supportComposeKind,
     switchingVaultMethod,
     emailVerified,
     vaultAccess.needsVaultCreation,
@@ -2911,35 +3023,6 @@ function ProfilePageContent() {
     }
   };
 
-  const supportActions: Array<{
-    kind: SupportMessageKind;
-    icon: LucideIcon;
-    label: string;
-    description: string;
-  }> = [
-    {
-      kind: "bug_report",
-      icon: Bug,
-      label: "Report bug",
-      description:
-        "Broken flow, confusing UI, or something off in the product.",
-    },
-    {
-      kind: "support_request",
-      icon: LifeBuoy,
-      label: "Get support",
-      description:
-        "Need help with onboarding, portfolio information, or account setup.",
-    },
-    {
-      kind: "developer_reachout",
-      icon: Code2,
-      label: "Reach developer",
-      description:
-        "Direct product or engineering feedback routed through support.",
-    },
-  ];
-
   const myDataContent = (
     <div className="space-y-4 sm:space-y-5">
       <PkmDataManagerPanel
@@ -3236,34 +3319,209 @@ function ProfilePageContent() {
   );
 
   const supportContent = (
-    <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup>
-        {supportActions.map((action) => (
-          <SettingsRow
-            key={action.kind}
-            icon={action.icon}
-            title={action.label}
-            description={action.description}
-            chevron
-            onClick={() => openSupportComposer(action.kind)}
-          />
-        ))}
-      </SettingsGroup>
+    <div className="mx-auto flex w-full max-w-[580px] flex-col px-0">
+      {supportComposerState.status === "sent" ? (
+        <section
+          aria-labelledby="support-success-heading"
+          aria-live="polite"
+          className="flex min-h-[280px] flex-col justify-center gap-5 py-6"
+        >
+          <div className="space-y-2">
+            <h2
+              id="support-success-heading"
+              ref={supportSuccessHeadingRef}
+              tabIndex={-1}
+              className="text-[20px] font-semibold leading-[25px] text-foreground outline-none"
+            >
+              {
+                SUPPORT_INTENT_PRESENTATION[supportComposerState.kind]
+                  .successTitle
+              }
+            </h2>
+            <p className="text-[15px] leading-5 text-muted-foreground">
+              {supportComposerState.kind === "support_request" &&
+              effectiveReplyEmail
+                ? supportReplyLine
+                : SUPPORT_INTENT_PRESENTATION[supportComposerState.kind]
+                    .successDescription}
+            </p>
+          </div>
+          <Button
+            size="default"
+            variant="none"
+            effect="fill"
+            showRipple={false}
+            className="h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+            onClick={() => {
+              setSupportComposerState({ status: "editing" });
+              setSupportReplyEmail("");
+              updateProfileView({ panel: null, detail: null }, "replace");
+            }}
+          >
+            Done
+          </Button>
+        </section>
+      ) : (
+        <form
+          className="flex w-full flex-col py-1"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitSupportMessage();
+          }}
+        >
+          <div className="space-y-2">
+            <p
+              id="support-intent-label"
+              className="text-[15px] font-semibold leading-5 text-foreground"
+            >
+              What do you need?
+            </p>
+            <div
+              role="group"
+              aria-labelledby="support-intent-label"
+              aria-describedby="support-intent-description"
+            >
+              <SegmentedTabs
+                value={supportKind}
+                onValueChange={(value) => {
+                  const nextKind = normalizeSupportKind(value);
+                  if (!nextKind) return;
+                  setSupportKind(nextKind);
+                  setSupportMessageError(null);
+                  setSupportReplyEmailError(null);
+                  if (supportComposerState.status === "error") {
+                    setSupportComposerState({ status: "editing" });
+                  }
+                }}
+                options={SUPPORT_INTENT_OPTIONS}
+                disabled={sendingSupportMessage}
+                className="min-h-11 [&_[data-state=active]]:!border-[color:var(--app-accent)] [&_[data-state=active]]:!bg-[color:var(--app-accent)] [&_[data-state=active]]:!text-white [&_[data-state=active]]:!shadow-none [&_[data-ui-contract=required-title]]:whitespace-normal"
+              />
+            </div>
+            <p id="support-intent-description" className="sr-only">
+              Choose Problem to report something broken, Help to get support, or
+              Feedback to share an improvement.
+            </p>
+          </div>
 
-      <SettingsGroup title="Routing">
-        <SettingsRow
-          icon={SendHorizontal}
-          title="Support routing"
-          description="Reply address and routing."
-          chevron
-          onClick={() =>
-            updateProfileView(
-              { panel: "support", detail: "support-routing" },
-              "push",
-            )
-          }
-        />
-      </SettingsGroup>
+          <div className="mt-5 space-y-1.5">
+            <label
+              htmlFor="support-message"
+              className="text-[15px] font-semibold leading-5 text-foreground"
+            >
+              Message
+            </label>
+            <Textarea
+              id="support-message"
+              ref={supportMessageRef}
+              value={supportMessage}
+              onChange={(event) => {
+                setSupportMessage(event.target.value);
+                if (supportMessageError) setSupportMessageError(null);
+                if (supportComposerState.status === "error") {
+                  setSupportComposerState({ status: "editing" });
+                }
+              }}
+              placeholder={supportPresentation.placeholder}
+              disabled={sendingSupportMessage}
+              aria-invalid={Boolean(supportMessageError)}
+              aria-describedby={cn(
+                supportMessageError ? supportMessageErrorId : null,
+                supportComposerState.status === "error"
+                  ? supportSendStatusId
+                  : null,
+              )}
+              className="min-h-[176px] resize-y rounded-[12px] border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] px-4 py-3 text-[16px] leading-[22px] shadow-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
+            />
+            {supportMessageError ? (
+              <p
+                id={supportMessageErrorId}
+                role="alert"
+                className="px-1 text-[13px] leading-[18px] text-destructive"
+              >
+                {supportMessageError}
+              </p>
+            ) : null}
+          </div>
+
+          {!hasAccountReplyEmail ? (
+            <div className="mt-4 space-y-1.5">
+              <label
+                htmlFor="support-reply-email"
+                className="text-[15px] font-semibold leading-5 text-foreground"
+              >
+                Email for reply (optional)
+              </label>
+              <Input
+                id="support-reply-email"
+                ref={supportReplyEmailRef}
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={supportReplyEmail}
+                onChange={(event) => {
+                  setSupportReplyEmail(event.target.value);
+                  if (supportReplyEmailError) setSupportReplyEmailError(null);
+                  if (supportComposerState.status === "error") {
+                    setSupportComposerState({ status: "editing" });
+                  }
+                }}
+                placeholder="name@example.com"
+                disabled={sendingSupportMessage}
+                aria-invalid={Boolean(supportReplyEmailError)}
+                aria-describedby={
+                  supportReplyEmailError ? supportReplyEmailErrorId : undefined
+                }
+                className="h-12 rounded-[12px] border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] px-4 text-[16px] leading-[22px] shadow-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
+              />
+              {supportReplyEmailError ? (
+                <p
+                  id={supportReplyEmailErrorId}
+                  role="alert"
+                  className="px-1 text-[13px] leading-[18px] text-destructive"
+                >
+                  {supportReplyEmailError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {effectiveReplyEmail ? (
+            <p className="mt-3 text-[13px] leading-[18px] text-muted-foreground">
+              {supportReplyLine}
+            </p>
+          ) : null}
+
+          {supportComposerState.status === "error" ? (
+            <p
+              id={supportSendStatusId}
+              role="alert"
+              className="mt-3 text-[13px] leading-[18px] text-destructive"
+            >
+              {supportComposerState.message}
+            </p>
+          ) : null}
+
+          <Button
+            type="submit"
+            size="default"
+            variant="none"
+            effect="fill"
+            showRipple={false}
+            loading={sendingSupportMessage}
+            className="mt-5 h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
+            aria-describedby={
+              supportComposerState.status === "error"
+                ? supportSendStatusId
+                : undefined
+            }
+          >
+            {sendingSupportMessage
+              ? "Sending..."
+              : supportPresentation.submitLabel}
+          </Button>
+        </form>
+      )}
     </div>
   );
 
@@ -3605,79 +3863,6 @@ function ProfilePageContent() {
     </SettingsGroup>
   );
 
-  const supportRoutingContent = (
-    <SettingsGroup title="Routing">
-      <SettingsRow
-        icon={SendHorizontal}
-        title="Support inbox"
-        description="Messages are routed through support@hushh.ai."
-      />
-      {user.email ? (
-        <SettingsRow
-          icon={SendHorizontal}
-          title="Reply address"
-          description={user.email}
-        />
-      ) : null}
-    </SettingsGroup>
-  );
-
-  const supportComposeContent = supportComposeKind ? (
-    <SurfaceCard>
-      <SurfaceCardHeader>
-        <SurfaceCardTitle>
-          {SUPPORT_KIND_COPY[supportComposeKind].title}
-        </SurfaceCardTitle>
-        <SurfaceCardDescription>
-          {SUPPORT_KIND_COPY[supportComposeKind].description}
-        </SurfaceCardDescription>
-      </SurfaceCardHeader>
-      <SurfaceCardContent className="space-y-3">
-        <Input
-          value={supportSubject}
-          onChange={(event) => setSupportSubject(event.target.value)}
-          placeholder="Subject"
-        />
-        <Textarea
-          value={supportMessage}
-          onChange={(event) => setSupportMessage(event.target.value)}
-          placeholder="Tell us what happened and what you expected."
-          className="min-h-[180px]"
-        />
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button
-            variant="none"
-            effect="fade"
-            size="default"
-            className="w-full sm:w-auto"
-            onClick={() => popProfileStack()}
-            disabled={sendingSupportMessage}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="default"
-            className="w-full sm:w-auto"
-            onClick={() => void submitSupportMessage()}
-            disabled={sendingSupportMessage}
-          >
-            {sendingSupportMessage ? (
-              <>
-                <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
-                Sending...
-              </>
-            ) : (
-              <>
-                <Icon icon={SendHorizontal} size="sm" className="mr-2" />
-                Send message
-              </>
-            )}
-          </Button>
-        </div>
-      </SurfaceCardContent>
-    </SurfaceCard>
-  ) : null;
-
   const financialContextControls = (
     <div className="space-y-3">
       <Select
@@ -3856,16 +4041,10 @@ function ProfilePageContent() {
         ),
       });
     }
-    // Sharing (formerly the standalone "Access & sharing" panel) is now a
-    // sub-view of Memory. Its per-connection detail keeps the same
-    // consent-backed revoke behavior; only the navigation frame changed.
-    if (
-      activeDetail === "sharing" ||
-      Boolean(activeDetail?.startsWith("connection:"))
-    ) {
+    if (activeDetail === "sharing") {
       profileStackEntries.push({
         key: "detail:sharing",
-        title: "Sharing",
+        title: "Access & sharing",
         description: "Review live access.",
         content: accessContent,
       });
@@ -4035,24 +4214,9 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:support",
       title: PROFILE_LABELS.support,
-      description: "Help and feedback.",
+      description: "Tell us what you need. We'll route it to the right team.",
       content: supportContent,
     });
-    if (activeDetail === "support-routing") {
-      profileStackEntries.push({
-        key: "detail:support-routing",
-        title: "Support routing",
-        description: "Reply routing.",
-        content: supportRoutingContent,
-      });
-    } else if (supportComposeKind && supportComposeContent) {
-      profileStackEntries.push({
-        key: `detail:support-compose:${supportComposeKind}`,
-        title: SUPPORT_KIND_COPY[supportComposeKind].title,
-        description: "Write your message.",
-        content: supportComposeContent,
-      });
-    }
   }
 
   const profileRootContent = (
@@ -4123,7 +4287,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={Users}
-                iconTone="gray"
+                iconTone="blue"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 density="compact"
@@ -4151,7 +4315,7 @@ function ProfilePageContent() {
               {canShowPkmAgentLab ? (
                 <SettingsRow
                   icon={CodeXml}
-                  iconTone="gray"
+                  iconTone="purple"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron

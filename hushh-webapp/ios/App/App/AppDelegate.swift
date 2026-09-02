@@ -6,6 +6,9 @@ import FirebaseMessaging
 import GoogleSignIn
 import UserNotifications
 import AVFoundation
+#if canImport(AppIntents)
+import AppIntents
+#endif
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -21,6 +24,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private let nativeTestConfig = NativeTestConfiguration()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+#if canImport(AppIntents)
+        if #available(iOS 16.0, *) {
+            HusshOneAppShortcuts.updateAppShortcutParameters()
+        }
+#endif
         // Ensure Firebase is initialized once for native plugins and auth flows.
         // `FirebaseApp.app()` logs an error when no default app exists, even
         // when that is the normal first-launch state. Inspect the registry so
@@ -99,6 +107,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
         logNotificationSettings(context: "applicationDidBecomeActive")
+        OneVoiceInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
+        OneSystemActionInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

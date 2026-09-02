@@ -41,6 +41,111 @@ flowchart TD
 
 ## Current Truth
 
+### Siri/App Shortcut entry adapter
+
+On iOS 16 and later, Siri is a structured entry adapter into the existing One
+runtime, not a second voice runtime or action engine. There are two modes:
+
+1. `TalkToHusshOneIntent` foregrounds the UIKit/Capacitor app and enqueues the
+   existing five-minute, metadata-only voice invocation. The Agent Bar remains
+   the only owner of the microphone, Gemini Live transport, relay, context,
+   consent, capture, and playback.
+2. Location App Intents resolve typed Apple parameters, enqueue one bounded
+   `execute_one_action` request, and hand the exact generated `action_id` and
+   slots to the same Agent Bar action executor used by One Voice. The adapter
+   never implements Location behavior in Swift and never accepts a free-form
+   prompt.
+
+Both native envelopes use latest-request-wins and exact claim/completion. They
+survive ordinary cold launch and HUSSH sign-in for five minutes and clear on
+completion, failure, expiry, replacement, cancellation, or sign-out. The
+action envelope is stored in this-device-only Keychain storage and is closed
+to seventeen allowlisted generated action identifiers and per-action slot names.
+The App Entity index is owner-bound and contains only existing HUSSH ids and
+display names; it contains no phone numbers, credentials, coordinates, routes,
+tokens, speech, or contact-book records.
+
+The direct adapter waits for foreground visibility, restored authentication,
+the active route/runtime, vault access when the action mutates protected
+information, and the sole Agent Bar executor. Native confirmation is required
+before every generated `confirm_required` mutation. The browser then applies
+the generated guard inventory and reports the browser-observed settlement.
+Signed-locked users may open read-only Location destinations, but mutations
+wait for normal vault restoration. A missing account routes through Login and
+returns to the preserved route without asking the person to repeat the Siri
+request.
+
+All currently exposed Location intents foreground HUSSH. This is deliberate:
+the canonical executor, current vault authority, encrypted location publish,
+and browser settlement are owned by the existing Capacitor/WebView runtime.
+Running a second native service merely to claim background execution would
+duplicate authority-bearing logic. A future background intent is acceptable
+only after that same executor is available behind a shared non-UI port with
+identical guards and settlement.
+
+The authoritative Location contract currently contains 50 generated actions.
+The Siri surface exposes the following useful, bounded subset:
+
+| App Intent behavior | Generated action id | System confirmation | Vault |
+| --- | --- | --- | --- |
+| Open Location | `location.open_now` | No | No |
+| Open map | `location.open_map` | No | No |
+| View active shares | `location.open_active_shares` | No | No |
+| View locations shared with me | `location.open_shared_with_me` | No | No |
+| Review requests | `location.open_needs_review` | No | No |
+| Open privacy settings | `location.open_settings` | No | No |
+| Open temporary-link composer | `location.open_temporary_link` | No | No |
+| Open Check-In composer | `location.open_check_in` | No | No |
+| Open SOS review | `location.open_sos` | No; does not send | No |
+| Open emergency SMS contacts | `location.open_sms_contacts` | No | No |
+| Share with a resolved contact | `location.share_selected` | Yes | Yes |
+| Ask a resolved contact for location | `location.send_request` | Yes | Yes |
+| Stop sharing with a resolved contact | `location.stop_share` | Yes | Yes |
+| Pause this device's updates | `location.pause_updates` | No | Yes |
+| Resume this device's updates | `location.resume_updates` | Yes | Yes |
+| Create a named Circle | `location.create_circle` | Yes | Yes |
+| Rename a resolved Circle | `location.rename_circle` | Yes | Yes |
+
+The other 33 contract actions remain available through the existing One Voice
+and visible Location experience, but are not direct Siri intents in this
+release:
+
+- Nine redundant composer/deep-link actions (`open_people`, `open_links`,
+  `open_share`, `open_ask`, `open_invite`, `open_create_circle`,
+  `open_join_circle`, `find_contacts`, and
+  `add_connections`) are covered by the narrower destination intents or the
+  existing conversational fallback.
+- Three UI-internal selection/refresh steps (`select_ask_recipient`,
+  `select_share_recipient`, and `refresh`) are implementation steps, not useful
+  standalone system commands.
+- Nineteen request, grant, emergency-contact, Circle-membership/invite, saved
+  place, and active Check-In mutations require a typed current-state entity or
+  an already prepared in-app composer. Exposing them by spoken name alone would
+  guess at authority-bearing records or change the meaning of the contract.
+- `trigger_sos` and `sos_default` are intentionally excluded from direct Siri
+  execution because the current generated contract can send an alert without
+  a confirmation gate. Siri may open the existing SOS review surface, but it
+  cannot send the alert in this release.
+
+The internal iOS bundle name remains the unique, previously accepted
+`Hussh One`. The installed display name and `CFBundleSpokenName` are `Agent One`, so
+Apple's mandatory `applicationName` phrase token continues to produce direct
+requests such as “Open Agent One Location Agent” without changing the signed bundle
+identifier or creating a second Siri runtime.
+One bounded `OneLocationDestinationEntity` represents the ten reviewed,
+non-mutating Location destinations (including map, requests, settings,
+Check-In, SOS review, and emergency SMS contacts). Its `OpenIntent` tells Siri
+that “Location Agent” is content inside Agent One rather than a separate app.
+
+Apple limits an app to ten zero-setup App Shortcuts. The provider deliberately
+publishes eight focused shortcuts: share, ask, stop, location on/off, create
+Circle, Check-In, open a structured Location destination, and Talk to Agent One.
+Mutation intents keep Apple's parameter follow-ups and native confirmation,
+then hand the exact generated action to the existing browser executor. The
+other App Intents remain discoverable in the Shortcuts app. Android and web
+deliberately report this Apple system surface as unsupported/no pending
+invocation.
+
 ### Route orchestration index
 
 `contracts/kai/one-route-orchestration-index.v1.json` is generated from the

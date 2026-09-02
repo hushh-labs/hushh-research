@@ -10,6 +10,7 @@ const tsPluginFiles = [
   "lib/capacitor/account.ts",
   "lib/capacitor/kai.ts",
   "lib/capacitor/personal-knowledge-model.ts",
+  "lib/capacitor/one-voice-invocation.ts",
 ];
 
 const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");
@@ -20,8 +21,12 @@ const iosInfoPlistPath = path.join(appRoot, "ios/App/App/Info.plist");
 const iosEntitlementsPath = path.join(appRoot, "ios/App/App/App.entitlements");
 
 const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
+// App Shortcuts are an Apple system surface, not an Android route-parity lane.
+// The TypeScript adapter returns unsupported/no pending invocation elsewhere.
+const iosOnlyPlugins = new Set(["HushhVoiceInvocation"]);
 const ignoredTsMethodsByPlugin = new Map([
   ["Kai", new Set(["addListener"])],
+  ["HushhVoiceInvocation", new Set(["addListener"])],
 ]);
 
 const failures = [];
@@ -220,7 +225,7 @@ for (const pluginName of sorted(tsContracts.keys())) {
   if (!iosContract) {
     fail(`${pluginName}: TypeScript contract exists in ${tsContract.source}, but iOS plugin is missing.`);
   }
-  if (!androidContract) {
+  if (!androidContract && !iosOnlyPlugins.has(pluginName)) {
     fail(`${pluginName}: TypeScript contract exists in ${tsContract.source}, but Android plugin is missing.`);
   }
   if (iosContract) {
@@ -250,7 +255,7 @@ for (const pluginName of sorted(androidContracts.keys())) {
 }
 
 for (const pluginName of sorted(tsContracts.keys())) {
-  if (webOnlyPlugins.has(pluginName)) continue;
+  if (webOnlyPlugins.has(pluginName) || iosOnlyPlugins.has(pluginName)) continue;
   if (!iosContracts.has(pluginName) || !androidContracts.has(pluginName)) continue;
   const iosMethods = iosContracts.get(pluginName).methods;
   const androidMethods = androidContracts.get(pluginName).methods;

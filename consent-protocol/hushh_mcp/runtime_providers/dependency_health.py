@@ -52,6 +52,7 @@ _ACCOUNT_ENFORCEMENT_MARKERS = (
     "billing account",
     "billing is not enabled",
     "billing has not been enabled",
+    "prepayment credits are depleted",
     "account is suspended",
     "consumer has been suspended",
     "quota exceeded",

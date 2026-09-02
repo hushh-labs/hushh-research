@@ -16,6 +16,7 @@ from hushh_mcp.services.one_location_agent_service import (
     _DIRECTORY_SEPARATOR_FOLD,
     _DIRECTORY_SEPARATOR_SQL,
     _DIRECTORY_SEPARATORS,
+    LOCATION_REQUEST_EXPIRY_HOURS,
     OneLocationAgentError,
     OneLocationAgentService,
     _contains_plaintext_location_key,
@@ -1651,6 +1652,53 @@ class FourUserMemoryService(OneLocationAgentService):
             ]
         if "UPDATE one_location_share_grants" in sql and "expires_at <= NOW()" in sql:
             return []
+        if "UPDATE one_location_access_requests AS legacy_request" in sql:
+            now = datetime.now(timezone.utc)
+            user_id = params.get("user_id")
+            repaired: list[dict] = []
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
+            for request in self.requests.values():
+                if request.get("status") != "pending" or request.get("expires_at") is not None:
+                    continue
+                if request.get("referred_by_user_id") is not None:
+                    continue
+                if str(request.get("id") or "") in linked_request_ids:
+                    continue
+                if user_id and user_id not in {
+                    request.get("owner_user_id"),
+                    request.get("requester_user_id"),
+                }:
+                    continue
+                deadline = request["requested_at"] + timedelta(hours=float(params["hours"]))
+                request["expires_at"] = deadline
+                if deadline <= now:
+                    request["status"] = "expired"
+                    request["resolved_at"] = request.get("resolved_at") or deadline
+                repaired.append({"id": request["id"]})
+            return repaired
+        if (
+            "UPDATE one_location_access_requests AS target_request" in sql
+            and "SET status = 'expired'" in sql
+        ):
+            now = datetime.now(timezone.utc)
+            user_id = params.get("user_id")
+            expired: list[dict] = []
+            for request in self.requests.values():
+                if request.get("status") != "pending" or request.get("expires_at") is None:
+                    continue
+                if request["expires_at"] > now:
+                    continue
+                if user_id and user_id not in {
+                    request.get("owner_user_id"),
+                    request.get("requester_user_id"),
+                }:
+                    continue
+                request["status"] = "expired"
+                request["resolved_at"] = request.get("resolved_at") or request["expires_at"]
+                expired.append({"id": request["id"]})
+            return expired[:500]
         if "FROM one_location_recipient_keys" in sql and "encrypted_private_key_jwk" in sql:
             # list_state's own-key lookup (myRecipientKey).
             user_id = params.get("user_id")
@@ -1789,12 +1837,79 @@ class FourUserMemoryService(OneLocationAgentService):
                 if grant["owner_user_id"] == owner or grant["recipient_user_id"] == owner
             ][:100]
         if (
+            "FROM one_location_access_requests req" in sql
+            and "LEFT JOIN actor_identity_cache" in sql
+        ):
+            now = datetime.now(timezone.utc)
+            if "req.owner_user_id = :owner_user_id" in sql:
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if request["owner_user_id"] == params["owner_user_id"]
+                    and request["status"] == "pending"
+                    and (request.get("expires_at") is None or request["expires_at"] > now)
+                ]
+            elif "req.requester_user_id = :requester_user_id" in sql:
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if request["requester_user_id"] == params["requester_user_id"]
+                    and request["status"] == "pending"
+                    and (request.get("expires_at") is None or request["expires_at"] > now)
+                ]
+            else:
+                user_id = params["user_id"]
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if user_id in {request["owner_user_id"], request["requester_user_id"]}
+                ]
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
+            return [
+                {
+                    **request,
+                    "legacy_direct_request": (
+                        request.get("expires_at") is None
+                        and request.get("referred_by_user_id") is None
+                        and str(request.get("id") or "") not in linked_request_ids
+                    ),
+                }
+                for request in sorted(
+                    rows,
+                    key=lambda item: item["requested_at"],
+                    reverse=True,
+                )[:50]
+            ]
+        if (
             "FROM one_location_access_requests" in sql
             and "owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id" in sql
         ):
             owner = params["owner_user_id"]
+            now = datetime.now(timezone.utc)
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
             return [
-                request
+                {
+                    **request,
+                    "status": (
+                        "expired"
+                        if request["status"] == "pending"
+                        and (
+                            request.get("expires_at") is not None
+                            and request["expires_at"] <= now
+                            or request.get("expires_at") is None
+                            and request.get("referred_by_user_id") is None
+                            and str(request.get("id") or "") not in linked_request_ids
+                            and request["requested_at"]
+                            + timedelta(hours=LOCATION_REQUEST_EXPIRY_HOURS)
+                            <= now
+                        )
+                        else request["status"]
+                    ),
+                }
                 for request in sorted(
                     self.requests.values(),
                     key=lambda item: item["requested_at"],
@@ -2109,8 +2224,12 @@ class FourUserMemoryService(OneLocationAgentService):
             return None
         if "WITH stale_grants AS" in sql and "deleted_grants" in sql:
             hours = float(params.get("hours") or 12)
+            expired_request_hours = float(params.get("expired_request_hours") or 168)
             user_id = params.get("user_id")
             cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+            expired_request_cutoff = datetime.now(timezone.utc) - timedelta(
+                hours=expired_request_hours
+            )
 
             def in_user_scope(row: dict, fields: tuple[str, ...]) -> bool:
                 if not user_id:
@@ -2150,6 +2269,15 @@ class FourUserMemoryService(OneLocationAgentService):
                     (
                         request["status"] in {"approved", "denied", "cancelled"}
                         and (request.get("resolved_at") or request.get("requested_at")) <= cutoff
+                    )
+                    or (
+                        request["status"] == "expired"
+                        and (
+                            request.get("resolved_at")
+                            or request.get("expires_at")
+                            or request.get("requested_at")
+                        )
+                        <= expired_request_cutoff
                     )
                     or request.get("approved_grant_id") in stale_grant_ids
                 )
@@ -2465,6 +2593,7 @@ class FourUserMemoryService(OneLocationAgentService):
         if (
             "FROM one_location_access_requests" in sql
             and "requester_user_id = :requester_user_id" in sql
+            and "owner_user_id = :owner_user_id" in sql
         ):
             for request in sorted(
                 self.requests.values(),
@@ -2476,11 +2605,34 @@ class FourUserMemoryService(OneLocationAgentService):
                     and request["requester_user_id"] == params["requester_user_id"]
                     and request["status"] == "pending"
                     and request.get("referred_by_user_id") == params.get("referred_by_user_id")
+                    and (
+                        bool(params.get("has_request_expiry"))
+                        == (request.get("expires_at") is not None)
+                    )
                 ):
-                    return request
+                    return {
+                        **request,
+                        "request_expired": bool(
+                            request.get("expires_at")
+                            and request["expires_at"] <= datetime.now(timezone.utc)
+                        ),
+                    }
+            return None
+        if "UPDATE one_location_access_requests" in sql and "SET status = 'expired'" in sql:
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["status"] == "pending"
+                and request.get("expires_at") is not None
+                and request["expires_at"] <= datetime.now(timezone.utc)
+            ):
+                request["status"] = "expired"
+                request["resolved_at"] = request.get("resolved_at") or request["expires_at"]
+                return request
             return None
         if "INSERT INTO one_location_access_requests" in sql:
             request_id = str(uuid.uuid4())
+            expires_after_hours = params.get("expires_after_hours")
             row = {
                 "id": request_id,
                 "owner_user_id": params["owner_user_id"],
@@ -2489,6 +2641,11 @@ class FourUserMemoryService(OneLocationAgentService):
                 "status": "pending",
                 "message": params.get("message"),
                 "requested_at": datetime.now(timezone.utc),
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=float(expires_after_hours))
+                    if expires_after_hours is not None
+                    else None
+                ),
                 "resolved_at": None,
                 "approved_grant_id": None,
                 "requested_duration_hours": params.get("requested_duration_hours"),
@@ -2511,16 +2668,35 @@ class FourUserMemoryService(OneLocationAgentService):
                 if params.get("ask_changed"):
                     request["request_revision"] = int(request.get("request_revision") or 1) + 1
                     request["requested_at"] = datetime.now(timezone.utc)
+                    if params.get("expires_after_hours") is not None:
+                        request["expires_at"] = datetime.now(timezone.utc) + timedelta(
+                            hours=float(params["expires_after_hours"])
+                        )
                 return request
             return None
         if "FROM one_location_access_requests" in sql:
             request = self.requests.get(params["request_id"])
-            if (
+            actor_matches = bool(
                 request
-                and request["owner_user_id"] == params["owner_user_id"]
-                and request["status"] == "pending"
-            ):
-                return request
+                and (
+                    (
+                        "owner_user_id" in params
+                        and request["owner_user_id"] == params["owner_user_id"]
+                    )
+                    or (
+                        "requester_user_id" in params
+                        and request["requester_user_id"] == params["requester_user_id"]
+                    )
+                )
+            )
+            if actor_matches and request:
+                return {
+                    **request,
+                    "request_expired": bool(
+                        request.get("expires_at")
+                        and request["expires_at"] <= datetime.now(timezone.utc)
+                    ),
+                }
             return None
         if "SET status = 'approved'" in sql:
             request = self.requests[params["request_id"]]
@@ -2538,6 +2714,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 request
                 and request["requester_user_id"] == params["requester_user_id"]
                 and request["status"] == "pending"
+                and (
+                    request.get("expires_at") is None
+                    or request["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 request["status"] = "cancelled"
                 request["resolved_at"] = datetime.now(timezone.utc)
@@ -2549,6 +2729,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 request
                 and request["owner_user_id"] == params["owner_user_id"]
                 and request["status"] == "pending"
+                and (
+                    request.get("expires_at") is None
+                    or request["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 request["status"] = "denied"
                 request["resolved_at"] = datetime.now(timezone.utc)
@@ -3957,9 +4141,14 @@ def test_event_failure_rolls_back_location_transition_and_suppresses_push(
         def first(self):
             return self.row
 
+        def all(self):
+            return [] if self.row is None else [self.row]
+
     class _Connection:
         def execute(self, statement, params):
             sql = str(statement)
+            if "UPDATE one_location_access_requests AS legacy_request" in sql:
+                return _Result(None)
             if "SET status = 'denied'" in sql:
                 request["status"] = "denied"
                 return _Result(dict(request))

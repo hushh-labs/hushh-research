@@ -176,6 +176,11 @@ export const ROUTES = {
    */
   ONE_LOCATION_CHECK_IN: "/one/location/check-in",
   /**
+   * Eligibility-gated hotel online check-in. Hidden unless a supported stay is
+   * returned by the hotel-check-in provider seam.
+   */
+  ONE_LOCATION_HOTEL_CHECK_IN: "/one/location/check-in/hotel",
+  /**
    * Recipient landing for a shared Circle join link. An entry point from
    * outside the app, like LOGIN — the destination is the reason the person
    * opened the app at all, so it must render before setup is checked.

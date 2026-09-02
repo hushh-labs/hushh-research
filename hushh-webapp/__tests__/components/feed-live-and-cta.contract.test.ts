@@ -79,6 +79,19 @@ describe("Feed stays live", () => {
       'errorCode={showColdError ? "FEED_LOAD_FAILED" : null}',
     );
   });
+
+  it("keeps Needs you as a plain feed section, not a tinted block", () => {
+    const feedPage = read("components/feed/feed-page.tsx");
+
+    const needsYouSection =
+      feedPage.match(
+        /<section aria-label="Needs you"[\s\S]*?<SectionLabel>Needs you<\/SectionLabel>/,
+      )?.[0] ?? "";
+
+    expect(needsYouSection.length).toBeGreaterThan(0);
+    expect(needsYouSection).not.toContain("bg-accent");
+    expect(needsYouSection).not.toContain("bg-[color:var(--app-accent");
+  });
 });
 
 describe("the ask flow's primary action keeps the action colour", () => {
@@ -121,8 +134,9 @@ describe("the ask flow's primary action keeps the action colour", () => {
     );
     // And the step still advances only on a resolved success, so a failed send
     // cannot present as a completed one.
-    expect(hub).toContain("const sent = await vm.onSendRequest(reason)");
-    expect(hub).toContain("if (sent) setStep(\"person\")");
+    expect(hub).toContain("const result = await vm.onSendRequest(reason)");
+    expect(hub).toContain("if (result.completed)");
+    expect(hub).toContain("onClose(\"now\")");
   });
 });
 

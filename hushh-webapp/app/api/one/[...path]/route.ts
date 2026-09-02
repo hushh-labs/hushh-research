@@ -14,6 +14,19 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
+const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
+  developmentFloorMs: 285_000,
+  overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
+});
+
+function requestTimeoutMs(path: string, acceptHeader: string | null): number {
+  const acceptsEventStream =
+    acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
+  const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");
+  return acceptsEventStream || isKnownStreamRoute
+    ? ONE_STREAM_TIMEOUT_MS
+    : ONE_API_TIMEOUT_MS;
+}
 
 function privateResponseHeaders(upstream?: Response): Headers {
   const headers = new Headers({
@@ -70,7 +83,9 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     // response mid-stream even while the backend is still sending keep-alives.
     // Let the browser disconnect signal own that stream's lifetime instead.
     const upstreamSignal =
-      path === "agent-chat" ? request.signal : AbortSignal.timeout(ONE_API_TIMEOUT_MS);
+      path === "agent-chat"
+        ? request.signal
+        : AbortSignal.timeout(requestTimeoutMs(path, acceptHeader));
 
     const response = await fetch(url, {
       method: request.method,

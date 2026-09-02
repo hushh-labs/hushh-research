@@ -6,9 +6,9 @@ type ProfilePageProps = {
 };
 
 export default async function ProfilePage({ searchParams }: ProfilePageProps) {
-  // Static Capacitor exports have no request query. The profile workspace reads
-  // its query client-side after the app starts, while server builds retain the
-  // local-only CRM route guard below.
+  // Search parameters are request state on web but browser state in the
+  // serverless Capacitor bundle. Native availability is enforced again by the
+  // client workspace, so the exporter must not await a request-only value.
   if (process.env.CAPACITOR_BUILD !== "true") {
     const query = (await searchParams) ?? {};
     const requestedPanel = String(query.panel ?? query.tab ?? "")

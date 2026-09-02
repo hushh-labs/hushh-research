@@ -2961,6 +2961,49 @@
       "native_surface_id": "native-route-one-location-check-in"
     },
     {
+      "route_pattern": "/one/location/check-in/hotel",
+      "page_file": "app/one/location/check-in/hotel/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.location.check-in.hotel",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.one.location.check-in.hotel",
+        "purpose": "Fail closed unless a supported hotel stay is explicitly eligible for online check-in.",
+        "screen": "one_location_check_in",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Return to nearby check-in without exposing unsupported stay details.",
+          "cancelled": "Return to nearby check-in.",
+          "failed": "Keep hotel check-in unavailable unless eligibility is verified.",
+          "timeout": "Keep hotel check-in unavailable unless eligibility is verified.",
+          "callback_error": "Return to nearby check-in.",
+          "route_mismatch": "Use the verified current route."
+        },
+        "completion_boundary": "No hotel check-in completes until a real provider verifies an opaque eligible stay.",
+        "next_route": "/one/location/check-in",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally without inventing a hotel check-in control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_location_check_in",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/one/location/invite/[token]",
       "page_file": "app/one/location/invite/[token]/page.tsx",
       "route_mode": "hidden",

@@ -87,7 +87,7 @@ cd hushh-webapp && node scripts/native/verify-native-static-parity.mjs
 
 ## Current exclusions
 
-16 routes, all with reasons. Two are recorded as gaps rather than permanent
+17 routes, all with reasons. Two are recorded as gaps rather than permanent
 exclusions: `/one/calendar` and `/one/setup/calendar`. Those are real debt, and
 they are visible now instead of being absorbed into a classification.
 

@@ -52,6 +52,36 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("uses focused Connect Circle titles with a back label to Circles", () => {
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connect",
+        new URLSearchParams("tab=circles&action=create-circle"),
+      ),
+    ).toEqual({
+      backHref: "/one/connect?tab=circles",
+      backLabel: "Back to Circles",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "Create a Circle" }],
+    });
+
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connect",
+        new URLSearchParams("tab=circles&action=join-circle"),
+      ),
+    ).toEqual({
+      backHref: "/one/connect?tab=circles",
+      backLabel: "Back to Circles",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "Join a Circle" }],
+    });
+  });
+
   it("uses the shared top-left back affordance for Calendar", () => {
     expect(resolveTopShellBreadcrumb("/one/calendar")).toEqual({
       backHref: "/one",

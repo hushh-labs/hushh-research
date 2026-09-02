@@ -85,4 +85,17 @@ describe("marketplace client card layout contract", () => {
     expect(source).toContain('toast.success("Saved lead removed from the RIA deck.")');
     expect(source).not.toContain("localStorage.setItem(key, JSON.stringify([...savedInvestorLeads");
   });
+
+  it("keeps investor detail modal below the fixed Connect header", () => {
+    const source = readMarketplacePage();
+
+    expect(source).toContain(
+      'contentClassName="md:top-[calc(var(--top-shell-mask-visible-height)+1rem)] md:max-h-[calc(100dvh-var(--top-shell-mask-visible-height)-2rem)] md:translate-y-0"',
+    );
+    expect(source).toContain('selectedProfile?.kind === "investor" && selectedInvestor');
+    expect(source).toContain("Fit summary");
+    expect(source).toContain("Evidence");
+    expect(source).toContain("Save lead");
+    expect(source).toContain("View connections");
+  });
 });

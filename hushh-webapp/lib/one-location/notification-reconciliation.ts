@@ -4,6 +4,7 @@ import type {
   OneLocationRecipient,
   OneLocationState,
 } from "@/lib/one-location/types";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import {
   buildOneLocationWorkflowHref,
   ONE_LOCATION_SMS_EMERGENCY_CATEGORY,
@@ -169,10 +170,11 @@ export function buildOneLocationNotificationPayloads(
     payloads.push(payload);
   }
 
+  const requestNowMs = Date.now();
   for (const request of state.requests ?? []) {
     if (
       request.ownerUserId === normalizedUserId &&
-      request.status === "pending"
+      isLocationRequestPending(request, requestNowMs)
     ) {
       const payload: OneLocationNotificationPayload = {
         type: "location_access_request",

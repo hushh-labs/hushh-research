@@ -37,24 +37,33 @@ export function connectionAvatarInitials(label: string): string {
  *
  * Reported as "circle and Connections dono ka thoda alag alag feel ho rha hai".
  */
-export type ConnectionPersonAvatarSize = "compact" | "comfortable";
+export type ConnectionPersonAvatarSize = "compact" | "comfortable" | "profile";
 
 const AVATAR_SIZE_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
   compact: "h-7 w-7",
   comfortable: "h-[34px] w-[34px]",
+  profile: "h-16 w-16",
 };
 
 /** The verified badge scales with the face, or it swallows a 28px one. */
 const AVATAR_BADGE_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
   compact: "size-[13px]",
   comfortable: "size-[15px]",
+  profile: "size-[19px]",
 };
 
 const AVATAR_BADGE_GLYPH_CLASSNAME: Record<ConnectionPersonAvatarSize, string> =
   {
     compact: "size-[11px]",
     comfortable: "size-[13px]",
+    profile: "size-[17px]",
   };
+
+const AVATAR_FALLBACK_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
+  compact: "text-xs",
+  comfortable: "text-xs",
+  profile: "text-3xl",
+};
 
 export function ConnectionPersonAvatar({
   photoUrl,
@@ -84,7 +93,7 @@ export function ConnectionPersonAvatar({
       data-avatar-size={size}
     >
       {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
-      <AvatarFallback className="text-xs">
+      <AvatarFallback className={AVATAR_FALLBACK_CLASSNAME[size]}>
         {connectionAvatarInitials(label)}
       </AvatarFallback>
       {verified ? (

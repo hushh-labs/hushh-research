@@ -110,6 +110,10 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/gmail`
 - `/one/email`
 - `/one/kyc`
+- `/one/location`
+- `/one/location/map`
+- `/one/location/check-in`
+- `/one/location/check-in/hotel?stay=<opaque_stay_id>` — eligibility-gated and fail-closed until a supported hotel stay provider exists
 - `/one/marketplace`
 - `/marketplace`
 - `/marketplace/ria`

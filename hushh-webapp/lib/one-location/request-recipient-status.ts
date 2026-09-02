@@ -1,7 +1,12 @@
 import {
   formatLocationDurationLabel,
-  formatLocationRemaining,
+  formatLocationTimeLeft,
 } from "@/lib/one-location/duration-copy";
+import {
+  isLocationRequestExpired,
+  isLocationRequestPending,
+  locationRequestExpiryMs,
+} from "@/lib/one-location/request-expiry";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
@@ -66,7 +71,7 @@ export function shortAgo(fromMs: number, nowMs: number): string {
 }
 
 /**
- * "55 more min", "1h 30m more", "3 more hours" -- how much access is left.
+ * "55 min", "1h 30m", "3 hours" -- how much access is left.
  *
  * Delegates to the shared formatter so this row, the countdown on the share
  * card, and the notification copy cannot drift apart. The old local rounding
@@ -74,7 +79,7 @@ export function shortAgo(fromMs: number, nowMs: number): string {
  * exact number people use to decide when to leave.
  */
 export function shortRemaining(untilMs: number, nowMs: number): string | null {
-  return formatLocationRemaining(untilMs, nowMs);
+  return formatLocationTimeLeft(untilMs, nowMs);
 }
 
 export function requestRecipientStatus(input: {
@@ -95,23 +100,36 @@ export function requestRecipientStatus(input: {
   const pending = requestedByMe
     .filter(
       (request) =>
-        request.ownerUserId === recipientUserId && request.status === "pending",
+        request.ownerUserId === recipientUserId &&
+        isLocationRequestPending(request, nowMs),
     )
     .sort(
       (left, right) =>
-        (timestamp(right.requestedAt) ?? 0) - (timestamp(left.requestedAt) ?? 0),
+        (timestamp(right.requestedAt) ?? 0) -
+        (timestamp(left.requestedAt) ?? 0),
     )[0];
 
   // Already sharing beats everything else. Asking somebody to share when they
   // already are is the clearest possible sign the list is not looking.
-  const activeGrant = receivedGrants.find(
-    (grant) =>
-      grant.ownerUserId === recipientUserId && grant.status === "active",
-  );
+  const activeGrant = receivedGrants.find((grant) => {
+    if (grant.ownerUserId !== recipientUserId || grant.status !== "active") {
+      return false;
+    }
+    // A timed grant is no longer live at its exact deadline, even when a
+    // cached API row has not yet been settled to `expired`. Only an explicit
+    // null is open-ended; a missing or malformed deadline is not enough to
+    // claim that somebody is still sharing their location.
+    if (grant.expiresAt === null) return true;
+    const expiresAt = timestamp(grant.expiresAt);
+    return expiresAt !== null && expiresAt > nowMs;
+  });
   if (activeGrant) {
     const expiresAt = timestamp(activeGrant.expiresAt);
-    const remaining = expiresAt === null ? null : shortRemaining(expiresAt, nowMs);
-    const live = remaining ? `Sharing with you, ${remaining}` : "Sharing with you now";
+    const remaining =
+      expiresAt === null ? null : shortRemaining(expiresAt, nowMs);
+    const live = remaining
+      ? `Sharing with you, ${remaining} left`
+      : "Sharing with you now";
     if (pending) {
       // Both facts at once, because both are true and each one alone misleads:
       // the share IS live, and more time HAS been asked for and not answered.
@@ -152,7 +170,9 @@ export function requestRecipientStatus(input: {
       pending.requestedDurationMode === "until_stopped"
         ? "no end time"
         : formatLocationDurationLabel(pending.requestedDurationHours);
-    const when = askedAt ? `Asked ${shortAgo(askedAt, nowMs)}` : "Asked already";
+    const when = askedAt
+      ? `Asked ${shortAgo(askedAt, nowMs)}`
+      : "Asked already";
     return {
       subtitle: askedFor
         ? `${when} for ${askedFor}, waiting on them`
@@ -167,22 +187,41 @@ export function requestRecipientStatus(input: {
     };
   }
 
-  // A refusal is not a permanent state, so this row stays askable. It is said
-  // plainly rather than hidden: asking again without knowing they declined is
-  // how somebody ends up nagging without meaning to.
-  const declined = requestedByMe
+  // Expiry, refusal, and withdrawal are all settled requests and therefore
+  // askable again. Choose the newest outcome so an old expiry can never hide a
+  // later decline (or vice versa).
+  const settled = requestedByMe
     .filter(
       (request) =>
         request.ownerUserId === recipientUserId &&
-        (request.status === "denied" || request.status === "cancelled"),
+        (request.status === "denied" ||
+          request.status === "cancelled" ||
+          isLocationRequestExpired(request, nowMs)),
     )
     .sort(
       (left, right) =>
-        (timestamp(right.resolvedAt) ?? 0) - (timestamp(left.resolvedAt) ?? 0),
+        (timestamp(right.resolvedAt) ??
+          locationRequestExpiryMs(right) ??
+          timestamp(right.requestedAt) ??
+          0) -
+        (timestamp(left.resolvedAt) ??
+          locationRequestExpiryMs(left) ??
+          timestamp(left.requestedAt) ??
+          0),
     )[0];
-  if (declined) {
-    const resolvedAt = timestamp(declined.resolvedAt);
-    const wasDenied = declined.status === "denied";
+  if (settled) {
+    if (isLocationRequestExpired(settled, nowMs)) {
+      return {
+        subtitle: "Request expired · Ask again",
+        tone: "neutral",
+        statusLabel: "Expired",
+        selectable: true,
+      };
+    }
+    // A refusal is not a permanent state. Say it plainly so asking again is a
+    // conscious choice instead of accidental nagging.
+    const resolvedAt = timestamp(settled.resolvedAt);
+    const wasDenied = settled.status === "denied";
     return {
       subtitle: resolvedAt
         ? `${wasDenied ? "Declined" : "Cancelled"} ${shortAgo(resolvedAt, nowMs)}`
