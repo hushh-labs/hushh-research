@@ -292,7 +292,7 @@ Recommended local testing:
 - `SUPPORT_EMAIL_DELEGATED_USER=one@hushh.ai`
 - `SUPPORT_EMAIL_FROM=one@hushh.ai`
 - `SUPPORT_EMAIL_TO=one@hushh.ai`
-- `SUPPORT_EMAIL_TEST_TO=kushal@hushh.ai`
+- `SUPPORT_EMAIL_TEST_TO=one@hushh.ai`
 - `SUPPORT_EMAIL_MODE=test`
 
 This path requires Workspace domain-wide delegation for client ID `109021324828349644970` with:

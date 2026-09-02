@@ -844,6 +844,18 @@
       "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "gmail_personal_information_request_preferences",
+        "gmail_personal_information_request_scan_states",
+        "gmail_personal_information_requests"
+      ],
+      "id": "gmail_personal_information_request_monitor",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Email Agent opt-in personal Gmail monitor, owner review queue, and scheduled eligible-user scanner"
+    },
+    {
       "data_class": "provider_cache",
       "exact_tables": [
         "google_provider_connections",
@@ -5434,9 +5446,9 @@
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "3db0d33a06f37da5543f7215962414cab26534a9d78f504233d63e9d3af4246c",
-    "agent_registry": "f174e49333b772561798e0c02057c4b395c1c8d8b4c29875e9d9bcace24fad7b",
+    "agent_registry": "6ae9153367cf399a8b534f44b98f286aabf134f27fadb8ed32a4ab707956e15e",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
-    "data_plane": "21ffe02aadae25180c00bdd4668075682b8f1ced9c43b04fb3d1b2257c9f4464",
+    "data_plane": "25ee768e87ca24a3b84ec95dc20adc6f17f615de7243030dd3ad591299a11763",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "e2eca1cf8dca4ff3bd66d289ae64120ca6f7dc87fa5692d445780d1c17e2219f",
     "route_index": "c01a8f88aba69f168fc20843a062a2a70ceca700a60b6fe4ed7ed623d6786c43",
@@ -5455,6 +5467,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 139,
     "semantic_routes": 14,
-    "table_families": 56
+    "table_families": 57
   }
 }
