@@ -22,6 +22,7 @@ import {
 } from "@/components/onboarding/setup/local-first-vault-sequence";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import styles from "./one-setup-hub.module.css";
@@ -32,6 +33,7 @@ import {
   isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
   ROUTES,
+  buildPhoneMandateRoute,
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import {
@@ -120,6 +122,47 @@ export function OneSetupHub() {
   const runtimeChoiceState = prereqMatchesUser
     ? prereqSnapshot.runtime
     : "loading";
+  // The third root prerequisite. The agent's record (its HusshID) is minted from
+  // a VERIFIED phone, so without one no pod can exist: a person could finish the
+  // wizard with a cloud and an AI and still have no agent (founder-hit,
+  // 2026-09-02). It is read from the identity shadow, not from a client claim.
+  const [phoneState, setPhoneState] = useState<{
+    userId: string | null;
+    phone: "loading" | "required" | "complete";
+  }>({ userId: null, phone: "loading" });
+  const phoneVerified =
+    phoneState.userId === (user?.uid ?? null) &&
+    phoneState.phone === "complete";
+  useEffect(() => {
+    if (!user?.uid) {
+      setPhoneState({ userId: null, phone: "required" });
+      return;
+    }
+    let active = true;
+    const cached = AccountIdentityService.peekCachedIdentity(user.uid)?.data;
+    setPhoneState({
+      userId: user.uid,
+      phone: AccountIdentityService.hasVerifiedPhone(cached)
+        ? "complete"
+        : "loading",
+    });
+    void AccountIdentityService.refreshCurrentUserIdentity(user)
+      .then((identity) => {
+        if (!active) return;
+        setPhoneState({
+          userId: user.uid,
+          phone: AccountIdentityService.hasVerifiedPhone(identity)
+            ? "complete"
+            : "required",
+        });
+      })
+      .catch(() => {
+        if (active) setPhoneState({ userId: user.uid, phone: "required" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
   const returnTo = useMemo(() => {
     const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
     if (!raw) return null;
@@ -272,7 +315,8 @@ export function OneSetupHub() {
   const runtimeChoiceComplete = runtimeChoiceState === "complete";
   // Both root prerequisites, in product order. The footer and the master exit read
   // this rather than either half, so a person cannot leave the hub having done one.
-  const setupPrerequisitesComplete = cloudComplete && runtimeChoiceComplete;
+  const setupPrerequisitesComplete =
+    cloudComplete && phoneVerified && runtimeChoiceComplete;
   // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
   // tile that still needs a connection or an unlock (blocked/unknown) is NOT
   // ready, even though it is not directly tappable-into-setup — so we never
@@ -281,6 +325,7 @@ export function OneSetupHub() {
   // same progress projection instead of being omitted from the denominator.
   const progressSteps = [
     { id: "cloud", complete: cloudComplete },
+    { id: "phone", complete: phoneVerified },
     { id: "connections", complete: runtimeChoiceComplete },
     ...items.map((item) => ({
       id: item.id,
@@ -535,6 +580,18 @@ export function OneSetupHub() {
       // than stranding them.
       let cloudConfirmed = cloudComplete;
       let runtimeChoiceConfirmed = runtimeChoiceComplete;
+      let phoneConfirmed = phoneVerified;
+      if (!phoneConfirmed) {
+        const identity =
+          await AccountIdentityService.refreshCurrentUserIdentity(user, {
+            force: true,
+          }).catch(() => null);
+        phoneConfirmed = AccountIdentityService.hasVerifiedPhone(identity);
+        setPhoneState({
+          userId: user.uid,
+          phone: phoneConfirmed ? "complete" : "required",
+        });
+      }
       if (!cloudConfirmed || !runtimeChoiceConfirmed) {
         try {
           const currentState = await PreVaultUserStateService.bootstrapState(
@@ -564,6 +621,19 @@ export function OneSetupHub() {
         return {
           status: "blocked" as const,
           summary: "Connect your own cloud before continuing.",
+        };
+      }
+      if (!phoneConfirmed) {
+        toast.info("Verify your phone first.", {
+          action: {
+            label: "Verify",
+            onClick: () =>
+              router.push(buildPhoneMandateRoute(ROUTES.ONE_SETUP)),
+          },
+        });
+        return {
+          status: "blocked" as const,
+          summary: "Verify your phone first.",
         };
       }
       if (!runtimeChoiceConfirmed) {
@@ -775,14 +845,47 @@ export function OneSetupHub() {
                   isComplete={cloudComplete}
                 />
                 <SetupNavigationTile
+                  id="phone"
+                  title="Verify your phone"
+                  description={
+                    phoneVerified
+                      ? "Verified. Your agent's record is minted from this number."
+                      : cloudComplete
+                        ? "Your agent's record is minted from your verified number."
+                        : "After your cloud."
+                  }
+                  href={buildPhoneMandateRoute(ROUTES.ONE_SETUP)}
+                  voiceControlId="one_setup_tile_phone"
+                  icon={lucideCapabilityIcon(Cloud)}
+                  tone="connected"
+                  statusLabel={
+                    phoneVerified
+                      ? "Verified"
+                      : cloudComplete
+                        ? "Required"
+                        : "After your cloud"
+                  }
+                  statusTone={
+                    phoneVerified
+                      ? undefined
+                      : cloudComplete
+                        ? "required"
+                        : "muted"
+                  }
+                  isCurrent={cloudComplete && !phoneVerified}
+                  isComplete={phoneVerified}
+                />
+                <SetupNavigationTile
                   id="connections"
                   title="Choose your AI"
                   description={
                     runtimeChoiceComplete
                       ? "Change this any time."
-                      : cloudComplete
-                        ? "Use ours, or bring your own."
-                        : "Connect your cloud first, then choose."
+                      : cloudComplete && phoneVerified
+                        ? "Your pod's AI, or your own key."
+                        : cloudComplete
+                          ? "Verify your phone first, then choose."
+                          : "Connect your cloud first, then choose."
                   }
                   href={ROUTES.ONE_SETUP_CONNECTIONS}
                   voiceControlId="one_setup_tile_connections"
@@ -791,9 +894,11 @@ export function OneSetupHub() {
                   statusLabel={
                     runtimeChoiceComplete
                       ? "Selected"
-                      : cloudComplete
+                      : cloudComplete && phoneVerified
                         ? "Required"
-                        : "After your cloud"
+                        : cloudComplete
+                          ? "After your phone"
+                          : "After your cloud"
                   }
                   // The one row that blocks the exit. A muted grey "Required"
                   // reads like every other trailing label, so it gets the
@@ -803,11 +908,13 @@ export function OneSetupHub() {
                   statusTone={
                     runtimeChoiceComplete
                       ? undefined
-                      : cloudComplete
+                      : cloudComplete && phoneVerified
                         ? "required"
                         : "muted"
                   }
-                  isCurrent={cloudComplete && !runtimeChoiceComplete}
+                  isCurrent={
+                    cloudComplete && phoneVerified && !runtimeChoiceComplete
+                  }
                   isComplete={runtimeChoiceComplete}
                 />
                 {/* The agent's live build status, IN the journey where it

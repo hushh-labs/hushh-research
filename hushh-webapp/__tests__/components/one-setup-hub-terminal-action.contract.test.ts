@@ -48,10 +48,17 @@ describe("One setup hub terminal action contract", () => {
     // hub having connected a model but no cloud for it to run in.
     expect(source).toContain("disabled={!setupPrerequisitesComplete}");
     expect(source).toContain(
-      "const setupPrerequisitesComplete = cloudComplete && runtimeChoiceComplete;",
+      "cloudComplete && phoneVerified && runtimeChoiceComplete",
     );
     // The reorder itself, asserted on the rendered order rather than on intent.
     // Broken on purpose: move the cloud tile below AI access and this goes red.
+    // The phone sits between them: the agent's record is minted from it.
+    expect(source.indexOf('title="Your cloud"')).toBeLessThan(
+      source.indexOf('title="Verify your phone"'),
+    );
+    expect(source.indexOf('title="Verify your phone"')).toBeLessThan(
+      source.indexOf('title="Choose your AI"'),
+    );
     expect(source.indexOf('title="Your cloud"')).toBeLessThan(
       source.indexOf('title="Choose your AI"'),
     );
@@ -120,9 +127,7 @@ describe("One setup hub terminal action contract", () => {
     expect(hub).toContain(
       'statusTone={cloudComplete ? undefined : "required"}',
     );
-    expect(hub).toContain(
-      "isCurrent={cloudComplete && !runtimeChoiceComplete}",
-    );
+    expect(hub).toContain("phoneVerified && !runtimeChoiceComplete");
     expect(hub).toContain('"After your cloud"');
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");
@@ -461,8 +466,10 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(card).toContain('<Badge variant="outline">Recommended</Badge>');
-    expect(card).toContain('title="Use Hussh\'s AI"');
-    expect(card).toContain('title="Use my own key"');
+    expect(card).toContain(
+      'title={ownCloudProject ? "Use your pod\'s AI" : "Use Hussh\'s AI"}',
+    );
+    expect(card).toContain('title="Use your own key"');
     // System nouns and vendor plumbing stay out of the two rows a person reads.
     expect(card).not.toContain("Hussh managed Gemini");
     expect(card).not.toContain("Use my Gemini access");
