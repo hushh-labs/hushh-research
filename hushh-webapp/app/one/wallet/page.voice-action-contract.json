@@ -55,7 +55,7 @@
         "workflow_steps": [
           {
             "type": "navigate",
-            "label": "Open the Cards surface",
+            "label": "Open the Wallet surface",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/wallet",

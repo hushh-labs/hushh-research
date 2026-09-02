@@ -99,10 +99,11 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
     for name in agentic_manifests:
         assert load(name).model_config_for_runtime().name == GEMINI_MODEL, name
 
-    assert load("summary_reducer").model_config_for_runtime().name == "gemini-3.1-flash-lite"
-    # The memory chain's salience workers keep their explicit pin; the fleet switch never moves them.
-    for name in ("memory_intent", "memory_segmentation"):
-        assert load(name).model_config_for_runtime().name == "gemini-3.1-pro-preview", name
+    # Founder directive 2026-09-02: every text agent runs the switched Flash model. The
+    # reducer and the memory chain's salience workers no longer carry their own pins
+    # (gemini-3.1-flash-lite and gemini-3.1-pro-preview), so one switch moves the fleet.
+    for name in ("summary_reducer", "memory_intent", "memory_segmentation"):
+        assert load(name).model_config_for_runtime().name == GEMINI_MODEL, name
     one = load("one")
     assert one.model_config_for_runtime().name == GEMINI_MODEL
     assert one.capabilities["heads"] == {
