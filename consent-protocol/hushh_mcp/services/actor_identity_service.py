@@ -873,8 +873,38 @@ class ActorIdentityService:
             self.schedule_provision_personal_agent(normalized_user_id, normalized_phone_number)
         except Exception:  # noqa: S110 -- provisioning kickoff must never break phone verify
             pass
+        await self._resume_ai_connection(normalized_user_id)
 
         return self._normalize_row(row)
+
+    async def _resume_ai_connection(self, user_id: str) -> None:
+        """Re-run the AI-connection trigger for a choice recorded BEFORE the phone.
+
+        The setup wizard shows the cloud and the AI before identity (2026-09-02), so
+        a person can pick "use your pod's AI" while no record can exist yet; the gate
+        then defers on the missing phone and nothing re-fires when the phone arrives.
+        Only the managed choice resumes here: a bring-your-own-key choice proves its
+        key on its own path and fires the trigger from there. Never raises.
+        """
+        try:
+            from hushh_mcp.services.ai_connection_gate import (  # noqa: PLC0415
+                on_ai_connection_verified,
+            )
+            from hushh_mcp.services.vault_keys_service import VaultKeysService  # noqa: PLC0415
+
+            state = await VaultKeysService().get_pre_vault_state(user_id)
+            if str(state.get("oneRuntimeSetupChoice") or "") != "hushh_managed_vertex":
+                return
+            verdict = await on_ai_connection_verified(
+                user_id=user_id, provider="hushh_managed_vertex", transport="managed_vertex"
+            )
+            logger.info(
+                "personal_agent.ai_connection_resumed_after_phone scheduled=%s reason=%s",
+                bool(verdict.get("scheduled")),
+                str(verdict.get("reason") or "")[:80],
+            )
+        except Exception:  # noqa: BLE001 - phone verification must complete regardless
+            logger.warning("personal_agent.ai_connection_resume_failed", exc_info=True)
 
     async def list_verified_email_aliases(self, user_id: str) -> list[dict[str, Any]]:
         normalized_user_id = str(user_id or "").strip()
