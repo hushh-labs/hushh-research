@@ -225,8 +225,8 @@ def get_scope_display_metadata(scope: str) -> dict:
             "color_hex": "#D4AF37",
         },
         "agent.wallet.manage": {
-            "label": "Cards Management",
-            "description": "Allow the Cards agent to help you store, list, and reveal your wallet cards on this device",
+            "label": "Wallet Management",
+            "description": "Allow the Wallet agent to help you store, list, and reveal your cards on this device",
             "icon_name": "credit-card",
             "color_hex": "#B45309",
         },
