@@ -71,16 +71,15 @@ if (!contactsUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSContactsUsageDescription.");
 }
 
-// Brand spelling in the strings iOS actually shows a person: the app name under
-// the icon, in Settings, and in every permission prompt. These are already
-// correct, and this asserts they stay that way — issue #5422 was a brand
-// misspelling that shipped because nothing checked notification/app copy.
+// Siri requires every App Shortcut phrase to contain the system application
+// name. "One" is therefore the deliberate iOS display and spoken name: it is
+// short, pronounceable, and produces phrases such as "Open One Location
+// Agent". Branded privacy explanations continue to say "Hussh One".
 //
-// Scoped to display copy on purpose. `hushh` is load-bearing elsewhere in this
-// same file — the `hushh` CFBundleURLScheme and the com.hushh.app bundle
-// identifier — and renaming either would break deep links and code signing.
-const IOS_PRODUCT_NAME = "Hussh One";
-for (const key of ["CFBundleDisplayName", "CFBundleName"]) {
+// Scoped to visible/spoken copy on purpose. The `hushh` CFBundleURLScheme and
+// com.hushh.app bundle identifier remain load-bearing for deep links/signing.
+const IOS_PRODUCT_NAME = "One";
+for (const key of ["CFBundleDisplayName", "CFBundleName", "CFBundleSpokenName"]) {
   const match = infoPlist.match(
     new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
   );

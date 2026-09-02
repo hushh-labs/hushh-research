@@ -176,12 +176,13 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
     }
 
     func testActionCatalogMatchesGeneratedLocationContractIdentifiers() {
-        XCTAssertEqual(OneSystemActionID.allCases.count, 16)
+        XCTAssertEqual(OneSystemActionID.allCases.count, 17)
         XCTAssertEqual(OneSystemActionID.shareLocation.rawValue, "location.share_selected")
         XCTAssertEqual(OneSystemActionID.askForLocation.rawValue, "location.send_request")
         XCTAssertEqual(OneSystemActionID.stopShare.rawValue, "location.stop_share")
         XCTAssertFalse(OneSystemActionID.openLocation.requiresVault)
         XCTAssertTrue(OneSystemActionID.resumeLocation.requiresVault)
+        XCTAssertFalse(OneSystemActionID.openSMSContacts.requiresVault)
     }
 
     @available(iOS 16.0, *)
@@ -268,7 +269,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
     }
 
     @available(iOS 16.0, *)
-    func testAllNineDestinationIntentsRemainNonMutatingAdapters() {
+    func testAllTenDestinationIntentsRemainNonMutatingAdapters() {
         let destinations: Set<OneSystemActionID> = [
             .openLocation,
             .openLocationMap,
@@ -278,7 +279,8 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
             .openLocationSettings,
             .openTemporaryLink,
             .openCheckIn,
-            .openEmergencySOS
+            .openEmergencySOS,
+            .openSMSContacts
         ]
 
         for actionID in destinations {
@@ -288,5 +290,26 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
             )
             XCTAssertFalse(actionID.requiresVault)
         }
+    }
+
+    @available(iOS 16.0, *)
+    func testLocationDestinationEntityResolvesNaturalOneVocabulary() async throws {
+        let query = OneLocationDestinationEntityQuery()
+
+        let locationAgent = try await query.entities(matching: "One Location Agent")
+        XCTAssertEqual(locationAgent.compactMap(\.actionID), [.openLocation])
+
+        let map = try await query.entities(matching: "location map")
+        XCTAssertEqual(map.compactMap(\.actionID), [.openLocationMap])
+
+        let sms = try await query.entities(matching: "SMS contacts")
+        XCTAssertEqual(sms.compactMap(\.actionID), [.openSMSContacts])
+
+        let suggestedDestinations = try await query.suggestedEntities()
+        XCTAssertEqual(
+            suggestedDestinations.count,
+            10,
+            "Only reviewed, non-mutating Location destinations are system entities."
+        )
     }
 }

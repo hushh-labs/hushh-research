@@ -160,8 +160,8 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
             )
             XCTAssertEqual(
                 HusshOneAppShortcuts.appShortcuts.count,
-                10,
-                "The App Shortcuts provider intentionally fills Apple's ten-shortcut limit."
+                8,
+                "The focused shortcuts use one destination entity instead of mirroring screens."
             )
         }
         if #available(iOS 26.0, *) {
@@ -171,5 +171,16 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
             )
         }
 #endif
+    }
+
+    func testInstalledAppUsesOneAsItsSpeakableSystemName() {
+        XCTAssertEqual(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+            "One"
+        )
+        XCTAssertEqual(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleSpokenName") as? String,
+            "One"
+        )
     }
 }
