@@ -68,7 +68,7 @@ describe("EmailDraftCard", () => {
     });
     fireEvent.click(connection);
 
-    expect(recipient).toHaveValue("Pat Example <pat@example.com>");
+    expect(recipient).toHaveValue("pat@example.com");
     expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
   });
