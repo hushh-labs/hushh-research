@@ -19,6 +19,16 @@ vi.mock("@/lib/services/email-delivery-service", async () => {
   };
 });
 
+vi.mock("@/lib/services/connections-service", () => ({
+  ConnectionsService: {
+    listConnections: vi.fn().mockResolvedValue([
+      { userId: "user-1", displayName: "Alice Smith", email: "alice@example.com", photoUrl: null },
+      { userId: "user-2", displayName: "Bob Jones", email: "bob@example.com", photoUrl: null },
+      { userId: "user-3", displayName: "Carol White", email: "carol@example.com", photoUrl: null },
+    ]),
+  },
+}));
+
 const getAuth = vi.fn().mockResolvedValue({
   firebaseIdToken: "firebase-token",
   vaultOwnerToken: "vault-owner-token",
@@ -106,7 +116,7 @@ describe("EmailDraftCard", () => {
       "aria-busy",
       "true",
     );
-    expect(screen.getByRole("status")).toHaveTextContent("Drafting your email");
+    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your email draft...");
     expect(screen.getByText("Close draft")).toBeEnabled();
     expect(screen.getByTestId("one-email-draft-send")).toBeDisabled();
     expect(screen.queryByTestId("one-email-draft-to")).not.toBeInTheDocument();
@@ -332,5 +342,42 @@ describe("EmailDraftCard", () => {
       null,
     );
     expect(onSent).not.toHaveBeenCalled();
+  });
+
+  it("populates connections email-only and supports 3+ multi-recipient autocompletion", async () => {
+    render(
+      <EmailDraftCard
+        initialInstruction="Draft an email"
+        getAuth={getAuth}
+        onDismiss={vi.fn()}
+        onRequireVault={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+
+    const toInput = screen.getByTestId("one-email-draft-to");
+
+    // Recipient 1
+    fireEvent.focus(toInput);
+    fireEvent.change(toInput, { target: { value: "Alice" } });
+    await waitFor(() => expect(screen.getByText("Alice Smith")).toBeInTheDocument());
+    expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Alice Smith"));
+
+    expect(toInput).toHaveValue("alice@example.com");
+
+    // Recipient 2
+    fireEvent.change(toInput, { target: { value: "alice@example.com, Bob" } });
+    await waitFor(() => expect(screen.getByText("Bob Jones")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Bob Jones"));
+
+    expect(toInput).toHaveValue("alice@example.com, bob@example.com");
+
+    // Recipient 3
+    fireEvent.change(toInput, { target: { value: "alice@example.com, bob@example.com, Carol" } });
+    await waitFor(() => expect(screen.getByText("Carol White")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Carol White"));
+
+    expect(toInput).toHaveValue("alice@example.com, bob@example.com, carol@example.com");
   });
 });
