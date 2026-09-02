@@ -848,7 +848,7 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_wallet_widgets",
-      "surface_title": "One Cards Widgets",
+      "surface_title": "One Wallet Widgets",
       "docs_references": [
         "docs/reference/one/one-agent-hierarchy.md",
         "docs/reference/iam/consent-scope-catalog.md"
@@ -14638,7 +14638,7 @@
         "workflow_steps": [
           {
             "type": "navigate",
-            "label": "Open the Cards surface",
+            "label": "Open the Wallet surface",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/wallet",

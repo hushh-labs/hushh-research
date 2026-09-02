@@ -147,9 +147,9 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     requiresVault: true,
   },
   {
-    id: "cards",
+    id: "wallet",
     agentId: "agent_wallet",
-    title: "Cards",
+    title: "Wallet",
     description: "Every credit and debit card, encrypted in your vault.",
     previewLabel: "Your cards, in your vault",
     href: ROUTES.ONE_WALLET,
@@ -353,7 +353,7 @@ export function isOneCapabilityEnabled(capability: OneCapability | string | unde
     return false;
   }
   if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
-  // Cards ships dark: the tile exists only where the build lane opts in.
-  if (resolved.id === "cards") return isWalletBuildEnabled();
+  // Wallet ships dark: the tile exists only where the build lane opts in.
+  if (resolved.id === "wallet") return isWalletBuildEnabled();
   return true;
 }

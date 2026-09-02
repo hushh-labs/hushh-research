@@ -49,11 +49,21 @@ export async function GET(request: NextRequest) {
       );
     }
     const payload = await response.json().catch(() => ({}));
+    // The gateway reports its configured model at the top level (`model`,
+    // `provider`); readiness only carries a status per check. Older builds
+    // nested the name under readiness. Read every shape rather than showing a
+    // connected agent with no model, which is what the header did before.
+    const model =
+      payload?.model ||
+      payload?.readiness?.model?.configured_model ||
+      payload?.readiness?.checks?.model?.configured_model ||
+      null;
     return withRequestIdJson(
       requestId,
       {
         connected: true,
-        model: payload?.readiness?.model?.configured_model || payload?.model || null,
+        model,
+        provider: payload?.provider ?? null,
         busy: Boolean(payload?.gateway_busy),
         activeAgents: payload?.active_agents ?? null,
         version: payload?.version ?? null,
