@@ -151,7 +151,11 @@ class ByocSetupJobRepo:
             "error_message": None,
             "updated_at": _now(),
         }
-        if await self._exists(user_id):
+        current = await self._current(user_id)
+        if current:
+            # Keep the running job's id: parking happens INSIDE that job's save step,
+            # and a new id would make the job's own finish() read as superseded.
+            row["job_id"] = str(current.get("job_id") or row["job_id"])
             self._db().table(_JOBS).update(row).eq("user_id", user_id).execute()
         else:
             self._db().table(_JOBS).insert(row).execute()

@@ -119,3 +119,66 @@ async def test_a_refusal_inside_the_job_surfaces_its_own_code(monkeypatch):
     )
     assert finished and finished[-1]["error_code"] == "NO_AGENT_RECORD"
     assert finished[-1]["error_message"] == "Verify first."
+
+
+@pytest.mark.asyncio
+async def test_parking_inside_a_running_job_keeps_that_jobs_id():
+    """Otherwise the job's own finish() reads as superseded (seen live 2026-09-02)."""
+
+    class _Resp:
+        def __init__(self, data):
+            self.data = data
+
+    class _Table:
+        def __init__(self, store):
+            self.store = store
+            self._filter = None
+            self._payload = None
+            self._op = None
+
+        def select(self, *_a):
+            self._op = "select"
+            return self
+
+        def update(self, payload):
+            self._op, self._payload = "update", payload
+            return self
+
+        def insert(self, payload):
+            self._op, self._payload = "insert", payload
+            return self
+
+        def eq(self, _k, v):
+            self._filter = v
+            return self
+
+        def limit(self, _n):
+            return self
+
+        def execute(self):
+            if self._op == "select":
+                return _Resp([dict(self.store)] if self.store else [])
+            if self._op == "update":
+                self.store.update(self._payload)
+            else:
+                self.store.update(self._payload)
+            return _Resp([])
+
+    class _Db:
+        def __init__(self, store):
+            self.store = store
+
+        def table(self, _name):
+            return _Table(self.store)
+
+    store = {"user_id": "uid-1", "job_id": "running-job", "status": "running", "stage": "proving"}
+    repo = jobs_mod.ByocSetupJobRepo(client=_Db(store))
+    await repo.park_cloud(
+        user_id="uid-1",
+        project_id="hussh-one-abc",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@hussh-one-abc.iam.gserviceaccount.com",
+        authorized=True,
+    )
+    assert store["job_id"] == "running-job"
+    assert store["status"] == "recorded" and store["stage"] == jobs_mod.PARKED_STAGE
