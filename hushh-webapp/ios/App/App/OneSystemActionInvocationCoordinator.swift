@@ -12,6 +12,7 @@ enum OneSystemActionID: String, Codable, CaseIterable, Sendable {
     case openTemporaryLink = "location.open_temporary_link"
     case openCheckIn = "location.open_check_in"
     case openEmergencySOS = "location.open_sos"
+    case openSMSContacts = "location.open_sms_contacts"
     case shareLocation = "location.share_selected"
     case askForLocation = "location.send_request"
     case stopShare = "location.stop_share"
@@ -27,7 +28,8 @@ enum OneSystemActionID: String, Codable, CaseIterable, Sendable {
             return true
         case .openLocation, .openLocationMap, .openActiveShares,
              .openSharedWithMe, .openRequestsToReview, .openLocationSettings,
-             .openTemporaryLink, .openCheckIn, .openEmergencySOS:
+             .openTemporaryLink, .openCheckIn, .openEmergencySOS,
+             .openSMSContacts:
             return false
         }
     }
@@ -45,7 +47,7 @@ enum OneSystemActionID: String, Codable, CaseIterable, Sendable {
         case .pauseLocation, .resumeLocation, .openLocation, .openLocationMap,
              .openActiveShares, .openSharedWithMe, .openRequestsToReview,
              .openLocationSettings, .openTemporaryLink, .openCheckIn,
-             .openEmergencySOS:
+             .openEmergencySOS, .openSMSContacts:
             return []
         }
     }

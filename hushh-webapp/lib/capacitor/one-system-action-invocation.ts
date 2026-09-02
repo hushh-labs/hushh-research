@@ -16,6 +16,7 @@ export const ONE_SYSTEM_ACTION_IDS = [
   "location.open_temporary_link",
   "location.open_check_in",
   "location.open_sos",
+  "location.open_sms_contacts",
   "location.share_selected",
   "location.send_request",
   "location.stop_share",
