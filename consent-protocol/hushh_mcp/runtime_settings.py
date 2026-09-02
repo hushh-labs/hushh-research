@@ -116,6 +116,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "hushh_tech_proxy_audience": "HUSSH_TECH_PROXY_AUDIENCE",
     "hushh_tech_trusted_proxy_service_accounts": ("HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS"),
     "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
+    "one_payment_cards_enabled": "ONE_PAYMENT_CARDS_ENABLED",
     "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
     "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",
     # Advisor directory base URL. Not a secret, so it travels in this config
@@ -417,6 +418,16 @@ def one_wallet_card_enabled() -> bool:
     off; while off every wallet-card route answers as if the feature did not
     exist and no card is ever resolved."""
     return _bool_from_value(_clean_env("ONE_WALLET_CARD_ENABLED"), default=False)
+
+
+def one_payment_cards_enabled() -> bool:
+    """Feature flag: expose the Payment Cards plane — writes to the reserved
+    ``payment_cards`` PKM domain and the Cards specialist in One's roster.
+    Defaults off; while off payment_cards store-domain writes are refused and
+    the Cards AgentTool is absent from the roster. Distinct from the Wallet
+    Profile plane (``ONE_WALLET_CARD_ENABLED``), which is a public identity
+    pass and never holds payment credentials."""
+    return _bool_from_value(_clean_env("ONE_PAYMENT_CARDS_ENABLED"), default=False)
 
 
 def get_wallet_pass_settings() -> WalletPassSettings:

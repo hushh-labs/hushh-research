@@ -20,11 +20,13 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.runtime_settings import one_payment_cards_enabled
 from hushh_mcp.services.domain_contracts import (
     canonical_top_level_domain,
     domain_registry_payload,
     validate_dynamic_top_level_domain,
 )
+from hushh_mcp.services.payment_card_validation import validate_payment_card_envelope
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_mutation_contracts import (
     PkmMutationPlanV2,
@@ -497,6 +499,38 @@ class StoreDomainResponse(BaseModel):
 EncryptedBlob.model_rebuild()
 
 
+def _enforce_payment_cards_write_policy(
+    request: "StoreDomainRequest", canonical_domain: str
+) -> None:
+    """Reserved payment_cards writes: flag-gated, summary envelope validated.
+
+    The blob is ciphertext (BYOK), so the non-secret summary is the only
+    surface the server can hold to the region barrier - and the only place a
+    buggy client could leak a secret in plaintext, which is refused outright.
+    """
+    if canonical_domain != "payment_cards":
+        return
+    if not one_payment_cards_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "PAYMENT_CARDS_DISABLED",
+                "message": "Payment cards are not enabled in this environment.",
+            },
+        )
+    try:
+        validate_payment_card_envelope(request.summary)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "PAYMENT_CARD_ENVELOPE_INVALID",
+                "message": "The payment card summary failed region or shape validation.",
+                "reason": str(exc),
+            },
+        ) from exc
+
+
 @router.post("/store-domain/validate", response_model=StoreDomainResponse)
 async def validate_store_domain(
     payload: dict = Body(...),
@@ -544,6 +578,7 @@ async def validate_store_domain(
                 "reason": str(exc),
             },
         ) from exc
+    _enforce_payment_cards_write_policy(request, canonical_domain)
     if request.mutation_plan is not None:
         try:
             validate_mutation_plan_for_write(
@@ -601,6 +636,8 @@ async def store_domain(
                 "reason": str(exc),
             },
         ) from exc
+
+    _enforce_payment_cards_write_policy(request, canonical_domain)
 
     if request.upgrade_claim is None and request.mutation_plan is None:
         raise HTTPException(

@@ -154,6 +154,129 @@
       "version": "0.1.0"
     },
     {
+      "action_ids": [
+        "route.one_cards",
+        "cards.list",
+        "cards.add",
+        "cards.reveal"
+      ],
+      "authorities": {
+        "actions": [
+          "cards.list",
+          "cards.add",
+          "cards.reveal"
+        ],
+        "data": [],
+        "invocation": [
+          "agent.cards.manage"
+        ]
+      },
+      "availability": {
+        "enable_flag": "ONE_PAYMENT_CARDS_ENABLED",
+        "environments": [
+          "development"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex",
+          "byok"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Payment-cards specialist that helps the owner store, list, and reveal vault-encrypted credit and debit cards without card secrets ever entering model context.",
+      "evaluations": [],
+      "failure_states": [
+        "vault_locked",
+        "feature_disabled"
+      ],
+      "icon": "credit-card",
+      "id": "agent_cards",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "consent_token",
+          "type": "string"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/cards/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-3.7-flash",
+        "provider": "gemini"
+      },
+      "name": "Cards Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "response",
+          "type": "string"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 4000,
+        "max_output_tokens": 2048
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "agent.cards.manage"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_CARDS_AGENT_DISABLED",
+        "rollback": "Remove the Cards AgentTool from One's roster; the /one/cards surface keeps working without chat.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": "hushh_mcp.one_adk.agent_tree._build_cards_agent",
+        "kind": "adk",
+        "transport": [
+          "in_process",
+          "chat"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, and MCP exposure are deliberately withheld while card reveal is a screen-only interaction.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "2bc30c079b9ec1c506792f2393cefad618645b7a223dc67c4a9ac8c30a510c22",
+      "telemetry_namespace": "agent.cards",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
       "action_ids": [],
       "authorities": {
         "actions": [],
@@ -1843,6 +1966,7 @@
         },
         "specialist_roster": [
           "agent_kai",
+          "agent_cards",
           "agent_nav",
           "agent_kyc",
           "agent_email",

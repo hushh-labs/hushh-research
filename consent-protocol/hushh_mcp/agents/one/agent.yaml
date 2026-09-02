@@ -86,6 +86,7 @@ failure_states:
 capabilities:
   specialist_roster:
     - agent_kai
+    - agent_cards
     - agent_nav
     - agent_kyc
     - agent_email
