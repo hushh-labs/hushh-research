@@ -183,7 +183,6 @@ class AppBackgroundTaskManager {
   private scheduleAutoClear(task: AppBackgroundTask): void {
     this.clearAutoClearTimer(task.taskId);
     if (
-      task.visibility !== "passive" ||
       task.dismissedAt ||
       task.autoClearAfterMs <= 0 ||
       (task.status !== "completed" && task.status !== "canceled")
