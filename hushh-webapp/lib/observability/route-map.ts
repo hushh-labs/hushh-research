@@ -79,6 +79,7 @@ export const ROUTE_ID_VALUES = [
   "one_location_circle_invite",
   "one_location_circle_join",
   "one_wallet_card",
+  "one_cards",
   "wallet_card_public",
   "portfolio_shared",
   "ria_home",
@@ -309,6 +310,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   // a join code. Same reasoning as the public request and invite links above.
   if (pathname === "/circle/join") return "one_location_circle_join";
   if (pathname === ROUTES.ONE_WALLET_CARD) return "one_wallet_card";
+  if (pathname === ROUTES.ONE_CARDS) return "one_cards";
   // The scanned page emits no analytics of its own (isAnalyticsExemptRoute),
   // so this ID is never attached to a page view. It exists because "unknown"
   // is not inert: callers that fall through to it log the raw pathname, and on

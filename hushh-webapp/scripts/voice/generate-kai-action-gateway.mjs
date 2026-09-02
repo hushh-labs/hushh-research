@@ -79,6 +79,7 @@ const AGENT_PERSONAS = new Set([
   "nav",
   "agent_kyc",
   "agent_nav",
+  "agent_cards",
   "agent_connected_systems",
   "agent_connections",
   "agent_email",

@@ -47,6 +47,14 @@ import {
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
+import { SecureCardAddForm } from "@/components/cards/secure-card-add-form";
+import { SecureCardReveal } from "@/components/cards/secure-card-reveal";
+import { detectLikelyPan } from "@/lib/cards/pan-paste-guard";
+import {
+  PaymentCardsService,
+  type PaymentCardSecrets,
+  type PaymentCardSummary,
+} from "@/lib/services/payment-cards-service";
 import {
   SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
@@ -255,6 +263,20 @@ type AgentPkmActivity = {
   text: string;
   status: "streaming" | "done" | "error";
 };
+
+/**
+ * Inline secure card widget in the chat surface. The decrypted values live
+ * only in this client state; they are never written into messages, model
+ * context, history, or telemetry.
+ */
+type AgentCardWidget =
+  | { id: string; kind: "add" }
+  | {
+      id: string;
+      kind: "reveal";
+      summary: PaymentCardSummary;
+      secrets: PaymentCardSecrets;
+    };
 
 type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
@@ -1330,6 +1352,7 @@ export function AgentChatWorkspace({
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
+  const [cardWidgets, setCardWidgets] = useState<AgentCardWidget[]>([]);
   /**
    * PKM auto-save is landed but NOT WIRED, and this is the note that says so.
    *
@@ -1835,6 +1858,7 @@ export function AgentChatWorkspace({
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
     setPkmReviews([]);
+    setCardWidgets([]);
     updateConversationId(null);
     setConversations([]);
     setHistoryActionPendingId(null);
@@ -1865,6 +1889,7 @@ export function AgentChatWorkspace({
     setInput("");
     setIsLoadingHistory(false);
     setPkmReviews([]);
+    setCardWidgets([]);
     setPendingAppAction(null);
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
@@ -2309,6 +2334,8 @@ export function AgentChatWorkspace({
       setEmailDraftAnchorMessageId(null);
       setEmailDeliveryHistory([]);
       setPkmReviews([]);
+      setCardWidgets([]);
+    setCardWidgets([]);
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
     },
@@ -2719,6 +2746,26 @@ export function AgentChatWorkspace({
   ) => {
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
+    // Pre-model paste guard: a message that appears to contain a full card
+    // number must never reach /api/one/agent-chat, history, or telemetry.
+    // Block before ANY network call and route to the secure add form.
+    if (detectLikelyPan(text)) {
+      appendMessage({
+        id: `msg-${Date.now()}-pan-blocked`,
+        role: "assistant",
+        text: "That looked like a full card number, so it was blocked on this device and never sent. Use the secure form to save a card.",
+        timestamp: formatNow(),
+        status: "done",
+        renderAsPlainAssistantMessage: true,
+      });
+      if (PaymentCardsService.isEnabled()) {
+        setCardWidgets((current) => [
+          ...current,
+          { id: `pan-guard-${Date.now()}`, kind: "add" },
+        ]);
+      }
+      return;
+    }
     // A person starting a new turn owns the workspace. Invalidate any ambient
     // initial-history restoration so a late warmup cannot replace this turn.
     historyRestoreEpochRef.current += 1;
@@ -2962,6 +3009,121 @@ export function AgentChatWorkspace({
           label: toolEvent.label,
           routeBefore: pathname,
           resultSummary: "Memory review prepared.",
+        };
+      }
+
+      // Cards actions execute entirely on this device: the browser decrypts
+      // under the vault key and renders secure widgets. Only metadata (and
+      // never PAN/CVV/PIN) flows back to the model through resultSummary.
+      if (
+        toolEvent.actionId === "cards.list" ||
+        toolEvent.actionId === "cards.add" ||
+        toolEvent.actionId === "cards.reveal"
+      ) {
+        if (!PaymentCardsService.isEnabled()) {
+          return {
+            status: "failed",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary: "Payment cards are not enabled in this environment.",
+            reason: "feature_disabled",
+          };
+        }
+        if (!vaultKey || !token) {
+          return {
+            status: "failed",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary: "Unlock your vault to work with your cards.",
+            reason: "vault_locked",
+          };
+        }
+        const cardsContext = {
+          userId,
+          vaultKey,
+          vaultOwnerToken: token,
+        };
+        if (toolEvent.actionId === "cards.list") {
+          const summaries =
+            await PaymentCardsService.listCardSummaries(cardsContext);
+          return {
+            status: "succeeded",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary: PaymentCardsService.describeSummaries(summaries),
+          };
+        }
+        if (toolEvent.actionId === "cards.add") {
+          setCardWidgets((current) => [
+            ...current,
+            { id: `${debugTurnId}-card-add-${current.length}`, kind: "add" },
+          ]);
+          return {
+            status: "succeeded",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary:
+              "A secure add-card form was opened on this device. Card details go into the form, never into chat.",
+          };
+        }
+        const cardRef =
+          typeof toolEvent.slots.card_ref === "string"
+            ? toolEvent.slots.card_ref.trim().toLowerCase()
+            : "";
+        const summaries =
+          await PaymentCardsService.listCardSummaries(cardsContext);
+        const match = summaries.find(
+          (card) =>
+            card.cardId.toLowerCase() === cardRef ||
+            card.nickname.trim().toLowerCase() === cardRef ||
+            card.last4 === cardRef.replace(/\D/g, "").slice(-4),
+        );
+        if (!match) {
+          return {
+            status: "failed",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary:
+              summaries.length === 0
+                ? "No cards are stored yet."
+                : "No stored card matches that reference. Ask for the card list first.",
+            reason: "card_not_found",
+          };
+        }
+        const full = await PaymentCardsService.getCard({
+          ...cardsContext,
+          cardId: match.cardId,
+        });
+        if (!full) {
+          return {
+            status: "failed",
+            actionId: toolEvent.actionId,
+            label: toolEvent.label,
+            routeBefore: pathname,
+            resultSummary: "That card could not be decrypted on this device.",
+            reason: "card_decrypt_failed",
+          };
+        }
+        setCardWidgets((current) => [
+          ...current,
+          {
+            id: `${debugTurnId}-card-reveal-${current.length}`,
+            kind: "reveal",
+            summary: full.summary,
+            secrets: full.secrets,
+          },
+        ]);
+        return {
+          status: "succeeded",
+          actionId: toolEvent.actionId,
+          label: toolEvent.label,
+          routeBefore: pathname,
+          resultSummary: `Card "${full.summary.nickname || full.summary.brand}" ending ${full.summary.last4} was shown privately on this device.`,
         };
       }
 
@@ -4028,6 +4190,25 @@ export function AgentChatWorkspace({
     setComposerExpanded(false);
     const purpose = composerPurpose;
     setComposerPurpose(null);
+    // The memory-import path sends plaintext to the PKM structuring API, so
+    // the card-number paste guard must run here too, not only in runAgentTurn.
+    if (detectLikelyPan(text)) {
+      appendMessage({
+        id: `msg-${Date.now()}-pan-blocked`,
+        role: "assistant",
+        text: "That looked like a full card number, so it was blocked on this device and never sent. Use the secure form to save a card.",
+        timestamp: formatNow(),
+        status: "done",
+        renderAsPlainAssistantMessage: true,
+      });
+      if (PaymentCardsService.isEnabled()) {
+        setCardWidgets((current) => [
+          ...current,
+          { id: `pan-guard-${Date.now()}`, kind: "add" },
+        ]);
+      }
+      return;
+    }
     if (purpose === "memory") {
       enqueueMemoryImport(text);
       return;
@@ -4162,6 +4343,7 @@ export function AgentChatWorkspace({
       return;
     }
     setPkmReviews([]);
+    setCardWidgets([]);
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
@@ -4599,6 +4781,56 @@ export function AgentChatWorkspace({
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
               ))}
+
+              {cardWidgets.map((widget) =>
+                widget.kind === "add" ? (
+                  <SecureCardAddForm
+                    key={widget.id}
+                    compact
+                    onSubmit={async (card) => {
+                      const token = getVaultOwnerToken();
+                      if (!user?.uid || !vaultKey || !token) {
+                        throw new Error("Unlock your vault to save a card.");
+                      }
+                      const saved = await PaymentCardsService.addCard({
+                        userId: user.uid,
+                        vaultKey,
+                        vaultOwnerToken: token,
+                        card,
+                        surface: "chat",
+                        source: "agent_chat_cards_add",
+                      });
+                      setCardWidgets((current) =>
+                        current.filter((item) => item.id !== widget.id),
+                      );
+                      appendMessage({
+                        id: `msg-${Date.now()}-card-saved`,
+                        role: "assistant",
+                        text: `Saved card "${saved.summary.nickname || saved.summary.brand}" ending ${saved.summary.last4}.`,
+                        timestamp: formatNow(),
+                        status: "done",
+                        renderAsPlainAssistantMessage: true,
+                      });
+                    }}
+                    onCancel={() =>
+                      setCardWidgets((current) =>
+                        current.filter((item) => item.id !== widget.id),
+                      )
+                    }
+                  />
+                ) : (
+                  <SecureCardReveal
+                    key={widget.id}
+                    summary={widget.summary}
+                    secrets={widget.secrets}
+                    onDismiss={() =>
+                      setCardWidgets((current) =>
+                        current.filter((item) => item.id !== widget.id),
+                      )
+                    }
+                  />
+                ),
+              )}
 
               {pendingAppAction ? (
                 <SpecialistDirectiveCard

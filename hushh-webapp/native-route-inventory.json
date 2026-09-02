@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-02",
-  "total_routes": 120,
-  "native_required_routes": 103,
+  "total_routes": 121,
+  "native_required_routes": 104,
   "excluded_routes": 17,
   "routes": [
     {
@@ -1220,6 +1220,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Fwallet-card",
       "expectedMarker": "native-route-one-wallet-card",
       "expectedRoute": "/one/wallet-card",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/cards",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fcards",
+      "expectedMarker": "native-route-one-cards",
+      "expectedRoute": "/one/cards",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

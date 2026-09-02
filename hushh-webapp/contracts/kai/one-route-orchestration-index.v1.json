@@ -57,7 +57,7 @@
       "route_pattern": "/agent",
       "page_file": "app/agent/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.agent",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -87,13 +87,19 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
-        "mode": "no_delegation",
-        "allowed_delegate_agent_ids": []
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_cards"
+        ]
       },
-      "trust_boundary": "none",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-agent"
     },
     {
@@ -143,7 +149,7 @@
       "route_pattern": "/blog/[slug]",
       "page_file": "app/blog/[slug]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.blog.slug",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -173,7 +179,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1400,6 +1410,9 @@
       "canonical_screen": "one_agents",
       "voice_contract_file": "app/one/page.voice-action-contract.json",
       "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal",
         "consent.chat.turn",
         "location.chat.turn",
         "route.one_agents",
@@ -1412,6 +1425,7 @@
       "delegation_policy": {
         "mode": "one_action_gate",
         "allowed_delegate_agent_ids": [
+          "agent_cards",
           "agent_location",
           "agent_nav"
         ]
@@ -1610,7 +1624,7 @@
       "route_pattern": "/one/connected-systems/[systemId]",
       "page_file": "app/one/connected-systems/[systemId]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.connected.systems.systemid",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1640,7 +1654,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1704,7 +1722,7 @@
       "route_pattern": "/one/email",
       "page_file": "app/one/email/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.email",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1734,7 +1752,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -4802,7 +4824,7 @@
       "route_pattern": "/one/puppy",
       "page_file": "app/one/puppy/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.puppy",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4832,7 +4854,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -5449,7 +5475,7 @@
       "route_pattern": "/one/wallet-card",
       "page_file": "app/one/wallet-card/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.wallet.card",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -5479,7 +5505,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -5861,7 +5891,7 @@
       "route_pattern": "/research/protocol",
       "page_file": "app/research/protocol/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.research.protocol",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -5891,7 +5921,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6471,7 +6505,7 @@
       "route_pattern": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.welcome",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6501,7 +6535,11 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "cards.add",
+        "cards.list",
+        "cards.reveal"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",

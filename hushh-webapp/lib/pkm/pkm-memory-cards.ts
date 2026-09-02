@@ -83,6 +83,10 @@ const INTERNAL_PKM_DOMAINS = new Set([
   "kyc_connector",
   "kyc_workflow",
   "runtime_secrets",
+  // Card data never enters agent memory context; chat reads metadata only
+  // through the cards.list client action, and secrets only through the
+  // on-device reveal widget.
+  "payment_cards",
 ]);
 
 function compact(value: unknown): string {

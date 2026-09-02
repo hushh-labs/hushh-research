@@ -3992,6 +3992,228 @@ export class PersonalKnowledgeModelService {
     });
   }
 
+  /**
+   * Artifacts for the reserved `payment_cards` domain. The domain data has
+   * exactly two top-level branches - `summary` (non-secret card metadata) and
+   * `secrets` (PAN/CVV/PIN/cardholder name), each keyed by card id - so the
+   * manifest paths line up with the two consent-requestable branch scopes and
+   * the `secrets` key matches the memory-context prune pattern. The plaintext
+   * index summary carries only the non-secret envelope the server validates.
+   */
+  private static buildPaymentCardsArtifacts(params: {
+    domain: string;
+    domainData: Record<string, unknown>;
+    previousManifest?: DomainManifest | null;
+  }): {
+    summary: Record<string, unknown>;
+    structureDecision: StructureDecision;
+    manifest: DomainManifest;
+  } {
+    const nowIso = new Date().toISOString();
+    const domainContractVersion = currentDomainContractVersion(params.domain);
+    const manifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + 1;
+    const summaryBranch = this.isPlainObject(params.domainData.summary)
+      ? (params.domainData.summary as Record<string, unknown>)
+      : {};
+    const cardSummaries = Object.entries(summaryBranch)
+      .filter(([, value]) => this.isPlainObject(value))
+      .map(([cardId, value]) => {
+        const entry = value as Record<string, unknown>;
+        return {
+          card_id: cardId,
+          brand: String(entry.brand ?? "other"),
+          last4: String(entry.last4 ?? ""),
+          expiry_month: Number(entry.expiry_month ?? 0),
+          expiry_year: Number(entry.expiry_year ?? 0),
+          issuing_region: String(entry.issuing_region ?? ""),
+        };
+      })
+      .sort((a, b) => a.card_id.localeCompare(b.card_id));
+    const summary = {
+      domain_intent: params.domain,
+      manifest_version: manifestVersion,
+      domain_contract_version: domainContractVersion,
+      readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
+      pkm_contract_version: CURRENT_PKM_CONTRACT_VERSION,
+      readable_projection_version: CURRENT_READABLE_PROJECTION_VERSION,
+      consumer_visible: false,
+      internal_only: false,
+      storage_mode: "encrypted_domain",
+      card_count: cardSummaries.length,
+      cards: cardSummaries,
+    };
+    const paths: PathDescriptor[] = [
+      {
+        json_path: "summary",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Card summaries",
+        sensitivity_label: "confidential",
+        segment_id: "summary",
+        scope_handle: "payment_cards.summary",
+        source_agent: "payment_cards_settings",
+      },
+      {
+        json_path: "secrets",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Card secrets",
+        sensitivity_label: "restricted",
+        segment_id: "secrets",
+        scope_handle: "payment_cards.secrets",
+        source_agent: "payment_cards_settings",
+      },
+    ];
+    const structureDecision: StructureDecision = {
+      action: params.previousManifest ? "extend_domain" : "create_domain",
+      target_domain: params.domain,
+      json_paths: paths.map((path) => path.json_path),
+      top_level_scope_paths: ["summary", "secrets"],
+      externalizable_paths: ["summary", "secrets"],
+      summary_projection: summary,
+      sensitivity_labels: {
+        summary: "confidential",
+        secrets: "restricted",
+      },
+      confidence: 1,
+      source_agent: "payment_cards_settings",
+      contract_version: 1,
+    };
+    const scopeRegistryEntry = (branch: "summary" | "secrets") => ({
+      scope_handle: `payment_cards.${branch}`,
+      scope_label: branch === "summary" ? "Card summaries" : "Card secrets",
+      segment_ids: [branch],
+      sensitivity_tier: branch === "summary" ? "confidential" : "restricted",
+      scope_kind: "reserved_domain_branch",
+      exposure_enabled: false,
+      visibility_posture: "consent_required" as const,
+      default_projection_ready: false,
+      default_projection_updated_at: null,
+      summary_projection: {
+        top_level_scope_path: branch,
+        consumer_visible: false,
+        internal_only: false,
+        visibility_reason:
+          "Payment cards leave the vault only through an explicit owner-approved consent grant.",
+        storage_mode: "encrypted_domain",
+      },
+    });
+    const manifest: DomainManifest = {
+      domain: params.domain,
+      manifest_version: manifestVersion,
+      domain_contract_version: domainContractVersion,
+      readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
+      pkm_contract_version: CURRENT_PKM_CONTRACT_VERSION,
+      readable_projection_version: CURRENT_READABLE_PROJECTION_VERSION,
+      upgraded_at: nowIso,
+      structure_decision: structureDecision,
+      summary_projection: summary,
+      top_level_scope_paths: ["summary", "secrets"],
+      externalizable_paths: ["summary", "secrets"],
+      segment_ids: ["summary", "secrets"],
+      path_count: paths.length,
+      externalizable_path_count: 2,
+      last_structured_at: nowIso,
+      last_content_at: nowIso,
+      paths,
+      scope_registry: [scopeRegistryEntry("summary"), scopeRegistryEntry("secrets")],
+    };
+    return { summary, structureDecision, manifest };
+  }
+
+  /**
+   * Commit a payment_cards domain mutation with the same bounded, idempotent
+   * retry contract as runtime secrets: transient throws replay the identical
+   * built artifacts; a genuine version conflict re-reads fresh, re-applies the
+   * mutation, and rebuilds with a new plan id.
+   */
+  static async storePaymentCardsDomain(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+    scopePath: "summary" | "secrets";
+    explanation: string;
+    confirmation: PkmUserConfirmation;
+    applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
+  }): Promise<StoreDomainDataResult> {
+    const domain = "payment_cards";
+    const build = async (
+      domainData: Record<string, unknown>,
+      forceManifestReload: boolean,
+    ): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> => {
+      const previousManifest = await this.getDomainManifest(
+        params.userId,
+        domain,
+        params.vaultOwnerToken,
+        forceManifestReload,
+      ).catch(() => null);
+      const encryptedBlob = await this.encryptDomainForStorage({
+        vaultKey: params.vaultKey,
+        domainData,
+      });
+      const artifacts = this.buildPaymentCardsArtifacts({
+        domain,
+        domainData,
+        previousManifest,
+      });
+      const mutationPlan = await buildConfirmedPkmMutationPlanV2({
+        userId: params.userId,
+        domain,
+        currentManifest: previousManifest,
+        targetManifest: artifacts.manifest,
+        scopePath: params.scopePath,
+        operation: previousManifest ? "update" : "create",
+        explanation: params.explanation,
+        confirmation: params.confirmation,
+      });
+      return {
+        userId: params.userId,
+        domain,
+        encryptedBlob,
+        summary: artifacts.summary,
+        structureDecision: artifacts.structureDecision,
+        manifest: artifacts.manifest,
+        mutationPlan,
+        domainData,
+        vaultOwnerToken: params.vaultOwnerToken,
+      };
+    };
+
+    const existingData = await this.loadDomainData({
+      userId: params.userId,
+      domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch(() => null);
+    let built = await build(
+      params.applyMutation(this.isPlainObject(existingData) ? existingData : {}),
+      false,
+    );
+
+    return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
+      send: () => this.storeDomainData(built),
+      rebuildAfterConflict: async () => {
+        const cache = CacheService.getInstance();
+        cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, domain));
+        cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, domain));
+        const freshData = await this.loadDomainData({
+          userId: params.userId,
+          domain,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+        }).catch(() => null);
+        built = await build(
+          params.applyMutation(this.isPlainObject(freshData) ? freshData : {}),
+          true,
+        );
+      },
+      pause: (ms) => this.pause(ms),
+      now: () => Date.now(),
+    });
+  }
+
   static peekCachedDomainBlob(
     userId: string,
     domain: string

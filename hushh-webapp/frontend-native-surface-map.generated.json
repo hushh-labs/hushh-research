@@ -2368,6 +2368,80 @@
       }
     },
     {
+      "route": "/one/cards",
+      "page_file": "app/one/cards/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one_cards",
+          "purpose": "Help the owner store, list, reveal, or remove vault-encrypted payment cards without card secrets entering chat.",
+          "screen": "one_cards",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [
+            "cards.list",
+            "cards.add",
+            "cards.reveal"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally without inventing a control."
+        }
+      },
+      "native": {
+        "route": "/one/cards",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fcards",
+        "expectedMarker": "native-route-one-cards",
+        "expectedRoute": "/one/cards",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/cards/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.one_cards"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/connect",
       "page_file": "app/one/connect/page.tsx",
       "physical_page_exists": true,
@@ -9312,5 +9386,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "42d8bbbbcf7f5e56e390f33d00c97897d0395a3254b31d83b698e7edc9489514"
+  "content_sha256": "e7f439a13f25756d8f647cf7e6f3eeee1478f2145ff9d57c4a3e18568db68926"
 }

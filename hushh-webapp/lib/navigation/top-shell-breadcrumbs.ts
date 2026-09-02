@@ -278,6 +278,19 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  // Cards is reached from the One home roster tile; the way out is One.
+  if (pathname === ROUTES.ONE_CARDS) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Cards" },
+      ],
+    };
+  }
+
   // Welcome's tabs are peers, just like Finance and Location. The shared back
   // affordance exits the workspace to One; the tab strip and swipe pager own
   // movement between Research, Blog, and Developers.

@@ -1,0 +1,51 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_cards",
+  "surface_title": "One Cards",
+  "docs_references": [
+    "docs/reference/one/one-agent-hierarchy.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "routes": ["/one/cards"],
+      "screens": ["one_cards"],
+      "hidden_navigable": false,
+      "navigation_prerequisites": [
+        "signed-in vault owner; the card list decrypts only after vault unlock"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.one_cards",
+      "label": "Open Cards",
+      "meaning": "Navigates to the owner's private payment cards surface.",
+      "aliases": ["open my cards", "go to cards", "show my cards page"],
+      "search_keywords": ["cards", "payment cards", "credit card", "debit card"],
+      "delegate_agent_id": "agent_cards",
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/cards"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "goal": {
+        "workflow_steps": [
+          {
+            "type": "navigate",
+            "label": "Open the Cards surface",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/cards",
+              "screen": "one_cards"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
