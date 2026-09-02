@@ -1,0 +1,57 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "kai_news",
+  "surface_title": "Kai Market News",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.kai_news",
+      "label": "Open Market News",
+      "meaning": "Navigates to the market news feed.",
+      "aliases": [
+        "open market news",
+        "show market news",
+        "show news"
+      ],
+      "search_keywords": [
+        "news",
+        "market news"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/kai/news"
+        ],
+        "screens": [
+          "kai_news"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Market route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/news"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "components/kai/kai-market-news-page.tsx"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}

@@ -38,6 +38,8 @@
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
+    "hushh-webapp/components/kai/kai-market-news-page.voice-action-contract.json",
+    "hushh-webapp/components/kai/kai-portfolio-detail-page.voice-action-contract.json",
     "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
     "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
     "hushh-webapp/components/onboarding/setup/one-setup-hub.voice-action-contract.json",
@@ -947,6 +949,50 @@
           "active_personas": [
             "investor",
             "ria"
+          ]
+        }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_news",
+      "surface_title": "Kai Market News",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/kai-market-news-page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ]
+        }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_portfolio_detail",
+      "surface_title": "Kai Portfolio Detail",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/kai-portfolio-detail-page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor"
           ]
         }
       },
@@ -21256,20 +21302,527 @@
       }
     },
     {
+      "action_id": "route.kai_news",
+      "surface_id": "kai_news",
+      "label": "Open Market News",
+      "aliases": [
+        "open market news",
+        "show market news",
+        "show news"
+      ],
+      "search_keywords": [
+        "news",
+        "market news"
+      ],
+      "meaning": "Navigates to the market news feed.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/news"
+        ],
+        "screens": [
+          "kai_news"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Market route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/news"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-market-news-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/news"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_news",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_news",
+            "label": "Open Market News",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/news",
+              "screen": "kai_news"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_portfolio_holdings",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show Holdings",
+      "aliases": [
+        "show my holdings",
+        "show holdings",
+        "open holdings"
+      ],
+      "search_keywords": [
+        "holdings",
+        "positions",
+        "portfolio"
+      ],
+      "meaning": "Navigates to the portfolio holdings breakdown -- every position held, not the general portfolio dashboard.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/holdings"
+        ],
+        "screens": [
+          "kai_portfolio_holdings"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/holdings"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/holdings"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_holdings",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_holdings",
+            "label": "Show Holdings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/holdings",
+              "screen": "kai_portfolio_holdings"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_portfolio_allocation",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show Allocation",
+      "aliases": [
+        "show my allocation",
+        "show allocation",
+        "open allocation"
+      ],
+      "search_keywords": [
+        "allocation",
+        "portfolio"
+      ],
+      "meaning": "Navigates to the portfolio allocation breakdown.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/allocation"
+        ],
+        "screens": [
+          "kai_portfolio_allocation"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/allocation"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/allocation"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_allocation",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_allocation",
+            "label": "Show Allocation",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/allocation",
+              "screen": "kai_portfolio_allocation"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_portfolio_performance",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show Performance",
+      "aliases": [
+        "show my performance",
+        "show performance",
+        "open performance"
+      ],
+      "search_keywords": [
+        "performance",
+        "returns",
+        "portfolio"
+      ],
+      "meaning": "Navigates to the portfolio performance breakdown.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/performance"
+        ],
+        "screens": [
+          "kai_portfolio_performance"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/performance"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/performance"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_performance",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_performance",
+            "label": "Show Performance",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/performance",
+              "screen": "kai_portfolio_performance"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_portfolio_sources",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show Connected Sources",
+      "aliases": [
+        "show my sources",
+        "show connected sources",
+        "open sources"
+      ],
+      "search_keywords": [
+        "sources",
+        "connected accounts",
+        "portfolio"
+      ],
+      "meaning": "Navigates to the portfolio's connected data sources.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/sources"
+        ],
+        "screens": [
+          "kai_portfolio_sources"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/sources"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/sources"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_sources",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_sources",
+            "label": "Show Connected Sources",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/sources",
+              "screen": "kai_portfolio_sources"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.kai_dashboard",
       "surface_id": "kai_portfolio_dashboard",
       "label": "Open Portfolio Dashboard",
       "aliases": [
         "open portfolio dashboard",
         "open portfolio",
-        "go to holdings"
+        "show my portfolio"
       ],
       "search_keywords": [
         "portfolio",
-        "dashboard",
-        "holdings"
+        "dashboard"
       ],
-      "meaning": "Navigates to portfolio dashboard for source/holdings context.",
+      "meaning": "Navigates to portfolio dashboard, the overview above holdings/allocation/performance/sources.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "reachability": {

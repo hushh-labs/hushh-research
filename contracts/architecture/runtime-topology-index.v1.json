@@ -2866,7 +2866,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_news"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.news"
       }
@@ -2985,7 +2987,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_portfolio_allocation"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.allocation"
       }
@@ -3009,7 +3013,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_portfolio_holdings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.holdings"
       }
@@ -3033,7 +3039,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_portfolio_performance"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.performance"
       }
@@ -3057,7 +3065,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_portfolio_sources"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.sources"
       }
@@ -5464,13 +5474,13 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "184d7f92be53c724c9d0295275134c0d06f39d20107de1b2c57cb48c14c3cdf2",
+    "action_gateway": "2e2739dbeb59933b3695634d50d1cfdd0071c1feadf8328d0a7ee00745fe9b32",
     "agent_registry": "287f0c25daedf444e9211e88fc1dd5f07f72d4ff7aeb5e1321d6e5ed836607db",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
     "data_plane": "76399599594d347d840307b338dd681728ecaa9583990e32275f6199d3ce2290",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "057058e172a5de1d044caf02d9cbd6fcf55f2639c910e16b39d9b8d89ded0458",
-    "route_index": "6c3d3e817278bb59041defda781f265c4bc8edfdabefbdaeed795f41d65e1daf",
+    "route_index": "e6408b8d2cc074a7ea1c5ae916ffee357ce41d8007d4631002bb46c87e460399",
     "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
     "surface_map": "dca7d7fc80136e013091555d1c5c39884da5d98898f44274423c5eab490d0cd3",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
@@ -5478,7 +5488,7 @@
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 206,
+    "actions": 211,
     "agents": 20,
     "aliases": 3,
     "decision_required": 2,
