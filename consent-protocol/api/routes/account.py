@@ -995,6 +995,68 @@ _SUBSTRATE_TOMBSTONE_STATUS = "substrate_torn_down"
 _SUBSTRATE_INCOMPLETE_STATUS = "substrate_teardown_incomplete"
 
 
+async def _byoc_anchor_without_row(registry: Any, user_id: str) -> dict[str, Any] | None:
+    """Rebuild the BYOC coordinates for a person whose registry row is already gone.
+
+    Sources, both of which outlive the row: ``byoc_setup_jobs`` (user -> project; it is
+    deleted only after this teardown runs) and the ``deprovision_requested`` tombstone
+    that names that project (hushh_id, region, bootstrap account). Returns ``None`` when
+    either is missing, which is the pre-existing "nothing BYOC to tear down" answer.
+    Never raises.
+    """
+    try:
+        from hushh_mcp.services.byoc_setup_job_service import (  # noqa: PLC0415
+            ByocSetupJobRepo,
+        )
+
+        job = await ByocSetupJobRepo().get(user_id)
+        project = str((job or {}).get("project_id") or "").strip()
+        if not project:
+            return None
+        finder = getattr(registry, "latest_tombstone_for_project", None)
+        if finder is None:
+            return None
+        tomb = await finder(project, status="deprovision_requested")
+        hushh_id = str((tomb or {}).get("hushh_id") or "").strip()
+        if not tomb or not hushh_id:
+            logger.warning(
+                "personal_agent.substrate_anchor_missing user=%s project=%s -- "
+                "setup job names a project but no deprovision tombstone does",
+                user_id,
+                project,
+            )
+            return None
+        meta = tomb.get("metadata") or {}
+        bootstrap_sa = str(meta.get("user_cloud_bootstrap_sa") or "").strip()
+        derived = False
+        if not bootstrap_sa:
+            # Tombstones written before the bootstrap account was recorded: fall back to
+            # the conventional name. A wrong guess fails loudly at token mint and lands
+            # in the incomplete marker; it never reads as a clean erase.
+            bootstrap_sa = f"one-bootstrap@{project}.iam.gserviceaccount.com"
+            derived = True
+        logger.info(
+            "personal_agent.substrate_anchor_from_tombstone user=%s project=%s "
+            "hushh_id=%s derived_bootstrap=%s",
+            user_id,
+            project,
+            hushh_id,
+            derived,
+        )
+        return {
+            "deployment_target": "user_gcp",
+            "user_cloud_project": project,
+            "hushh_id": hushh_id,
+            "user_cloud_region": str(meta.get("user_cloud_region") or "").strip() or "us-central1",
+            "user_cloud_bootstrap_sa": bootstrap_sa,
+        }
+    except Exception as exc:  # noqa: BLE001 - deletion must complete regardless
+        logger.warning(
+            "personal_agent.substrate_anchor_failed user=%s err=%s", user_id, type(exc).__name__
+        )
+        return None
+
+
 async def _teardown_byoc_substrate(
     registry: Any, user_id: str, *, row: Any = None
 ) -> dict[str, Any] | None:
@@ -1009,7 +1071,14 @@ async def _teardown_byoc_substrate(
     try:
         row = row if row is not None else await registry.get(user_id)
         if not row or str(row.get("deployment_target") or "") != "user_gcp":
-            return None
+            # A pod deleted from the UI earlier has already dropped its registry row.
+            # The person's project still holds what the authorize step built (an
+            # admin-role bootstrap account, a keyring, an artifact repo), so recover
+            # the anchor from their setup job + the deprovision tombstone instead of
+            # silently skipping the teardown.
+            row = await _byoc_anchor_without_row(registry, user_id)
+            if row is None:
+                return None
         project = str(row.get("user_cloud_project") or "").strip()
         hushh_id = str(row.get("hushh_id") or "").strip()
         if not project or not hushh_id:

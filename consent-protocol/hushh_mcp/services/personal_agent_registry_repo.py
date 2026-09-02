@@ -686,6 +686,39 @@ class PersonalAgentRegistryRepo:
     async def delete(self, user_id: str) -> None:
         self._db().table(_REGISTRY).delete().eq("user_id", user_id).execute()
 
+    async def latest_tombstone_for_project(
+        self, project: str, *, status: Optional[str] = None
+    ) -> Optional[dict]:
+        """The newest tombstone whose metadata names ``project`` as the person's cloud.
+
+        Account deletion uses this when the registry row is already gone (a pod deleted
+        from the UI earlier): the byoc_setup_jobs row still knows the project, and the
+        deprovision tombstone written at that time knows the hushh_id and bootstrap
+        account, which is everything the substrate teardown needs. Filtering happens in
+        Python so the JSON column needs no operator support from the client.
+        """
+        normalized = str(project or "").strip()
+        if not normalized:
+            return None
+        query = self._db().table(_TOMBSTONES).select("*")
+        if status:
+            query = query.eq("status", status)
+        response = query.execute()
+        rows = [dict(r) for r in (response.data or [])]
+        matches = [
+            r
+            for r in rows
+            if str((r.get("metadata") or {}).get("user_cloud_project") or "") == normalized
+        ]
+        if not matches:
+            return None
+
+        def _created(r: dict) -> str:
+            return str(r.get("created_at") or "")
+
+        matches.sort(key=_created, reverse=True)
+        return matches[0]
+
     async def tombstone_exists(self, hushh_id: str, *, status: Optional[str] = None) -> bool:
         """Whether a deletion tombstone already exists for ``hushh_id``.
 

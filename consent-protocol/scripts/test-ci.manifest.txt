@@ -51,6 +51,7 @@ tests/test_byoc_substrate_teardown.py
 tests/test_byoc_substrate_teardown_is_loud.py
 tests/test_byoc_substrate_teardown_surfacing.py
 tests/test_byoc_substrate_teardown_tombstone.py
+tests/test_byoc_substrate_teardown_rowless.py
 tests/test_byoc_tenancy_is_per_person.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/test_compute_backend.py

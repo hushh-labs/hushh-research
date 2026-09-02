@@ -241,6 +241,21 @@ nothing manages that key's lifecycle today. For a consent-first product that owe
 removal on request, per-record or per-epoch key derivation is not an optimisation; it is
 the mechanism by which "delete my information" becomes a true statement.
 
+**Update 2026-09-02 — erasure after a UI pod deletion.** Observed on dev: a person
+deleted their pod from the app (registry row gone, `deprovision_requested` tombstone
+written), then deleted their account ten minutes later, and their own project still held
+`one-bootstrap@` with ten admin roles, the `hushh-one` keyring and the `one-pod` artifact
+repo. `_teardown_byoc_substrate` answered "nothing BYOC here" the moment the row was
+missing, so the substrate teardown never ran and the only record that anything was left
+was a `unreclaimed=true` tombstone. Closed in code: the deprovision tombstone now always
+carries the cloud coordinates for a `user_gcp` row (project, region, bootstrap account,
+target), and account deletion rebuilds its anchor from `byoc_setup_jobs` plus
+`PersonalAgentRegistryRepo.latest_tombstone_for_project(...)` when the row is gone. The
+30-day `pod_lifecycle_events` log is also purged at erasure instead of waiting on its
+TTL. Guard: `consent-protocol/tests/test_byoc_substrate_teardown_rowless.py`. The
+person's project itself is still never deleted by hushh; on 2026-09-02 the owner deleted
+it by hand with `gcloud projects delete` (30-day undelete window).
+
 ### One key, one blast radius
 
 `HUSSH_POD_LOG_KEY` seals every record for the life of the pod. There is no rotation, no

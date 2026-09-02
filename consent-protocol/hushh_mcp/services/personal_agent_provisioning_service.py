@@ -1098,20 +1098,34 @@ class PersonalAgentProvisioningService:
                 external_agent_id,
             )
 
-        await self._registry.tombstone(
-            hushh_id=hushh_id,
-            external_agent_id=external_agent_id,
-            status="deprovision_requested",
-            # The orphan address: only meaningful when a host could not be reached,
-            # so the reclaim sweep can find and delete a billing service after the
-            # registry row is gone. A clean teardown records unreclaimed=False.
-            metadata={
-                "unreclaimed": unreclaimed,
+        # The orphan address: for an unreachable host it lets the reclaim sweep find
+        # and delete a billing service after the registry row is gone. For a user_gcp
+        # row it is recorded ALWAYS, reclaimed or not: the row is deleted a few lines
+        # below, and a later account deletion has nothing else to reach the person's
+        # project with. Without these coordinates the substrate teardown (admin-role
+        # bootstrap account, keyring, artifact repo) is silently skipped.
+        cloud_meta: dict[str, Any] = {}
+        if (row or {}).get("user_cloud_project"):
+            # A row that names the person's own project (Layer 1 never names the
+            # provider itself; the row's deployment_target carries it verbatim).
+            cloud_meta = {
+                "user_cloud_project": (row or {}).get("user_cloud_project"),
+                "user_cloud_region": (row or {}).get("user_cloud_region"),
+                "user_cloud_bootstrap_sa": (row or {}).get("user_cloud_bootstrap_sa"),
+                "deployment_target": (row or {}).get("deployment_target"),
+            }
+        elif unreclaimed:
+            cloud_meta = {
                 "user_cloud_project": (row or {}).get("user_cloud_project"),
                 "user_cloud_region": (row or {}).get("user_cloud_region"),
                 "deployment_target": (row or {}).get("deployment_target"),
             }
-            if unreclaimed
+        await self._registry.tombstone(
+            hushh_id=hushh_id,
+            external_agent_id=external_agent_id,
+            status="deprovision_requested",
+            metadata={"unreclaimed": unreclaimed, **cloud_meta}
+            if (unreclaimed or cloud_meta)
             else {"unreclaimed": False},
         )
         # ``defer_row_delete`` (delete-order V2) keeps the recovery-anchor row in

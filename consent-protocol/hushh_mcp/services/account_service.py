@@ -45,6 +45,9 @@ class AccountService:
             "one_action_directive_ledger": text(
                 "DELETE FROM one_action_directive_ledger WHERE user_id = :user_id"
             ),
+            "pod_lifecycle_events": text(
+                "DELETE FROM pod_lifecycle_events WHERE user_id = :user_id"
+            ),
             "agent_chat_messages": text("DELETE FROM agent_chat_messages WHERE user_id = :user_id"),
             "agent_chat_conversations": text(
                 "DELETE FROM agent_chat_conversations WHERE user_id = :user_id"
@@ -942,6 +945,7 @@ class AccountService:
             conn,
             table_names=[
                 "one_action_directive_ledger",
+                "pod_lifecycle_events",
                 "agent_chat_messages",
                 "agent_chat_conversations",
                 "kai_funding_trade_events",
