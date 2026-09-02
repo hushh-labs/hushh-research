@@ -1948,9 +1948,9 @@ async def _execute_consent_lifecycle_action(
         return f"Denied that request. {result.get('message') or ''}".strip(), None
 
     if action_id == "consent.revoke":
-        request_id = str(slots.get("request_id") or "").strip() or None
+        revoke_request_id = str(slots.get("request_id") or "").strip() or None
         scope = str(slots.get("scope") or "").strip() or None
-        if not request_id and not scope:
+        if not revoke_request_id and not scope:
             raise ConsentLifecycleError(
                 "CONSENT_REVOKE_TARGET_REQUIRED", "Say which grant to revoke."
             )
@@ -1959,8 +1959,8 @@ async def _execute_consent_lifecycle_action(
                 "Ask: revoke that access now? Only call this action again with confirmed set to "
                 "true after they say yes."
             )
-        result = await ConsentLifecycleService().revoke_active_grant(
-            user_id, scope=scope, request_id=request_id
+        await ConsentLifecycleService().revoke_active_grant(
+            user_id, scope=scope, request_id=revoke_request_id
         )
         return "Revoked. They no longer have that access.", None
 
