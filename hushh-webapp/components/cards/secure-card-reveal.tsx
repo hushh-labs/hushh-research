@@ -62,7 +62,7 @@ export function SecureCardReveal({ summary, secrets, onDismiss }: SecureCardReve
         className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground"
         data-testid="secure-card-reveal-hidden"
       >
-        Card details were shown privately on this device and are hidden again.
+        Hidden again.
         {onDismiss ? (
           <Button variant="ghost" size="sm" className="ml-2" onClick={onDismiss}>
             Dismiss
@@ -103,10 +103,10 @@ export function SecureCardReveal({ summary, secrets, onDismiss }: SecureCardReve
         ) : null}
       </div>
       <div className="text-sm text-muted-foreground">{secrets.cardholderName}</div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span>{copied ? `Copied ${copied}.` : "Tap a value to copy it."}</span>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>{copied ? `Copied ${copied}.` : "Tap to copy."}</span>
         <Button variant="ghost" size="sm" onClick={() => setHidden(true)} data-testid="secure-card-hide">
-          Hide now
+          Hide
         </Button>
       </div>
     </div>

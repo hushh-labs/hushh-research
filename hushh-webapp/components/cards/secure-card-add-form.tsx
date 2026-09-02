@@ -103,9 +103,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
       className={`flex flex-col gap-3 rounded-xl border border-border bg-card p-4 ${compact ? "max-w-md" : "w-full"}`}
       data-testid="secure-card-add-form"
     >
-      <p className="text-sm text-muted-foreground">
-        Card details are encrypted on this device with your vault key. They never
-        appear in chat and never reach a model.
+      <p className="text-xs text-muted-foreground">
+        Encrypted on this device. Never enters chat.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1">

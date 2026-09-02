@@ -108,7 +108,7 @@ export function CardsWorkspace() {
   return (
     <PkmSettingsShell
       title="Cards"
-      description="Every card, encrypted on this device under your vault key. Shared only when you approve a consent request."
+      description="Encrypted in your vault. Shared only with your consent."
       innerClassName="mx-auto max-w-[640px]"
     >
       <div
@@ -143,18 +143,18 @@ export function CardsWorkspace() {
 
       {view.kind === "disabled" ? (
         <p className="text-sm text-muted-foreground">
-          Payment cards are not available in this environment yet.
+          Cards are not available here yet.
         </p>
       ) : null}
 
       {view.kind === "locked" ? (
         <p className="text-sm text-muted-foreground">
-          Unlock your vault to see and manage your cards.
+          Unlock your vault to see your cards.
         </p>
       ) : null}
 
       {view.kind === "loading" ? (
-        <p className="text-sm text-muted-foreground">Decrypting your cards…</p>
+        <p className="text-sm text-muted-foreground">Decrypting…</p>
       ) : null}
 
       {view.kind === "error" ? (
@@ -168,11 +168,8 @@ export function CardsWorkspace() {
 
       {view.kind === "list" && cards.length === 0 ? (
         <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border p-6">
-          <p className="text-sm text-muted-foreground">
-            No cards yet. Add your first credit or debit card - number, expiry,
-            CVV, and PIN stay in your vault.
-          </p>
-          <Button onClick={() => setView({ kind: "add" })}>Add your first card</Button>
+          <p className="text-sm text-muted-foreground">No cards yet.</p>
+          <Button onClick={() => setView({ kind: "add" })}>Add a card</Button>
         </div>
       ) : null}
 
