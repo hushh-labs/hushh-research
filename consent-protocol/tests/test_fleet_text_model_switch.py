@@ -81,3 +81,50 @@ def test_vertex_readiness_probe_never_probes_the_alias(monkeypatch: pytest.Monke
     assert "gemini-default" not in text_models
     assert "gemini-3.8-flash" in text_models
     assert live_model == "gemini-3.1-flash-live-preview"
+
+
+def test_31_pro_preview_maps_minimal_thinking_to_low() -> None:
+    """Vertex rejects thinking_level MINIMAL for gemini-3.1-pro-preview (400, verified live
+    2026-09-02) and accepts LOW; the readiness probe sends MINIMAL for every text model."""
+    from google.genai import types
+
+    minimal = gemini_config.build_generate_content_config(
+        types,
+        "gemini-3.1-pro-preview",
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+    )
+    assert minimal.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    high = gemini_config.build_generate_content_config(
+        types,
+        "gemini-3.1-pro-preview",
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.HIGH),
+    )
+    assert high.thinking_config.thinking_level == types.ThinkingLevel.HIGH
+    as_dict = gemini_config.build_generate_content_config(
+        types, "gemini-3.1-pro-preview", thinking_config={"thinking_level": "MINIMAL"}
+    )
+    assert str(as_dict.thinking_config.thinking_level).upper().endswith("LOW")
+    flash = gemini_config.build_generate_content_config(
+        types,
+        "gemini-3.7-flash",
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+    )
+    assert flash.thinking_config is None
+
+
+def test_no_manifest_pins_a_non_flash_text_model() -> None:
+    """Founder directive 2026-09-02: the text fleet runs Flash (3.8, else 3.7, worst case
+    3.6) and never gemini-3.1-pro-preview. Manifests name the alias; only the Live head and
+    the deliberate live-preview pins may name a model directly."""
+    offenders = []
+    for path in sorted(AGENTS.glob("*/agent.yaml")):
+        text = path.read_text()
+        for match in re.finditer(r"^\s*(?:model|name):\s*(gemini-\S+)\s*$", text, re.M):
+            model = match.group(1)
+            if model == "gemini-default" or "live" in model:
+                continue
+            offenders.append(f"{path.parent.name}: {model}")
+    assert offenders == [], f"text agents must name gemini-default, not a model: {offenders}"
+    assert "gemini-3.1-pro-preview" not in "\n".join(
+        p.read_text() for p in AGENTS.glob("*/agent.yaml")
+    ), "gemini-3.1-pro-preview is banned from the fleet"

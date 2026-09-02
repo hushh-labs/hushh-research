@@ -36,8 +36,9 @@ Every text agent manifest names the alias `gemini-default`; the alias resolves t
 the whole fleet; a lane may flip it only after its project's Vertex
 `constraints/vertexai.allowedModels` policy admits the id. UAT runs `gemini-3.8-flash`
 (admitted in `hushh-pda-uat` on 2026-09-02); production stays on the default until its
-allowlist changes. Deliberate pins stay explicit in their manifests: the memory chain on
-`gemini-3.1-pro-preview`, the reducer on `gemini-3.1-flash-lite`, and the Live head.
+allowlist changes. Every text agent, including the memory chain and the summary reducer, names the alias
+(founder directive 2026-09-02: the fleet runs Flash, 3.8 preferred, 3.7 next, 3.6 worst
+case, and never `gemini-3.1-pro-preview`). Only the Live head keeps an explicit pin.
 `tests/test_fleet_text_model_switch.py` refuses any manifest that pins a Flash generation.
 
 ## Lifecycle

@@ -260,7 +260,7 @@ disconnecting and clearing local custody first.
 only when the device pulls the PKM sync channel, so an agent that is running but
 idle reads as days stale.
 
-Migration 186 adds `last_heartbeat_at` and a `heartbeat` JSONB column, written by
+Migration 189 adds `last_heartbeat_at` and a `heartbeat` JSONB column, written by
 `POST /api/account/trusted-devices/{device_id}/heartbeat`. The endpoint is
 Firebase-authed like the own-device status read: a heartbeat grants nothing, so
 it needs no device signature.
@@ -276,17 +276,25 @@ consults these columns: trust remains decided by `status` and
 `is_trusted_device_active`.
 
 The devices surface reports `Active now` only while a heartbeat is fresher than
-eleven minutes, and otherwise falls back to the trust-only label.
+21 minutes (`HEARTBEAT_FRESH_MS` in `hushh-webapp/lib/trusted-device/sync-display.ts`,
+kept above twice the agent's 600-second keepalive so one missed beat does not
+show a live machine as gone), and otherwise falls back to the trust-only label.
+The heartbeat is posted to whichever environment the device enrolled in
+(`api_base` in the device's identity record), so a device enrolled against UAT
+shows as live on the UAT devices page and nowhere else.
 
 ## Talking To The Agent On This Machine
 
-The One agent chat carries a `One | This Mac` toggle. "This Mac" is a separate
-thread, not a mode of the cloud conversation, because it is a different agent
-with a different model and a different memory, doing its work on the user's own
-hardware; mixing those turns into one transcript would make the transcript lie
-about where each answer came from.
+Puppy One is its own surface, `/one/puppy`, not a mode of the cloud
+conversation: it is a different agent with a different model and a different
+memory, doing its work on the user's own hardware, and mixing its turns into
+the cloud transcript would make the transcript lie about where each answer
+came from. The surface carries an `on-device` / `any model` pill that pins the
+turn to the local provider, and a model picker that labels each provider as
+staying on this machine or leaving it.
 
-Requests go to `/api/hermes/status` and `/api/hermes/chat`, Next route handlers
+Requests go to `/api/hermes/status`, `/api/hermes/models` and
+`/api/hermes/chat/stream`, Next route handlers
 that run on the same machine and forward to the Hermes `api_server` on loopback
 `127.0.0.1:8642`. The `api_server` bearer key is effectively host
 remote-code-execution, so it is read server-side from `HERMES_API_SERVER_KEY`

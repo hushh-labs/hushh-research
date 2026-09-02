@@ -33,6 +33,7 @@ from google.oauth2 import id_token as google_id_token
 
 from db.connection import get_pool
 from db.db_client import get_db
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.runtime_settings import (
     APP_SIGNING_KEY_ENV,
@@ -874,7 +875,7 @@ class GmailReceiptsService:
         return _to_bool(os.getenv("GMAIL_RECEIPT_LLM_FALLBACK_ENABLED"), False)
 
     def _llm_model(self) -> str:
-        return _clean_text(os.getenv("GMAIL_RECEIPT_LLM_MODEL"), "gemini-3.1-flash-lite")
+        return _clean_text(os.getenv("GMAIL_RECEIPT_LLM_MODEL"), str(GEMINI_MODEL))
 
     def _build_state_token(self, *, user_id: str, redirect_uri: str) -> str:
         payload = {

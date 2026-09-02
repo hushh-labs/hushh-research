@@ -3377,6 +3377,7 @@
       "canonical_screen": "profile_account",
       "voice_contract_file": "app/one/profile/page.voice-action-contract.json",
       "action_ids": [
+        "help.open_examples",
         "route.back",
         "route.profile",
         "route.profile_connected_systems",
@@ -3515,6 +3516,7 @@
       "canonical_screen": "profile_account",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.back",
         "route.profile",
         "route.profile_connected_systems",
@@ -3567,6 +3569,7 @@
       "canonical_screen": "profile_account",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.back",
         "route.profile",
         "route.profile_connected_systems",
@@ -4094,6 +4097,7 @@
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.voice_settings"
       ],
       "action_coverage": "none",
@@ -4139,6 +4143,7 @@
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.voice_settings"
       ],
       "action_coverage": "none",
@@ -4184,6 +4189,7 @@
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.voice_settings"
       ],
       "action_coverage": "none",
@@ -4229,6 +4235,7 @@
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.voice_settings"
       ],
       "action_coverage": "none",
@@ -4274,6 +4281,7 @@
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.voice_settings"
       ],
       "action_coverage": "inherited",
@@ -4319,6 +4327,7 @@
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.voice_settings"
       ],
       "action_coverage": "none",
@@ -4364,9 +4373,10 @@
       "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [
+        "help.open_examples",
         "route.voice_settings"
       ],
-      "action_coverage": "none",
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
