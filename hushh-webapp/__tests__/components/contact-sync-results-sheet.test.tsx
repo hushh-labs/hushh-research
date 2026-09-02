@@ -111,6 +111,37 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.queryByText(/Local contact/i)).not.toBeInTheDocument();
   });
 
+  it("wraps long matched identities instead of clipping them", () => {
+    const longName =
+      "Wilhelmina Featherstonehaugh-Rajendran International Household";
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches: [
+            {
+              lookupId: "lookup_long",
+              userId: "user_long",
+              displayName: longName,
+              photoUrl: null,
+              outcome: "request_required",
+            },
+          ],
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    const identity = screen.getByText(longName);
+    expect(identity.className).toContain("break-words");
+    expect(identity.className).not.toContain("truncate");
+    expect(identity.textContent).toBe(longName);
+  });
+
   it("separates outcome-unknown contacts from unmatched invite candidates", () => {
     render(
       <ContactSyncResultsSheet

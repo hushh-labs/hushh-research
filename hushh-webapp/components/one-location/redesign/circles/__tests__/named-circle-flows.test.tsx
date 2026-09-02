@@ -1686,7 +1686,7 @@ describe("named Circle flows", () => {
     expect(screen.queryByText("No members found")).not.toBeInTheDocument();
   });
 
-  it("bounds the Members list to a scrollable region instead of growing the page indefinitely", async () => {
+  it("uses the page scroller on phones and bounds the Members list on larger screens", async () => {
     const rosterCircle = {
       ...circle("circle-1", "Meena Family"),
       memberLimit: 100,
@@ -1711,9 +1711,7 @@ describe("named Circle flows", () => {
 
     await screen.findByText("Synced Contact 0");
 
-    // "Delete circle" sits after the roster in source order; it must still
-    // mount even with 81 rows above it, because the roster scrolls inside
-    // its own bounded region instead of pushing the rest of the page down.
+    // "Delete circle" remains in source order even with 81 rows above it.
     expect(
       screen.getByRole("button", { name: "Delete circle" }),
     ).toBeInTheDocument();
@@ -1722,9 +1720,17 @@ describe("named Circle flows", () => {
     const shell = membersGroup.querySelector(
       '[data-slot="settings-group-shell"]',
     );
-    expect(shell?.className).toContain("max-h-[60vh]");
+    expect(shell?.className).toContain("sm:max-h-[60vh]");
+    expect(shell?.className).not.toMatch(/(?:^|\s)max-h-\[60vh\](?:\s|$)/);
     const scrollRegion = shell?.firstElementChild as HTMLElement | null;
-    expect(scrollRegion?.className).toContain("overflow-y-auto");
+    expect(scrollRegion?.className).toContain("sm:overflow-y-auto");
+    expect(scrollRegion?.className).toContain("sm:overscroll-contain");
+    expect(scrollRegion?.className).not.toMatch(
+      /(?:^|\s)overflow-y-auto(?:\s|$)/,
+    );
+    expect(scrollRegion?.className).not.toMatch(
+      /(?:^|\s)overscroll-contain(?:\s|$)/,
+    );
   });
 
   it("keeps the member search bar hidden for a small Circle", async () => {

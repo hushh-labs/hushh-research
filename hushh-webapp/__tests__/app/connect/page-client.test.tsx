@@ -1669,9 +1669,10 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
   });
 
-  it("keeps My connections scrollable when the list grows", async () => {
-    // Three connections fit naturally. A hundred should not turn the top of
-    // Connect into a full-page receipt before the search field appears.
+  it("keeps one page scroll on phones and caps My connections on larger screens", async () => {
+    // A nested roster scroller traps touch gestures on phones and lets the
+    // fixed bottom chrome obscure whichever row owns the gesture. Phones use
+    // the app scroll root; larger screens can keep the bounded roster.
     mocks.listConnections.mockResolvedValue(
       Array.from({ length: 12 }, (_, index) => ({
         connectionId: `c-${index}`,
@@ -1688,10 +1689,12 @@ describe("Connect — the phone-width geometry QA reported", () => {
       '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
     );
     expect(list).toBeTruthy();
-    expect(list!.className).toContain("max-h-[232px]");
-    expect(list!.className).toContain("overflow-y-auto");
-    expect(list!.className).toContain("overscroll-contain");
     expect(list!.className).toContain("sm:max-h-[320px]");
+    expect(list!.className).toContain("sm:overflow-y-auto");
+    expect(list!.className).toContain("sm:overscroll-contain");
+    expect(list!.className).not.toMatch(/(?:^|\s)max-h-\[232px\](?:\s|$)/);
+    expect(list!.className).not.toMatch(/(?:^|\s)overflow-y-auto(?:\s|$)/);
+    expect(list!.className).not.toMatch(/(?:^|\s)overscroll-contain(?:\s|$)/);
   });
 
   it("asks for the search field in two words", async () => {
@@ -2028,6 +2031,20 @@ describe("Connect — Circles", () => {
     expect(
       screen.queryByRole("button", { name: /Current directory:/ }),
     ).toBeNull();
+    expect(screen.queryByLabelText("Search people")).toBeNull();
+  });
+
+  it("renders Circle detail as a focused task without duplicate tabs or bottom-chrome content", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Connect" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Circles" })).toBeNull();
     expect(screen.queryByLabelText("Search people")).toBeNull();
   });
 
