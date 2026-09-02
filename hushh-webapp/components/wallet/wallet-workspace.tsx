@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Cards workspace - the /one/wallet owner surface for the reserved
+ * Wallet workspace - the /one/wallet owner surface for the reserved
  * wallet PKM domain. Everything decrypts on this device under the
  * vault key; the server only ever holds ciphertext plus the non-secret
  * summary envelope. Distinct from the Wallet Profile surface.
@@ -152,7 +152,7 @@ export function WalletWorkspace() {
 
   return (
     <PkmSettingsShell
-      title="Cards"
+      title="Wallet"
       description="Encrypted in your vault. Shared only with your consent."
       innerClassName="mx-auto max-w-[640px]"
     >
@@ -185,7 +185,7 @@ export function WalletWorkspace() {
 
       {view.kind === "disabled" ? (
         <p className="text-sm text-muted-foreground">
-          Cards are not available here yet.
+          Wallet is not available here yet.
         </p>
       ) : null}
 

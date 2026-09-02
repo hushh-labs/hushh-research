@@ -279,7 +279,7 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // Cards is reached from the One home roster tile; the way out is One.
+  // Wallet is reached from the One home roster tile; the way out is One.
   if (pathname === ROUTES.ONE_WALLET) {
     return {
       backHref: ROUTES.ONE_HOME,
@@ -287,7 +287,7 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Cards" },
+        { label: "Wallet" },
       ],
     };
   }

@@ -110,3 +110,21 @@ def test_31_pro_preview_maps_minimal_thinking_to_low() -> None:
         thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
     )
     assert flash.thinking_config is None
+
+
+def test_no_manifest_pins_a_non_flash_text_model() -> None:
+    """Founder directive 2026-09-02: the text fleet runs Flash (3.8, else 3.7, worst case
+    3.6) and never gemini-3.1-pro-preview. Manifests name the alias; only the Live head and
+    the deliberate live-preview pins may name a model directly."""
+    offenders = []
+    for path in sorted(AGENTS.glob("*/agent.yaml")):
+        text = path.read_text()
+        for match in re.finditer(r"^\s*(?:model|name):\s*(gemini-\S+)\s*$", text, re.M):
+            model = match.group(1)
+            if model == "gemini-default" or "live" in model:
+                continue
+            offenders.append(f"{path.parent.name}: {model}")
+    assert offenders == [], f"text agents must name gemini-default, not a model: {offenders}"
+    assert "gemini-3.1-pro-preview" not in "\n".join(
+        p.read_text() for p in AGENTS.glob("*/agent.yaml")
+    ), "gemini-3.1-pro-preview is banned from the fleet"

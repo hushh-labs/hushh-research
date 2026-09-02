@@ -216,8 +216,8 @@ Gemini project is `hushh-gemini-bridge`, whose allowlist still rejects it (verif
 default until an org-policy admin admits the id there; production likewise. The
 deploy-time Vertex readiness probe resolves the alias through the same resolver and
 receives `HUSSH_GEMINI_TEXT_MODEL`, so it validates the lane's switched model, never
-the literal alias. The memory chain (3.1 Pro
-preview), the reducer (3.1 Flash lite), and the Live head keep their explicit pins.
+the literal alias. Every text agent names the alias, the memory chain and reducer included; only the
+Live head keeps an explicit pin.
 
 ### Wallet subagent flags and the central One mailbox (2026-09-02)
 
