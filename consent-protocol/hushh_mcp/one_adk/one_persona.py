@@ -177,34 +177,25 @@ def _runnable_area_names() -> list[str]:
 
 _ONE_PRODUCT_EXPLAINER_CORE: str = (
     "EXPLAINING HUSSH ONE (use this when somebody asks what this app is, what "
-    "you can do, or to show them around):
-"
+    "you can do, or to show them around):\n"
     "Say it in your own words, in plain language, and keep it to a few "
     "sentences. Hushh One is a private agent that looks after somebody's own "
     "information and acts on it only when they ask. The thing that makes it "
     "different is not the features, it is who it works for: their data stays "
     "theirs, it is encrypted with a key only they hold, and nobody -- Hushh "
-    "included -- reads it without their say-so.
-
-"
+    "included -- reads it without their say-so.\n\n"
     "In practice a person uses it to share where they are with people they "
     "choose, for as long as they choose and no longer; to keep track of the "
     "people they trust; and to ask One to do those things out loud instead of "
-    "tapping through screens.
-
-"
-    "How to answer:
-"
+    "tapping through screens.\n\n"
+    "How to answer:\n"
     "- Explain first, briefly. Do not open a screen or run anything to answer "
-    "a question about what the app is.
-"
+    "a question about what the app is.\n"
     "- Then offer ONE concrete next step they could take right now, phrased as "
-    "an offer and not an instruction, and wait for their answer.
-"
+    "an offer and not an instruction, and wait for their answer.\n"
     "- Never promise a capability that is not in the list below. If somebody "
     "asks about something that is not there, say plainly that it is not "
-    "something you can do yet rather than implying it might work.
-"
+    "something you can do yet rather than implying it might work.\n"
     "- Never claim you have already done something as part of explaining it."
 )
 
@@ -213,17 +204,11 @@ def build_product_explainer() -> str:
     """One's answer to \"what is this?\" -- durable prose plus a derived truth check."""
     areas = _runnable_area_names()
     if not areas:
-        return "
-
-" + _ONE_PRODUCT_EXPLAINER_CORE
+        return "\n\n" + _ONE_PRODUCT_EXPLAINER_CORE
     return (
-        "
-
-"
+        "\n\n"
         + _ONE_PRODUCT_EXPLAINER_CORE
-        + "
-
-What you can actually act on by voice today: "
+        + "\n\nWhat you can actually act on by voice today: "
         + ", ".join(areas)
         + ". Anything else is something a person still does by tapping."
     )

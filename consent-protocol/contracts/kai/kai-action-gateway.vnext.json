@@ -11777,6 +11777,111 @@
       }
     },
     {
+      "action_id": "help.open_examples",
+      "surface_id": "profile_account",
+      "label": "What can I say",
+      "aliases": [
+        "what can i say",
+        "what can you do",
+        "show me examples",
+        "show me around",
+        "help"
+      ],
+      "search_keywords": [
+        "help",
+        "examples",
+        "what can i say",
+        "tutorial",
+        "guide"
+      ],
+      "meaning": "Opens the \"What can I say\" page, showing example phrases for every part of the app voice can currently act on.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/preferences/voice/examples"
+        ],
+        "screens": [
+          "profile_preferences"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/preferences/voice/examples"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/preferences/voice/examples"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.help.open_examples",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "help.open_examples",
+            "label": "What can I say",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/preferences/voice/examples",
+              "screen": "profile_preferences"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "profile.support.submit_message",
       "surface_id": "profile_account",
       "label": "Submit Support Message",
