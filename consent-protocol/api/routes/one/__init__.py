@@ -21,6 +21,7 @@ from .location import router as location_router
 from .location_chat import router as location_chat_router
 from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
+from .models import router as models_router
 from .opportunity_signals import router as opportunity_signals_router
 from .people import public_router as public_people_router
 from .people import router as people_router
@@ -41,6 +42,7 @@ router.include_router(email_chat_router)
 router.include_router(gmail_delivery_router)
 router.include_router(gmail_information_requests_router)
 router.include_router(feed_router)
+router.include_router(models_router)
 router.include_router(location_router)
 router.include_router(location_chat_router)
 router.include_router(information_chat_router)

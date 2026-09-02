@@ -3338,3 +3338,68 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
         "total_actions": len(list_action_gateway_actions()),
         "results": results,
     }
+
+
+async def list_available_models(tool_context: ToolContext) -> dict[str, Any]:
+    """List the models this agent can run on, which one the owner picked, and which is running.
+
+    The catalog is server-side, so the choices are whatever the deployment can actually
+    serve rather than anything the model believes exists.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        return {"status": "blocked", "message": "Sign in to see which models are available."}
+    try:
+        from hushh_mcp.services.model_preference_service import get_preference
+
+        preference = await get_preference(user_id=user_id)
+    except Exception:
+        logger.exception("list_available_models failed")
+        return {"status": "error", "message": "Could not read the available models."}
+    return {
+        "status": "ok",
+        "models": [
+            {
+                "model": choice["label"],
+                "model_id": choice["model_id"],
+                "running_now": choice["is_active"],
+                "default": choice["is_default"],
+            }
+            for choice in preference["choices"]
+        ],
+        "chosen_by_owner": preference["selected_model"] is not None,
+        "running_now": preference["effective_model"],
+    }
+
+
+async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Set the model this owner's agent runs on. Pass an empty string to follow the default again.
+
+    Takes effect on the owner's next message; nothing is redeployed and no other person
+    is affected. A model outside the served catalog is refused with the list that is.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        return {"status": "blocked", "message": "Sign in to choose a model."}
+    try:
+        from hushh_mcp.services.model_preference_service import (
+            ModelPreferenceError,
+            set_preference,
+        )
+
+        preference = await set_preference(user_id=user_id, model_id=model_id)
+    except ModelPreferenceError as exc:
+        return {"status": "rejected", "message": str(exc)}
+    except Exception:
+        logger.exception("set_preferred_model failed")
+        return {"status": "error", "message": "Could not change the model."}
+    return {
+        "status": "ok",
+        "running_now": preference["effective_model"],
+        "following_default": preference["selected_model"] is None,
+        "takes_effect": "next_message",
+    }

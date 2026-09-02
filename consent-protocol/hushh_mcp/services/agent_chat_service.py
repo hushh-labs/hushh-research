@@ -32,6 +32,7 @@ from hushh_mcp.runtime_providers import (
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.model_preference_service import resolve_text_model_name
 from hushh_mcp.types import EncryptedPayload
 from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 from hussh_sdk import (
@@ -1024,10 +1025,29 @@ class AgentChatService:
         self._client = None
         self._settings = None
         self.runtime_manifest = load_one_agent_runtime_manifest()
+        # The lane default. It is the floor for a turn whose owner is unknown, never the
+        # answer for one whose owner is: this service is a process-wide singleton, so a
+        # model pinned here would outlive every person's choice until the next restart.
         self.model = (model or resolve_fleet_model_name(self.runtime_manifest.model.name)).strip()
         if not self.model:
             raise ValueError("Agent Chat manifest must declare a runtime model")
+        self._model_pinned = bool(model)
         self._vault_key_hex = vault_key_hex
+
+    async def model_for_user(self, user_id: str | None) -> str:
+        """The model this person's turn runs on, resolved per turn.
+
+        An explicitly constructed service (tests, a pinned caller) keeps its model; every
+        other turn asks the preference chain, so a person's choice takes effect on their
+        next message rather than on the next deploy.
+        """
+        if self._model_pinned:
+            return self.model
+        try:
+            return await resolve_text_model_name(user_id)
+        except Exception:
+            logger.warning("agent_chat_model_resolution_failed user=%s", user_id, exc_info=True)
+            return self.model
 
     @property
     def settings(self):
@@ -1293,7 +1313,7 @@ class AgentChatService:
                 "title_iv": encrypted_title.iv,
                 "title_tag": encrypted_title.tag,
                 "title_algorithm": encrypted_title.algorithm,
-                "model": self.model,
+                "model": await self.model_for_user(user_id),
             },
         )
         return self._conversation_from_row((result.data or [])[0])
@@ -1490,7 +1510,7 @@ class AgentChatService:
             conversation_id=conversation.id,
             user_message_id=user_message.id,
             history=history,
-            model=self.model,
+            model=await self.model_for_user(user_id),
         )
 
     async def add_message(

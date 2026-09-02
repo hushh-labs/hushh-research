@@ -1032,6 +1032,16 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "one_model_preferences"
+      ],
+      "id": "one_agent_model_preference",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "model preference service, read on every agent chat turn and written from Agent chat or /api/one/models/preference"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "one_email_mailbox_state",
         "one_email_kyc_preferences",
         "one_kyc_workflows",
@@ -5456,11 +5466,11 @@
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "f35fa559114acde190d9253ecce8a47333e0ee56352d525a34b24aa8a599a0f5",
-    "agent_registry": "2609926d2369f154d08549a9075969f346f7b18e73d4bb32544fab4ba9a7c33d",
+    "agent_registry": "287f0c25daedf444e9211e88fc1dd5f07f72d4ff7aeb5e1321d6e5ed836607db",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
-    "data_plane": "25ee768e87ca24a3b84ec95dc20adc6f17f615de7243030dd3ad591299a11763",
+    "data_plane": "76399599594d347d840307b338dd681728ecaa9583990e32275f6199d3ce2290",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "e2eca1cf8dca4ff3bd66d289ae64120ca6f7dc87fa5692d445780d1c17e2219f",
+    "one_specialist_tools": "057058e172a5de1d044caf02d9cbd6fcf55f2639c910e16b39d9b8d89ded0458",
     "route_index": "e546902877fb584de669c0c30f1c83acdd498d6b76f92f12d2a58ac919a74fdb",
     "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
     "surface_map": "2f9ac5937480d6e63876249864059876489ad849a17c9ab2fbe1850caaf0862f",
@@ -5477,6 +5487,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 139,
     "semantic_routes": 14,
-    "table_families": 57
+    "table_families": 58
   }
 }
