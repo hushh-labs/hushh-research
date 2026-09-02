@@ -144,6 +144,7 @@ steps:
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
+          --build-arg NEXT_PUBLIC_ONE_WALLET_ENABLED=${_ONE_WALLET_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
           --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
@@ -248,6 +249,9 @@ substitutions:
   # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
   # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
   _ONE_WALLET_CARD_ENABLED: "false"
+  # Wallet (payment cards) tile, /one/wallet, and chat widgets. Default off;
+  # the backend ONE_WALLET_ENABLED flag still decides whether agent_wallet exists.
+  _ONE_WALLET_ENABLED: "false"
   # Offers nearby check-in in a production build. Default off: the check-in
   # point is client-supplied and unattestable, so the backend admits production
   # callers by cohort and this only avoids collecting a location for a flow that

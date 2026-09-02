@@ -162,3 +162,32 @@ def test_substituted_backend_deploy_body_fits_every_lane(workflow_path: str) -> 
         f"too close to ship: the next secret ref or env var breaks every deploy lane. "
         f"Move prose above the step, or extract the body into a script."
     )
+
+
+_INDIRECT_LOOP = re.compile(
+    r"for n in ([A-Z0-9_ ]+); do\s+v=\"_\$\{n\}\"\s+add_env \"\$\{n\}\" \"\$\{!v\}\"", re.S
+)
+
+
+def test_indirectly_expanded_env_names_are_fed_through_the_step_env_field() -> None:
+    """`${!v}` reads a shell variable, which Cloud Build only provides when the
+    substitution is passed through the step's `env:` field (there is no
+    automapSubstitutions here). A name in the loop without an env entry silently
+    deploys nothing, which is what happened to the Gmail monitor settings."""
+    config = _load("deploy/backend.cloudbuild.yaml")
+    assert config is not None
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    body = step["args"][1]
+    loops = _INDIRECT_LOOP.findall(body)
+    assert loops, "the deploy-backend body no longer feeds add_env through a loop"
+    looped = {name for group in loops for name in group.split()}
+    provided = {
+        entry.split("=", 1)[0]
+        for entry in step.get("env") or []
+        if entry.split("=", 1)[1] == "${" + entry.split("=", 1)[0] + "}"
+    }
+    assert {f"_{name}" for name in looped} <= provided, sorted(
+        f"_{name}" for name in looped if f"_{name}" not in provided
+    )
+    declared = set((config.get("substitutions") or {}).keys())
+    assert provided <= declared, sorted(provided - declared)

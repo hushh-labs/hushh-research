@@ -273,7 +273,7 @@ type AgentPkmActivity = {
  * only in this client state; they are never written into messages, model
  * context, history, or telemetry.
  */
-type AgentCardWidget =
+type AgentWalletWidget =
   | { id: string; kind: "add" }
   | {
       id: string;
@@ -1356,7 +1356,7 @@ export function AgentChatWorkspace({
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
-  const [cardWidgets, setCardWidgets] = useState<AgentCardWidget[]>([]);
+  const [walletWidgets, setWalletWidgets] = useState<AgentWalletWidget[]>([]);
   /**
    * PKM auto-save is landed but NOT WIRED, and this is the note that says so.
    *
@@ -1865,7 +1865,7 @@ export function AgentChatWorkspace({
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
     setPkmReviews([]);
-    setCardWidgets([]);
+    setWalletWidgets([]);
     updateConversationId(null);
     setConversations([]);
     setHistoryActionPendingId(null);
@@ -1896,7 +1896,7 @@ export function AgentChatWorkspace({
     setInput("");
     setIsLoadingHistory(false);
     setPkmReviews([]);
-    setCardWidgets([]);
+    setWalletWidgets([]);
     setPendingAppAction(null);
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
@@ -2343,8 +2343,8 @@ export function AgentChatWorkspace({
       setEmailDraftAnchorMessageId(null);
       setEmailDeliveryHistory([]);
       setPkmReviews([]);
-      setCardWidgets([]);
-    setCardWidgets([]);
+      setWalletWidgets([]);
+    setWalletWidgets([]);
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
     },
@@ -2790,7 +2790,7 @@ export function AgentChatWorkspace({
         renderAsPlainAssistantMessage: true,
       });
       if (WalletService.isEnabled()) {
-        setCardWidgets((current) => [
+        setWalletWidgets((current) => [
           ...current,
           { id: `pan-guard-${Date.now()}`, kind: "add" },
         ]);
@@ -3050,7 +3050,7 @@ export function AgentChatWorkspace({
         };
       }
 
-      // Cards actions execute entirely on this device: the browser decrypts
+      // Wallet actions execute entirely on this device: the browser decrypts
       // under the vault key and renders secure widgets. Only metadata (and
       // never PAN/CVV/PIN) flows back to the model through resultSummary.
       if (
@@ -3109,7 +3109,7 @@ export function AgentChatWorkspace({
           };
         }
         if (toolEvent.actionId === "wallet.add") {
-          setCardWidgets((current) => [
+          setWalletWidgets((current) => [
             ...current,
             { id: `${debugTurnId}-card-add-${current.length}`, kind: "add" },
           ]);
@@ -3161,7 +3161,7 @@ export function AgentChatWorkspace({
             reason: "card_decrypt_failed",
           };
         }
-        setCardWidgets((current) => [
+        setWalletWidgets((current) => [
           ...current,
           {
             id: `${debugTurnId}-card-reveal-${current.length}`,
@@ -4314,7 +4314,7 @@ export function AgentChatWorkspace({
         renderAsPlainAssistantMessage: true,
       });
       if (WalletService.isEnabled()) {
-        setCardWidgets((current) => [
+        setWalletWidgets((current) => [
           ...current,
           { id: `pan-guard-${Date.now()}`, kind: "add" },
         ]);
@@ -4455,7 +4455,7 @@ export function AgentChatWorkspace({
       return;
     }
     setPkmReviews([]);
-    setCardWidgets([]);
+    setWalletWidgets([]);
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
@@ -4897,7 +4897,7 @@ export function AgentChatWorkspace({
                 />
               ))}
 
-              {cardWidgets.map((widget) =>
+              {walletWidgets.map((widget) =>
                 widget.kind === "add" ? (
                   <SecureCardAddForm
                     key={widget.id}
@@ -4915,7 +4915,7 @@ export function AgentChatWorkspace({
                         surface: "chat",
                         source: "agent_chat_wallet_add",
                       });
-                      setCardWidgets((current) =>
+                      setWalletWidgets((current) =>
                         current.filter((item) => item.id !== widget.id),
                       );
                       appendMessage({
@@ -4928,7 +4928,7 @@ export function AgentChatWorkspace({
                       });
                     }}
                     onCancel={() =>
-                      setCardWidgets((current) =>
+                      setWalletWidgets((current) =>
                         current.filter((item) => item.id !== widget.id),
                       )
                     }
@@ -4939,7 +4939,7 @@ export function AgentChatWorkspace({
                     summary={widget.summary}
                     secrets={widget.secrets}
                     onDismiss={() =>
-                      setCardWidgets((current) =>
+                      setWalletWidgets((current) =>
                         current.filter((item) => item.id !== widget.id),
                       )
                     }

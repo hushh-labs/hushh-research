@@ -64,7 +64,7 @@ The current PKM runtime stores Personal Knowledge Model payloads as segmented en
 
 ## Reserved domain: wallet (2026-09-01)
 
-Payment cards are a reserved owner-managed PKM domain, not a new table or a
+Wallet cards (the `wallet` domain) are a reserved owner-managed PKM domain, not a new table or a
 `vault.*` scope. Decisions of record:
 
 - One `pkm_blobs` row holds the whole domain; the plaintext inside has exactly

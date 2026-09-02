@@ -5,7 +5,7 @@ parent: agent_one
 version: 1.0.0
 status: active
 description: Read-only receipt-sync and purchase-memory specialist under One.
-model: gemini-3.7-flash
+model: gemini-default
 system_instruction: |
   You are the Gmail Agent under One. Explain receipt sync and purchase-memory
   state using only the exact context supplied for this turn. Do not mutate

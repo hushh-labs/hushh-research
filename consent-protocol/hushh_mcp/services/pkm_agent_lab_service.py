@@ -19,6 +19,7 @@ from hushh_mcp.runtime_providers import (
     build_generate_content_config,
     build_managed_runtime_client,
 )
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
@@ -627,6 +628,24 @@ _STRUCTURE_PREVIEW_SCHEMA = {
         "validation_hints",
     ],
 }
+
+
+def _manifest_model_name(manifest: Any) -> str:
+    """The text model a manifest asks for, with the fleet alias resolved.
+
+    Real manifests own the mapping (`model_config_for_runtime`); the lightweight
+    stand-ins tests use only carry `.model`. Either way `gemini-default` lands on
+    the switched fleet model (constants.GEMINI_MODEL).
+    """
+    resolver = getattr(manifest, "model_config_for_runtime", None)
+    if callable(resolver):
+        try:
+            return str(resolver().name or "")
+        except Exception:  # noqa: BLE001 - fall back to the raw field
+            pass
+    raw = getattr(manifest, "model", None)
+    name = getattr(raw, "name", raw)
+    return resolve_fleet_model_name(name if isinstance(name, str) else None)
 
 
 class PKMAgentLabService:
@@ -1514,7 +1533,7 @@ class PKMAgentLabService:
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
 
-        active_model = model_override or manifest.model or GEMINI_MODEL
+        active_model = model_override or _manifest_model_name(manifest) or GEMINI_MODEL
         is_salience_model = active_model == "gemini-3.1-pro-preview"
         thinking_level = (
             genai_types.ThinkingLevel.LOW
@@ -4660,7 +4679,7 @@ class PKMAgentLabService:
         return {
             "agent_id": agent_manifest.id,
             "agent_name": agent_manifest.name,
-            "model": model_override or agent_manifest.model or GEMINI_MODEL,
+            "model": model_override or _manifest_model_name(agent_manifest) or GEMINI_MODEL,
             "used_fallback": used_fallback,
             "intent_used_fallback": intent_used_fallback,
             "merge_used_fallback": merge_used_fallback,
@@ -4861,7 +4880,7 @@ class PKMAgentLabService:
                     "agent_id": self.memory_segmentation_manifest.id,
                     "agent_name": self.memory_segmentation_manifest.name,
                     "model": model_override
-                    or self.memory_segmentation_manifest.model
+                    or _manifest_model_name(self.memory_segmentation_manifest)
                     or GEMINI_MODEL,
                     "used_fallback": True,
                     "intent_used_fallback": False,

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.services.agent_chat_service import (
     AGENT_SYSTEM_PROMPT,
     AgentChatActionPlan,
@@ -28,7 +29,7 @@ from hussh_sdk import (
 def test_agent_chat_service_uses_agent_yaml_model(test_vault_key):
     service = AgentChatService(vault_key_hex=test_vault_key)
 
-    assert service.model == "gemini-3.7-flash"
+    assert service.model == GEMINI_MODEL
 
 
 def test_agent_chat_service_ignores_env_model_override(monkeypatch, test_vault_key):
@@ -36,7 +37,7 @@ def test_agent_chat_service_ignores_env_model_override(monkeypatch, test_vault_k
 
     service = AgentChatService(vault_key_hex=test_vault_key)
 
-    assert service.model == "gemini-3.7-flash"
+    assert service.model == GEMINI_MODEL
 
 
 def test_agent_chat_runtime_contract_defaults_to_hushh_managed(test_vault_key):
@@ -146,7 +147,7 @@ async def test_agent_chat_service_prepares_byok_runtime_from_pkm_secret(
     )
 
     assert prepared.mode == "byok"
-    assert prepared.model == "gemini-3.7-flash"
+    assert prepared.model == GEMINI_MODEL
     assert prepared.client.kind == "client"
     assert calls == [{"vertexai": False, "api_key": sample_runtime_value}]
     assert sample_runtime_value not in str(prepared.evidence)

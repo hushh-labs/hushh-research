@@ -166,7 +166,7 @@ def test_portfolio_import_defaults_to_gemini_37_flash_with_env_override():
     constants_source = (_ROOT / "hushh_mcp/constants.py").read_text(encoding="utf-8")
     portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
 
-    assert 'KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.7-flash"' in constants_source
+    assert "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = GEMINI_MODEL" in constants_source
     assert '"KAI_PORTFOLIO_IMPORT_MODEL"' in portfolio_source
     assert '"KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"' in portfolio_source
     assert "extraction_model = _resolve_portfolio_import_model()" in portfolio_source

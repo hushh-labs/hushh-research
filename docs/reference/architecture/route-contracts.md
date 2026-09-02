@@ -107,7 +107,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
-- `/one/wallet`
+- `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/pkm/recent`
 - `/one/gmail`
 - `/one/email`

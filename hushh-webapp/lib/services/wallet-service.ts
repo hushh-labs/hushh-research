@@ -265,7 +265,7 @@ export class WalletService {
     );
     const remaining = summaries.length - lines.length;
     if (remaining > 0) {
-      lines.push(`…and ${remaining} more. Open Cards to search the full list.`);
+      lines.push(`…and ${remaining} more. Open Wallet to search the full list.`);
     }
     return lines.join("\n");
   }
