@@ -41,6 +41,7 @@ from hushh_mcp.services.gmail_delivery_service import (
     normalize_draft,
 )
 from hushh_mcp.services.gmail_receipts_service import (
+    GmailApiError,
     GmailReceiptsService,
     get_gmail_receipts_service,
 )
@@ -329,8 +330,9 @@ class PersonalGmailInformationRequestService:
             "monitoring_enabled": bool(row and row["monitoring_enabled"]),
             "retention": "metadata_only",
             "disclosure": (
-                "When enabled, Hushh temporarily classifies recent inbox messages for personal "
-                "information requests. Email content is not retained in this workflow queue."
+                "When enabled, Hushh classifies only inbox messages received after monitoring "
+                "starts for personal information requests. Email content is not retained in this "
+                "workflow queue."
             ),
             "monitoring_enabled_at": row["monitoring_enabled_at"] if row else None,
             "last_scan_completed_at": row["last_scan_completed_at"] if row else None,
@@ -338,29 +340,86 @@ class PersonalGmailInformationRequestService:
         }
 
     async def set_preference(self, *, user_id: str, enabled: bool) -> dict[str, Any]:
+        monitor_state = await self._monitor_state(user_id=user_id) if enabled else {}
+        monitor_history_id = (
+            await self.gmail_service.capture_personal_inbox_monitor_history_id(user_id=user_id)
+            if enabled and not _text(monitor_state.get("monitor_history_id"))
+            else None
+        )
         pool = await get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await conn.execute(
+                row = await conn.fetchrow(
                     """
-                    INSERT INTO gmail_personal_information_request_preferences (
-                        user_id, monitoring_enabled, monitoring_enabled_at
-                    ) VALUES ($1, $2, CASE WHEN $2 THEN NOW() ELSE NULL END)
-                    ON CONFLICT (user_id) DO UPDATE
-                    SET monitoring_enabled = EXCLUDED.monitoring_enabled,
-                        monitoring_enabled_at = CASE
-                            WHEN EXCLUDED.monitoring_enabled
-                              THEN COALESCE(gmail_personal_information_request_preferences.monitoring_enabled_at, NOW())
-                            ELSE NULL
-                        END,
-                        monitor_cursor = NULL,
-                        scan_lease_id = NULL,
-                        scan_lease_expires_at = NULL,
-                        updated_at = NOW()
+                    SELECT monitoring_enabled, monitoring_generation
+                    FROM gmail_personal_information_request_preferences
+                    WHERE user_id = $1
+                    FOR UPDATE
                     """,
                     user_id,
-                    enabled,
                 )
+                current_enabled = bool(row and row["monitoring_enabled"])
+                current_generation = int(row["monitoring_generation"] or 0) if row else 0
+                if enabled and not current_enabled:
+                    if row:
+                        await conn.execute(
+                            """
+                            UPDATE gmail_personal_information_request_preferences
+                            SET monitoring_enabled = TRUE,
+                                monitoring_enabled_at = NOW(),
+                                monitoring_generation = $2,
+                                monitor_history_id = $3,
+                                monitor_cursor = NULL,
+                                monitor_message_offset = 0,
+                                scan_lease_id = NULL,
+                                scan_lease_expires_at = NULL,
+                                updated_at = NOW()
+                            WHERE user_id = $1
+                            """,
+                            user_id,
+                            current_generation + 1,
+                            monitor_history_id,
+                        )
+                    else:
+                        await conn.execute(
+                            """
+                            INSERT INTO gmail_personal_information_request_preferences (
+                                user_id, monitoring_enabled, monitoring_enabled_at,
+                                monitoring_generation, monitor_history_id, monitor_message_offset
+                            ) VALUES ($1, TRUE, NOW(), $2, $3, 0)
+                            """,
+                            user_id,
+                            current_generation + 1,
+                            monitor_history_id,
+                        )
+                elif not enabled:
+                    if row:
+                        await conn.execute(
+                            """
+                            UPDATE gmail_personal_information_request_preferences
+                            SET monitoring_enabled = FALSE,
+                                monitoring_enabled_at = NULL,
+                                monitoring_generation = monitoring_generation
+                                    + CASE WHEN monitoring_enabled THEN 1 ELSE 0 END,
+                                monitor_history_id = NULL,
+                                monitor_cursor = NULL,
+                                monitor_message_offset = 0,
+                                scan_lease_id = NULL,
+                                scan_lease_expires_at = NULL,
+                                updated_at = NOW()
+                            WHERE user_id = $1
+                            """,
+                            user_id,
+                        )
+                    else:
+                        await conn.execute(
+                            """
+                            INSERT INTO gmail_personal_information_request_preferences (
+                                user_id, monitoring_enabled, monitoring_generation, monitor_message_offset
+                            ) VALUES ($1, FALSE, 0, 0)
+                            """,
+                            user_id,
+                        )
                 if not enabled:
                     await conn.execute(
                         "DELETE FROM gmail_personal_information_requests WHERE user_id = $1",
@@ -373,10 +432,16 @@ class PersonalGmailInformationRequestService:
         return await self.get_preference(user_id=user_id)
 
     async def list_workflows(
-        self, *, user_id: str, limit: int = 25, offset: int = 0
+        self,
+        *,
+        user_id: str,
+        limit: int = 25,
+        offset: int = 0,
+        view: str = "active",
     ) -> dict[str, Any]:
         page_size = max(1, min(int(limit or 25), _MAX_WORKFLOW_LIMIT))
         page_offset = max(0, int(offset or 0))
+        status_filter = ["detected"] if view != "activity" else ["ignored", "blocked", "sent"]
         pool = await get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -385,12 +450,13 @@ class PersonalGmailInformationRequestService:
                        classification_confidence, requested_field_labels,
                        candidate_scopes, attachment_review_required, created_at, updated_at
                 FROM gmail_personal_information_requests
-                WHERE user_id = $1 AND status = 'detected'
+                WHERE user_id = $1 AND status = ANY($2::text[])
                 ORDER BY created_at DESC, workflow_id DESC
-                LIMIT $2
-                OFFSET $3
+                LIMIT $3
+                OFFSET $4
                 """,
                 user_id,
+                status_filter,
                 page_size,
                 page_offset,
             )
@@ -398,9 +464,10 @@ class PersonalGmailInformationRequestService:
                 """
                 SELECT COUNT(*)
                 FROM gmail_personal_information_requests
-                WHERE user_id = $1 AND status = 'detected'
+                WHERE user_id = $1 AND status = ANY($2::text[])
                 """,
                 user_id,
+                status_filter,
             )
         total = int(total_count or 0)
         next_offset = page_offset + len(rows)
@@ -410,24 +477,80 @@ class PersonalGmailInformationRequestService:
             "offset": page_offset,
             "next_offset": next_offset if next_offset < total else None,
             "total_count": total,
+            "view": "activity" if view == "activity" else "active",
         }
 
-    async def scan_recent(
-        self, *, user_id: str, max_results: int = 12, page_token: str | None = None
-    ) -> dict[str, Any]:
-        preference = await self.get_preference(user_id=user_id)
-        if not preference["monitoring_enabled"]:
+    async def scan_recent(self, *, user_id: str, max_results: int = 12) -> dict[str, Any]:
+        monitor_state = await self._monitor_state(user_id=user_id)
+        expected_generation = int(monitor_state.get("monitoring_generation") or 0)
+        if expected_generation <= 0:
             raise PersonalGmailInformationRequestError(
                 "Turn on personal information-request monitoring before scanning Gmail.",
                 code="PERSONAL_GMAIL_MONITORING_DISABLED",
                 status_code=409,
             )
+        monitor_history_id = _text(monitor_state.get("monitor_history_id"))
+        if not monitor_history_id:
+            monitor_history_id = await self.gmail_service.capture_personal_inbox_monitor_history_id(
+                user_id=user_id
+            )
+            checkpointed = await self._set_monitor_checkpoint(
+                user_id=user_id,
+                monitor_history_id=monitor_history_id,
+                monitor_cursor=None,
+                monitor_message_offset=0,
+                expected_generation=expected_generation,
+            )
+            if not checkpointed:
+                raise self._monitoring_changed_error()
+            return {
+                "accepted": True,
+                "scanned_count": 0,
+                "unchanged_count": 0,
+                "matched_count": 0,
+                "failed_count": 0,
+                "workflow_ids": [],
+                "baseline_established": True,
+            }
+
         bounded = max(1, min(int(max_results or 12), _MAX_SCAN_MESSAGES))
-        messages, next_page_token = await self.gmail_service.list_personal_inbox_monitor_page(
-            user_id=user_id,
-            page_token=page_token,
-            limit=bounded,
-        )
+        try:
+            (
+                messages,
+                next_page_token,
+                high_water_history_id,
+                next_message_offset,
+            ) = await self.gmail_service.list_personal_inbox_monitor_history_page(
+                user_id=user_id,
+                start_history_id=monitor_history_id,
+                page_token=_text(monitor_state.get("monitor_cursor")) or None,
+                message_offset=int(monitor_state.get("monitor_message_offset") or 0),
+                limit=bounded,
+            )
+        except GmailApiError as exc:
+            if exc.status_code != 404:
+                raise
+            monitor_history_id = await self.gmail_service.capture_personal_inbox_monitor_history_id(
+                user_id=user_id
+            )
+            checkpointed = await self._set_monitor_checkpoint(
+                user_id=user_id,
+                monitor_history_id=monitor_history_id,
+                monitor_cursor=None,
+                monitor_message_offset=0,
+                expected_generation=expected_generation,
+            )
+            if not checkpointed:
+                raise self._monitoring_changed_error()
+            return {
+                "accepted": True,
+                "scanned_count": 0,
+                "unchanged_count": 0,
+                "matched_count": 0,
+                "failed_count": 0,
+                "workflow_ids": [],
+                "baseline_reestablished": True,
+            }
         source_hmacs = {
             _text(message.get("id")): _source_fingerprint(message)
             for message in messages
@@ -448,12 +571,19 @@ class PersonalGmailInformationRequestService:
             message_id = _text(message.get("id"))
             try:
                 async with semaphore:
-                    workflow_id = await self._classify_and_record(user_id=user_id, message=message)
-                await self._record_scan_state(
+                    workflow_id = await self._classify_and_record(
+                        user_id=user_id,
+                        message=message,
+                        expected_generation=expected_generation,
+                    )
+                recorded = await self._record_scan_state(
                     user_id=user_id,
                     gmail_message_id=message_id,
                     source_hmac=source_hmacs[message_id],
+                    expected_generation=expected_generation,
                 )
+                if not recorded:
+                    raise self._monitoring_changed_error()
             except Exception as exc:  # noqa: BLE001 - one bad provider item must not stop the batch
                 logger.warning(
                     "gmail.personal_information_request.classification_failed error=%s",
@@ -467,14 +597,40 @@ class PersonalGmailInformationRequestService:
             workflow_id for workflow_id, failed in outcomes if workflow_id and not failed
         ]
         failures = sum(1 for _workflow_id, failed in outcomes if failed)
+        if failures:
+            raise PersonalGmailInformationRequestError(
+                "Personal Gmail classification is temporarily unavailable. No messages were skipped.",
+                code="PERSONAL_GMAIL_CLASSIFICATION_INCOMPLETE",
+                status_code=503,
+            )
+        if next_message_offset is not None:
+            next_monitor_history_id = monitor_history_id
+            next_cursor = _text(monitor_state.get("monitor_cursor")) or None
+            next_offset = next_message_offset
+        elif next_page_token:
+            next_monitor_history_id = monitor_history_id
+            next_cursor = next_page_token
+            next_offset = 0
+        else:
+            next_monitor_history_id = high_water_history_id or monitor_history_id
+            next_cursor = None
+            next_offset = 0
+        checkpointed = await self._set_monitor_checkpoint(
+            user_id=user_id,
+            monitor_history_id=next_monitor_history_id,
+            monitor_cursor=next_cursor,
+            monitor_message_offset=next_offset,
+            expected_generation=expected_generation,
+        )
+        if not checkpointed:
+            raise self._monitoring_changed_error()
         return {
             "accepted": True,
             "scanned_count": len(pending_messages),
             "unchanged_count": len(messages) - len(pending_messages),
             "matched_count": len(workflow_ids),
-            "failed_count": failures,
+            "failed_count": 0,
             "workflow_ids": workflow_ids,
-            "next_page_token": next_page_token,
         }
 
     async def scan_enabled_users(self, *, max_users: int = 20) -> dict[str, int]:
@@ -489,22 +645,22 @@ class PersonalGmailInformationRequestService:
         bounded = max(1, min(int(max_users or 20), _BACKGROUND_USER_LIMIT))
         rows = await self._claim_enabled_users(max_users=bounded)
 
-        async def _scan_owner(row: dict[str, str | None]) -> bool:
+        async def _scan_owner(row: dict[str, Any]) -> bool:
             user_id = _text(row.get("user_id"))
             lease_id = _text(row.get("lease_id"))
+            expected_generation = int(row.get("monitoring_generation") or 0)
             try:
-                result = await asyncio.wait_for(
+                await asyncio.wait_for(
                     self.scan_recent(
                         user_id=user_id,
                         max_results=12,
-                        page_token=_text(row.get("monitor_cursor")) or None,
                     ),
                     timeout=_BACKGROUND_SCAN_TIMEOUT_SECONDS,
                 )
                 await self._finish_scan_lease(
                     user_id=user_id,
                     lease_id=lease_id,
-                    next_page_token=_text(result.get("next_page_token")) or None,
+                    expected_generation=expected_generation,
                     completed=True,
                 )
                 return True
@@ -516,14 +672,14 @@ class PersonalGmailInformationRequestService:
                 await self._finish_scan_lease(
                     user_id=user_id,
                     lease_id=lease_id,
-                    next_page_token=None,
+                    expected_generation=expected_generation,
                     completed=False,
                 )
                 return False
 
         semaphore = asyncio.Semaphore(_BACKGROUND_USER_CONCURRENCY)
 
-        async def _bounded_scan(row: dict[str, str | None]) -> bool:
+        async def _bounded_scan(row: dict[str, Any]) -> bool:
             async with semaphore:
                 return await _scan_owner(row)
 
@@ -550,7 +706,7 @@ class PersonalGmailInformationRequestService:
         )
         return result
 
-    async def _claim_enabled_users(self, *, max_users: int) -> list[dict[str, str | None]]:
+    async def _claim_enabled_users(self, *, max_users: int) -> list[dict[str, Any]]:
         """Claim a fair, bounded page of opt-ins using a Postgres lease.
 
         Postgres is the shared coordination tier today. This claim/checkpoint
@@ -562,7 +718,7 @@ class PersonalGmailInformationRequestService:
             async with conn.transaction():
                 rows = await conn.fetch(
                     """
-                    SELECT preference.user_id, preference.monitor_cursor
+                    SELECT preference.user_id, preference.monitoring_generation
                     FROM gmail_personal_information_request_preferences preference
                     JOIN kai_gmail_connections connection ON connection.user_id = preference.user_id
                     WHERE preference.monitoring_enabled = TRUE
@@ -578,7 +734,7 @@ class PersonalGmailInformationRequestService:
                     """,
                     max_users,
                 )
-                claims: list[dict[str, str | None]] = []
+                claims: list[dict[str, Any]] = []
                 for row in rows:
                     user_id = _text(row["user_id"])
                     lease_id = str(uuid.uuid4())
@@ -597,8 +753,8 @@ class PersonalGmailInformationRequestService:
                     claims.append(
                         {
                             "user_id": user_id,
-                            "monitor_cursor": _text(row["monitor_cursor"]) or None,
                             "lease_id": lease_id,
+                            "monitoring_generation": int(row["monitoring_generation"] or 0),
                         }
                     )
         return claims
@@ -608,7 +764,7 @@ class PersonalGmailInformationRequestService:
         *,
         user_id: str,
         lease_id: str,
-        next_page_token: str | None,
+        expected_generation: int,
         completed: bool,
     ) -> None:
         pool = await get_pool()
@@ -617,15 +773,17 @@ class PersonalGmailInformationRequestService:
                 await conn.execute(
                     """
                     UPDATE gmail_personal_information_request_preferences
-                    SET monitor_cursor = $3,
-                        scan_lease_id = NULL,
+                    SET scan_lease_id = NULL,
                         scan_lease_expires_at = NULL,
                         last_scan_completed_at = NOW()
-                    WHERE user_id = $1 AND scan_lease_id = $2::uuid
+                    WHERE user_id = $1
+                      AND scan_lease_id = $2::uuid
+                      AND monitoring_enabled = TRUE
+                      AND monitoring_generation = $3
                     """,
                     user_id,
                     lease_id,
-                    next_page_token,
+                    expected_generation,
                 )
             else:
                 await conn.execute(
@@ -633,11 +791,89 @@ class PersonalGmailInformationRequestService:
                     UPDATE gmail_personal_information_request_preferences
                     SET scan_lease_id = NULL,
                         scan_lease_expires_at = NULL
-                    WHERE user_id = $1 AND scan_lease_id = $2::uuid
+                    WHERE user_id = $1
+                      AND scan_lease_id = $2::uuid
+                      AND monitoring_enabled = TRUE
+                      AND monitoring_generation = $3
                     """,
                     user_id,
                     lease_id,
+                    expected_generation,
                 )
+
+    @staticmethod
+    def _monitoring_matches(row: Any, expected_generation: int) -> bool:
+        return bool(
+            row
+            and row["monitoring_enabled"]
+            and int(row["monitoring_generation"] or 0) == expected_generation
+        )
+
+    @staticmethod
+    def _monitoring_changed_error() -> PersonalGmailInformationRequestError:
+        return PersonalGmailInformationRequestError(
+            "Personal Gmail monitoring changed before the scan could finish.",
+            code="PERSONAL_GMAIL_MONITORING_CHANGED",
+            status_code=409,
+        )
+
+    async def _monitor_state(self, *, user_id: str) -> dict[str, Any]:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT monitor_history_id, monitor_cursor, monitor_message_offset, monitoring_generation
+                FROM gmail_personal_information_request_preferences
+                WHERE user_id = $1 AND monitoring_enabled = TRUE
+                """,
+                user_id,
+            )
+        return {
+            "monitor_history_id": _text(row["monitor_history_id"]) if row else None,
+            "monitor_cursor": _text(row["monitor_cursor"]) if row else None,
+            "monitor_message_offset": int(row["monitor_message_offset"] or 0) if row else 0,
+            "monitoring_generation": int(row["monitoring_generation"] or 0) if row else 0,
+        }
+
+    async def _set_monitor_checkpoint(
+        self,
+        *,
+        user_id: str,
+        monitor_history_id: str,
+        monitor_cursor: str | None,
+        monitor_message_offset: int,
+        expected_generation: int,
+    ) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    SELECT monitoring_enabled, monitoring_generation
+                    FROM gmail_personal_information_request_preferences
+                    WHERE user_id = $1
+                    FOR UPDATE
+                    """,
+                    user_id,
+                )
+                if not self._monitoring_matches(row, expected_generation):
+                    return False
+                await conn.execute(
+                    """
+                    UPDATE gmail_personal_information_request_preferences
+                    SET monitor_history_id = $2,
+                        monitor_cursor = $3,
+                        monitor_message_offset = $4,
+                        last_scan_completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                    monitor_history_id,
+                    monitor_cursor,
+                    monitor_message_offset,
+                )
+        return True
 
     async def _scan_state_by_message(
         self, *, user_id: str, gmail_message_ids: tuple[str, ...]
@@ -658,29 +894,41 @@ class PersonalGmailInformationRequestService:
         return {_text(row["gmail_message_id"]): _text(row["source_hmac"]) for row in rows}
 
     async def _record_scan_state(
-        self, *, user_id: str, gmail_message_id: str, source_hmac: str
-    ) -> None:
+        self,
+        *,
+        user_id: str,
+        gmail_message_id: str,
+        source_hmac: str,
+        expected_generation: int,
+    ) -> bool:
         pool = await get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO gmail_personal_information_request_scan_states (
-                    user_id, gmail_message_id, source_hmac
-                )
-                SELECT $1, $2, $3
-                WHERE EXISTS (
-                    SELECT 1
+            async with conn.transaction():
+                preference = await conn.fetchrow(
+                    """
+                    SELECT monitoring_enabled, monitoring_generation
                     FROM gmail_personal_information_request_preferences
-                    WHERE user_id = $1 AND monitoring_enabled = TRUE
+                    WHERE user_id = $1
+                    FOR SHARE
+                    """,
+                    user_id,
                 )
-                ON CONFLICT (user_id, gmail_message_id) DO UPDATE
-                SET source_hmac = EXCLUDED.source_hmac,
-                    scanned_at = NOW()
-                """,
-                user_id,
-                gmail_message_id,
-                source_hmac,
-            )
+                if not self._monitoring_matches(preference, expected_generation):
+                    return False
+                await conn.execute(
+                    """
+                    INSERT INTO gmail_personal_information_request_scan_states (
+                        user_id, gmail_message_id, source_hmac
+                    ) VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id, gmail_message_id) DO UPDATE
+                    SET source_hmac = EXCLUDED.source_hmac,
+                        scanned_at = NOW()
+                    """,
+                    user_id,
+                    gmail_message_id,
+                    source_hmac,
+                )
+        return True
 
     async def _purge_expired_metadata(self) -> tuple[int, int]:
         """Bound both positive queue records and negative scan state retention.
@@ -888,7 +1136,13 @@ class PersonalGmailInformationRequestService:
             )
         return header
 
-    async def _classify_and_record(self, *, user_id: str, message: dict[str, Any]) -> str | None:
+    async def _classify_and_record(
+        self,
+        *,
+        user_id: str,
+        message: dict[str, Any],
+        expected_generation: int,
+    ) -> str | None:
         message_id = _text(message.get("id"))
         thread_id = _text(message.get("threadId"))
         if not message_id or not thread_id:
@@ -904,34 +1158,40 @@ class PersonalGmailInformationRequestService:
         workflow_id = str(uuid.uuid4())
         pool = await get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO gmail_personal_information_requests (
-                    workflow_id, user_id, status, gmail_message_id, gmail_thread_id,
-                    source_hmac, sender_hmac, received_at, classification_confidence,
-                    requested_field_labels, candidate_scopes, attachment_review_required
-                )
-                SELECT $1, $2, 'detected', $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11
-                WHERE EXISTS (
-                    SELECT 1
+            async with conn.transaction():
+                preference = await conn.fetchrow(
+                    """
+                    SELECT monitoring_enabled, monitoring_generation
                     FROM gmail_personal_information_request_preferences
-                    WHERE user_id = $2 AND monitoring_enabled = TRUE
+                    WHERE user_id = $1
+                    FOR SHARE
+                    """,
+                    user_id,
                 )
-                ON CONFLICT (user_id, gmail_message_id) DO NOTHING
-                RETURNING workflow_id
-                """,
-                workflow_id,
-                user_id,
-                message_id,
-                thread_id,
-                _source_fingerprint(message),
-                _sender_fingerprint(message),
-                _message_received_at(message),
-                classification.confidence,
-                json.dumps(list(classification.requested_field_labels)),
-                json.dumps(candidates),
-                _has_attachments(message),
-            )
+                if not self._monitoring_matches(preference, expected_generation):
+                    return None
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO gmail_personal_information_requests (
+                        workflow_id, user_id, status, gmail_message_id, gmail_thread_id,
+                        source_hmac, sender_hmac, received_at, classification_confidence,
+                        requested_field_labels, candidate_scopes, attachment_review_required
+                    ) VALUES ($1, $2, 'detected', $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)
+                    ON CONFLICT (user_id, gmail_message_id) DO NOTHING
+                    RETURNING workflow_id
+                    """,
+                    workflow_id,
+                    user_id,
+                    message_id,
+                    thread_id,
+                    _source_fingerprint(message),
+                    _sender_fingerprint(message),
+                    _message_received_at(message),
+                    classification.confidence,
+                    json.dumps(list(classification.requested_field_labels)),
+                    json.dumps(candidates),
+                    _has_attachments(message),
+                )
         return str(row["workflow_id"]) if row else None
 
     async def _classify(self, message: dict[str, Any]) -> _Classification:

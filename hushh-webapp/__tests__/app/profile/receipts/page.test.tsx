@@ -232,6 +232,7 @@ vi.mock("lucide-react", () => ({
   Search: () => <span />,
   RotateCcw: () => <span />,
   Send: () => <span />,
+  ShieldCheck: () => <span />,
   Sparkles: () => <span />,
   Trash2: () => <span />,
 }));
@@ -589,7 +590,7 @@ describe("ProfileReceiptsPage", () => {
   });
 
   it("starts Gmail sync in the background", async () => {
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     const button = screen.getByRole("button", { name: /sync receipts/i });
     expect(button.disabled).toBe(false);
@@ -606,7 +607,7 @@ describe("ProfileReceiptsPage", () => {
   });
 
   it("removes the redundant Gmail eyebrow", () => {
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(screen.queryByText(/one \/ gmail/i)).toBeNull();
   });
@@ -620,7 +621,7 @@ describe("ProfileReceiptsPage", () => {
       has_more: false,
     });
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
       await screen.findByText("Kai sees recent shopping activity."),
@@ -658,7 +659,7 @@ describe("ProfileReceiptsPage", () => {
       true,
     );
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(await screen.findByText("Preparing")).toBeTruthy();
     expect(
@@ -682,7 +683,7 @@ describe("ProfileReceiptsPage", () => {
       message: "Private memory is temporarily unavailable.",
     });
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     await screen.findByText("Kai sees recent shopping activity.");
     fireEvent.click(
@@ -699,7 +700,7 @@ describe("ProfileReceiptsPage", () => {
       isVaultUnlocked: false,
     });
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
       await screen.findByText(
@@ -733,7 +734,7 @@ describe("ProfileReceiptsPage", () => {
       },
     );
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
       (await screen.findAllByText("Page One Shop")).length,
@@ -773,13 +774,13 @@ describe("ProfileReceiptsPage", () => {
       has_more: false,
     });
 
-    const firstRender = render(<ProfileReceiptsPage />);
+    const firstRender = render(<ProfileReceiptsPage initialWorkspace="receipts" />);
     expect((await screen.findAllByText("Cached Shop")).length).toBeGreaterThan(
       0,
     );
 
     firstRender.unmount();
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect((await screen.findAllByText("Cached Shop")).length).toBeGreaterThan(
       0,
@@ -807,7 +808,7 @@ describe("ProfileReceiptsPage", () => {
       cachedResponse,
     );
 
-    const renderResult = render(<ProfileReceiptsPage />);
+    const renderResult = render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
       (await screen.findAllByText("Current Watermark Shop")).length,
@@ -861,7 +862,7 @@ describe("ProfileReceiptsPage", () => {
     });
     mocks.useGmailConnectorStatus.mockReturnValue(gmailView);
 
-    renderResult.rerender(<ProfileReceiptsPage />);
+    renderResult.rerender(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     await waitFor(() => {
       expect(
@@ -903,7 +904,7 @@ describe("ProfileReceiptsPage", () => {
       has_more: false,
     });
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
       (await screen.findAllByText("Backfill Shop")).length,
@@ -937,7 +938,7 @@ describe("ProfileReceiptsPage", () => {
       },
     } as ReturnType<typeof buildGmailView>);
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
       screen.getByRole("heading", { name: /checking your gmail status/i }),
@@ -981,7 +982,7 @@ describe("ProfileReceiptsPage", () => {
       has_more: false,
     });
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,
@@ -1022,14 +1023,14 @@ describe("ProfileReceiptsPage", () => {
       }),
     );
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
       screen.getByRole("heading", { name: /gmail not connected/i }),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /flag what needs a reply, surfaces upcoming meetings, and turns your receipts/i,
+        /syncs purchase receipts into a private shopping summary/i,
       ),
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();
@@ -1055,6 +1056,44 @@ describe("ProfileReceiptsPage", () => {
     );
     expect(assignWindowLocation).not.toHaveBeenCalled();
     expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("keeps a connect recovery action visible in every disconnected Gmail workspace", async () => {
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      makeGmailView({
+        status: {
+          configured: true,
+          connected: false,
+          status: "disconnected",
+          scope_csv: null,
+          last_sync_status: null,
+          auto_sync_enabled: false,
+          revoked: false,
+          latest_run: null,
+          google_email: null,
+        },
+        presentation: {
+          state: "disconnected",
+          badgeLabel: "Not connected",
+          description: "Gmail not connected.",
+          latestSyncText: "Connect once to sync receipts.",
+          latestSyncBadge: null,
+          isConnected: false,
+        },
+      }),
+    );
+
+    render(<ProfileReceiptsPage />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
+    expect(
+      await screen.findByRole("button", { name: /connect gmail/i }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Verification" }));
+    expect(
+      screen.getByRole("button", { name: /connect gmail/i }),
+    ).toBeVisible();
   });
 
   it("falls back to same-window OAuth when the retained popup is unavailable", async () => {
@@ -1086,7 +1125,7 @@ describe("ProfileReceiptsPage", () => {
     );
 
     try {
-      render(<ProfileReceiptsPage />);
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
       fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
 
@@ -1299,7 +1338,7 @@ describe("ProfileReceiptsPage", () => {
       google_email: "akshat@example.com",
     });
 
-    render(<ProfileReceiptsPage />);
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,

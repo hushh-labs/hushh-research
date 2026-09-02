@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
@@ -148,6 +148,22 @@ def _as_http_error(exc: Exception) -> HTTPException:
     )
 
 
+def _public_scan_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep Gmail History state server-only even if a service regresses."""
+
+    allowed = (
+        "accepted",
+        "scanned_count",
+        "unchanged_count",
+        "matched_count",
+        "failed_count",
+        "workflow_ids",
+        "baseline_established",
+        "baseline_reestablished",
+    )
+    return {key: result[key] for key in allowed if key in result}
+
+
 @router.get("/preference")
 async def get_monitoring_preference(
     user_id: str,
@@ -179,6 +195,7 @@ async def set_monitoring_preference(
 async def list_information_requests(
     limit: int = 25,
     offset: int = 0,
+    view: Literal["active", "activity"] = "active",
     firebase_uid: str = Depends(require_firebase_auth),
     token_data: dict[str, Any] = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
@@ -186,7 +203,12 @@ async def list_information_requests(
     try:
         return cast(
             dict[str, Any],
-            await _service().list_workflows(user_id=user_id, limit=limit, offset=offset),
+            await _service().list_workflows(
+                user_id=user_id,
+                limit=limit,
+                offset=offset,
+                view=view,
+            ),
         )
     except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
         raise _as_http_error(exc) from exc
@@ -200,10 +222,11 @@ async def scan_information_requests(
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
-        return cast(
+        result = cast(
             dict[str, Any],
             await _service().scan_recent(user_id=user_id, max_results=payload.max_results),
         )
+        return _public_scan_result(result)
     except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
         raise _as_http_error(exc) from exc
 

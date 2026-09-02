@@ -57,7 +57,7 @@ def test_queue_and_scan_derive_owner_without_a_caller_supplied_user_id():
     )
     with patch.object(module, "_service", return_value=service):
         client = _app()
-        list_response = client.get("/api/one/email/information-requests?limit=12")
+        list_response = client.get("/api/one/email/information-requests?limit=12&view=activity")
         scan_response = client.post(
             "/api/one/email/information-requests/scan", json={"max_results": 2}
         )
@@ -68,8 +68,27 @@ def test_queue_and_scan_derive_owner_without_a_caller_supplied_user_id():
         "user_id": "owner",
         "limit": 12,
         "offset": 0,
+        "view": "activity",
     }
     assert service.scan_recent.await_args.kwargs == {"user_id": "owner", "max_results": 2}
+
+
+def test_scan_route_never_exposes_a_gmail_history_cursor():
+    service = type("Service", (), {})()
+    service.scan_recent = AsyncMock(
+        return_value={
+            "accepted": True,
+            "scanned_count": 1,
+            "matched_count": 1,
+            "next_page_token": "opaque-gmail-page-token",
+            "next_monitor_history_id": "opaque-history-id",
+        }
+    )
+    with patch.object(module, "_service", return_value=service):
+        response = _app().post("/api/one/email/information-requests/scan", json={})
+
+    assert response.status_code == 200
+    assert response.json() == {"accepted": True, "scanned_count": 1, "matched_count": 1}
 
 
 def test_reply_routes_bind_only_a_source_derived_envelope_to_the_owner():

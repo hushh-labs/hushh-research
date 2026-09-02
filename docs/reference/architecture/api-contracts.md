@@ -262,9 +262,9 @@ server-side, then bind both actions to that source.
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | GET | `/api/one/email/information-requests/preference?user_id={user_id}` | Firebase Bearer | Read the authenticated mailbox owner's monitoring preference. |
-| PATCH | `/api/one/email/information-requests/preference` | Firebase Bearer | Explicitly enable or disable transient server-side classification for that mailbox. |
-| GET | `/api/one/email/information-requests?limit={limit}&offset={offset}` | Firebase + `VAULT_OWNER` | List a paginated metadata-only queue; no original email content is returned. |
-| POST | `/api/one/email/information-requests/scan` | Firebase + `VAULT_OWNER` | Run a bounded owner-requested scan when monitoring is enabled. |
+| PATCH | `/api/one/email/information-requests/preference` | Firebase Bearer | Explicitly enable or disable transient server-side classification for that mailbox. Enabling captures a Gmail History baseline; existing inbox mail is not scanned. |
+| GET | `/api/one/email/information-requests?limit={limit}&offset={offset}&view={active\|activity}` | Firebase + `VAULT_OWNER` | List the active detected queue (`active`, default) or terminal metadata-only activity (`activity`); no original email content is returned. |
+| POST | `/api/one/email/information-requests/scan` | Firebase + `VAULT_OWNER` | Run a bounded owner-requested scan of only unread Inbox messages added after the opt-in baseline. |
 | POST | `/api/one/email/information-requests/{workflow_id}/prepare-reply` | Firebase + `VAULT_OWNER` | Bind an owner-edited private draft to the original Gmail source and create a ten-minute send action. Caller cannot supply recipient, subject, or thread. |
 | POST | `/api/one/email/information-requests/{workflow_id}/send-reply` | Firebase + `VAULT_OWNER` | Send only the unchanged prepared reply in the server-derived Gmail thread. |
 | POST | `/api/one/email/information-requests/{workflow_id}/ignore` | Firebase + `VAULT_OWNER` | Remove a detected request from the owner queue without sending. |

@@ -167,12 +167,15 @@ export class KycIdentityProfilePkmService {
       // by the owner's explicit auto-save policy.
       writePolicy: "auto_save_only",
     });
-    if (ingestion.save.attempted > 0 && ingestion.save.saved === 0) {
+    if (ingestion.save.saved === 0) {
       return {
         ...(profileResult ?? { fullBlob: {} }),
         success: false,
         saveState: "failed",
-        message: "We couldn't save the imported details as separate memories. Try again.",
+        message:
+          ingestion.save.attempted > 0
+            ? "We couldn't save the imported details as separate memories. Try again."
+            : "No private details could be recognized. Edit the summary and try again.",
       };
     }
 
@@ -212,13 +215,6 @@ export class KycIdentityProfilePkmService {
         message:
           `Saved ${ingestion.save.saved} separate memory ${ingestion.save.saved === 1 ? "detail" : "details"}. ` +
           "Your setup status will finish syncing shortly.",
-      };
-    }
-
-    if (ingestion.save.saved === 0) {
-      return {
-        ...completionResult,
-        message: "No durable personal details were found to save.",
       };
     }
 

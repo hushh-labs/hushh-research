@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 192,
+  "expected_migration_version": 194,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -336,7 +336,10 @@
       "user_id",
       "monitoring_enabled",
       "monitoring_enabled_at",
+      "monitoring_generation",
+      "monitor_history_id",
       "monitor_cursor",
+      "monitor_message_offset",
       "scan_lease_id",
       "scan_lease_expires_at",
       "last_scan_attempted_at",

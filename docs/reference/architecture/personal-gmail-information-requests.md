@@ -12,7 +12,8 @@ platform map.
 
 ```mermaid
 flowchart LR
-  optin["Owner enables monitor"] --> scan["Bounded Gmail scan"]
+  optin["Owner enables monitor"] --> baseline["Capture Gmail history baseline"]
+  baseline --> scan["Bounded new-message scan"]
   scan --> classify["Transient classification"]
   classify --> queue["Metadata-only review queue"]
   queue --> local["Unlocked client creates draft"]
@@ -23,8 +24,11 @@ flowchart LR
 ## Current delivery slice
 
 1. An owner explicitly enables monitoring from the Gmail workspace.
-2. A separate scheduled monitor (or the owner's bounded refresh) reads recent
-   inbox messages through the existing Gmail connection.
+2. Enabling captures the connected Gmail account's current History API marker.
+   A separate scheduled monitor (or the owner's bounded refresh) then reads
+   only Inbox messages added after that marker that are still unread when the
+   monitor reaches them. Messages already in the inbox, or messages read before
+   their scan, are never scanned.
 3. Gemini classifies messages transiently as possible personal-information or
    KYC requests. It receives only the opted-in email during classification and
    must return field labels and domains, never extracted values.
@@ -52,10 +56,14 @@ flowchart LR
 entrypoint for background runs. In hosted environments it accepts only a
 signed Cloud Scheduler OIDC token with the configured audience and exact
 service-account email. It claims a short Postgres lease, scans one bounded
-Gmail page per owner, checkpoints the opaque provider cursor, and has an
-independent scan state from the receipt worker. It must be invoked by the
-platform scheduler; no receipt Pub/Sub watcher may be broadened to include
-personal inbox messages.
+Gmail History page per owner, and checkpoints an opaque History baseline,
+page token, and private intra-page offset. This bounds message hydration even
+when a History record contains many messages. A monotonic opt-in generation
+prevents an in-flight scan from writing after monitoring is disabled or
+re-enabled. An expired Gmail History cursor is re-baselined without scanning
+older mail. This state is independent from the receipt worker. It must be
+invoked by the platform scheduler; no receipt Pub/Sub watcher may be broadened
+to include personal inbox messages.
 
 The operator-owned UAT scheduler shape is
 `deploy/gmail/setup_personal_information_request_monitor_scheduler.sh`. It
@@ -65,15 +73,16 @@ scheduler.
 
 ## Consent boundary
 
-Enabling the monitor authorizes only temporary classification of recent inbox
-messages. It does **not** authorize a disclosure or a send. Before a draft is
-created, the owner explicitly selects exact candidate leaf scopes; the
-unlocked client reads only their declared PKM segments, projects only those
-paths, and keeps the resulting draft in memory. The server never receives a
-PKM value until the owner submits the edited body for the final source-bound
-Gmail action. Turning monitoring off immediately deletes this monitor's queue
-and scan metadata and prevents an in-flight classifier from inserting new
-metadata.
+Enabling the monitor authorizes only temporary classification of new unread
+Inbox messages after its captured start point. An email read before the monitor
+reaches it is intentionally skipped rather than backfilled. It does **not** authorize a disclosure
+or a send. Before a draft is created, the owner explicitly selects exact
+candidate leaf scopes; the unlocked client reads only their declared PKM
+segments, projects only those paths, and keeps the resulting draft in memory.
+The server never receives a PKM value until the owner submits the edited body
+for the final source-bound Gmail action. Turning monitoring off immediately
+deletes this monitor's queue and scan metadata and prevents an in-flight
+classifier from inserting new metadata.
 
 Managed drafting that receives decrypted private values requires a distinct,
 independently revocable `agent.email.disclose.llm` consent before it can be

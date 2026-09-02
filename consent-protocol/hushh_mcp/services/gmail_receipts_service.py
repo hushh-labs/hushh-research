@@ -2306,7 +2306,7 @@ class GmailReceiptsService:
             if message_id:
                 message_ids.append(message_id)
         if not message_ids:
-            return []
+            return [], None
         results = await asyncio.gather(
             *[
                 self._get_message_full(access_token=access_token, gmail_message_id=message_id)
@@ -2327,6 +2327,104 @@ class GmailReceiptsService:
                 messages.append(result)
         next_page_token = _clean_text(listing.get("nextPageToken")) or None
         return messages, next_page_token
+
+    async def capture_personal_inbox_monitor_history_id(self, *, user_id: str) -> str:
+        """Capture a forward-only Gmail History checkpoint for a new opt-in."""
+
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
+        history_id = _history_id_text(profile.get("historyId"))
+        if not history_id:
+            raise GmailApiError(
+                "Gmail could not establish a monitoring starting point. Try again.",
+                status_code=503,
+                code="GMAIL_MONITOR_HISTORY_UNAVAILABLE",
+            )
+        return history_id
+
+    async def list_personal_inbox_monitor_history_page(
+        self,
+        *,
+        user_id: str,
+        start_history_id: str,
+        page_token: str | None = None,
+        message_offset: int = 0,
+        limit: int = 25,
+    ) -> tuple[list[dict[str, Any]], str | None, str | None, int | None]:
+        """Return inbox messages added after a monitor's saved history checkpoint.
+
+        This never falls back to an inbox search. A missing or expired history
+        cursor is handled by the caller by capturing a new checkpoint without
+        reading existing email.
+        """
+
+        checkpoint = _history_id_text(start_history_id)
+        if not checkpoint:
+            raise GmailApiError(
+                "Gmail monitoring needs a valid starting point.",
+                status_code=409,
+                code="GMAIL_MONITOR_HISTORY_UNAVAILABLE",
+            )
+        bounded_limit = max(1, min(int(limit or 25), 25))
+        bounded_offset = max(0, int(message_offset or 0))
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        history = await self._list_history(
+            access_token=access_token,
+            start_history_id=checkpoint,
+            page_token=page_token,
+            max_results=bounded_limit,
+            history_types=("messageAdded",),
+        )
+        # Gmail's ``maxResults`` bounds History records, not the number of
+        # messages nested in those records.  Carry a private offset through a
+        # History page so one unusually dense record cannot fan out to an
+        # unbounded number of message fetches or silently skip its tail.
+        message_ids = self._message_ids_from_history(history)
+        page_message_ids = message_ids[bounded_offset : bounded_offset + bounded_limit]
+        results = await asyncio.gather(
+            *[
+                self._get_message_full(access_token=access_token, gmail_message_id=message_id)
+                for message_id in page_message_ids
+            ],
+            return_exceptions=True,
+        )
+        messages: list[dict[str, Any]] = []
+        for _message_id, result in zip(page_message_ids, results, strict=False):
+            if isinstance(result, Exception):
+                # Do not advance the monitor checkpoint if even one source
+                # message could not be read. The caller retries the same
+                # bounded slice instead of permanently dropping that email.
+                raise GmailApiError(
+                    "Gmail could not read a new monitored message. Try again.",
+                    status_code=503,
+                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                )
+            if not isinstance(result, dict):
+                raise GmailApiError(
+                    "Gmail returned an invalid monitored message. Try again.",
+                    status_code=503,
+                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                )
+            labels = {
+                _clean_text(label).upper()
+                for label in result.get("labelIds", [])
+                if _clean_text(label)
+            }
+            # Personal-information monitoring is deliberately narrower than
+            # receipt sync: after its opt-in History checkpoint it considers
+            # only messages that are still unread in the Inbox. A message read
+            # before this bounded scan is intentionally skipped rather than
+            # searched or backfilled later.
+            if "INBOX" in labels and "UNREAD" in labels and "SENT" not in labels:
+                messages.append(result)
+        return (
+            messages,
+            _clean_text(history.get("nextPageToken")) or None,
+            _history_id_text(history.get("historyId")),
+            bounded_offset + len(page_message_ids)
+            if bounded_offset + len(page_message_ids) < len(message_ids)
+            else None,
+        )
 
     async def get_personal_inbox_message_for_monitoring(
         self, *, user_id: str, gmail_message_id: str
@@ -2354,11 +2452,12 @@ class GmailReceiptsService:
         start_history_id: str,
         page_token: str | None,
         max_results: int = 100,
+        history_types: tuple[str, ...] = ("messageAdded", "labelAdded"),
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "startHistoryId": start_history_id,
             "maxResults": max_results,
-            "historyTypes": ["messageAdded", "labelAdded"],
+            "historyTypes": list(history_types),
         }
         if _clean_text(page_token):
             params["pageToken"] = _clean_text(page_token)

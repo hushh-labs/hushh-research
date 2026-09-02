@@ -56,7 +56,7 @@ class GmailReconcileRequest(BaseModel):
 
 
 class GmailReceiptMemoryPreviewRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
     force_refresh: bool = False
 
 

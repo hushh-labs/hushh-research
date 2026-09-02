@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_gmail_personal_information_requests_retention
   ON gmail_personal_information_requests (updated_at);
 
 COMMENT ON COLUMN gmail_personal_information_request_preferences.monitor_cursor IS
-  'Opaque Gmail page token used only by the background monitor; never browser-visible.';
+  'Opaque Gmail History API page token used only by the background monitor; never browser-visible.';
 COMMENT ON COLUMN gmail_personal_information_request_preferences.scan_lease_id IS
   'Short-lived Postgres coordination lease for one monitor run; Redis-compatible seam.';
 COMMENT ON COLUMN gmail_personal_information_requests.attachment_review_required IS

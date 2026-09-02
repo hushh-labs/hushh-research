@@ -66,7 +66,7 @@ describe("KycIdentityProfilePkmService", () => {
     });
   });
 
-  it("completes KYC without writing junk when no cards qualify for auto-save", async () => {
+  it("keeps KYC incomplete when no private detail qualifies for auto-save", async () => {
     (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValue({ success: true, saveState: "saved", fullBlob: {} });
     ingestionMocks.ingestNaturalLanguagePkm.mockResolvedValue({
       preview: { cards: [] },
@@ -77,9 +77,9 @@ describe("KycIdentityProfilePkmService", () => {
       userId: "user_1", vaultKey: "vault-key", vaultOwnerToken: "owner-token",
       profile: { aboutMe: "Thanks for helping with this form." },
     })).resolves.toMatchObject({
-      success: true,
-      message: "No durable personal details were found to save.",
+      success: false,
+      message: "No private details could be recognized. Edit the summary and try again.",
     });
-    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
   });
 });

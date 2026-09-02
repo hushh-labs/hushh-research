@@ -139,6 +139,168 @@ async def test_personal_monitor_inbox_page_keeps_gmail_cursor_server_side(monkey
 
 
 @pytest.mark.asyncio
+async def test_personal_monitor_inbox_page_returns_an_empty_page_tuple(monkeypatch):
+    service = GmailReceiptsService()
+
+    async def ensure_access_token(*, user_id: str):
+        assert user_id == "owner"
+        return "access-token", {}
+
+    async def list_messages(**_kwargs):
+        return {}
+
+    monkeypatch.setattr(service, "_ensure_access_token", ensure_access_token)
+    monkeypatch.setattr(service, "_list_messages", list_messages)
+
+    messages, next_page_token = await service.list_personal_inbox_monitor_page(
+        user_id="owner",
+    )
+
+    assert messages == []
+    assert next_page_token is None
+
+
+@pytest.mark.asyncio
+async def test_personal_monitor_history_page_reads_only_new_inbox_messages(monkeypatch):
+    service = GmailReceiptsService()
+    captured: dict[str, object] = {}
+
+    async def ensure_access_token(*, user_id: str):
+        assert user_id == "owner"
+        return "access-token", {}
+
+    async def list_history(**kwargs):
+        captured.update(kwargs)
+        return {
+            "history": [
+                {"messagesAdded": [{"message": {"id": "inbox-message"}}]},
+                {"messagesAdded": [{"message": {"id": "read-message"}}]},
+                {"messagesAdded": [{"message": {"id": "sent-message"}}]},
+            ],
+            "nextPageToken": "next-history-page",
+            "historyId": "history-high-water",
+        }
+
+    async def get_full(*, access_token: str, gmail_message_id: str):
+        return {
+            "id": gmail_message_id,
+            "threadId": f"thread-{gmail_message_id}",
+            "labelIds": (
+                ["INBOX", "UNREAD"]
+                if gmail_message_id == "inbox-message"
+                else ["INBOX"]
+                if gmail_message_id == "read-message"
+                else ["SENT"]
+            ),
+        }
+
+    monkeypatch.setattr(service, "_ensure_access_token", ensure_access_token)
+    monkeypatch.setattr(service, "_list_history", list_history)
+    monkeypatch.setattr(service, "_get_message_full", get_full)
+
+    history_page_token = "history-page-token"
+    (
+        messages,
+        next_page_token,
+        high_water,
+        next_message_offset,
+    ) = await service.list_personal_inbox_monitor_history_page(
+        user_id="owner",
+        start_history_id="history-at-opt-in",
+        page_token=history_page_token,
+        limit=99,
+    )
+
+    assert [message["id"] for message in messages] == ["inbox-message"]
+    assert next_page_token == "next-history-page"
+    assert high_water == "history-high-water"
+    assert next_message_offset is None
+    assert captured["start_history_id"] == "history-at-opt-in"
+    assert captured["page_token"] == "history-page-token"
+    assert captured["max_results"] == 25
+    assert captured["history_types"] == ("messageAdded",)
+
+
+@pytest.mark.asyncio
+async def test_personal_monitor_history_page_bounds_message_hydration_with_a_private_offset(
+    monkeypatch,
+):
+    service = GmailReceiptsService()
+    fetched: list[str] = []
+
+    async def ensure_access_token(*, user_id: str):
+        assert user_id == "owner"
+        return "access-token", {}
+
+    async def list_history(**_kwargs):
+        return {
+            "history": [
+                {"messagesAdded": [{"message": {"id": f"message-{index}"}} for index in range(5)]}
+            ],
+            "historyId": "history-high-water",
+        }
+
+    async def get_full(*, access_token: str, gmail_message_id: str):
+        fetched.append(gmail_message_id)
+        return {
+            "id": gmail_message_id,
+            "threadId": f"thread-{gmail_message_id}",
+            "labelIds": ["INBOX", "UNREAD"],
+        }
+
+    monkeypatch.setattr(service, "_ensure_access_token", ensure_access_token)
+    monkeypatch.setattr(service, "_list_history", list_history)
+    monkeypatch.setattr(service, "_get_message_full", get_full)
+
+    (
+        messages,
+        next_page_token,
+        high_water,
+        next_message_offset,
+    ) = await service.list_personal_inbox_monitor_history_page(
+        user_id="owner",
+        start_history_id="history-at-opt-in",
+        message_offset=2,
+        limit=2,
+    )
+
+    assert [message["id"] for message in messages] == ["message-2", "message-3"]
+    assert fetched == ["message-2", "message-3"]
+    assert next_page_token is None
+    assert high_water == "history-high-water"
+    assert next_message_offset == 4
+
+
+@pytest.mark.asyncio
+async def test_personal_monitor_history_page_does_not_skip_a_failed_message_fetch(monkeypatch):
+    service = GmailReceiptsService()
+
+    async def ensure_access_token(*, user_id: str):
+        return "access-token", {}
+
+    async def list_history(**_kwargs):
+        return {
+            "history": [{"messagesAdded": [{"message": {"id": "message-1"}}]}],
+            "historyId": "history-high-water",
+        }
+
+    async def get_full(**_kwargs):
+        raise RuntimeError("provider timeout")
+
+    monkeypatch.setattr(service, "_ensure_access_token", ensure_access_token)
+    monkeypatch.setattr(service, "_list_history", list_history)
+    monkeypatch.setattr(service, "_get_message_full", get_full)
+
+    with pytest.raises(GmailApiError) as error:
+        await service.list_personal_inbox_monitor_history_page(
+            user_id="owner",
+            start_history_id="history-at-opt-in",
+        )
+
+    assert error.value.code == "GMAIL_MONITOR_MESSAGE_FETCH_FAILED"
+
+
+@pytest.mark.asyncio
 async def test_gmail_send_requires_the_owner_local_send_toggle(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
@@ -198,6 +360,111 @@ def test_personal_monitor_migration_is_metadata_only():
     assert "sender_email TEXT" not in migration
     assert "source_hmac" in migration
     assert "sender_hmac" in migration
+
+
+def test_personal_monitor_history_cursor_prevents_inbox_backfill():
+    migration = (
+        Path(__file__).parents[2]
+        / "db/migrations/193_gmail_personal_information_request_monitor_history_cursor.sql"
+    ).read_text()
+    source = Path(monitor_module.__file__).read_text()
+
+    assert "monitor_history_id TEXT" in migration
+    assert "prevents historical inbox backfill" in migration
+    assert "list_personal_inbox_monitor_history_page" in source
+    assert "list_personal_inbox_monitor_page(" not in source
+
+
+@pytest.mark.asyncio
+async def test_missing_history_checkpoint_only_establishes_a_baseline(monkeypatch):
+    class GmailService:
+        async def capture_personal_inbox_monitor_history_id(self, *, user_id: str):
+            assert user_id == "owner"
+            return "history-at-opt-in"
+
+        async def list_personal_inbox_monitor_history_page(self, **_kwargs):
+            raise AssertionError("existing inbox mail must not be listed at opt-in")
+
+    service = PersonalGmailInformationRequestService(gmail_service=GmailService())
+    checkpoints: list[dict[str, object]] = []
+
+    async def monitor_state(*, user_id: str):
+        assert user_id == "owner"
+        return {
+            "monitor_history_id": None,
+            "monitor_cursor": None,
+            "monitor_message_offset": 0,
+            "monitoring_generation": 1,
+        }
+
+    async def set_checkpoint(**kwargs):
+        checkpoints.append(kwargs)
+        return True
+
+    monkeypatch.setattr(service, "_monitor_state", monitor_state)
+    monkeypatch.setattr(service, "_set_monitor_checkpoint", set_checkpoint)
+
+    result = await service.scan_recent(user_id="owner")
+
+    assert result["baseline_established"] is True
+    assert result["scanned_count"] == 0
+    assert checkpoints == [
+        {
+            "user_id": "owner",
+            "monitor_history_id": "history-at-opt-in",
+            "monitor_cursor": None,
+            "monitor_message_offset": 0,
+            "expected_generation": 1,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_incomplete_classification_does_not_advance_the_monitor_checkpoint(monkeypatch):
+    class GmailService:
+        async def list_personal_inbox_monitor_history_page(self, **_kwargs):
+            return [_message()], None, "history-high-water", None
+
+    service = PersonalGmailInformationRequestService(gmail_service=GmailService())
+    checkpoints: list[dict[str, object]] = []
+
+    async def monitor_state(*, user_id: str):
+        return {
+            "monitor_history_id": "history-at-opt-in",
+            "monitor_cursor": None,
+            "monitor_message_offset": 0,
+            "monitoring_generation": 7,
+        }
+
+    async def scan_state(**_kwargs):
+        return {}
+
+    async def classify_and_record(**_kwargs):
+        raise monitor_module.PersonalGmailInformationRequestError(
+            "temporary classifier failure",
+            code="PERSONAL_GMAIL_CLASSIFIER_UNAVAILABLE",
+            status_code=503,
+        )
+
+    async def set_checkpoint(**kwargs):
+        checkpoints.append(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        monitor_module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    monkeypatch.setattr(service, "_monitor_state", monitor_state)
+    monkeypatch.setattr(service, "_scan_state_by_message", scan_state)
+    monkeypatch.setattr(service, "_classify_and_record", classify_and_record)
+    monkeypatch.setattr(service, "_set_monitor_checkpoint", set_checkpoint)
+
+    with pytest.raises(monitor_module.PersonalGmailInformationRequestError) as error:
+        await service.scan_recent(user_id="owner")
+
+    assert error.value.code == "PERSONAL_GMAIL_CLASSIFICATION_INCOMPLETE"
+    assert checkpoints == []
 
 
 def test_personal_monitor_scan_deduplication_is_metadata_only():

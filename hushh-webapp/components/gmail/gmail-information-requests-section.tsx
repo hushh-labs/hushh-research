@@ -1,11 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Mail } from "lucide-react";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/lib/morphy-ux/button";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manifest";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
@@ -48,7 +60,9 @@ export function isExactDraftCandidate(
     /^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(path) &&
     !path.includes("*") &&
     candidate.segment_ids.length === 1 &&
-    /^[a-z0-9_]{1,64}$/.test(candidate.segment_ids[0]?.trim().toLowerCase() || "")
+    /^[a-z0-9_]{1,64}$/.test(
+      candidate.segment_ids[0]?.trim().toLowerCase() || "",
+    )
   );
 }
 
@@ -126,16 +140,24 @@ function WorkflowCard({
     <div className="space-y-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <p className="text-sm font-semibold text-foreground">Information requested</p>
-          <p className="truncate text-xs text-muted-foreground">{fieldLabels(workflow)}</p>
+          <p className="text-sm font-semibold text-foreground">
+            Information requested
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {fieldLabels(workflow)}
+          </p>
           {workflow.received_at ? (
             <p className="text-xs text-muted-foreground">
-              Received {new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(workflow.received_at))}
+              Received{" "}
+              {new Intl.DateTimeFormat(undefined, {
+                dateStyle: "medium",
+              }).format(new Date(workflow.received_at))}
             </p>
           ) : null}
           {workflow.attachment_review_required ? (
             <p className="text-xs text-amber-700 dark:text-amber-300">
-              This email has attachments. Review them in Gmail; attachments are not read automatically.
+              This email has attachments. Review them in Gmail; attachments are
+              not read automatically.
             </p>
           ) : null}
           {candidates.length ? (
@@ -150,14 +172,17 @@ function WorkflowCard({
                   aria-pressed={selectedScopes.includes(scope.scope)}
                   onClick={() => onToggleScope(scope.scope)}
                 >
-                  {selectedScopes.includes(scope.scope) ? "Selected: " : "Available: "}
+                  {selectedScopes.includes(scope.scope)
+                    ? "Selected: "
+                    : "Available: "}
                   {scope.label}
                 </Button>
               ))}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No matching private information is available for an automatic draft.
+              No matching private information is available for an automatic
+              draft.
             </p>
           )}
         </div>
@@ -167,12 +192,22 @@ function WorkflowCard({
               type="button"
               variant="muted"
               size="sm"
-              onClick={() => openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))}
+              className="min-h-11"
+              onClick={() =>
+                openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))
+              }
             >
               Open email
             </Button>
           ) : null}
-          <Button type="button" variant="muted" size="sm" disabled={busy} onClick={onIgnore}>
+          <Button
+            type="button"
+            variant="muted"
+            size="sm"
+            className="min-h-11"
+            disabled={busy}
+            onClick={onIgnore}
+          >
             Ignore
           </Button>
           {candidates.length ? (
@@ -180,6 +215,7 @@ function WorkflowCard({
               type="button"
               variant="muted"
               size="sm"
+              className="min-h-11"
               disabled={busy || !selectedScopes.length}
               onClick={onPrepareDraft}
             >
@@ -198,21 +234,41 @@ function WorkflowCard({
           />
           {draft.preview ? (
             <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              <p><span className="font-medium text-foreground">To:</span> {draft.preview.to.join(", ")}</p>
-              {draft.preview.cc.length ? <p><span className="font-medium text-foreground">Cc:</span> {draft.preview.cc.join(", ")}</p> : null}
-              <p><span className="font-medium text-foreground">Subject:</span> {draft.preview.subject}</p>
-              <p className="pt-1">This reply stays in the original Gmail thread.</p>
+              <p>
+                <span className="font-medium text-foreground">To:</span>{" "}
+                {draft.preview.to.join(", ")}
+              </p>
+              {draft.preview.cc.length ? (
+                <p>
+                  <span className="font-medium text-foreground">Cc:</span>{" "}
+                  {draft.preview.cc.join(", ")}
+                </p>
+              ) : null}
+              <p>
+                <span className="font-medium text-foreground">Subject:</span>{" "}
+                {draft.preview.subject}
+              </p>
+              <p className="pt-1">
+                This reply stays in the original Gmail thread.
+              </p>
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
             {draft.actionId ? (
-              <Button type="button" size="sm" disabled={busy} onClick={onSend}>
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-11"
+                disabled={busy}
+                onClick={onSend}
+              >
                 {busy ? "Sending…" : "Send approved reply"}
               </Button>
             ) : (
               <Button
                 type="button"
                 size="sm"
+                className="min-h-11"
                 disabled={busy || !draft.body.trim()}
                 onClick={onPrepareSend}
               >
@@ -226,6 +282,100 @@ function WorkflowCard({
             </p>
           </div>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkflowQueueCard({
+  workflow,
+  onReview,
+}: {
+  workflow: GmailInformationRequestWorkflow;
+  onReview: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3.5">
+      <div className="flex min-w-0 gap-3">
+        <div className="rounded-xl bg-primary/10 p-2 text-primary">
+          <Mail className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm font-semibold text-foreground">
+            Information requested
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {fieldLabels(workflow)}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {workflow.received_at
+              ? `Received ${new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "medium",
+                }).format(new Date(workflow.received_at))}`
+              : "New request"}
+            {workflow.attachment_review_required
+              ? " · Attachment included"
+              : ""}
+          </p>
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="muted"
+        size="sm"
+        className="min-h-11 shrink-0"
+        onClick={onReview}
+      >
+        Review
+      </Button>
+    </div>
+  );
+}
+
+function ActivityCard({
+  workflow,
+}: {
+  workflow: GmailInformationRequestWorkflow;
+}) {
+  const label =
+    workflow.status === "sent"
+      ? "Reply sent"
+      : workflow.status === "ignored"
+        ? "Request ignored"
+        : workflow.status === "blocked"
+          ? "Request blocked"
+          : "Needs attention";
+  const timestamp =
+    workflow.updated_at || workflow.received_at || workflow.created_at;
+
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
+      <div className="min-w-0 space-y-1">
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {fieldLabels(workflow)}
+        </p>
+        {timestamp ? (
+          <p className="text-xs text-muted-foreground">
+            {new Intl.DateTimeFormat(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(timestamp))}
+          </p>
+        ) : null}
+      </div>
+      {workflow.gmail_thread_id ? (
+        <Button
+          type="button"
+          variant="muted"
+          size="sm"
+          className="shrink-0"
+          onClick={() =>
+            openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))
+          }
+        >
+          Open Gmail
+        </Button>
       ) : null}
     </div>
   );
@@ -249,6 +399,9 @@ export default function GmailInformationRequestsSection({
   const [workflows, setWorkflows] = useState<GmailInformationRequestWorkflow[]>(
     [],
   );
+  const [activityWorkflows, setActivityWorkflows] = useState<
+    GmailInformationRequestWorkflow[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -274,13 +427,29 @@ export default function GmailInformationRequestsSection({
   const [busyWorkflowId, setBusyWorkflowId] = useState<string | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+  const [listView, setListView] = useState<"requests" | "activity">("requests");
+  const [activityLoaded, setActivityLoaded] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityNextOffset, setActivityNextOffset] = useState<number | null>(null);
+  const [activityTotalCount, setActivityTotalCount] = useState(0);
+  const [showDisableConfirm, setShowDisableConfirm] = useState(false);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
+    null,
+  );
+  const idTokenProviderRef = useRef(idTokenProvider);
+  const activityLoadingRef = useRef(false);
+
+  useEffect(() => {
+    idTokenProviderRef.current = idTokenProvider;
+  }, [idTokenProvider]);
 
   const load = useCallback(async () => {
-    if (!isConnected || !userId || !idTokenProvider) return;
+    const tokenProvider = idTokenProviderRef.current;
+    if (!isConnected || !userId || !tokenProvider) return;
     setLoading(true);
     setError(null);
     try {
-      const firebaseIdToken = await idTokenProvider();
+      const firebaseIdToken = await tokenProvider();
       const nextPreference =
         await GmailInformationRequestsService.getPreference({
           userId,
@@ -301,14 +470,16 @@ export default function GmailInformationRequestsSection({
         setNextOffset(null);
         setTotalCount(0);
       }
-    } catch {
+    } catch (loadError) {
       setError(
-        "Personal information-request monitoring is unavailable right now.",
+        loadError instanceof Error
+          ? loadError.message
+          : "Personal information-request monitoring is unavailable right now.",
       );
     } finally {
       setLoading(false);
     }
-  }, [idTokenProvider, isConnected, userId, vaultOwnerToken]);
+  }, [isConnected, userId, vaultOwnerToken]);
 
   useEffect(() => {
     void load();
@@ -316,7 +487,7 @@ export default function GmailInformationRequestsSection({
 
   const setMonitoring = useCallback(
     async (enabled: boolean) => {
-      if (!userId || !idTokenProvider) return;
+      if (!userId || !idTokenProvider) return false;
       setUpdating(true);
       setError(null);
       try {
@@ -329,10 +500,18 @@ export default function GmailInformationRequestsSection({
         setPreference(next);
         if (!enabled) {
           setWorkflows([]);
+          setActivityWorkflows([]);
           setSelectedScopes({});
           setDrafts({});
           setNextOffset(null);
           setTotalCount(0);
+          setActivityLoaded(false);
+          setActivityLoading(false);
+          setActivityNextOffset(null);
+          setActivityTotalCount(0);
+          activityLoadingRef.current = false;
+          setListView("requests");
+          setSelectedWorkflowId(null);
         } else if (vaultOwnerToken) {
           const response = await GmailInformationRequestsService.list({
             firebaseIdToken,
@@ -343,10 +522,14 @@ export default function GmailInformationRequestsSection({
           setNextOffset(response.next_offset);
           setTotalCount(response.total_count);
         }
-      } catch {
+        return true;
+      } catch (updateError) {
         setError(
-          "We could not update personal information-request monitoring.",
+          updateError instanceof Error
+            ? updateError.message
+            : "We could not update personal information-request monitoring.",
         );
+        return false;
       } finally {
         setUpdating(false);
       }
@@ -401,6 +584,51 @@ export default function GmailInformationRequestsSection({
     }
   }, [idTokenProvider, nextOffset, vaultOwnerToken]);
 
+  const loadActivity = useCallback(async (append = false) => {
+    if (
+      !vaultOwnerToken ||
+      !idTokenProvider ||
+      activityLoadingRef.current ||
+      (append && activityNextOffset === null)
+    ) {
+      return;
+    }
+    activityLoadingRef.current = true;
+    setActivityLoading(true);
+    setError(null);
+    try {
+      const firebaseIdToken = await idTokenProvider();
+      const response = await GmailInformationRequestsService.list({
+        firebaseIdToken,
+        vaultOwnerToken,
+        limit: 25,
+        offset: append ? activityNextOffset || 0 : 0,
+        view: "activity",
+      });
+      setActivityWorkflows((current) =>
+        append ? [...current, ...response.workflows] : response.workflows,
+      );
+      setActivityNextOffset(response.next_offset);
+      setActivityTotalCount(response.total_count);
+      setActivityLoaded(true);
+    } catch {
+      setError("We could not load verification activity.");
+    } finally {
+      activityLoadingRef.current = false;
+      setActivityLoading(false);
+    }
+  }, [activityNextOffset, idTokenProvider, vaultOwnerToken]);
+
+  const changeListView = useCallback(
+    (next: "requests" | "activity") => {
+      setListView(next);
+      if (next === "activity" && !activityLoaded && !activityLoadingRef.current) {
+        void loadActivity();
+      }
+    },
+    [activityLoaded, loadActivity],
+  );
+
   const toggleScope = useCallback((workflowId: string, scope: string) => {
     setSelectedScopes((current) => {
       const selected = current[workflowId] || [];
@@ -447,9 +675,13 @@ export default function GmailInformationRequestsSection({
             domain: candidate.domain,
             scope: candidate.scope,
             domainData: snapshot?.data || {},
-            approvedPaths: [candidate.scope.slice(`attr.${candidate.domain}.`.length)],
+            approvedPaths: [
+              candidate.scope.slice(`attr.${candidate.domain}.`.length),
+            ],
           });
-          lines.push(...valuesForDraft(projection[candidate.domain], candidate.label));
+          lines.push(
+            ...valuesForDraft(projection[candidate.domain], candidate.label),
+          );
         }
         if (!lines.length) {
           throw new Error(
@@ -543,10 +775,22 @@ export default function GmailInformationRequestsSection({
             return remaining;
           });
           setSelectedScopes((current) => {
-            const { [workflow.workflow_id]: _discarded, ...remaining } = current;
+            const { [workflow.workflow_id]: _discarded, ...remaining } =
+              current;
             return remaining;
           });
           setTotalCount((current) => Math.max(0, current - 1));
+          setSelectedWorkflowId(null);
+          setActivityWorkflows((current) => [
+            {
+              ...workflow,
+              status: "sent",
+              updated_at: new Date().toISOString(),
+            },
+            ...current.filter(
+              (item) => item.workflow_id !== workflow.workflow_id,
+            ),
+          ]);
         } else {
           setError(
             "Gmail did not confirm delivery. Check Sent Mail before trying again.",
@@ -587,6 +831,17 @@ export default function GmailInformationRequestsSection({
           return remaining;
         });
         setTotalCount((current) => Math.max(0, current - 1));
+        setSelectedWorkflowId(null);
+        setActivityWorkflows((current) => [
+          {
+            ...workflow,
+            status: "ignored",
+            updated_at: new Date().toISOString(),
+          },
+          ...current.filter(
+            (item) => item.workflow_id !== workflow.workflow_id,
+          ),
+        ]);
       } catch {
         setError("We could not ignore this information request.");
       } finally {
@@ -599,15 +854,17 @@ export default function GmailInformationRequestsSection({
   if (!isConnected) return null;
 
   const enabled = preference?.monitoring_enabled === true;
+  const selectedWorkflow = workflows.find(
+    (workflow) => workflow.workflow_id === selectedWorkflowId,
+  );
   return (
     <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="font-medium text-foreground">Information requests</p>
+          <p className="font-medium text-foreground">Verification requests</p>
           <p className="text-sm leading-6 text-muted-foreground">
-            Find verification and KYC-style requests in your personal Gmail.
-            Every future disclosure still needs a scoped review and an explicit
-            send approval.
+            Review new requests, choose the details to share, and approve every
+            reply.
           </p>
         </div>
         {enabled ? <Badge variant="secondary">Monitoring on</Badge> : null}
@@ -618,29 +875,36 @@ export default function GmailInformationRequestsSection({
           <div className="flex items-start gap-2">
             <Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
             <p>
-              Hussh temporarily classifies recent inbox messages and retains
-              only request metadata, never the email body, subject, addresses,
-              or your private information.
+              We check only new unread Inbox messages after monitoring starts.
+              Request metadata is retained; email content and private details
+              are not.
             </p>
           </div>
         </div>
       ) : (
         <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
-          Turn this on to allow server-side background classification of your
-          recent personal Gmail messages. It does not grant permission to share
-          private information or send email.
+          Check new unread Inbox messages for verification requests. Existing
+          email is never scanned, and monitoring never grants sharing or send
+          permission.
         </div>
       )}
 
-      {error ? <p role="alert" className="text-xs text-red-600">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="text-xs text-red-600">
+          {error}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           size="sm"
+          className="min-h-11"
           variant={enabled ? "muted" : "blue-gradient"}
           disabled={updating || loading}
-          onClick={() => void setMonitoring(!enabled)}
+          onClick={() =>
+            enabled ? setShowDisableConfirm(true) : void setMonitoring(true)
+          }
         >
           {updating ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -653,14 +917,17 @@ export default function GmailInformationRequestsSection({
           <Button
             type="button"
             size="sm"
+            className="min-h-11"
             variant="muted"
             disabled={loading}
-            onClick={() => (vaultOwnerToken ? void scan() : onRequestVaultUnlock())}
+            onClick={() =>
+              vaultOwnerToken ? void scan() : onRequestVaultUnlock()
+            }
           >
             {loading
               ? "Checking…"
               : vaultOwnerToken
-                ? "Check recent inbox"
+                ? "Check new messages"
                 : "Unlock to check inbox"}
           </Button>
         ) : null}
@@ -668,38 +935,52 @@ export default function GmailInformationRequestsSection({
 
       {enabled && !vaultOwnerToken ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <p>Unlock your private vault to view requests, check Gmail, or prepare a draft.</p>
-          <Button type="button" size="sm" variant="muted" onClick={onRequestVaultUnlock}>
+          <p>
+            Unlock your private vault to view requests, check Gmail, or prepare
+            a draft.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="muted"
+            onClick={onRequestVaultUnlock}
+          >
             Unlock private vault
           </Button>
         </div>
       ) : null}
 
-      {enabled && workflows.length ? (
-        <div className="space-y-2">
+      {enabled && vaultOwnerToken ? (
+        <SegmentedTabs
+          value={listView}
+          onValueChange={(next) =>
+            changeListView(next as "requests" | "activity")
+          }
+          options={[
+            {
+              value: "requests",
+              label: `Requests${totalCount ? ` (${totalCount})` : ""}`,
+            },
+            {
+              value: "activity",
+              label: `Activity${activityTotalCount ? ` (${activityTotalCount})` : ""}`,
+            },
+          ]}
+          mobileColumns={2}
+          ariaLabel="Verification request views"
+        />
+      ) : null}
+
+      {enabled && listView === "requests" && workflows.length ? (
+        <div className="space-y-2" role="tabpanel" aria-label="Verification requests">
           <p className="text-xs text-muted-foreground">
             Showing {workflows.length} of {totalCount} requests
           </p>
           {workflows.map((workflow) => (
-            <WorkflowCard
+            <WorkflowQueueCard
               key={workflow.workflow_id}
               workflow={workflow}
-              selectedScopes={selectedScopes[workflow.workflow_id] || []}
-              onToggleScope={(scope) =>
-                toggleScope(workflow.workflow_id, scope)
-              }
-              draft={drafts[workflow.workflow_id]}
-              busy={busyWorkflowId === workflow.workflow_id}
-              onPrepareDraft={() => void prepareDraft(workflow)}
-              onPrepareSend={() => void prepareSend(workflow)}
-              onSend={() => void sendReply(workflow)}
-              onIgnore={() => void ignoreWorkflow(workflow)}
-              onDraftChange={(body) =>
-                setDrafts((current) => ({
-                  ...current,
-                  [workflow.workflow_id]: { body },
-                }))
-              }
+              onReview={() => setSelectedWorkflowId(workflow.workflow_id)}
             />
           ))}
           {nextOffset !== null ? (
@@ -714,11 +995,102 @@ export default function GmailInformationRequestsSection({
             </Button>
           ) : null}
         </div>
-      ) : enabled && vaultOwnerToken && !loading ? (
+      ) : enabled && listView === "requests" && vaultOwnerToken && !loading ? (
         <p className="text-xs text-muted-foreground">
-          No information requests found yet.
+          No verification requests found yet.
         </p>
       ) : null}
+
+      {enabled && listView === "activity" && activityWorkflows.length ? (
+        <div className="space-y-2" role="tabpanel" aria-label="Verification activity">
+          {activityWorkflows.map((workflow) => (
+            <ActivityCard key={workflow.workflow_id} workflow={workflow} />
+          ))}
+          {activityNextOffset !== null ? (
+            <Button
+              type="button"
+              variant="muted"
+              size="sm"
+              className="min-h-11"
+              disabled={activityLoading}
+              onClick={() => void loadActivity(true)}
+            >
+              {activityLoading ? "Loading activity…" : "Load more activity"}
+            </Button>
+          ) : null}
+        </div>
+      ) : enabled && listView === "activity" && activityLoading ? (
+        <p aria-live="polite" className="text-xs text-muted-foreground">
+          Loading activity…
+        </p>
+      ) : enabled && listView === "activity" && activityLoaded ? (
+        <p className="text-xs text-muted-foreground">
+          No verification activity yet. Sent messages remain available in Gmail.
+        </p>
+      ) : null}
+
+      <AdaptiveDetailSurface
+        open={Boolean(selectedWorkflow)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedWorkflowId(null);
+        }}
+        eyebrow="Verification request"
+        title="Review request"
+        description="Choose the exact private details to include, then review the reply before sending."
+        mobilePresentation="fullscreen"
+        bodyClassName="py-4"
+      >
+        {selectedWorkflow ? (
+          <WorkflowCard
+            workflow={selectedWorkflow}
+            selectedScopes={selectedScopes[selectedWorkflow.workflow_id] || []}
+            onToggleScope={(scope) =>
+              toggleScope(selectedWorkflow.workflow_id, scope)
+            }
+            draft={drafts[selectedWorkflow.workflow_id]}
+            busy={busyWorkflowId === selectedWorkflow.workflow_id}
+            onPrepareDraft={() => void prepareDraft(selectedWorkflow)}
+            onPrepareSend={() => void prepareSend(selectedWorkflow)}
+            onSend={() => void sendReply(selectedWorkflow)}
+            onIgnore={() => void ignoreWorkflow(selectedWorkflow)}
+            onDraftChange={(body) =>
+              setDrafts((current) => ({
+                ...current,
+                [selectedWorkflow.workflow_id]: { body },
+              }))
+            }
+          />
+        ) : null}
+      </AdaptiveDetailSurface>
+      <AlertDialog
+        open={showDisableConfirm}
+        onOpenChange={(open) => setShowDisableConfirm(open)}
+      >
+        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Turn off monitoring?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops future checks and permanently deletes verification-request
+              activity and monitoring metadata. Your Gmail emails are not deleted.
+              Turning it on again starts from future messages only.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel disabled={updating}>Keep monitoring on</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={updating}
+              onClick={(event) => {
+                event.preventDefault();
+                void setMonitoring(false).then((updated) => {
+                  if (updated) setShowDisableConfirm(false);
+                });
+              }}
+            >
+              {updating ? "Turning off…" : "Turn off and delete activity"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SurfaceInset>
   );
 }

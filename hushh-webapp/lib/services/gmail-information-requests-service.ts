@@ -36,6 +36,7 @@ export type GmailInformationRequestList = {
   offset: number;
   next_offset: number | null;
   total_count: number;
+  view?: "active" | "activity";
 };
 
 export type GmailInformationRequestScan = {
@@ -45,6 +46,8 @@ export type GmailInformationRequestScan = {
   matched_count: number;
   failed_count: number;
   workflow_ids: string[];
+  baseline_established?: boolean;
+  baseline_reestablished?: boolean;
 };
 
 export type GmailPreparedInformationRequestReply = {
@@ -113,10 +116,12 @@ export class GmailInformationRequestsService {
     vaultOwnerToken: string;
     limit?: number;
     offset?: number;
+    view?: "active" | "activity";
   }): Promise<GmailInformationRequestList> {
     const query = new URLSearchParams();
     if (input.limit) query.set("limit", String(input.limit));
     if (input.offset) query.set("offset", String(input.offset));
+    if (input.view === "activity") query.set("view", "activity");
     const suffix = query.size ? `?${query.toString()}` : "";
     return apiJson<GmailInformationRequestList>(
       `/api/one/email/information-requests${suffix}`,
