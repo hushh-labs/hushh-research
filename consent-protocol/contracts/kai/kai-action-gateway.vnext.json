@@ -823,10 +823,12 @@
         "reachability": {
           "routes": [
             "/agent",
-            "/one"
+            "/one",
+            "/one/cards"
           ],
           "screens": [
-            "one_agents"
+            "one_agents",
+            "one_cards"
           ],
           "hidden_navigable": true,
           "navigation_prerequisites": [
@@ -19024,10 +19026,12 @@
       "reachability": {
         "routes": [
           "/agent",
-          "/one"
+          "/one",
+          "/one/cards"
         ],
         "screens": [
-          "one_agents"
+          "one_agents",
+          "one_cards"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
@@ -19128,10 +19132,12 @@
       "reachability": {
         "routes": [
           "/agent",
-          "/one"
+          "/one",
+          "/one/cards"
         ],
         "screens": [
-          "one_agents"
+          "one_agents",
+          "one_cards"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
@@ -19238,10 +19244,12 @@
       "reachability": {
         "routes": [
           "/agent",
-          "/one"
+          "/one",
+          "/one/cards"
         ],
         "screens": [
-          "one_agents"
+          "one_agents",
+          "one_cards"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [

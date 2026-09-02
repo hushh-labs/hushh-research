@@ -9,8 +9,8 @@
   "defaults": {
     "delegate_agent_id": "agent_cards",
     "reachability": {
-      "routes": ["/agent", "/one"],
-      "screens": ["one_agents"],
+      "routes": ["/agent", "/one", "/one/cards"],
+      "screens": ["one_agents", "one_cards"],
       "hidden_navigable": true,
       "navigation_prerequisites": [
         "signed-in vault-owner token and an unlocked vault are required for card operations"
