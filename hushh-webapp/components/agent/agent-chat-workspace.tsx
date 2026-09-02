@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Copy,
   KeyRound,
+  Laptop,
   LogIn,
   Menu,
   Maximize2,
@@ -72,6 +73,7 @@ import {
   copyTextToClipboard,
 } from "@/components/agent/chat-markdown-link";
 import { SelectionChip } from "@/components/agent/selection-chip";
+import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
   agentToolEventToVisibleStreamEvent,
@@ -307,6 +309,19 @@ type PendingConsentRequestDirectivePayload = {
 };
 
 export type AgentChatWorkspaceVariant = "page" | "popover";
+
+/**
+ * Which agent this workspace is showing.
+ *
+ * Two agents, two transcripts, never one. Puppy One answers on the owner's own
+ * machine with its own model and its own memory; One answers in the cloud.
+ * Merging their turns would leave a transcript that cannot say where any given
+ * answer came from, which is the one thing this surface must always be able to
+ * say (`docs/reference/ai/puppy-one-on-device.md`). So this switches which
+ * transcript is on screen and nothing else: no message, no conversation and no
+ * history row ever crosses between them.
+ */
+export type AgentChatSurface = "one" | "puppy";
 
 type AgentChatWorkspaceProps = {
   variant?: AgentChatWorkspaceVariant;
@@ -1302,6 +1317,12 @@ export function AgentChatWorkspace({
   // workspace consumes this base and overlays only the fields it uniquely owns
   // (background-task tracking and its local voice state) below.
   const sharedRuntime = useAgentRuntimeStateOptional();
+  // Which agent is on screen. Local to the workspace and deliberately not
+  // persisted: the cloud agent is the default every time this opens, so a
+  // forgotten mode can never make One's answers look like they were generated
+  // on the owner's machine.
+  const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
+  const isPuppySurface = agentSurface === "puppy";
   const [input, setInput] = useState("");
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerLong, setComposerLong] = useState(false);
@@ -1694,6 +1715,10 @@ export function AgentChatWorkspace({
     specialistBusy ||
     queuedPrompts.length > 0;
   const statusText = useMemo(() => {
+    // Every line below narrates One's turn. In Puppy One it would report on an
+    // agent the reader is not looking at, which is the same lie as merging the
+    // transcripts, told in the header instead.
+    if (isPuppySurface) return null;
     if (authLoading) return "Checking access";
     if (!user?.uid) return "Sign in required";
     if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh)
@@ -1722,6 +1747,7 @@ export function AgentChatWorkspace({
     isChatLoading,
     isLoadingHistory,
     isPkmMemoryWorking,
+    isPuppySurface,
     isToolWorking,
     isStreaming,
     isVoiceConnecting,
@@ -2395,14 +2421,20 @@ export function AgentChatWorkspace({
     ],
   );
 
+  // The sidebar lists One's conversations only; Puppy One keeps its transcript
+  // on the owner's machine and contributes no rows to it. Acting on one of
+  // those rows therefore means "show me One", and returning to that transcript
+  // is what makes the click do something visible.
   const handleSidebarCreateNewChat = useCallback(() => {
     setIsHistoryDrawerOpen(false);
+    setAgentSurface("one");
     handleCreateNewChat();
   }, [handleCreateNewChat]);
 
   const handleSidebarSelectConversation = useCallback(
     (nextConversationId: string) => {
       setIsHistoryDrawerOpen(false);
+      setAgentSurface("one");
       void handleSelectConversation(nextConversationId);
     },
     [handleSelectConversation],
@@ -4689,27 +4721,71 @@ export function AgentChatWorkspace({
                 </ShellActionSurface>
               ) : null}
               <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)] shadow-[0_10px_28px_-20px_var(--app-accent-deep)]">
-                <Image
-                  src="/one-quiet-emoji.png"
-                  alt="One"
-                  width={762}
-                  height={766}
-                  unoptimized
-                  draggable={false}
-                  className="h-6 w-6 object-contain max-sm:h-8 max-sm:w-8"
-                />
+                {isPuppySurface ? (
+                  <Laptop
+                    className="h-5 w-5 text-[color:var(--app-accent-deep)]"
+                    aria-hidden
+                  />
+                ) : (
+                  <Image
+                    src="/one-quiet-emoji.png"
+                    alt="One"
+                    width={762}
+                    height={766}
+                    unoptimized
+                    draggable={false}
+                    className="h-6 w-6 object-contain max-sm:h-8 max-sm:w-8"
+                  />
+                )}
               </div>
+              {/* The name in the header is the reader's only guarantee about
+                  which agent is answering, so it names the agent actually on
+                  screen rather than the workspace. */}
               <div className="min-w-0">
                 <div className="truncate text-base font-medium leading-5 text-foreground">
-                  One
+                  {isPuppySurface ? "Puppy One" : "One"}
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                  Your private agent
+                  {isPuppySurface
+                    ? "On your machine · separate conversation"
+                    : "Your private agent"}
                 </p>
               </div>
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              <div
+                role="group"
+                aria-label="Agent"
+                className="flex items-center gap-0.5 rounded-full bg-foreground/[0.045] p-0.5"
+              >
+                {(
+                  [
+                    { id: "one", label: "One" },
+                    { id: "puppy", label: "Puppy" },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setAgentSurface(option.id)}
+                    aria-pressed={agentSurface === option.id}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      agentSurface === option.id
+                        ? "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    title={
+                      option.id === "puppy"
+                        ? "Puppy One, on your machine. Its own conversation."
+                        : "One, your cloud agent."
+                    }
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
               {statusText ? (
                 <span
                   className="hidden text-xs font-medium text-muted-foreground sm:inline-flex"
@@ -4747,10 +4823,19 @@ export function AgentChatWorkspace({
             </div>
           </div>
 
+          {/* Puppy One brings its own transcript and its own composer. One's
+              transcript below is hidden rather than unmounted, so a cloud turn
+              already in flight is not destroyed by looking at the other agent;
+              `hidden` is display:none, so it leaves the tab order and the
+              accessibility tree while it is not the agent on screen. Nothing
+              is shared between the two: no message, no history row. */}
+          {isPuppySurface ? <PuppyOneSurface /> : null}
+
           <div
             className={cn(
               "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
               isPopover ? "pb-4" : "pb-6 lg:px-8",
+              isPuppySurface && "hidden",
             )}
           >
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
@@ -5559,6 +5644,10 @@ export function AgentChatWorkspace({
               isPopover
                 ? "pb-[var(--agent-chat-composer-bottom)] sm:pb-3"
                 : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
+              // Puppy One has its own composer. Leaving One's on screen would
+              // let a message meant for the on-device agent be sent to the
+              // cloud one, which is exactly the confusion this mode prevents.
+              isPuppySurface && "hidden",
             )}
           >
             <div className="mx-auto w-full max-w-4xl">
