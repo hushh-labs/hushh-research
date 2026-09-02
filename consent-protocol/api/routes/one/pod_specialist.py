@@ -48,6 +48,7 @@ owner's own session.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Optional
 
@@ -67,6 +68,7 @@ router = APIRouter(prefix="/api/one/pod/specialist", tags=["personal-agent"])
 #: short TTL. A name absent here has no door and is refused before any read.
 _REQUIRED_SCOPE: dict[str, str] = {
     "location": "cap.location.live.view",
+    "email": "cap.email.inbox.view",
 }
 
 
@@ -154,7 +156,12 @@ async def broker_specialist_read(
         run_read = run_pod_data_door_read
 
     try:
+        # run_pod_data_door_read is async (an OAuth-backed reader awaits network
+        # I/O); await it. An injected sync test double is still supported -- only
+        # await when the call actually returned an awaitable.
         projection = run_read(name, owner_id=owner_id)
+        if inspect.isawaitable(projection):
+            projection = await projection
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="no such specialist read") from exc
     except Exception as exc:  # noqa: BLE001

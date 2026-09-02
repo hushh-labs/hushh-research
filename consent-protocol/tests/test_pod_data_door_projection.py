@@ -167,22 +167,23 @@ def test_the_registry_holds_no_write_path() -> None:
     assert not any("write" in n.lower() or "mutate" in n.lower() for n in door.__all__)
 
 
-def test_an_unregistered_name_refuses_rather_than_reading_something_adjacent() -> None:
+async def test_an_unregistered_name_refuses_rather_than_reading_something_adjacent() -> None:
     with pytest.raises(KeyError):
-        door.run_pod_data_door_read("vault", owner_id="u-owner")
+        await door.run_pod_data_door_read("vault", owner_id="u-owner")
 
 
-def test_the_reader_receives_the_authenticated_owner_not_a_pod_value(monkeypatch) -> None:
+async def test_the_reader_receives_the_authenticated_owner_not_a_pod_value(monkeypatch) -> None:
     """``owner_id`` threaded to the read is the broker's authenticated owner. The
-    read function must be called with exactly that id."""
+    read function must be called with exactly that id. Readers are async now (an
+    OAuth-backed door awaits network I/O), so the double is async too."""
     seen: dict = {}
 
-    def _fake_read(owner_id: str) -> dict:
+    async def _fake_read(owner_id: str) -> dict:
         seen["owner_id"] = owner_id
         return _full_list_state()
 
     monkeypatch.setitem(door._READERS, "location", _fake_read)
-    door.run_pod_data_door_read("location", owner_id="u-owner-authenticated")
+    await door.run_pod_data_door_read("location", owner_id="u-owner-authenticated")
     assert seen["owner_id"] == "u-owner-authenticated"
 
 
@@ -268,10 +269,11 @@ def test_the_projection_shape_is_stable_for_a_non_dict_input() -> None:
     }
 
 
-def test_the_door_read_forces_read_only_so_it_never_mutates_the_owner_db(monkeypatch) -> None:
+async def test_the_door_read_forces_read_only_so_it_never_mutates_the_owner_db(monkeypatch) -> None:
     """Finding 2: list_state runs expiry HOUSEKEEPING WRITES unless read_only is
     forced. The door reader must pass read_only=True, or a 'read-only by
-    construction' door would mutate the owner's DB."""
+    construction' door would mutate the owner's DB. The reader is async now and
+    runs the sync list_state off the event loop, so await it."""
     seen: dict = {}
 
     class _FakeService:
@@ -283,5 +285,5 @@ def test_the_door_read_forces_read_only_so_it_never_mutates_the_owner_db(monkeyp
     import hushh_mcp.services.one_location_agent_service as svc
 
     monkeypatch.setattr(svc, "OneLocationAgentService", _FakeService)
-    door._read_location("u-owner")
+    await door._read_location("u-owner")
     assert seen["read_only"] is True, "the door read must force read-only"

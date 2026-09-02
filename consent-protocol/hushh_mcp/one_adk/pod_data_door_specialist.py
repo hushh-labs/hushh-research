@@ -35,9 +35,11 @@ from hushh_mcp.one_adk.agent_tree import STATE_DATA_DOOR_GRANTS
 logger = logging.getLogger(__name__)
 
 #: Which specialist maps to which data-door read. Mirrors the broker's
-#: ``_REQUIRED_SCOPE`` and the door registry -- location, first and only.
+#: ``_REQUIRED_SCOPE`` and the door registry. Location was first; email is the
+#: next door in the north-star's staged door-by-door plan.
 _SPECIALIST_DOOR_NAMES: dict[str, str] = {
     "agent_location": "location",
+    "agent_email": "email",
 }
 
 
@@ -103,6 +105,60 @@ def _format_location_summary(projection: dict[str, Any]) -> str:
     return " ".join(lines)
 
 
+def _format_email_summary(projection: dict[str, Any]) -> str:
+    """A faithful, deterministic summary of the owner's email nudges.
+
+    Built only from the fail-closed projection, so it never names an address, a
+    body, or a message the door did not carry. The connect / reconnect cases are
+    answered helpfully rather than as a dead end, so 'not connected' reads as a
+    next step, not a failure.
+    """
+    if not isinstance(projection, dict):
+        return "I could not read your email just now."
+
+    if not projection.get("connected", False):
+        reason = str(projection.get("reason") or "").strip().lower()
+        if reason == "not_connected":
+            return (
+                "Your Gmail isn't connected yet. Connect it in settings and I can "
+                "summarize what needs your attention."
+            )
+        if reason == "needs_reauth":
+            return (
+                "Your Gmail connection needs reconnecting. Reconnect it in settings "
+                "and I can summarize your inbox again."
+            )
+        return "I couldn't reach your email just now."
+
+    nudges = [n for n in (projection.get("nudges") or []) if isinstance(n, dict)]
+    if not nudges:
+        return "Your inbox has nothing that needs your attention right now."
+
+    lines: list[str] = []
+    meetings = [n for n in nudges if str(n.get("type") or "").strip().lower() == "meeting"]
+    others = [n for n in nudges if str(n.get("type") or "").strip().lower() != "meeting"]
+
+    if meetings:
+        titles = ", ".join(str(m.get("title") or "an event").strip() for m in meetings[:5])
+        lines.append(f"Coming up from your email: {titles}.")
+    if others:
+        who = ", ".join(_name_of(n, "sender") for n in others[:5])
+        count = len(others)
+        noun = "message" if count == 1 else "messages"
+        lines.append(f"{count} {noun} may need your attention, from {who}.")
+
+    return " ".join(lines)
+
+
+#: door name -> the deterministic summary that renders its projection. Adding a
+#: door means adding its summarizer here; an unmapped door has no renderer and so
+#: never serves, which is the fail-closed default.
+_SUMMARIZERS: dict[str, Any] = {
+    "location": _format_location_summary,
+    "email": _format_email_summary,
+}
+
+
 async def serve_specialist_via_data_door(
     agent_id: str,
     tool_context: Any,
@@ -142,11 +198,18 @@ async def serve_specialist_via_data_door(
         )
         return None
 
+    summarizer = _SUMMARIZERS.get(door_name)
+    if summarizer is None:
+        # A mapped door with no renderer -> fall through rather than emit an empty
+        # or wrong answer. Fail-closed: adding a door requires adding its summary.
+        logger.info("one_adk.data_door_no_summarizer door=%s", door_name)
+        return None
+
     logger.info("one_adk.data_door_served agent_id=%s door=%s", agent_id, door_name)
     return {
         "status": "ok",
         "source": "data_door",
-        "text": _format_location_summary(projection),
+        "text": summarizer(projection),
         "is_complete": True,
     }
 

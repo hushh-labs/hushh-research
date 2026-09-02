@@ -416,6 +416,24 @@ async def relay_pod_turn(
         except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
             logger.info("pod_relay.data_door_grant_skipped %s", type(exc).__name__)
 
+        # The email door grant (the next door in the staged plan). Minted
+        # INDEPENDENTLY via the general standing-scope issuer and best-effort: a
+        # failure here degrades only email's read to runtime_unavailable, never
+        # the turn and never the location door. Same short-TTL, Nav-narrated,
+        # owner-revocable shape as location; the scope is cap.email.inbox.view.
+        try:
+            email_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+                user_id,
+                scope=ConsentScope.CAP_EMAIL_INBOX_VIEW,
+                grant_kind="email_inbox_view",
+                scope_description="Read a summary of your inbox to answer email questions",
+            )
+            email_token = str((email_grant or {}).get("token") or "")
+            if email_token:
+                data_door_grants["email"] = email_token
+        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
+            logger.info("pod_relay.data_door_grant_skipped door=email %s", type(exc).__name__)
+
     body: dict[str, Any] = {
         "message": payload.message,
         "conversationId": payload.conversation_id,

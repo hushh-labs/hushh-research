@@ -11,11 +11,21 @@ Three invariants make the door safe, and each is enforced in code here rather
 than asserted in prose:
 
 * **Read-only by construction.** ``POD_DATA_DOOR_READS`` maps a name to a read
-  method and NOTHING in this module can mutate. There is no write registry, no
-  write reader, no branch that takes a verb. A pod that wants to CHANGE state
-  uses the directive transport instead (it PROPOSES; the browser EXECUTES on the
-  owner's session), which is a different, separately-authorized path. This flag
-  can therefore never widen a pod's authority to write.
+  method and no reader here mutates the owner's DOMAIN state -- their location
+  shares, mailbox contents, calendar events, or financial records. There is no
+  write registry, no write reader, no branch that takes a verb. A pod that wants
+  to CHANGE state uses the directive transport instead (it PROPOSES; the browser
+  EXECUTES on the owner's session), a different, separately-authorized path. This
+  flag can therefore never widen a pod's authority to write.
+
+  The one permitted side effect is INFRASTRUCTURE housekeeping, never domain: an
+  OAuth-backed reader (email, calendar) may prompt the hub's connection service to
+  refresh a near-expiry access token in its own token cache. That is the hub
+  keeping its own credential fresh to perform the read the owner authorized; it
+  writes no mailbox, calendar, or financial state, is invisible to the owner's
+  data, and grants the pod nothing. Location suppresses even its expiry
+  housekeeping via ``read_only=True`` because it can; OAuth token refresh has no
+  such suppression and is accepted here as the hub's infra, not a domain write.
 
 * **Fail-closed projection.** Each read is projected through an ALLOWLIST of
   fields to KEEP, never a denylist of fields to drop. A column added to the
@@ -36,8 +46,9 @@ what it drops without a database.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 # --- Location egress allowlists -------------------------------------------------
 # Only these fields may EVER reach a pod through the door. Everything else in the
@@ -231,6 +242,51 @@ def project_location_state(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# --- Email egress allowlist -----------------------------------------------------
+# The email door reads a NUDGE summary -- what needs the owner's attention now:
+# upcoming meetings and important unread senders -- never message bodies. Only
+# display-safe fields cross; every raw address, opaque Gmail resource handle, and
+# live join link is dropped by omission, the same fail-closed rule location uses.
+
+#: One inbox nudge (an upcoming meeting or an important unread). Sender DISPLAY
+#: name only -- the raw ``sender_email`` is dropped like every masked PII join.
+#: ``thread_id`` / ``message_id`` name Gmail resources a keyless pod cannot open
+#: and must not enumerate; ``meeting_url`` is a live join CAPABILITY, not display
+#: data. All are dropped by never appearing on this keep-list.
+_EMAIL_NUDGE_KEEP = (
+    "type",
+    "title",
+    "sender",
+    "received_at",
+    "starts_at",
+)
+
+
+def project_email_state(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project the Gmail nudge summary for pod egress (fail-closed).
+
+    Keeps only ``connected`` (bool), an optional coded ``reason`` (why a read
+    could not run: ``not_connected`` / ``needs_reauth``), and display-safe nudge
+    fields. Drops the owner's account address, every raw sender address, every
+    Gmail resource handle, and any live meeting link. A field added upstream is
+    dropped by omission. No message body appears in this read's source, and none
+    could cross even if it did: the keep-list admits only the enumerated fields.
+    """
+    if not isinstance(raw, dict):
+        return {"connected": False, "reason": "unavailable", "nudges": []}
+    # A successful nudge read carries no explicit flag; presence of the payload
+    # means the connection served the read, so default connected=True. The reader
+    # sets connected=False + a coded reason for the not-connected / reauth cases.
+    reason = raw.get("reason")
+    return {
+        "connected": bool(raw.get("connected", True)),
+        "reason": str(reason) if isinstance(reason, str) and reason else None,
+        "nudges": [
+            _pick(n, _EMAIL_NUDGE_KEEP) for n in (raw.get("nudges") or []) if isinstance(n, dict)
+        ],
+    }
+
+
 @dataclass(frozen=True)
 class PodDataDoorRead:
     """One read the door exposes: a name, and the projection its output passes
@@ -249,10 +305,11 @@ class PodDataDoorRead:
 #: fooled. Adding a specialist here is a deliberate, reviewable act.
 POD_DATA_DOOR_READS: dict[str, PodDataDoorRead] = {
     "location": PodDataDoorRead(name="location", project=project_location_state),
+    "email": PodDataDoorRead(name="email", project=project_email_state),
 }
 
 
-def _read_location(owner_id: str) -> dict[str, Any]:
+async def _read_location(owner_id: str) -> dict[str, Any]:
     # Imported at call time, never at module import: this keeps the door's
     # registry and projection free of a DB dependency, and keeps the heavy
     # service off the import path of anything that only needs to project.
@@ -262,28 +319,65 @@ def _read_location(owner_id: str) -> dict[str, Any]:
     # HOUSEKEEPING WRITES (expire_stale_grants, expire_public_invite) on the
     # owner's DB. A door documented "read-only by construction" must not mutate,
     # so the read forces read-only end to end rather than trusting an env var.
-    return OneLocationAgentService().list_state(user_id=owner_id, read_only=True)
+    # list_state is synchronous DB I/O; run it off the event loop so the async
+    # door path never blocks the hub while the location read runs.
+    return await asyncio.to_thread(
+        lambda: OneLocationAgentService().list_state(user_id=owner_id, read_only=True)
+    )
+
+
+async def _read_email(owner_id: str) -> dict[str, Any]:
+    """Read the owner's Gmail NUDGE summary through the hub (OAuth, read-only).
+
+    Returns a coded not-connected / needs-reauth marker instead of raising for
+    the two EXPECTED "no live read is possible" cases, so the door renders a
+    helpful answer (connect Gmail / reconnect Gmail) rather than degrading to
+    runtime_unavailable. Any other failure propagates -- the broker surfaces it
+    and the pod falls through, exactly as an unmapped read would.
+
+    The only DB write this can trigger is the connection service refreshing a
+    near-expiry OAuth token in its own cache (see the module docstring); it never
+    reads a body and never sends, labels, or deletes mail.
+    """
+    from hushh_mcp.services.gmail_receipts_service import (
+        GmailApiError,
+        get_gmail_receipts_service,
+    )
+
+    try:
+        return await get_gmail_receipts_service().list_nudges(user_id=owner_id, limit=10)
+    except GmailApiError as exc:
+        status = getattr(exc, "status_code", None)
+        if status == 404:
+            return {"connected": False, "reason": "not_connected", "nudges": []}
+        if status == 401:
+            return {"connected": False, "reason": "needs_reauth", "nudges": []}
+        raise
 
 
 #: Name -> the read that fetches raw owner state. Every value is a READ; there is
-#: no sibling write table by design.
-_READERS: dict[str, Callable[[str], dict[str, Any]]] = {
+#: no sibling write table by design. Async because an OAuth-backed reader (email,
+#: and calendar next) does network I/O; the sync location read wraps in a thread.
+_READERS: dict[str, Callable[[str], Awaitable[dict[str, Any]]]] = {
     "location": _read_location,
+    "email": _read_email,
 }
 
 
-def run_pod_data_door_read(name: str, *, owner_id: str) -> dict[str, Any]:
+async def run_pod_data_door_read(name: str, *, owner_id: str) -> dict[str, Any]:
     """Run an allow-listed read for ``owner_id`` and return its egress projection.
 
-    Raises ``KeyError`` for a name not in the registry -- the broker maps that to
-    a refusal, never a fall-through that reads something adjacent. ``owner_id`` is
-    the authenticated owner the broker resolved from the pod's identity and the
-    per-turn scope; it is never a value the pod supplied for itself.
+    Async so an OAuth-backed reader can await network I/O without blocking the
+    hub. Raises ``KeyError`` for a name not in the registry -- the broker maps
+    that to a refusal, never a fall-through that reads something adjacent.
+    ``owner_id`` is the authenticated owner the broker resolved from the pod's
+    identity and the per-turn scope; it is never a value the pod supplied for
+    itself.
     """
     spec = POD_DATA_DOOR_READS.get(name)
     if spec is None:
         raise KeyError(name)
-    raw = _READERS[name](owner_id)
+    raw = await _READERS[name](owner_id)
     return spec.project(raw)
 
 
@@ -291,5 +385,6 @@ __all__ = [
     "PodDataDoorRead",
     "POD_DATA_DOOR_READS",
     "project_location_state",
+    "project_email_state",
     "run_pod_data_door_read",
 ]
