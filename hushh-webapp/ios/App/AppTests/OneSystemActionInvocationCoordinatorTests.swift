@@ -305,8 +305,9 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         let sms = try await query.entities(matching: "SMS contacts")
         XCTAssertEqual(sms.compactMap(\.actionID), [.openSMSContacts])
 
+        let suggestedDestinations = try await query.suggestedEntities()
         XCTAssertEqual(
-            try await query.suggestedEntities().count,
+            suggestedDestinations.count,
             10,
             "Only reviewed, non-mutating Location destinations are system entities."
         )
