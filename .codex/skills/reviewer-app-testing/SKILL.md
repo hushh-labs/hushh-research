@@ -65,8 +65,8 @@ Non-owned surfaces:
    `REVIEWER_ALLOW_SHARED_MUTATIONS=true`; it must complete a real prompt turn and prove
    consumer-safe errors, self-avatar rendering, idle-status removal, and overflow safety.
 10. Trusted Devices: `verify-reviewer-trusted-devices.mjs` (read-only). Always compose `createReviewerSessionHarness`; never hand-roll one (see the preflight reference).
-11. Report the first failed boundary plus mutation policy; hand domain assertions to the owning spoke.
-
+11. Payment Cards: `verify-reviewer-payment-cards.mjs` (mutation-authorized); the guard
+    exempts Firebase auth hosts. Both are detailed in the preflight reference.
 Local enablement and identity reconciliation follow
 `.codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md`.
 

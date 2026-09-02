@@ -77,3 +77,45 @@ locked-vault challenge, same-session continuity, and cold-session re-unlock. A
 healthy server, review-mode response, or static script check is not a browser
 pass. Report the first failed boundary and mutation policy—never secrets,
 tokens, plaintext information, or screenshots containing them.
+
+## Payment Cards rehearsal
+
+`verify-reviewer-payment-cards.mjs` requires explicit
+`REVIEWER_ALLOW_SHARED_MUTATIONS=true`: it adds, reveals, and removes audit cards
+on the shared reviewer fixture and deletes the conversations it creates. It
+proves, in order: the visible vault challenge on cold entry to `/one/cards`; a
+`POST /api/pkm/store-domain` 200 for a valid card; client-side refusal of a
+region-locked brand outside its market and of a checksum failure, each with no
+network call; on-device reveal and hide; ciphertext-only owner reads of the
+domain; the Agent Chat permutations (list returns last4 and never the PAN, add
+through the secure widget, reveal by last4 and by nickname renders the widget
+while assistant text never carries a secret, an unknown card fails closed
+without a widget, a pasted PAN is blocked before any `/api/one/agent-chat`
+call); no internal error text leaks; then cold-session re-unlock readback and
+cleanup. Non-2xx first-party response bodies are captured in
+`tmp/reviewer-payment-cards-report.json` (mode 0600) so a refusal names its
+validator code instead of a bare status. The first run of this rehearsal
+caught a real defect: manifest scope handles must be opaque `s_…` values, or
+the mutation plan built from them is rejected with 422 on every first write.
+
+## Read-only guard exemptions
+
+The guard exempts `identitytoolkit.googleapis.com` and
+`securetoken.googleapis.com` (the reviewer login handshake: custom-token sign-in,
+account lookup, token refresh) and the Next dev `__nextjs_original-stack-frames`
+endpoint. Authentication is never a fixture mutation; blocking it made every
+localhost read-only rehearsal fail at the first boundary.
+
+## Confirm-required actions in Agent Chat
+
+One handles a `confirm_required` action in two phases: it first asks in words
+("Reveal your card ending in 4444 on your screen?") and only calls
+`run_app_action` after a verbal yes; the browser then stages the confirmation
+card for a tap. A rehearsal that sends the request and waits for the widget
+will time out. Send the request, let the assistant settle, answer "Yes" once if
+no widget appeared, then confirm the staged card (`specialist-directive-confirm`)
+and wait for the widget. `verify-reviewer-payment-cards.mjs` encodes this as
+`revealFlow`. Actions that owe no confirmation (`allow_direct`) run on their
+own once the parked directive reaches the browser, so `directive_clicks=0` is
+the expected evidence for them.
+
