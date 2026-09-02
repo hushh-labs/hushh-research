@@ -77,8 +77,8 @@ export function EmailDraftCard({
   const [showCcBcc, setShowCcBcc] = useState(() => Boolean(draft.cc || draft.bcc));
   const [missingDetails, setMissingDetails] = useState<string[]>([]);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
-  const [showToDropdown, setShowToDropdown] = useState(false);
-  const toDropdownRef = useRef<HTMLDivElement>(null);
+  const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState<"draft" | null>(null);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
   const autoDraftStartedRef = useRef(false);
@@ -101,8 +101,8 @@ export function EmailDraftCard({
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (toDropdownRef.current && !toDropdownRef.current.contains(event.target as Node)) {
-        setShowToDropdown(false);
+      if (dropdownContainerRef.current && !dropdownContainerRef.current.contains(event.target as Node)) {
+        setActiveDropdownField(null);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -123,16 +123,86 @@ export function EmailDraftCard({
     setError(null);
   };
 
-  const selectConnection = (conn: ConnectionSummaryEntry) => {
+  const selectConnection = (field: "to" | "cc" | "bcc", conn: ConnectionSummaryEntry) => {
     const chosenEmail = conn.email?.trim() || "";
-    const name = conn.displayName?.trim() || "";
     if (!chosenEmail) return;
-    if (name) {
-      updateDraft("to", `${name} <${chosenEmail}>`);
+
+    const currentValue = (draft[field] || "").trim();
+    let nextValue = "";
+
+    if (!currentValue) {
+      nextValue = chosenEmail;
     } else {
-      updateDraft("to", chosenEmail);
+      const tokens = currentValue.split(/,\s*/);
+      tokens.pop();
+      const base = tokens.filter(Boolean).join(", ");
+      nextValue = base ? `${base}, ${chosenEmail}` : chosenEmail;
     }
-    setShowToDropdown(false);
+
+    updateDraft(field, nextValue);
+    setActiveDropdownField(null);
+  };
+
+  const currentFieldValue = activeDropdownField ? draft[activeDropdownField] || "" : "";
+  const lastQueryToken = currentFieldValue.split(/,\s*/).pop()?.trim().toLowerCase() || "";
+
+  const matchingConnections = connections
+    .filter((conn) => {
+      if (!lastQueryToken) return true;
+      const nameMatch = conn.displayName?.toLowerCase().includes(lastQueryToken);
+      const emailMatch = conn.email?.toLowerCase().includes(lastQueryToken);
+      return Boolean(nameMatch || emailMatch);
+    })
+    .slice(0, 6);
+
+  const renderConnectionsDropdown = (field: "to" | "cc" | "bcc") => {
+    if (activeDropdownField !== field || matchingConnections.length === 0) return null;
+    return (
+      <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-border/60 bg-popover/95 p-1.5 shadow-lg backdrop-blur-md">
+        <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Connections
+        </div>
+        {matchingConnections.map((conn) => {
+          const hasEmail = Boolean(conn.email?.trim());
+          return (
+            <button
+              key={conn.userId}
+              type="button"
+              disabled={!hasEmail}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                selectConnection(field, conn);
+              }}
+              onClick={() => {
+                selectConnection(field, conn);
+              }}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                hasEmail
+                  ? "hover:bg-accent cursor-pointer"
+                  : "opacity-50 cursor-not-allowed"
+              }`}
+            >
+              {conn.photoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={conn.photoUrl} alt="" className="h-7 w-7 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
+                  {(conn.displayName || "C").charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="truncate font-medium text-foreground text-xs">
+                  {conn.displayName || "Connected User"}
+                </div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {hasEmail ? conn.email : "No email on file (non-selectable)"}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   const withAuth = useCallback(async () => {
@@ -246,20 +316,11 @@ export function EmailDraftCard({
   const disabled = busy !== null;
   const isDrafting = busy === "draft";
 
-  const matchingConnections = connections
-    .filter((conn) => {
-      if (!draft.to.trim()) return true;
-      const query = draft.to.trim().toLowerCase();
-      const nameMatch = conn.displayName?.toLowerCase().includes(query);
-      const emailMatch = conn.email?.toLowerCase().includes(query);
-      return Boolean(nameMatch || emailMatch);
-    })
-    .slice(0, 6);
-
   return (
     <section
       data-testid="one-email-draft-card"
       aria-label="Email draft"
+      ref={dropdownContainerRef}
       className="mb-5 overflow-hidden rounded-[calc(var(--app-card-radius-compact)+4px)] border border-border/80 bg-card shadow-[var(--app-card-shadow-standard)]"
     >
       {/* Header */}
@@ -317,17 +378,17 @@ export function EmailDraftCard({
         </div>
       ) : (
         <div className="space-y-3 px-4 py-4 sm:px-5">
-          <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5" ref={toDropdownRef}>
+          <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5">
             <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">To</span>
             <Input
               id={`${idPrefix}-to`}
               data-testid="one-email-draft-to"
               type="text"
               value={draft.to}
-              onFocus={() => setShowToDropdown(true)}
+              onFocus={() => setActiveDropdownField("to")}
               onChange={(event) => {
                 updateDraft("to", event.target.value);
-                setShowToDropdown(true);
+                setActiveDropdownField("to");
               }}
               disabled={disabled}
               placeholder="Select connection or type email..."
@@ -344,53 +405,13 @@ export function EmailDraftCard({
               </button>
             ) : null}
 
-            {/* Autocomplete Dropdown */}
-            {showToDropdown && matchingConnections.length > 0 ? (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-border/60 bg-popover/95 p-1.5 shadow-lg backdrop-blur-md">
-                <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Connections
-                </div>
-                {matchingConnections.map((conn) => {
-                  const hasEmail = Boolean(conn.email?.trim());
-                  return (
-                    <button
-                      key={conn.userId}
-                      type="button"
-                      disabled={!hasEmail}
-                      onClick={() => selectConnection(conn)}
-                      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
-                        hasEmail
-                          ? "hover:bg-accent cursor-pointer"
-                          : "opacity-50 cursor-not-allowed"
-                      }`}
-                    >
-                      {conn.photoUrl ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img src={conn.photoUrl} alt="" className="h-7 w-7 rounded-full object-cover shrink-0" />
-                      ) : (
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
-                          {(conn.displayName || "C").charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="truncate font-medium text-foreground text-xs">
-                          {conn.displayName || "Connected User"}
-                        </div>
-                        <div className="truncate text-[11px] text-muted-foreground">
-                          {hasEmail ? conn.email : "No email on file (non-selectable)"}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
+            {renderConnectionsDropdown("to")}
           </div>
 
           {showCcBcc ? (
             <div className="grid gap-2 sm:grid-cols-2">
               {(["cc", "bcc"] as const).map((field) => (
-                <div className="flex items-center gap-2 border-b border-border/60 py-1.5" key={field}>
+                <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5" key={field}>
                   <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">
                     {field === "cc" ? "Cc" : "Bcc"}
                   </span>
@@ -399,12 +420,17 @@ export function EmailDraftCard({
                     data-testid={`one-email-draft-${field}`}
                     type="text"
                     value={draft[field]}
-                    onChange={(event) => updateDraft(field, event.target.value)}
+                    onFocus={() => setActiveDropdownField(field)}
+                    onChange={(event) => {
+                      updateDraft(field, event.target.value);
+                      setActiveDropdownField(field);
+                    }}
                     disabled={disabled}
-                    placeholder="Optional"
+                    placeholder="Optional connection or email..."
                     aria-label={field === "cc" ? "Cc" : "Bcc"}
                     className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
                   />
+                  {renderConnectionsDropdown(field)}
                 </div>
               ))}
             </div>
