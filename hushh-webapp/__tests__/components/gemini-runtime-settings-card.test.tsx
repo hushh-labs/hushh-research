@@ -53,7 +53,8 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     loadRuntimeSecret: (...args: unknown[]) => loadRuntimeSecretMock(...args),
     storeRuntimeSecret: (...args: unknown[]) => storeRuntimeSecretMock(...args),
-    removeRuntimeSecret: (...args: unknown[]) => removeRuntimeSecretMock(...args),
+    removeRuntimeSecret: (...args: unknown[]) =>
+      removeRuntimeSecretMock(...args),
   },
 }));
 
@@ -165,11 +166,11 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /Use Hussh's AI/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Use Hussh's AI/i }));
 
-    await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(onSelectionReadyChange).toHaveBeenCalledTimes(1),
+    );
     expect(onSelectionReadyChange).toHaveBeenCalledWith("hushh_managed_vertex");
   });
 
@@ -180,7 +181,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   // for most people the server never learned an AI connection existed -- and
   // provisioning a private agent hangs off exactly that event.
 
-  const renderSetupCard = (onSelectionReadyChange = vi.fn().mockResolvedValue(undefined)) => {
+  const renderSetupCard = (
+    onSelectionReadyChange = vi.fn().mockResolvedValue(undefined),
+  ) => {
     render(
       <GeminiRuntimeSettingsCard
         userId="fresh-user"
@@ -231,7 +234,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     renderSetupCard(onSelectionReadyChange);
     clickManaged();
 
-    await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(onSelectionReadyChange).toHaveBeenCalledTimes(1),
+    );
     expect(order).toEqual(["verify", "commit"]);
   });
 
@@ -246,7 +251,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledTimes(1));
     expect(onSelectionReadyChange).not.toHaveBeenCalled();
-    expect(String(toastErrorMock.mock.calls[0][0])).toContain("isn\u2019t responding");
+    expect(String(toastErrorMock.mock.calls[0][0])).toContain(
+      "isn\u2019t responding",
+    );
   });
 
   it("says the agent is being built only when one actually was", async () => {
@@ -263,7 +270,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     clickManaged();
 
     await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledTimes(1));
-    expect(String(toastSuccessMock.mock.calls[0][0])).toContain(
+    // The agent line rides in the toast DESCRIPTION now, so a long reason wraps
+    // instead of being clamped to an ellipsis.
+    expect(String(toastSuccessMock.mock.calls[0][1]?.description)).toContain(
       "private agent is being built",
     );
   });
@@ -273,7 +282,10 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     clickManaged();
 
     await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledTimes(1));
-    expect(String(toastSuccessMock.mock.calls[0][0])).not.toContain("private agent");
+    expect(String(toastSuccessMock.mock.calls[0][0])).not.toContain(
+      "private agent",
+    );
+    expect(toastSuccessMock.mock.calls[0][1]?.description).toBeUndefined();
   });
 
   it("keeps BYOK unselected until a key is validated and staged in memory during setup", async () => {
@@ -348,7 +360,10 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
           credentialRef.includes("credential_mode") ? "byok" : null,
         ),
     );
-    storeRuntimeSecretMock.mockResolvedValue({ success: false, conflict: true });
+    storeRuntimeSecretMock.mockResolvedValue({
+      success: false,
+      conflict: true,
+    });
 
     render(
       <GeminiRuntimeSettingsCard
@@ -367,9 +382,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
         screen.getByRole("button", { name: /Use your own key/i }),
       ).toHaveAttribute("aria-pressed", "true"),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /Use Hussh's AI/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Use Hussh's AI/i }));
 
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledWith(
@@ -402,12 +415,16 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "test-gemini-key" } });
 
-    expect(screen.queryByRole("button", { name: "Confirm and save" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Confirm and save" }),
+    ).toBeNull();
     expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
 
-    expect(await screen.findByText("Key is responding and ready to save.")).toBeTruthy();
+    expect(
+      await screen.findByText("Key is responding and ready to save."),
+    ).toBeTruthy();
     expect(validateGeminiRuntimeCredentialMock).toHaveBeenCalledWith({
       credential: "test-gemini-key",
       transport: "developer_api",
@@ -418,7 +435,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
 
-    await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(onSelectionReadyChange).toHaveBeenCalledTimes(1),
+    );
     expect(storeRuntimeSecretMock).toHaveBeenCalled();
   });
 
@@ -439,11 +458,15 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "first-key" } });
     fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
-    expect(await screen.findByRole("button", { name: "Confirm and save" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Confirm and save" }),
+    ).toBeTruthy();
 
     fireEvent.change(keyInput, { target: { value: "second-key" } });
 
-    expect(screen.queryByRole("button", { name: "Confirm and save" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Confirm and save" }),
+    ).toBeNull();
     expect(screen.getByRole("button", { name: "Validate key" })).toBeTruthy();
   });
 });

@@ -118,7 +118,32 @@ async def resolve_user_cloud(user_id: str, *, repo: Any = None) -> Optional[User
             )
 
             repo = PersonalAgentRegistryRepo()
-        return user_cloud_from_row(await repo.get(user_id))
+        cloud = user_cloud_from_row(await repo.get(user_id))
+        if cloud is not None:
+            return cloud
+        # No row yet. The cloud step comes before phone verification (which mints
+        # the row), so a person can hold a PROVEN cloud that is parked on their
+        # setup record. Answer with it: the AI gate then takes the own-cloud rule
+        # (the pod's ADC) instead of treating "your pod's AI" as hushh's managed
+        # model and refusing it (founder-hit, 2026-09-02).
+        return await _parked_user_cloud(user_id)
     except Exception:  # noqa: BLE001 - a read-only lookup must not break provisioning
         logger.warning("user_cloud.lookup_failed", exc_info=True)
         return None
+
+
+async def _parked_user_cloud(user_id: str) -> Optional[UserCloud]:
+    """A proven cloud waiting for its registry row, as the gate needs to see it."""
+    from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
+
+    parked = await ByocSetupJobRepo().parked_cloud(user_id)
+    if not parked:
+        return None
+    return UserCloud(
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+        project=parked["project_id"],
+        region=parked["region"],
+        bootstrap_sa=parked["bootstrap_sa"],
+        authorized=bool(parked["authorized"]),
+    )

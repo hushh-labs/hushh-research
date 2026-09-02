@@ -279,13 +279,14 @@ export function GeminiRuntimeSettingsCard({
           : selection.agentReason
             ? `Your private agent was not started: ${selection.agentReason}.`
             : "";
+      // One short headline; the agent's status goes in the description so a
+      // long reason wraps instead of being clamped to an ellipsis (founder-hit,
+      // 2026-09-02).
       toast.success(
-        [
-          ownCloudProject ? "Using your pod's AI." : "Using Hussh's AI.",
-          agentLine,
-        ]
-          .filter(Boolean)
-          .join(" "),
+        ownCloudProject ? "Using your pod's AI." : "Using Hussh's AI.",
+        {
+          description: agentLine || undefined,
+        },
       );
     } catch (error) {
       setMode(previousMode);
