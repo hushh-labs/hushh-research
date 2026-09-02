@@ -158,7 +158,11 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
                 TalkToHusshOneIntent.authenticationPolicy,
                 .requiresLocalDeviceAuthentication
             )
-            XCTAssertEqual(HusshOneAppShortcuts.appShortcuts.count, 1)
+            XCTAssertEqual(
+                HusshOneAppShortcuts.appShortcuts.count,
+                8,
+                "The focused shortcuts use one destination entity instead of mirroring screens."
+            )
         }
         if #available(iOS 26.0, *) {
             XCTAssertEqual(
@@ -167,5 +171,16 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
             )
         }
 #endif
+    }
+
+    func testInstalledAppUsesOneAsItsSpeakableSystemName() {
+        XCTAssertEqual(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+            "One"
+        )
+        XCTAssertEqual(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleSpokenName") as? String,
+            "One"
+        )
     }
 }

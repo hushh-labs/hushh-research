@@ -28,6 +28,8 @@ import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
+import { SiriOneActionHandoff } from "@/components/agent/siri-one-action-handoff";
+import { SiriOneEntityIndexPublisher } from "@/components/agent/siri-one-entity-index-publisher";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
 import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
@@ -52,6 +54,7 @@ import {
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { recordDestinationEntry } from "@/lib/navigation/section-back-origin";
+import { isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
 import {
   ROUTES,
   isFoundationPublicRoute,
@@ -163,11 +166,22 @@ function AppShellFrame({ children }: ProvidersProps) {
       locationAction === "circle-detail");
   const focusedSosChromeFlow =
     shellPathname === ROUTES.ONE_LOCATION && locationAction === "sos";
+  const focusedConnectCircleChromeFlow =
+    shellPathname === ROUTES.CONNECT &&
+    isFocusedConnectCircleTask(
+      searchParams?.get("tab") ?? null,
+      searchParams?.get("action") ?? null,
+    );
   // Focused query-scoped Location flows clear the bottom command/navigation
   // stack while keeping the top shell route context.
-  const bottomChromeHidden = hidesPersistentChrome || focusedSosChromeFlow;
+  const bottomChromeHidden =
+    hidesPersistentChrome ||
+    focusedSosChromeFlow ||
+    focusedConnectCircleChromeFlow;
   const effectiveHideCommandBar =
-    chromeState.hideCommandBar || focusedLocationChromeFlow;
+    chromeState.hideCommandBar ||
+    focusedLocationChromeFlow ||
+    focusedConnectCircleChromeFlow;
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
@@ -476,6 +490,8 @@ function AppShellFrame({ children }: ProvidersProps) {
           <AgentRuntimeStateProvider>
             <AgentPopoverProvider>
               <SiriOneVoiceHandoff />
+              <SiriOneActionHandoff />
+              <SiriOneEntityIndexPublisher />
               <NativeTestRouter />
               <NativeTestBootstrap />
               <NativeTestRouteStatus />
