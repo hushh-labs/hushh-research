@@ -40,7 +40,7 @@ xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme Ap
 xcodebuild test -project ios/App/App.xcodeproj -scheme App -only-testing:AppTests  # blocks upload on native unit failures
 xcodebuild archive        -allowProvisioningUpdates -authenticationKey{Path,ID,IssuerID} CURRENT_PROJECT_VERSION=$NEXT_BUILD
 xcodebuild -exportArchive -exportOptionsPlist ios/ExportOptions/AppStoreConnect.plist  # destination=upload → TestFlight
-python3 scripts/ci/wait_for_testflight_build.py ... # buildUploads=COMPLETE + exact build=VALID
+python3 scripts/ci/wait_for_testflight_build.py ... # reject failed upload; require exact build=VALID
 ```
 
 Signing needs no build-setting overrides — `CODE_SIGN_STYLE=Automatic`,
@@ -51,9 +51,11 @@ Signing needs no build-setting overrides — `CODE_SIGN_STYLE=Automatic`,
 upload out of "Missing Compliance".
 
 The upload step is not the terminal release proof. The workflow polls Apple's
-exact `buildUploads` record so delivery failures (including `ITMS-*` import
-errors) fail the run, then requires the corresponding TestFlight build to reach
-`processingState=VALID`. Missing uploads, API failures, and timeouts fail closed.
+exact `buildUploads` record and the corresponding TestFlight `build` independently:
+delivery failures (including `ITMS-*` import errors) fail the run, while a lagging
+`buildUploads` state cannot hide an already imported build. The exact build must
+reach `processingState=VALID`; missing uploads/builds, API failures, and timeouts
+fail closed.
 
 ## One-time setup (secret-touching — the operator does this)
 
