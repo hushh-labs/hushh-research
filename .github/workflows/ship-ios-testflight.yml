@@ -315,10 +315,11 @@ jobs:
           echo "next_build=${NEXT_BUILD}" >> "$GITHUB_OUTPUT"
           echo "Next build number: ${NEXT_BUILD}"
 
-      - name: Test App Store Connect processing gate
+      - name: Test App Store Connect release gates
         shell: bash
         run: |
           set -euo pipefail
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/test_resolve_ios_build_number.py
           "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/test_wait_for_testflight_build.py
 
       - name: Cache Swift packages

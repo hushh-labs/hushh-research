@@ -25,7 +25,7 @@ Store submission.
 
 1. **Closed Train Rule:** App Store Connect permanently closes a `MARKETING_VERSION` train (e.g. `1.3.6`) once that version is approved and released on the App Store. Apple's upload API rejects any new build targeting a closed train with `Invalid Pre-Release Train. The train version '1.3.6' is closed for new build submissions`.
 2. **Version Bump Cadence:** When an App Store release closes a train, bump `MARKETING_VERSION` (Patch increment, e.g., `1.3.6` → `1.3.7`) in `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj` (Debug and Release targets) and land on `main`.
-3. **Monotonic Build Numbers:** For an open train (e.g., `1.3.7`), TestFlight iterations increment `CURRENT_PROJECT_VERSION` (`CFBundleVersion`) monotonically (`57`, `58`, `59`...). The build-number resolver (`scripts/ci/resolve-ios-build-number.py`) computes `max(asc_latest, pbxproj_current) + 1`.
+3. **Monotonic Build Numbers:** For an open train (e.g., `1.3.7`), TestFlight iterations increment `CURRENT_PROJECT_VERSION` (`CFBundleVersion`) monotonically (`57`, `58`, `59`...). The build-number resolver (`scripts/ci/resolve-ios-build-number.py`) computes one above the repository value, imported App Store Connect builds, and retained upload records. This prevents a rejected or awaiting upload that disappeared from `/v1/builds` from causing a stale build-number reuse.
 4. **Automated Export Compliance Questionnaire:** `ITSAppUsesNonExemptEncryption = false` in `Info.plist` automatically fulfills App Store Connect's encryption questionnaire upon upload. When processing completes (`processingState = VALID`), the build immediately enters `IN_BETA_TESTING` for internal testers with zero manual forms or clicks.
 
 ## How it works (what the workflow runs)
@@ -34,7 +34,7 @@ Store submission.
 npm ci --prefix hushh-webapp                    # MUST precede SPM (Package.swift → ../../node_modules)
 # materialize UAT NEXT_PUBLIC_* contract + native GoogleService-Info.plist from GCP Secret Manager
 NODE_OPTIONS=--max-old-space-size=8192 npm run ios:prepare:uat   # cap:build + cap:sync:ios + verify backend
-NEXT_BUILD = max(asc_latest_build(MARKETING_VERSION), pbxproj CURRENT_PROJECT_VERSION) + 1
+NEXT_BUILD = max(asc_latest_build, asc_latest_build_upload, pbxproj CURRENT_PROJECT_VERSION) + 1
 
 xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -clonedSourcePackagesDirPath …
 xcodebuild test -project ios/App/App.xcodeproj -scheme App -only-testing:AppTests  # blocks upload on native unit failures
