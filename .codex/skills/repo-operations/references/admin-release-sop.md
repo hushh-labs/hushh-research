@@ -155,9 +155,9 @@ Production requires an explicit production request and an actor in
 
 - **Deploy-surface changes get their own local proof before the PR.** When `deploy/`,
   a workflow substitution string, or an agent manifest changes, run
-  `tests/test_cloudbuild_step_arg_limit.py` (the 10,000-character Cloud Build arg cap,
+  `consent-protocol/tests/test_cloudbuild_step_arg_limit.py` (the 10,000-character Cloud Build arg cap,
   per-lane after substitution) and the readiness probe's manifest collection
-  (`scripts/verify_managed_vertex_runtime.py::_managed_manifest_models` with the lane's
+  (`consent-protocol/scripts/verify_managed_vertex_runtime.py` (its manifest model collection) with the lane's
   `HUSSH_GEMINI_TEXT_MODEL`). A protocol lane that stops at mypy never reaches pytest, so
   a "clean" local run can hide a failing test; rerun the lane after the mypy fix.
 - **A lane's Gemini project is not the deploy project.** UAT deploys to `hushh-pda-uat`

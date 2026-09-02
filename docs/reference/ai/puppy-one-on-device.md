@@ -226,7 +226,7 @@ in the fork at
 | Machine specs on the heartbeat | `TrustedDeviceHeartbeatRequest` | Repaired. The request model declared six of the fourteen allow-listed fields, so brand, processor, RAM and battery were dropped before the service saw them. No surface renders them yet. |
 | On-device gate | `hussh_one.on_device_only` in the Hermes config, read by the auxiliary client and the egress audit | On for the founder's machine; readable only on the device (`hermes_cli.hussh_one_egress_audit`, the health index). Not exposed to One. |
 | Vault while the screen is locked | `hussh_one.vault.lock_with_workstation`, default off | On-device config only. The always-on agent keeps its vault while the console is locked unless the owner opts in. |
-| Daily jobs, harness, learning loop | Versioned in the fork under `scripts/hussh-one-cron/`; graded by `hermes puppy jobs`; ledger at `~/.hermes/evolution-ledger.jsonl` | On-device only. Nothing ships the health index, the doctor state, the ledger or the job audit off the machine. |
+| Daily jobs, harness, learning loop | Versioned in the Hermes fork (its scripts/hussh-one-cron directory, not this repo); graded by `hermes puppy jobs`; ledger at `~/.hermes/evolution-ledger.jsonl` | On-device only. Nothing ships the health index, the doctor state, the ledger or the job audit off the machine. |
 
 Two surfaces remain dangling and are recorded rather than hidden:
 `/one/profile/preferences/device` (breadcrumb "On-device first") has no panel
