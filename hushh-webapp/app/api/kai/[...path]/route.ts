@@ -64,8 +64,12 @@ function isClientAbortError(error: unknown): boolean {
 
 function resolveUpstreamSignal(
   requestSignal: AbortSignal,
-  timeoutMs: number | null
+  timeoutMs: number | null,
+  options?: { ignoreClientAbort?: boolean }
 ): AbortSignal {
+  if (options?.ignoreClientAbort) {
+    return timeoutMs ? AbortSignal.timeout(timeoutMs) : new AbortController().signal;
+  }
   if (!timeoutMs) {
     return requestSignal;
   }
@@ -280,7 +284,13 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers: headers,
       body: body,
-      signal: resolveUpstreamSignal(request.signal, upstreamTimeoutMs),
+      // The callback page can close as soon as the provider hands control
+      // back. Its single-use code exchange must still finish within the
+      // bounded server timeout so the Gmail opener can recover from persisted
+      // connection state on focus/close.
+      signal: resolveUpstreamSignal(request.signal, upstreamTimeoutMs, {
+        ignoreClientAbort: path === "gmail/connect/complete",
+      }),
     });
 
     // Check for SSE stream response

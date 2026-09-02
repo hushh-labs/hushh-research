@@ -63,7 +63,9 @@ class WaitForTestFlightBuildTests(unittest.TestCase):
         clock = Clock()
         remaining = list(payloads)
 
-        def get_payload(_url: str) -> dict:
+        def get_payload(url: str) -> dict:
+            if "buildUploads" not in url:
+                return {"data": []}
             if len(remaining) > 1:
                 return remaining.pop(0)
             return remaining[0]
@@ -108,7 +110,10 @@ class WaitForTestFlightBuildTests(unittest.TestCase):
             self.wait([upload_payload("COMPLETE", build_state="INVALID")])
 
     def test_timeout_is_an_error(self) -> None:
-        with self.assertRaisesRegex(TimeoutError, "last state: build upload PROCESSING"):
+        with self.assertRaisesRegex(
+            TimeoutError,
+            "last state: build upload PROCESSING; build not found",
+        ):
             self.wait([upload_payload("PROCESSING")], timeout=10)
 
     def test_repeated_transient_api_errors_fail_on_timeout(self) -> None:
@@ -117,7 +122,7 @@ class WaitForTestFlightBuildTests(unittest.TestCase):
         def get_payload(_url: str) -> dict:
             raise gate.AscTransientError("HTTP 503 while querying Apple")
 
-        with self.assertRaisesRegex(TimeoutError, "transient API error"):
+        with self.assertRaisesRegex(TimeoutError, "transient upload API error"):
             gate.wait_for_testflight_build(
                 app_id="6757718917",
                 marketing_version="1.3.9",
@@ -132,16 +137,27 @@ class WaitForTestFlightBuildTests(unittest.TestCase):
 
     def test_transient_build_lookup_recovers_after_upload_completes(self) -> None:
         clock = Clock()
-        requests = 0
+        build_requests = 0
 
         def get_payload(url: str) -> dict:
-            nonlocal requests
-            requests += 1
+            nonlocal build_requests
             if "buildUploads" in url:
-                if requests >= 4:
-                    return upload_payload("COMPLETE", build_state="VALID")
                 return upload_payload("COMPLETE")
-            raise gate.AscTransientError("HTTP 503 while querying Apple")
+            build_requests += 1
+            if build_requests == 1:
+                raise gate.AscTransientError("HTTP 503 while querying Apple")
+            return {
+                "data": [
+                    {
+                        "type": "builds",
+                        "attributes": {
+                            "version": "90",
+                            "processingState": "VALID",
+                            "usesNonExemptEncryption": False,
+                        },
+                    }
+                ]
+            }
 
         build = gate.wait_for_testflight_build(
             app_id="6757718917",
@@ -153,6 +169,34 @@ class WaitForTestFlightBuildTests(unittest.TestCase):
             get_payload=get_payload,
             now=clock.now,
             sleep=clock.sleep,
+        )
+        self.assertEqual(build["attributes"]["processingState"], "VALID")
+
+    def test_valid_build_wins_when_upload_state_lags(self) -> None:
+        def get_payload(url: str) -> dict:
+            if "buildUploads" in url:
+                return upload_payload("AWAITING_UPLOAD")
+            return {
+                "data": [
+                    {
+                        "type": "builds",
+                        "attributes": {
+                            "version": "90",
+                            "processingState": "VALID",
+                            "usesNonExemptEncryption": False,
+                        },
+                    }
+                ]
+            }
+
+        build = gate.wait_for_testflight_build(
+            app_id="6757718917",
+            marketing_version="1.3.9",
+            build_number="90",
+            platform="IOS",
+            timeout_seconds=10,
+            poll_interval_seconds=5,
+            get_payload=get_payload,
         )
         self.assertEqual(build["attributes"]["processingState"], "VALID")
 

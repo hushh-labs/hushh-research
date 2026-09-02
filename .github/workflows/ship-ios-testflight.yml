@@ -215,10 +215,10 @@ jobs:
           put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
           put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"
 
-          # Native GoogleService-Info.plist for the iOS target. This is NOT part of
-          # ios:prepare:uat, and sync:native-firebase-configs requires an Android
-          # config we don't have here, so decode the GCP secret straight into place.
-          PLIST_DEST="hushh-webapp/ios/App/App/GoogleService-Info.plist"
+          # Materialize the canonical root source consumed by
+          # sync:native-firebase-configs --platform ios. The prepare step copies
+          # this validated source into the iOS app target.
+          PLIST_SOURCE="GoogleService-Info.plist"
           if ! gcloud secrets describe IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
             echo "Missing GCP secret IOS_GOOGLESERVICE_INFO_PLIST_B64 in ${GCP_PROJECT_ID}." >&2
             echo "Create it from the iOS GoogleService-Info.plist:" >&2
@@ -227,8 +227,8 @@ jobs:
             exit 1
           fi
           gcloud secrets versions access latest --secret=IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" \
-            | openssl base64 -d -A > "$PLIST_DEST"
-          if ! plutil -lint "$PLIST_DEST" >/dev/null 2>&1; then
+            | openssl base64 -d -A > "$PLIST_SOURCE"
+          if ! plutil -lint "$PLIST_SOURCE" >/dev/null 2>&1; then
             echo "Decoded GoogleService-Info.plist failed plist validation." >&2
             exit 1
           fi
@@ -315,10 +315,11 @@ jobs:
           echo "next_build=${NEXT_BUILD}" >> "$GITHUB_OUTPUT"
           echo "Next build number: ${NEXT_BUILD}"
 
-      - name: Test App Store Connect processing gate
+      - name: Test App Store Connect release gates
         shell: bash
         run: |
           set -euo pipefail
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/test_resolve_ios_build_number.py
           "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/test_wait_for_testflight_build.py
 
       - name: Cache Swift packages

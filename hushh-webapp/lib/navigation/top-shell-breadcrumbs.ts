@@ -16,6 +16,7 @@ import {
 import {
   CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
+  isFocusedConnectCircleTask,
   readConnectCircleAction,
 } from "@/lib/navigation/connect-routes";
 import {
@@ -1020,25 +1021,22 @@ function resolveTopShellBreadcrumbInner(
       searchParams?.get("action") ?? null,
     );
     const label = connectCircleTaskTitle(action);
-    if (label) {
-      const isFocusedTask =
-        action === "create-circle" || action === "join-circle";
+    const isFocusedTask = isFocusedConnectCircleTask(
+      "circles",
+      action,
+      searchParams?.get("circleId") ?? null,
+    );
+    if (label && isFocusedTask) {
       return {
         // Back closes the flow and returns to the list, naming the tab
         // explicitly -- the App Router refuses a navigation whose only change
         // is the whole query string disappearing.
         backHref: CONNECT_CIRCLES_LIST_HREF,
-        backLabel: isFocusedTask ? "Back to Circles" : undefined,
+        backLabel: "Back to Circles",
         width: "profile",
         align: "center",
         hideBack: false,
-        items: isFocusedTask
-          ? [{ label }]
-          : [
-              { label: "One", href: ROUTES.ONE_HOME },
-              { label: "Connect", href: CONNECT_CIRCLES_LIST_HREF },
-              { label },
-            ],
+        items: [{ label }],
       };
     }
   }

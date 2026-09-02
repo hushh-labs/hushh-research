@@ -12,8 +12,16 @@ from typing import Any
 
 GEMINI_37_FLASH = "gemini-3.7-flash"
 GEMINI_36_FLASH = "gemini-3.6-flash"
+GEMINI_31_PRO_PREVIEW = "gemini-3.1-pro-preview"
 
 _GEMINI_FLASH_UNSUPPORTED_FIELDS = {
+    "candidate_count",
+    "temperature",
+    "top_k",
+    "top_p",
+}
+
+_GEMINI_31_PRO_UNSUPPORTED_FIELDS = {
     "candidate_count",
     "temperature",
     "top_k",
@@ -39,6 +47,11 @@ def is_gemini_flash_v3(model: str | None) -> bool:
         GEMINI_36_FLASH,
         f"models/{GEMINI_36_FLASH}",
     }
+
+
+def is_gemini_31_pro_preview(model: str | None) -> bool:
+    normalized = str(model or "").strip().lower()
+    return normalized in {GEMINI_31_PRO_PREVIEW, f"models/{GEMINI_31_PRO_PREVIEW}"}
 
 
 def _sanitize_thinking_config_for_flash_v3(thinking_cfg: Any) -> Any:
@@ -77,6 +90,9 @@ def generation_config_kwargs(model: str | None, **kwargs: Any) -> dict[str, Any]
                 result["thinking_config"] = sanitized
             else:
                 result.pop("thinking_config", None)
+    elif is_gemini_31_pro_preview(model):
+        for field in _GEMINI_31_PRO_UNSUPPORTED_FIELDS:
+            result.pop(field, None)
     return result
 
 

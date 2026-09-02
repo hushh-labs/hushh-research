@@ -329,10 +329,10 @@ export function CircleMemberActionsMenu({
                     className="h-11 w-11"
                   />
                   <div className="min-w-0 flex-1 text-left">
-                    <DrawerTitle className="truncate text-[17px] leading-[22px]">
+                    <DrawerTitle className="whitespace-normal text-[17px] leading-[22px] [overflow-wrap:anywhere]">
                       {displayName}
                     </DrawerTitle>
-                    <DrawerDescription className="truncate text-[13px] leading-4 text-[color:var(--app-secondary-label)]">
+                    <DrawerDescription className="whitespace-normal text-[13px] leading-4 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
                       {secondaryLine ?? "Circle member"}
                     </DrawerDescription>
                   </div>
@@ -446,7 +446,7 @@ export function CircleMemberActionsMenu({
         >
           {/* Same job as the sheet's header: name the person, so a menu that
               paints over the next row still says who it belongs to. */}
-          <p className="truncate px-3 pt-1.5 pb-1 text-[13px] font-semibold leading-4 text-[color:var(--app-secondary-label)]">
+          <p className="whitespace-normal px-3 pt-1.5 pb-1 text-[13px] font-semibold leading-4 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
             {displayName}
           </p>
           <div

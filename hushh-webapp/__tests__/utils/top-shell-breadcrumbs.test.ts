@@ -80,6 +80,37 @@ describe("top shell breadcrumbs", () => {
       hideBack: false,
       items: [{ label: "Join a Circle" }],
     });
+
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connect",
+        new URLSearchParams(
+          "tab=circles&action=circle-detail&circleId=trusted",
+        ),
+      ),
+    ).toEqual({
+      backHref: "/one/connect?tab=circles",
+      backLabel: "Back to Circles",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "Circle" }],
+    });
+  });
+
+  it("keeps malformed Circle detail links on the normal Connect surface", () => {
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connect",
+        new URLSearchParams("tab=circles&action=circle-detail"),
+      ),
+    ).toEqual({
+      backHref: "/one",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "One" }],
+    });
   });
 
   it("uses the shared top-left back affordance for Calendar", () => {

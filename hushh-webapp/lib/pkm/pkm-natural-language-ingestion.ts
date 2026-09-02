@@ -2,6 +2,7 @@
 
 import {
   addToPKM,
+  getPkmAutoSaveCards,
   previewAgentPkmMemory,
   type AgentPkmPreviewCard,
   type AgentPkmPreviewResponse,
@@ -20,6 +21,8 @@ export type PkmNaturalLanguageIngestionResult = {
   chunkCount: number;
   save: AgentPkmSaveResult;
 };
+
+export type PkmNaturalLanguageWritePolicy = "reviewable" | "auto_save_only";
 
 export type PkmNaturalLanguagePreparationResult = {
   preview: AgentPkmPreviewResponse;
@@ -249,6 +252,7 @@ export async function prepareNaturalLanguagePkm(params: {
    * match keeps it but forces owner confirmation.
    */
   findDuplicate?: (candidate: string) => PkmNaturalLanguageDuplicateMatch;
+  allowEmpty?: boolean;
   onProgress?: (progress: PkmNaturalLanguagePreparationProgress) => void;
 }): Promise<PkmNaturalLanguagePreparationResult> {
   const message = params.message.trim();
@@ -374,7 +378,7 @@ export async function prepareNaturalLanguagePkm(params: {
   if (previews.length === 0 && failedBlocks > 0) {
     throw new Error("Memory preparation failed for every section. Please try again.");
   }
-  if (cards.length === 0 || previews.length === 0) {
+  if ((cards.length === 0 || previews.length === 0) && !params.allowEmpty) {
     throw new Error("We couldn't find saveable personal details in this import.");
   }
 
@@ -385,7 +389,14 @@ export async function prepareNaturalLanguagePkm(params: {
     cardCount: cards.length,
   });
   return {
-    preview: previews[0]!,
+    preview: previews[0] ?? {
+      agent_id: "agent_memory_segmentation",
+      agent_name: "Memory Segmentation Agent",
+      model: "unknown",
+      used_fallback: false,
+      write_mode: "do_not_save",
+      preview_cards: [],
+    },
     previews,
     cards,
     chunkCount: previews.length,
@@ -402,15 +413,22 @@ export async function ingestNaturalLanguagePkm(params: {
   vaultOwnerToken: string;
   source: string;
   confirmation: PkmWriteAuthorization;
+  writePolicy?: PkmNaturalLanguageWritePolicy;
   onProgress?: (progress: PkmNaturalLanguagePreparationProgress) => void;
 }): Promise<PkmNaturalLanguageIngestionResult> {
   const startedAt = performance.now();
-  const prepared = await prepareNaturalLanguagePkm(params);
+  const prepared = await prepareNaturalLanguagePkm({
+    ...params,
+    allowEmpty: params.writePolicy === "auto_save_only",
+  });
   const message = params.message.trim();
+  const cards = params.writePolicy === "auto_save_only"
+    ? getPkmAutoSaveCards(prepared.cards)
+    : prepared.cards;
 
   const save = await addToPKM({
     userId: params.userId,
-    cards: prepared.cards,
+    cards,
     sourceMessage: message,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,

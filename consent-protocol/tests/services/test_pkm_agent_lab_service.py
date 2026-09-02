@@ -212,6 +212,81 @@ async def test_agent_contract_uses_minimal_thinking_for_schema_workers():
 
 
 @pytest.mark.asyncio
+async def test_agent_contract_uses_low_thinking_for_pkm_salience_model():
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(return_value=SimpleNamespace(parsed={"status": "ok"}, text=""))
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_memory_segmentation", model="gemini-3.1-pro-preview"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=3.0,
+    )
+
+    assert result == {"status": "ok"}
+    config = generate_content.await_args.kwargs["config"]
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == "LOW"
+
+
+def test_segmentation_fails_closed_and_keeps_only_exact_owner_quotes():
+    message = "Thanks for helping with the form. I avoid dairy and run every morning."
+
+    assert PKMAgentLabService._sanitize_segmented_messages(None, message=message) == []
+    assert PKMAgentLabService._sanitize_segmented_messages(
+        {
+            "segments": [
+                {
+                    "source_text": "I avoid dairy",
+                    "confidence": 0.9,
+                    "reason": "Dietary constraint.",
+                },
+                {
+                    "source_text": "The owner is an athlete",
+                    "confidence": 0.9,
+                    "reason": "Invented.",
+                },
+            ]
+        },
+        message=message,
+    ) == [
+        {
+            "source_text": "I avoid dairy",
+            "confidence": 0.9,
+            "reason": "Dietary constraint.",
+        }
+    ]
+
+
+def test_invalid_structure_write_mode_requires_review():
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message="I avoid dairy.",
+        current_domains=["health"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "health",
+            "mutation_intent": "create",
+            "confidence": 0.9,
+            "candidate_domain_choices": [{"domain_key": "health", "recommended": True}],
+        },
+        merge_decision={"target_domain": "health", "merge_mode": "create_entity"},
+        financial_guard={"routing_decision": "non_financial_or_ephemeral"},
+        parsed_structure={
+            "candidate_payload": {"dietary_constraints": {"dairy": "avoid"}},
+            "structure_decision": {"target_domain": "health", "confidence": 0.9},
+        },
+        fallback_target_domain="health",
+        simulated_state=None,
+    )
+
+    assert preview["write_mode"] == "confirm_first"
+    assert "invalid_write_mode_requires_review" in preview["validation_hints"]
+
+
+@pytest.mark.asyncio
 async def test_agent_contract_retries_transient_resource_exhausted(monkeypatch):
     class ResourceExhaustedError(Exception):
         status_code = 429
@@ -1216,7 +1291,11 @@ async def test_dynamic_scope_crud_matrix_uses_canonical_targets(
         "_load_domain_registry_choices",
         AsyncMock(return_value=_registry_choices()),
     )
-    monkeypatch.setattr(service, "_run_agent_contract", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(side_effect=[_single_segment(message), None, None, None, None]),
+    )
 
     simulated_state = CRUD_MATRIX_STATE
     if message in {"Actually update that preference.", "Remove that old note."}:
@@ -1233,11 +1312,7 @@ async def test_dynamic_scope_crud_matrix_uses_canonical_targets(
     assert card["target_domain"] == expected_domain
     assert card["intent_class"] == expected_intent
     assert card["merge_mode"] == expected_merge
-    effective_write_mode = (
-        "confirm_first"
-        if expected_write == "can_save" and expected_intent in {"correction", "deletion"}
-        else expected_write
-    )
+    effective_write_mode = "confirm_first" if expected_write == "can_save" else expected_write
     assert card["write_mode"] == effective_write_mode
     if expected_scope:
         assert card["target_entity_scope"] == expected_scope
@@ -1636,7 +1711,9 @@ async def test_generate_structure_preview_splits_multi_intent_into_cards(monkeyp
 
     result = await service.generate_structure_preview(
         user_id="user-7",
-        message="I prefer to go to gym in the morning around 7am and have good breakfast too",
+        message=(
+            "I prefer to go to gym in the morning around 7am. I like to have a good breakfast too."
+        ),
         current_domains=[],
     )
 
@@ -1692,9 +1769,10 @@ async def test_generate_structure_preview_keeps_eight_segment_imports(monkeypatc
         ),
     )
 
+    message = " ".join(segment["source_text"] for segment in segments)
     result = await service.generate_structure_preview(
         user_id="user-8",
-        message="A profile import with eight independent preferences.",
+        message=message,
         current_domains=[],
     )
 

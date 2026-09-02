@@ -313,8 +313,10 @@ export function InsuranceAgentsNearby({
                   icon={Building2}
                   iconTone="blue"
                   title={
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">{card.name ?? "Agency"}</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+                        {card.name ?? "Agency"}
+                      </span>
                       <NearbyTagBadge>Agency</NearbyTagBadge>
                       {status ? (
                         <span className="type-caption shrink-0 rounded-full bg-[color:var(--app-accent)]/10 px-1.5 py-0.5 text-[color:var(--app-accent)]">

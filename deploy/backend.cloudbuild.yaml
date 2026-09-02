@@ -148,13 +148,9 @@ steps:
         add_secret() {
           local secret_name="$1"
           local env_name="$2"
-          if [[ -z "${secret_name}" ]]; then
-            return
-          fi
+          [[ -z "${secret_name}" ]] && return
           if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
             secrets="${secrets},${env_name}=${secret_name}:latest"
-          else
-            echo "Skipping optional secret ${secret_name}; not found in project ${PROJECT_ID}."
           fi
         }
 
@@ -232,7 +228,7 @@ steps:
           local name="$1"
           local value="$2"
           if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
-            echo "${name} must be a non-negative integer, got '${value}'." >&2
+            echo "${name} must be non-negative." >&2
             exit 1
           fi
         }
@@ -241,7 +237,7 @@ steps:
           local value="$2"
           require_non_negative_int "${name}" "${value}"
           if [[ "${value}" -lt 1 ]]; then
-            echo "${name} must be at least 1, got '${value}'." >&2
+            echo "${name} must be positive." >&2
             exit 1
           fi
         }
@@ -252,11 +248,11 @@ steps:
         require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
         require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
         if [[ "${_DB_POOL_MAX_SIZE}" -lt "${_DB_POOL_MIN_SIZE}" ]]; then
-          echo "_DB_POOL_MAX_SIZE must be greater than or equal to _DB_POOL_MIN_SIZE." >&2
+          echo "_DB_POOL_MAX_SIZE must be at least _DB_POOL_MIN_SIZE." >&2
           exit 1
         fi
         if [[ "${_CLOUD_RUN_MAX_INSTANCES}" -lt "${_CLOUD_RUN_MIN_INSTANCES}" ]]; then
-          echo "_CLOUD_RUN_MAX_INSTANCES must be greater than or equal to _CLOUD_RUN_MIN_INSTANCES." >&2
+          echo "_CLOUD_RUN_MAX_INSTANCES must be at least _CLOUD_RUN_MIN_INSTANCES." >&2
           exit 1
         fi
 
@@ -294,6 +290,11 @@ steps:
         add_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
         add_env "ONE_EMAIL_WEBHOOK_AUTH_ENABLED" "${_ONE_EMAIL_WEBHOOK_AUTH_ENABLED}"
         add_env "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED" "${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
+        p=GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR
+        for s in AUTH_ENABLED AUDIENCE SERVICE_ACCOUNT_EMAIL; do
+          v="_${p}_${s}"
+          add_env "${p}_${s}" "${!v}"
+        done
         add_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
         add_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
         add_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
@@ -570,6 +571,9 @@ substitutions:
   _ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL: ""
   _ONE_EMAIL_WEBHOOK_AUTH_ENABLED: "true"
   _ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED: "true"
+  _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED: "true"
+  _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE: ""
+  _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL: ""
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _ONE_WALLET_CARD_ENABLED: ""

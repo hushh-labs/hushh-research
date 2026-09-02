@@ -355,8 +355,8 @@ export function CircleInvitePeopleSheet({
                             />
                           }
                           title={
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              <span className="min-w-0 truncate">
+                            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
                                 {connection.displayName}
                               </span>
                               {connection.connectedFromContacts ? (

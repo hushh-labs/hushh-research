@@ -6,7 +6,8 @@
 App Store Connect exposes two related resources with different lifecycles:
 
 * ``buildUploads`` exists while Apple validates an upload and contains the
-  actionable import errors that would otherwise arrive only by email.
+  actionable import errors that would otherwise arrive only by email. Its
+  state can lag behind the corresponding imported build.
 * ``builds`` exists after import and reports TestFlight processing state.
 
 The release gate must inspect both. Polling ``builds`` alone cannot distinguish
@@ -217,55 +218,52 @@ def wait_for_testflight_build(
 
     while now() < deadline:
         attempt += 1
+        upload_payload: dict[str, Any] = {}
+        upload_summary = "upload not found"
         try:
             upload_payload = get_payload(
                 build_upload_url(app_id, marketing_version, build_number, platform)
             )
         except AscTransientError as exc:
-            last_state = f"transient API error: {exc}"
-            log(f"Attempt {attempt}: {last_state}")
-            remaining = deadline - now()
-            if remaining <= 0:
-                break
-            sleep(min(float(poll_interval_seconds), remaining))
-            continue
-        upload = matching_upload(upload_payload, marketing_version, build_number)
-        if upload is None:
-            last_state = "upload not found"
-            log(f"Attempt {attempt}: {last_state}")
+            upload_summary = f"transient upload API error: {exc}"
         else:
-            state, details = upload_state(upload)
-            last_state = f"build upload {state or 'UNKNOWN'}"
-            log(f"Attempt {attempt}: {last_state}")
-            if state == UPLOAD_FAILED:
-                raise BuildUploadFailed(format_state_details(details))
+            upload = matching_upload(upload_payload, marketing_version, build_number)
+            if upload is not None:
+                state, details = upload_state(upload)
+                upload_summary = f"build upload {state or 'UNKNOWN'}"
+                if state == UPLOAD_FAILED:
+                    raise BuildUploadFailed(format_state_details(details))
 
-            if state == UPLOAD_COMPLETE:
-                build = matching_build(upload_payload, build_number)
-                if build is None:
-                    try:
-                        build_payload = get_payload(
-                            build_url(app_id, marketing_version, build_number)
-                        )
-                    except AscTransientError as exc:
-                        last_state = (
-                            "build upload COMPLETE; transient build API error: "
-                            f"{exc}"
-                        )
-                        log(f"Attempt {attempt}: {last_state}")
-                    else:
-                        build = matching_build(build_payload, build_number)
-                if build is not None:
-                    attrs = build.get("attributes") or {}
-                    processing_state = attrs.get("processingState")
-                    last_state = f"build upload COMPLETE; build {processing_state or 'UNKNOWN'}"
-                    log(f"Attempt {attempt}: {last_state}")
-                    if processing_state == BUILD_VALID:
-                        return build
-                    if processing_state in BUILD_TERMINAL_BAD:
-                        raise TestFlightBuildFailed(
-                            f"build processingState={processing_state}"
-                        )
+        # Query the definitive build resource independently. App Store Connect
+        # can expose an imported build while the related buildUploads record is
+        # still AWAITING_UPLOAD, so gating this lookup on upload COMPLETE creates
+        # a false timeout after a successful transporter delivery.
+        build = matching_build(upload_payload, build_number)
+        build_summary = "build not found"
+        if build is None:
+            try:
+                build_payload = get_payload(
+                    build_url(app_id, marketing_version, build_number)
+                )
+            except AscTransientError as exc:
+                build_summary = f"transient build API error: {exc}"
+            else:
+                build = matching_build(build_payload, build_number)
+
+        if build is not None:
+            attrs = build.get("attributes") or {}
+            processing_state = attrs.get("processingState")
+            build_summary = f"build {processing_state or 'UNKNOWN'}"
+            if processing_state == BUILD_VALID:
+                log(f"Attempt {attempt}: {upload_summary}; {build_summary}")
+                return build
+            if processing_state in BUILD_TERMINAL_BAD:
+                raise TestFlightBuildFailed(
+                    f"build processingState={processing_state}"
+                )
+
+        last_state = f"{upload_summary}; {build_summary}"
+        log(f"Attempt {attempt}: {last_state}")
 
         remaining = deadline - now()
         if remaining <= 0:

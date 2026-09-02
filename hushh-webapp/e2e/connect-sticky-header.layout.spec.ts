@@ -19,6 +19,10 @@ import {
   resolveSignedInShellContentOffset,
   resolveTopShellGeometryStyle,
 } from "../components/app-ui/signed-in-shell-content-offset";
+import {
+  CONNECT_PAGE_CONTENT_CLASSNAME,
+  CONNECT_WRAPPING_TEXT_CLASSNAME,
+} from "../app/connect/connect-surface-layout";
 
 /**
  * Connect pins two things, at two different heights, for two different reasons.
@@ -53,8 +57,8 @@ import {
  * Run with: npm run test:layout-contracts
  */
 
-/** iPhone SE through the tablet width the issue asks for. */
-const WIDTHS = [320, 375, 390, 430, 768] as const;
+/** Narrow-phone boundary, the reported phone sizes, tablet, and desktop. */
+const WIDTHS = [320, 360, 393, 600, 1440] as const;
 
 /** Sub-pixel line boxes only. A strip that does not pin drifts by hundreds. */
 const SLACK_PX = 2;
@@ -170,9 +174,9 @@ function shellMarkup(): string {
       >
         <div data-app-shell-top-spacer="true" aria-hidden></div>
         <main
-          class="app-page-shell ${APP_SHELL_FRAME_CLASSNAME} ${APP_SHELL_MAX_WIDTHS.standard}"
+          class="app-page-shell ${APP_SHELL_FRAME_CLASSNAME} ${APP_SHELL_MAX_WIDTHS.agent}"
           data-app-density="compact"
-          data-app-shell-width="standard"
+          data-app-shell-width="agent"
           data-top-content-anchor="true"
         >
           <!-- Connect renders a page title above the strips, and at compact
@@ -182,7 +186,7 @@ function shellMarkup(): string {
           <div class="app-page-header-region w-full min-w-0">
             <div data-page-header style="height: ${PAGE_HEADER_HEIGHT_PX}px; background: #c8c8d0;">Connect</div>
           </div>
-          <div class="app-page-content-region w-full min-w-0">
+          <div data-connect-content class="app-page-content-region w-full ${CONNECT_PAGE_CONTENT_CLASSNAME}">
             <div class="surface-stack surface-stack-compact">
               <div data-connect-stack class="relative space-y-4 sm:space-y-5">
                 <div data-testid="connect-sticky-pin-sentinel" aria-hidden class="pointer-events-none absolute inset-x-0 top-0 h-px"></div>
@@ -190,7 +194,15 @@ function shellMarkup(): string {
                   <div data-strip="surface" style="height: ${SURFACE_STRIP_HEIGHT_PX}px; background: #e8e8ed;">People / Circles</div>
                   <div data-strip="tab" style="height: ${TAB_STRIP_HEIGHT_PX}px; background: #e8e8ed;">People / RIAs / Around you</div>
                 </div>
-                <div data-my-connections style="height: 900px; background: #dddde2;">My connections</div>
+                <div data-my-connections style="height: 900px; background: #dddde2;">
+                  <div data-person-row class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5">
+                    <div class="min-w-0">
+                      <span data-person-title class="${CONNECT_WRAPPING_TEXT_CLASSNAME}">24E2100221 Mayank Featherstonehaugh-Rajendran</span>
+                      <span data-person-description class="${CONNECT_WRAPPING_TEXT_CLASSNAME}">m***k@extraordinarily-long-university-domain.example</span>
+                    </div>
+                    <button data-person-action class="h-8 min-h-8 shrink-0 rounded-2xl px-2.5">Connect</button>
+                  </div>
+                </div>
                 <div data-testid="connect-search-row" class="${STICKY_SEARCH_CLASSNAME} flex items-center gap-2">
                   <div style="height: 44px; flex: 1 1 0%; background: #cfe0f5;">Search people</div>
                 </div>
@@ -211,10 +223,21 @@ async function writeFixture(): Promise<string> {
     "surface-stack-compact",
     "space-y-4",
     "sm:space-y-5",
-    "min-w-0",
+    ...CONNECT_PAGE_CONTENT_CLASSNAME.split(" "),
+    ...CONNECT_WRAPPING_TEXT_CLASSNAME.split(" "),
     "flex",
     "items-center",
     "gap-2",
+    "grid",
+    "grid-cols-[minmax(0,1fr)_auto]",
+    "gap-x-3",
+    "px-4",
+    "py-2.5",
+    "h-8",
+    "min-h-8",
+    "shrink-0",
+    "rounded-2xl",
+    "px-2.5",
     "relative",
     "pointer-events-none",
     "absolute",
@@ -222,7 +245,7 @@ async function writeFixture(): Promise<string> {
     "top-0",
     "h-px",
     ...APP_SHELL_FRAME_CLASSNAME.split(" "),
-    APP_SHELL_MAX_WIDTHS.standard,
+    APP_SHELL_MAX_WIDTHS.agent,
     ...STICKY_HEADER_CLASSNAME.split(" "),
     ...STICKY_SEARCH_CLASSNAME.split(" "),
   ]);
@@ -231,6 +254,7 @@ async function writeFixture(): Promise<string> {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css">
 <style>
@@ -306,6 +330,9 @@ async function measureAt(page: Page, y: number) {
     const pageHeader = document.querySelector<HTMLElement>("[data-page-header]")!;
     const stack = document.querySelector<HTMLElement>("[data-connect-stack]")!;
     const shell = document.querySelector<HTMLElement>(".app-page-shell")!;
+    const content = document.querySelector<HTMLElement>(
+      "[data-connect-content]",
+    )!;
     // The observer answers a frame or two after the scroll, so waiting a fixed
     // number of frames would be a race dressed as a constant. Wait for it to
     // AGREE with the geometry instead: pinned is exactly "the header is no
@@ -357,6 +384,10 @@ async function measureAt(page: Page, y: number) {
       searchAlpha: alphaOf(getComputedStyle(search).backgroundColor),
       stackTop: +stack.getBoundingClientRect().top.toFixed(2),
       pageHeaderBottom: +pageHeader.getBoundingClientRect().bottom.toFixed(2),
+      sectionGap: Number.parseFloat(
+        getComputedStyle(shell).getPropertyValue("--page-header-section-gap"),
+      ),
+      contentOverflowY: getComputedStyle(content).overflowY,
       liveHeight,
       headerTop: +headerBox.top.toFixed(2),
       headerBottom: +headerBox.bottom.toFixed(2),
@@ -394,6 +425,7 @@ test.describe("connect sticky header", () => {
       const scrolled = await measureAt(page, 700);
 
       expect(scrolled.scrollRemaining).toBeGreaterThan(0);
+      expect(atRest.contentOverflowY).toBe("visible");
       expect(scrolled.headerTop).toBeLessThan(atRest.headerTop);
       expect(
         Math.abs(scrolled.headerTop - scrolled.liveHeight),
@@ -503,6 +535,11 @@ test.describe("connect sticky header", () => {
       // `--page-header-section-gap` leaves under "Connect" at compact density is
       // not something it can take a bite out of.
       expect(atRest.coverHeight).toBe(0);
+      expect(
+        Math.abs(
+          atRest.headerTop - atRest.pageHeaderBottom - atRest.sectionGap,
+        ),
+      ).toBeLessThanOrEqual(SLACK_PX);
       expect(atRest.headerTop - atRest.coverHeight).toBeGreaterThanOrEqual(
         atRest.pageHeaderBottom - SLACK_PX,
       );
@@ -527,6 +564,48 @@ test.describe("connect sticky header", () => {
 
       expect(atRest.searchTop).toBeGreaterThan(atRest.headerBottom);
       expect(atRest.searchTop).toBeGreaterThan(844);
+    });
+
+    test(`long Connect identities wrap without clipping at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await writeFixture());
+      await awaitProductFont(page);
+
+      const result = await page.evaluate(() => {
+        const row = document.querySelector<HTMLElement>("[data-person-row]")!;
+        const action = document.querySelector<HTMLElement>(
+          "[data-person-action]",
+        )!;
+        const metrics = ["[data-person-title]", "[data-person-description]"].map(
+          (selector) => {
+            const node = document.querySelector<HTMLElement>(selector)!;
+            const style = getComputedStyle(node);
+            return {
+              clientWidth: node.clientWidth,
+              scrollWidth: node.scrollWidth,
+              clientHeight: node.clientHeight,
+              scrollHeight: node.scrollHeight,
+              textOverflow: style.textOverflow,
+              whiteSpace: style.whiteSpace,
+            };
+          },
+        );
+        return {
+          metrics,
+          actionRight: action.getBoundingClientRect().right,
+          rowRight: row.getBoundingClientRect().right,
+        };
+      });
+
+      for (const metric of result.metrics) {
+        expect(metric.scrollWidth).toBeLessThanOrEqual(metric.clientWidth + 1);
+        expect(metric.scrollHeight).toBeLessThanOrEqual(metric.clientHeight + 1);
+        expect(metric.textOverflow).not.toBe("ellipsis");
+        expect(metric.whiteSpace).not.toBe("nowrap");
+      }
+      expect(result.actionRight).toBeLessThanOrEqual(result.rowRight + 1);
     });
   }
 });
