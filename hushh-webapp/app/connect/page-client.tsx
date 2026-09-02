@@ -46,10 +46,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import {
@@ -92,6 +98,7 @@ import {
   CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
   CONNECT_SEARCH_PLACEHOLDER,
 } from "./connect-search-layout";
+import { CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME } from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
@@ -540,6 +547,7 @@ export default function ConnectPageClient() {
   const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const loadMoreDirectoryRef = useRef<HTMLDivElement | null>(null);
   const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
+  const useWebDirectoryPopover = !isNative();
   const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
     .trim()
     .slice(0, 160);
@@ -662,6 +670,7 @@ export default function ConnectPageClient() {
   }, [surface]);
 
   useEffect(() => {
+    if (useWebDirectoryPopover) return;
     if (!directoryMenuOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       const menu = directoryMenuRef.current;
@@ -679,7 +688,7 @@ export default function ConnectPageClient() {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [directoryMenuOpen]);
+  }, [directoryMenuOpen, useWebDirectoryPopover]);
   /**
    * The people picked for a bulk request, held whole rather than by id.
    *
@@ -2252,6 +2261,35 @@ export default function ConnectPageClient() {
     },
   );
 
+  const directoryMenuItems = CONNECT_DIRECTORY_TABS.map((option) => {
+    const active = tab === option.value;
+    return (
+      <button
+        key={option.value}
+        type="button"
+        role="menuitemradio"
+        aria-checked={active}
+        className={cn(
+          "flex min-h-11 w-full items-center justify-between px-3 text-left text-[15px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+          useWebDirectoryPopover ? "rounded-[12px]" : "rounded-[10px]",
+          active
+            ? "text-[color:var(--app-accent)]"
+            : "text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+        )}
+        onClick={() => {
+          setTab(option.value);
+          setDirectoryMenuOpen(false);
+          window.requestAnimationFrame(() =>
+            directoryMenuButtonRef.current?.focus(),
+          );
+        }}
+      >
+        <span>{option.label}</span>
+        {active ? <Check className="h-4 w-4" aria-hidden="true" /> : null}
+      </button>
+    );
+  });
+
   return (
     <AppPageShell
       as="main"
@@ -2349,63 +2387,74 @@ export default function ConnectPageClient() {
               {surface !== "circles" ? (
                 <div className="flex min-h-11 items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div ref={directoryMenuRef} className="relative">
-                      <button
-                        ref={directoryMenuButtonRef}
-                        type="button"
-                        aria-haspopup="menu"
-                        aria-expanded={directoryMenuOpen}
-                        aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
-                        className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-                        onClick={() =>
-                          setDirectoryMenuOpen((current) => !current)
-                        }
-                      >
-                        {CONNECT_TAB_LABEL[tab]}
-                        <ChevronDown
-                          className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                          aria-hidden
-                        />
-                      </button>
-                      {directoryMenuOpen ? (
-                        <div
-                          role="menu"
-                          className="absolute left-0 top-full z-30 mt-1 w-[184px] overflow-hidden rounded-[14px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] p-1 shadow-[0_10px_30px_rgba(0,0,0,0.10)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                    <div
+                      ref={directoryMenuRef}
+                      data-testid="connect-directory-menu-anchor"
+                      className="relative"
+                    >
+                      {useWebDirectoryPopover ? (
+                        <Popover
+                          open={directoryMenuOpen}
+                          onOpenChange={setDirectoryMenuOpen}
                         >
-                          {CONNECT_DIRECTORY_TABS.map((option) => {
-                            const active = tab === option.value;
-                            return (
-                              <button
-                                key={option.value}
-                                type="button"
-                                role="menuitemradio"
-                                aria-checked={active}
-                                className={cn(
-                                  "flex min-h-11 w-full items-center justify-between rounded-[10px] px-3 text-left text-[15px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
-                                  active
-                                    ? "text-[color:var(--app-accent)]"
-                                    : "text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
-                                )}
-                                onClick={() => {
-                                  setTab(option.value);
-                                  setDirectoryMenuOpen(false);
-                                  window.requestAnimationFrame(() =>
-                                    directoryMenuButtonRef.current?.focus(),
-                                  );
-                                }}
-                              >
-                                <span>{option.label}</span>
-                                {active ? (
-                                  <Check
-                                    className="h-4 w-4"
-                                    aria-hidden="true"
-                                  />
-                                ) : null}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
+                          <PopoverTrigger asChild>
+                            <button
+                              ref={directoryMenuButtonRef}
+                              type="button"
+                              aria-haspopup="menu"
+                              aria-expanded={directoryMenuOpen}
+                              aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                            >
+                              {CONNECT_TAB_LABEL[tab]}
+                              <ChevronDown
+                                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                                aria-hidden
+                              />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            role="menu"
+                            data-testid="connect-directory-menu"
+                            align="start"
+                            side="bottom"
+                            sideOffset={6}
+                            collisionPadding={16}
+                            className={CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME}
+                          >
+                            {directoryMenuItems}
+                          </PopoverContent>
+                        </Popover>
+                      ) : (
+                        <>
+                          <button
+                            ref={directoryMenuButtonRef}
+                            type="button"
+                            aria-haspopup="menu"
+                            aria-expanded={directoryMenuOpen}
+                            aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+                            onClick={() =>
+                              setDirectoryMenuOpen((current) => !current)
+                            }
+                          >
+                            {CONNECT_TAB_LABEL[tab]}
+                            <ChevronDown
+                              className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                              aria-hidden
+                            />
+                          </button>
+                          {directoryMenuOpen ? (
+                            <div
+                              role="menu"
+                              data-testid="connect-directory-menu"
+                              className="absolute left-0 top-full z-30 mt-1 w-[184px] overflow-hidden rounded-[14px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] p-1 shadow-[0_10px_30px_rgba(0,0,0,0.10)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                            >
+                              {directoryMenuItems}
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

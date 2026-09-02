@@ -21,6 +21,7 @@ import {
   CONNECT_CONNECTIONS_SUMMARY_COUNT_CLASSNAME,
   CONNECT_CONNECTIONS_SUMMARY_TRAILING_CLASSNAME,
   CONNECT_DIRECTORY_MENU_CLASSNAME,
+  CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME,
 } from "../app/connect/connect-surface-layout";
 import {
   CIRCLE_NAME_ACTION_CLASSNAME,
@@ -763,5 +764,47 @@ test("Connect directory menu is opaque in light and dark themes", async ({
     });
 
     expect(alpha, dark ? "dark menu alpha" : "light menu alpha").toBe(255);
+  }
+});
+
+test("Connect web directory popover uses legible floating material", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(
+    await buildFixture(
+      "connect-web-directory-popover",
+      `<div data-testid="directory-menu" class="${CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME}">People</div>`,
+      CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME.split(/\s+/),
+    ),
+  );
+
+  for (const dark of [false, true]) {
+    await page.evaluate((enabled) => {
+      document.documentElement.classList.toggle("dark", enabled);
+    }, dark);
+
+    const result = await page.getByTestId("directory-menu").evaluate((el) => {
+      const computed = getComputedStyle(el);
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d")!;
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = "rgba(0, 0, 0, 0)";
+      context.fillStyle = computed.backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return {
+        alpha: context.getImageData(0, 0, 1, 1).data[3],
+        backdropFilter:
+          computed.backdropFilter || computed.webkitBackdropFilter,
+        boxShadow: computed.boxShadow,
+      };
+    });
+
+    expect(result.alpha, dark ? "dark popover alpha" : "light popover alpha")
+      .toBeGreaterThanOrEqual(229);
+    expect(result.backdropFilter).not.toBe("none");
+    expect(result.boxShadow).not.toBe("none");
+    expect(CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME).not.toContain("absolute");
   }
 });
