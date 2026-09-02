@@ -521,6 +521,7 @@ def _enforce_payment_cards_write_policy(
     try:
         validate_payment_card_envelope(request.summary)
     except ValueError as exc:
+        logger.warning("[PKM] payment_cards write refused: envelope reason=%s", exc)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -684,6 +685,11 @@ async def store_domain(
                 domain=canonical_domain,
             )
         except ValueError as exc:
+            logger.warning(
+                "[PKM] store-domain refused domain=%s: mutation plan reason=%s",
+                canonical_domain,
+                exc,
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={
