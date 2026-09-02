@@ -14,11 +14,25 @@ SET monitoring_generation = 1
 WHERE monitoring_enabled = TRUE
   AND monitoring_generation = 0;
 
-ALTER TABLE gmail_personal_information_request_preferences
-  ADD CONSTRAINT gmail_personal_information_request_preferences_generation_nonnegative
-    CHECK (monitoring_generation >= 0),
-  ADD CONSTRAINT gmail_personal_information_request_preferences_message_offset_nonnegative
-    CHECK (monitor_message_offset >= 0);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'gmail_personal_information_request_preferences_generation_nonnegative'
+  ) THEN
+    ALTER TABLE gmail_personal_information_request_preferences
+      ADD CONSTRAINT gmail_personal_information_request_preferences_generation_nonnegative
+      CHECK (monitoring_generation >= 0);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'gmail_personal_information_request_preferences_message_offset_nonnegative'
+  ) THEN
+    ALTER TABLE gmail_personal_information_request_preferences
+      ADD CONSTRAINT gmail_personal_information_request_preferences_message_offset_nonnegative
+      CHECK (monitor_message_offset >= 0);
+  END IF;
+END $$;
 
 COMMENT ON COLUMN gmail_personal_information_request_preferences.monitoring_generation IS
   'Monotonic opt-in generation. Stale scans cannot persist after monitoring is disabled or re-enabled.';
