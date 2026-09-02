@@ -387,13 +387,11 @@ def fleet_text_model_from_env(environ: "Mapping[str, str] | None" = None) -> str
 
 GEMINI_MODEL = fleet_text_model_from_env()
 
-# Vertex AI model (for Google Cloud deployments)
-GEMINI_MODEL_VERTEX = GEMINI_MODEL
 
 # ==================== Kai Portfolio Import Defaults ====================
 
-# Portfolio import extraction is prompt-first and optimized for lower latency.
-KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = GEMINI_MODEL
+# Portfolio import extraction is prompt-first and optimized for lower latency. The
+# model itself is the fleet model; only these sampling settings are import-specific.
 KAI_PORTFOLIO_IMPORT_ENABLE_THINKING = True
 KAI_PORTFOLIO_IMPORT_THINKING_LEVEL = "LOW"
 KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS = 32768
@@ -430,8 +428,6 @@ __all__ = [
     "DEFAULT_CONSENT_TOKEN_EXPIRY_MS",
     "DEFAULT_TRUST_LINK_EXPIRY_MS",
     "GEMINI_MODEL",
-    "GEMINI_MODEL_VERTEX",
-    "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL",
     "KAI_PORTFOLIO_IMPORT_ENABLE_THINKING",
     "KAI_PORTFOLIO_IMPORT_THINKING_LEVEL",
     "KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS",

@@ -710,7 +710,7 @@ class ReceiptMemoryEnrichmentService:
         return raw not in {"0", "false", "off", "disabled", "no"}
 
     def _model(self) -> str:
-        return _clean_text(os.getenv("KAI_RECEIPT_MEMORY_LLM_MODEL"), str(GEMINI_MODEL))
+        return str(GEMINI_MODEL)
 
     def _timeout_seconds(self) -> float:
         raw = _clean_text(os.getenv("KAI_RECEIPT_MEMORY_LLM_TIMEOUT_SECONDS"), "8")

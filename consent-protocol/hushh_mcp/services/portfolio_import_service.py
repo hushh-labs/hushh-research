@@ -2094,7 +2094,7 @@ Statement text (first 12000 chars):
 
         from google.genai import types
 
-        from hushh_mcp.constants import GEMINI_MODEL_VERTEX
+        from hushh_mcp.constants import GEMINI_MODEL
 
         portfolio = ComprehensivePortfolio()
 
@@ -2104,7 +2104,7 @@ Statement text (first 12000 chars):
         except Exception as exc:
             logger.error("Vertex AI init failed: %s", type(exc).__name__)
             raise ValueError("Could not initialize managed Gemini client") from exc
-        model_to_use = GEMINI_MODEL_VERTEX
+        model_to_use = GEMINI_MODEL
 
         # Encode PDF as base64
         pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")

@@ -210,10 +210,9 @@ ONE_LIVE_VOICE_OPTIONS: dict[str, str] = {
 # send_client_content behavior. A BYOK key must never silently fall back to
 # Hussh's managed Vertex identity.
 _BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
-# All worker agents resolve the same authored Gemini text generation.
-_SPECIALIST_MODEL = (
-    os.getenv("AGENT_ONE_SPECIALIST_MODEL") or _KAI_MANIFEST.model_config_for_runtime().name
-).strip()
+# All worker agents resolve the same authored Gemini text generation, through the
+# manifest alias rather than a private environment knob no lane ever set.
+_SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
 
 
 # The Live compatibility registry lives in runtime_providers so the deploy
