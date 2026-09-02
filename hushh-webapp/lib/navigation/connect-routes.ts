@@ -15,7 +15,6 @@ export type FocusedConnectCircleAction =
   | "create-circle"
   | "join-circle"
   | "circle-detail";
-
 export function readConnectSurface(value: string | null): ConnectSurface {
   return value === "circles" ? "circles" : "all";
 }
@@ -39,8 +38,7 @@ export function isFocusedConnectCircleTask(
     surface === "circles" &&
     (action === "create-circle" ||
       action === "join-circle" ||
-      (action === "circle-detail" && Boolean(circleId?.trim())))
-  );
+      (action === "circle-detail" && Boolean(circleId?.trim())))  );
 }
 
 export function connectCircleTaskTitle(

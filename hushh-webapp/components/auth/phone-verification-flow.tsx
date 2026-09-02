@@ -103,7 +103,9 @@ type PhoneVerificationFlowProps = {
   onCompleted: (user?: User | null) => Promise<void> | void;
   onContinueExisting?: () => Promise<void> | void;
   onCancel?: () => void;
+  sendCodeLabel?: string;
   confirmLabel?: string;
+  primaryActionClassName?: string;
   className?: string;
   helperText?: string;
   style?: CSSProperties;
@@ -352,7 +354,9 @@ export function PhoneVerificationFlow({
   onCompleted,
   onContinueExisting,
   onCancel,
+  sendCodeLabel,
   confirmLabel,
+  primaryActionClassName,
   className,
   helperText,
   style,
@@ -1102,12 +1106,16 @@ export function PhoneVerificationFlow({
               effect="fill"
               size="default"
               fullWidth
-              className={`type-headline ${FLOW_CTA_CLASS_NAME}`}
+              className={cn(
+                "type-headline",
+                FLOW_CTA_CLASS_NAME,
+                primaryActionClassName,
+              )}
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                "Send verification code"
+                sendCodeLabel || "Send verification code"
               )}
             </Button>
             {onCancel ? (
@@ -1189,7 +1197,11 @@ export function PhoneVerificationFlow({
             effect="fill"
             size="default"
             fullWidth
-            className={`type-headline ${FLOW_CTA_CLASS_NAME}`}
+            className={cn(
+              "type-headline",
+              FLOW_CTA_CLASS_NAME,
+              primaryActionClassName,
+            )}
           >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
