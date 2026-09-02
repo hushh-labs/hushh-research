@@ -294,6 +294,29 @@ def running_image(row: Optional[dict[str, Any]]) -> Optional[str]:
     return str(value).strip() or None if value else None
 
 
+#: A lease younger than this is another worker mid-upgrade; older, it was left by
+#: a worker that died and the row is a candidate again. Mirrors the repo's TTL.
+UPGRADE_LEASE_FRESH_FOR_SECONDS = 600
+
+
+def _lease_is_fresh(value: Any) -> bool:
+    """``upgradeLease`` is ``<iso timestamp>|<target image>``; only the timestamp
+    decides freshness. Anything unparseable is treated as absent, never as a lock."""
+    text = str(value or "")
+    if not text:
+        return False
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    try:
+        taken = datetime.fromisoformat(text.split("|", 1)[0])
+    except ValueError:
+        return False
+    if taken.tzinfo is None:
+        taken = taken.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - taken).total_seconds()
+    return 0 <= age < UPGRADE_LEASE_FRESH_FOR_SECONDS
+
+
 #: A pod that failed to come up on one target image is retried this many times for
 #: THAT image, then left alone until the image moves again. Without the cap a pod
 #: whose new revision cannot boot would be replaced every pass forever.
@@ -1023,6 +1046,8 @@ class PersonalAgentProvisioningService:
                 and int(marker.get("attempts") or 0) >= UPGRADE_ATTEMPTS_PER_IMAGE
             ):
                 continue
+            if _lease_is_fresh(((row or {}).get("backend_metadata") or {}).get("upgradeLease")):
+                continue
             out.append(row)
         return out
 
@@ -1081,7 +1106,21 @@ class PersonalAgentProvisioningService:
             raise PersonalAgentUpgradeUnsupportedError(
                 f"backend {getattr(backend, 'backend_id', '?')!r} cannot upgrade a pod in place"
             )
+        # Single-flight across hub workers: the lease is one conditional write on
+        # the row, and losing it means another worker is already moving this pod.
+        claim = getattr(self._registry, "claim_image_upgrade", None)
+        if claim is not None and not await claim(user_id=user_id, target_image=current_image):
+            logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=in_progress", hushh_id)
+            return {
+                "hushhId": hushh_id,
+                "status": "provisioned",
+                "upgraded": False,
+                "skipped": "in_progress",
+                "image": running_image(row),
+                "previousImage": running_image(row),
+            }
         old_meta = dict(row.get("backend_metadata") or {})
+        old_meta.pop("upgradeLease", None)
         previous = running_image(row)
         try:
             handle = await upgrade(spec)

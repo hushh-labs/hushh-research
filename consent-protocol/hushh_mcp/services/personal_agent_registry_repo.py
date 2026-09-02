@@ -14,7 +14,7 @@ never the raw phone number and never a private key.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from db.db_client import get_db
@@ -57,6 +57,11 @@ _LIVENESS_CANDIDATE_STATUSES = ("provisioning", "connecting", "provisioned")
 # either way. The only way to see it was to compare this tuple against the writers,
 # which is exactly what the guard beside it now does on every run.
 _STALLED_POD_STATUSES = ("provisioning", "provisioning_failed")
+
+#: How long an image-upgrade lease protects a row before another worker may take
+#: it over. Longer than one upgrade (copy + replace + Ready, ~2 minutes live),
+#: shorter than two reconcile passes.
+_UPGRADE_LEASE_TTL = timedelta(minutes=10)
 
 # Failure code written by mark_provisioning_failed when a 'connecting' row blew its
 # handshake deadline, and read back by the reconcile sweep's retry gate: a heal
@@ -662,6 +667,44 @@ class PersonalAgentRegistryRepo:
             .execute()
         )
         return list(response.data or [])
+
+    async def claim_image_upgrade(self, *, user_id: str, target_image: str) -> bool:
+        """Take the single-flight lease for moving THIS pod to ``target_image``.
+
+        One conditional UPDATE, so two hub workers cannot both win: the reconcile
+        loop runs in every gunicorn worker, and on 2026-09-02 both replaced the
+        founder's pod within thirty seconds of each other and each counted the
+        other pod's copy failure, so the three-attempt cap was reached in two
+        passes. The lease is a timestamp inside ``backend_metadata`` (no new
+        column), cleared by the terminal write on either outcome and expired
+        after ten minutes if a worker died holding it. True means "yours".
+        """
+        now = datetime.now(timezone.utc)
+        result = self._db().execute_raw(
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{upgradeLease}',
+                    to_jsonb(CAST(:lease AS text)),
+                    true
+                )
+            WHERE user_id = :user_id
+              AND status = 'provisioned'
+              AND (
+                    backend_metadata->>'upgradeLease' IS NULL
+                    OR CAST(backend_metadata->>'upgradeLease' AS timestamptz)
+                       < CAST(:stale_before AS timestamptz)
+                  )
+            RETURNING user_id
+            """,
+            {
+                "user_id": user_id,
+                "lease": f"{now.isoformat()}|{target_image}",
+                "stale_before": (now - _UPGRADE_LEASE_TTL).isoformat(),
+            },
+        )
+        return bool(result.data)
 
     async def record_image_upgrade(
         self,

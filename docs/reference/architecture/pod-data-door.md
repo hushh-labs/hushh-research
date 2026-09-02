@@ -58,6 +58,8 @@ flowchart TB
 | location | **OPEN** | `list_state(read_only=True)` (sync DB) | first door; suppresses even expiry housekeeping |
 | email | **OPEN** | `list_nudges` (async, OAuth) | inbox attention summary; `cap.email.inbox.view` |
 | calendar | **OPEN** (2026-09-02) | `list_events` (async, OAuth, 36h window) | upcoming events, titles and times only; `cap.calendar.events.view`; read-only, the summary points at the Calendar screen for changes |
+
+Calendar is the first **in-process tool** behind a door. Location and email are dispatched specialists, so the hook at the specialist seam (`agent_tree._specialist_turn`) serves them; the calendar tools run inside the orchestrator and never reach that seam. The bridge is `agents/calendar/tools._serve_via_door`: in pod mode every calendar read tool consults the door first and reads in-process only when no door is open for the turn (off, no grant, broker refusal). The hub never consults it. Finance follows the same recipe.
 | nav, connections | next | dispatch specialists (hook fires) | same recipe as email |
 | calendar | designed | `list_events` (async, OAuth) | in-process tool, needs the tool→broker bridge below |
 | finance/Kai | designed (partial) | `get_status` connection status (sync DB) | see the finance split |

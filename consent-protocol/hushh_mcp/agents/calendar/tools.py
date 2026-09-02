@@ -90,6 +90,29 @@ def _handle_connection_error(
     )
 
 
+async def _serve_via_door(tool_context: ToolContext) -> dict[str, Any] | None:
+    """A calendar read through the pod data door, or None to read in-process.
+
+    Only ever consulted in pod mode; the hub keeps reading its own database.
+    The door answers with a read-only summary of the day ahead (titles and
+    times), which is what every read tool here asks for in different windows;
+    a person asking to change something is told where that happens.
+    """
+    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
+
+    if not pod_mode():
+        return None
+    from hushh_mcp.one_adk.pod_data_door_specialist import (  # noqa: PLC0415
+        serve_specialist_via_data_door,
+    )
+
+    payload = await serve_specialist_via_data_door("agent_calendar", tool_context)
+    if payload is None:
+        return None
+    text = str(payload.get("text") or "").strip()
+    return {"status": "ok", "source": "data_door", "summary": text, "message": text}
+
+
 async def _run_calendar_read(
     tool_context: ToolContext, call: Callable[[str], Awaitable[dict[str, Any]]]
 ) -> dict[str, Any]:
@@ -107,6 +130,16 @@ async def _run_calendar_read(
     timeout or connection failure, which is not a GoogleConnectionError at
     all.
     """
+    # THE DOOR BRIDGE. Calendar is an in-process tool, not a dispatched
+    # specialist, so the data-door hook at the specialist seam never sees it:
+    # on a keyless pod the read below walked straight into the DB wall
+    # ("Database credentials not set", seen live 2026-09-02) and every calendar
+    # question degraded. When the relay couriered a calendar grant, serve the
+    # read through the hub broker instead. None means "no door for this turn"
+    # (off, no grant, broker refusal) and the read proceeds exactly as before.
+    served = await _serve_via_door(tool_context)
+    if served is not None:
+        return served
     try:
         user_id = _user_id(tool_context)
         return await call(user_id)

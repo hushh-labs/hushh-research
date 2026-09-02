@@ -329,10 +329,16 @@ async def test_plan_mode_upgrade_touches_nothing():
 
 
 class FakeRegistry:
-    def __init__(self, rows: dict[str, dict]) -> None:
+    def __init__(self, rows: dict[str, dict], *, claim_result: bool = True) -> None:
         self.rows = rows
         self.upserts: list[dict] = []
         self.upgrade_writes: list[dict] = []
+        self.claims: list[dict] = []
+        self.claim_result = claim_result
+
+    async def claim_image_upgrade(self, *, user_id: str, target_image: str) -> bool:
+        self.claims.append({"user_id": user_id, "target_image": target_image})
+        return self.claim_result
 
     async def get(self, user_id: str) -> Optional[dict]:
         row = self.rows.get(user_id)
@@ -687,3 +693,101 @@ def test_hub_startup_wires_the_sweep_and_the_deploy_lane_carries_its_flag():
     lines = deploy.read_text(encoding="utf-8").splitlines()
     assert any('append_optional_env "PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED"' in ln for ln in lines)
     assert any(ln.strip() == 'personal_agent_upgrade_sweep="true"' for ln in lines)
+
+
+# ---------------------------------------------------------------------------
+# Single-flight: the lease, because every gunicorn worker runs the sweep
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_lost_lease_means_another_worker_has_this_pod(service_env):
+    """Seen live 2026-09-02: two workers replaced the founder's pod thirty seconds
+    apart and each counted the other pod's copy failure."""
+    pas, narrative = service_env
+    registry = FakeRegistry({"uid-1": _row()}, claim_result=False)
+    backend = FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert registry.claims == [{"user_id": "uid-1", "target_image": SOURCE_NEW}]
+    assert backend.specs == [], "the loser never touches the pod"
+    assert result["upgraded"] is False and result["skipped"] == "in_progress"
+    assert registry.upgrade_writes == [] and narrative == []
+
+
+@pytest.mark.asyncio
+async def test_the_winner_claims_before_it_moves_and_clears_the_lease_after(service_env):
+    pas, _ = service_env
+    row = _row()
+    row["backend_metadata"]["upgradeLease"] = "2026-09-02T22:26:46+00:00|" + SOURCE_NEW
+    registry = FakeRegistry({"uid-1": row})
+    backend = FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert registry.claims and backend.specs, "claim first, then move"
+    assert "upgradeLease" not in registry.upgrade_writes[0]["backend_metadata"]
+
+
+@pytest.mark.asyncio
+async def test_candidates_skip_a_fresh_lease_and_reclaim_a_stale_one(service_env):
+    from datetime import datetime, timedelta, timezone
+
+    pas, _ = service_env
+    fresh = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat() + "|" + SOURCE_NEW
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat() + "|" + SOURCE_NEW
+    rows = {
+        "leased": {**_row(), "user_id": "leased"},
+        "abandoned": {**_row(), "user_id": "abandoned"},
+        "garbage": {**_row(), "user_id": "garbage"},
+    }
+    rows["leased"]["backend_metadata"]["upgradeLease"] = fresh
+    rows["abandoned"]["backend_metadata"]["upgradeLease"] = stale
+    rows["garbage"]["backend_metadata"]["upgradeLease"] = "not a timestamp"
+    service = pas.PersonalAgentProvisioningService(
+        registry=FakeRegistry(rows), backend=FakeUpgradingBackend()
+    )
+
+    out = sorted(
+        r["user_id"] for r in await service.list_upgrade_candidates(current_image=SOURCE_NEW)
+    )
+
+    assert out == ["abandoned", "garbage"], (
+        "a fresh lease is skipped; stale or unreadable is not a lock"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_registry_lease_is_one_conditional_write(monkeypatch):
+    """The lease must be atomic: one UPDATE guarded by the lease's own age, on a
+    provisioned row only, returning the row iff it was taken."""
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    seen: dict = {}
+
+    class _Result:
+        data = [{"user_id": "uid-1"}]
+
+    class _Db:
+        def execute_raw(self, sql, params=None):
+            seen["sql"], seen["params"] = sql, params
+            return _Result()
+
+    repo = PersonalAgentRegistryRepo()
+    monkeypatch.setattr(repo, "_db", lambda: _Db())
+
+    assert await repo.claim_image_upgrade(user_id="uid-1", target_image=SOURCE_NEW) is True
+    sql = " ".join(seen["sql"].split())
+    assert sql.startswith("UPDATE personal_agent_registry SET backend_metadata = jsonb_set(")
+    assert "WHERE user_id = :user_id AND status = 'provisioned'" in sql
+    assert "backend_metadata->>'upgradeLease' IS NULL" in sql
+    assert "< CAST(:stale_before AS timestamptz)" in sql and sql.endswith("RETURNING user_id")
+    assert seen["params"]["user_id"] == "uid-1"
+    assert seen["params"]["lease"].endswith("|" + SOURCE_NEW)
+    assert seen["params"]["stale_before"] < seen["params"]["lease"].split("|")[0]
+
+    _Result.data = []
+    assert await repo.claim_image_upgrade(user_id="uid-1", target_image=SOURCE_NEW) is False

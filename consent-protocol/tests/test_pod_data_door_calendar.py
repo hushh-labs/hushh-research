@@ -246,3 +246,80 @@ def test_summary_survives_a_hostile_projection_without_leaking_it() -> None:
     text = pod_side._format_calendar_summary(hostile)
     assert "Lunch (time unknown)" in text and "Standup (time unknown)" in text
     assert "x@y.z" not in text
+
+
+# -- the bridge: an in-process tool that reaches the door in pod mode ----------------
+
+
+class _Ctx:
+    def __init__(self, state: dict | None = None) -> None:
+        self.state = dict(state or {})
+
+
+@pytest.fixture
+def bridge(monkeypatch):
+    """Control pod mode and the door from one place; record what the tool did."""
+    state: dict = {
+        "pod_mode": True,
+        "payload": {"text": "Coming up: Board prep (Sep 03 at 09:00)."},
+        "door_calls": [],
+    }
+
+    monkeypatch.setattr("hushh_mcp.runtime_settings.pod_mode", lambda: state["pod_mode"])
+
+    async def _serve(agent_id, tool_context, *, broker=None):
+        state["door_calls"].append(agent_id)
+        return state["payload"]
+
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.pod_data_door_specialist.serve_specialist_via_data_door", _serve
+    )
+    return state
+
+
+@pytest.mark.asyncio
+async def test_calendar_summary_reads_through_the_door_in_pod_mode(bridge) -> None:
+    from hushh_mcp.agents.calendar import tools
+
+    db_calls: list[str] = []
+
+    async def _db_call(user_id: str):
+        db_calls.append(user_id)
+        return {"status": "ok"}
+
+    ctx = _Ctx({tools._STATE_USER_ID: "u-owner"})
+    out = await tools._run_calendar_read(ctx, _db_call)
+
+    assert bridge["door_calls"] == ["agent_calendar"]
+    assert db_calls == [], "the keyless pod never touches the database"
+    assert out["source"] == "data_door" and out["status"] == "ok"
+    assert out["summary"].startswith("Coming up: Board prep")
+
+
+@pytest.mark.asyncio
+async def test_no_door_for_this_turn_reads_in_process_as_before(bridge) -> None:
+    from hushh_mcp.agents.calendar import tools
+
+    bridge["payload"] = None
+    seen: list[str] = []
+
+    async def _db_call(user_id: str):
+        seen.append(user_id)
+        return {"status": "ok", "events": []}
+
+    out = await tools._run_calendar_read(_Ctx({tools._STATE_USER_ID: "u-owner"}), _db_call)
+    assert bridge["door_calls"] == ["agent_calendar"] and seen == ["u-owner"]
+    assert out == {"status": "ok", "events": []}
+
+
+@pytest.mark.asyncio
+async def test_the_hub_never_consults_the_door(bridge) -> None:
+    from hushh_mcp.agents.calendar import tools
+
+    bridge["pod_mode"] = False
+
+    async def _db_call(user_id: str):
+        return {"status": "ok", "events": ["hub read"]}
+
+    out = await tools._run_calendar_read(_Ctx({tools._STATE_USER_ID: "u-owner"}), _db_call)
+    assert bridge["door_calls"] == [] and out["events"] == ["hub read"]
