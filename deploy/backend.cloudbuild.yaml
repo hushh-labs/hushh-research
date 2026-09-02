@@ -217,9 +217,6 @@ steps:
       - "_BACKEND_SERVICE=${_BACKEND_SERVICE}"
       - "_BUILD_POD_IMAGE=${_BUILD_POD_IMAGE}"
       - "_CLOUDSQL_INSTANCES=${_CLOUDSQL_INSTANCES}"
-      - "_CLOUD_RUN_MAX_INSTANCES=${_CLOUD_RUN_MAX_INSTANCES}"
-      - "_CLOUD_RUN_MIN_INSTANCES=${_CLOUD_RUN_MIN_INSTANCES}"
-      - "_CLOUD_RUN_NO_TRAFFIC=${_CLOUD_RUN_NO_TRAFFIC}"
       - "_CONSENT_API_PUBLIC_ORIGIN=${_CONSENT_API_PUBLIC_ORIGIN}"
       - "_CONSENT_SSE_ENABLED=${_CONSENT_SSE_ENABLED}"
       - "_CONSENT_WEB_FALLBACK_ENABLED=${_CONSENT_WEB_FALLBACK_ENABLED}"
@@ -229,6 +226,11 @@ steps:
       - "_DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"
       - "_DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"
       - "_DEPLOY_ENV=${_DEPLOY_ENV}"
+      # Cloud Build caps a step at 100 env entries and this step reached 101 after
+      # the 2026-09 main merge, which rejected the whole build before it ran. The
+      # five Cloud Run capacity knobs travel as one packed entry; backend-deploy.sh
+      # unpacks them into the same _CLOUD_RUN_* names the rest of it reads.
+      - "_CLOUD_RUN_CAPACITY=max=${_CLOUD_RUN_MAX_INSTANCES},min=${_CLOUD_RUN_MIN_INSTANCES},no_traffic=${_CLOUD_RUN_NO_TRAFFIC},cpu=${_CLOUD_RUN_CPU},concurrency=${_CLOUD_RUN_CONCURRENCY}"
       - "_DEPLOY_SHA=${_DEPLOY_SHA}"
       - "_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"
       - "_FINNHUB_API_KEY_SECRET=${_FINNHUB_API_KEY_SECRET}"
@@ -307,8 +309,6 @@ steps:
       - "_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=${_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET}"
       - "_GOOGLE_PRIVATE_KEY_SECRET=${_GOOGLE_PRIVATE_KEY_SECRET}"
       - "_RIA_CLAIM_TEST_EMAILS_SECRET=${_RIA_CLAIM_TEST_EMAILS_SECRET}"
-      - "_CLOUD_RUN_CPU=${_CLOUD_RUN_CPU}"
-      - "_CLOUD_RUN_CONCURRENCY=${_CLOUD_RUN_CONCURRENCY}"
       - "_AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}"
     id: "deploy-backend"
 

@@ -28,6 +28,31 @@
 # also asserts every step arg stays under the 10,000 limit.
 
 set -euo pipefail
+
+# The Cloud Run capacity knobs arrive packed in one env entry (Cloud Build caps a
+# step at 100 env entries; see deploy/backend.cloudbuild.yaml). Unpack them into
+# the _CLOUD_RUN_* names the rest of this script reads, and refuse a missing key
+# rather than defaulting it: a silently defaulted --max would resize a lane.
+if [[ -n "${_CLOUD_RUN_CAPACITY:-}" ]]; then
+  IFS=',' read -r -a _capacity_pairs <<<"${_CLOUD_RUN_CAPACITY}"
+  for _pair in "${_capacity_pairs[@]}"; do
+    _key="${_pair%%=*}"; _value="${_pair#*=}"
+    case "${_key}" in
+      max) _CLOUD_RUN_MAX_INSTANCES="${_value}" ;;
+      min) _CLOUD_RUN_MIN_INSTANCES="${_value}" ;;
+      no_traffic) _CLOUD_RUN_NO_TRAFFIC="${_value}" ;;
+      cpu) _CLOUD_RUN_CPU="${_value}" ;;
+      concurrency) _CLOUD_RUN_CONCURRENCY="${_value}" ;;
+      *) echo "_CLOUD_RUN_CAPACITY carries an unknown key: ${_key}" >&2; exit 1 ;;
+    esac
+  done
+  for _required in _CLOUD_RUN_MAX_INSTANCES _CLOUD_RUN_MIN_INSTANCES _CLOUD_RUN_NO_TRAFFIC _CLOUD_RUN_CPU _CLOUD_RUN_CONCURRENCY; do
+    if [[ -z "${!_required:-}" ]]; then
+      echo "_CLOUD_RUN_CAPACITY is missing ${_required}." >&2; exit 1
+    fi
+  done
+  export _CLOUD_RUN_MAX_INSTANCES _CLOUD_RUN_MIN_INSTANCES _CLOUD_RUN_NO_TRAFFIC _CLOUD_RUN_CPU _CLOUD_RUN_CONCURRENCY
+fi
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,

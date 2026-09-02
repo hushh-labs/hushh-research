@@ -72,6 +72,17 @@ def _yaml_env_names() -> list[str]:
     return sorted(set(re.findall(r'^\s+- "(_[A-Z0-9_]+)=\$\{_[A-Z0-9_]+\}"', text, re.M)))
 
 
+def _yaml_env_entries() -> list[str]:
+    """The deploy-backend step's `env:` entries, verbatim (`NAME=value`)."""
+    import yaml
+
+    config = yaml.safe_load(BACKEND_CLOUDBUILD.read_text(encoding="utf-8"))
+    for step in config.get("steps") or []:
+        if step.get("id") == "deploy-backend":
+            return list(step.get("env") or [])
+    raise AssertionError("no deploy-backend step")
+
+
 def _yaml_substitution_defaults() -> dict[str, str]:
     """The declared `substitutions:` defaults.
 
@@ -113,11 +124,20 @@ def _run(tmp_path: Path, **overrides: str) -> list[str]:
     # reproduces a real deploy rather than an all-empty one. Anything the YAML passes
     # through but never defaults is empty, which is the honest state: append_optional_env
     # skips it and the runtime_settings default applies.
-    defaults = _yaml_substitution_defaults()
-    for name in _yaml_env_names():
-        env.setdefault(name, defaults.get(name, ""))
+    # Reproduce Cloud Build's substitution: overrides ARE substitutions, and every
+    # `${_X}` inside a step env value is expanded from them (a packed entry such as
+    # _CLOUD_RUN_CAPACITY carries several substitutions in one value, so expanding the
+    # value, not just naming it, is what keeps this run faithful to a real deploy).
+    substitutions = {**_yaml_substitution_defaults(), **overrides}
+
+    def _expand(value: str) -> str:
+        return re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m: substitutions.get(m.group(1), ""), value)
+
+    for entry in _yaml_env_entries():
+        name, _, value = entry.partition("=")
+        env.setdefault(name, _expand(value))
     env["_RUNTIME_SERVICE_ACCOUNT"] = RUNTIME_SA
-    env.update(overrides)
+    env.update({k: v for k, v in overrides.items() if k not in env or k in substitutions})
 
     result = subprocess.run(  # noqa: S603 - fixed argv, no shell, hermetic stub PATH
         ["bash", str(BACKEND_DEPLOY_SCRIPT)],

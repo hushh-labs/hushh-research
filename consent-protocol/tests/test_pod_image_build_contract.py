@@ -365,6 +365,12 @@ def test_the_extracted_deploy_script_receives_every_variable_it_reads():
     script = backend_deploy_script()
 
     passed = {entry.split("=", 1)[0] for entry in (step.get("env") or [])}
+    # A packed entry (Cloud Build caps a step at 100 env entries) hands over
+    # several substitutions inside one value; the script unpacks them into the
+    # names it reads, so every `${_X}` referenced inside a packed value counts
+    # as passed.
+    for entry in step.get("env") or []:
+        passed |= set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", entry.split("=", 1)[1]))
     body = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
     referenced = set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", body))
     referenced |= set(re.findall(r"\$\{?(PROJECT_ID)\}?", body))

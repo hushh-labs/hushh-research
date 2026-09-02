@@ -195,3 +195,42 @@ def test_substituted_backend_deploy_body_fits_every_lane(workflow_path: str) -> 
         f"deploy lane. Keep the step body in scripts/deploy/backend-deploy.sh and "
         f"pass values through the step's env: field, one substitution per entry."
     )
+
+
+CLOUD_BUILD_MAX_STEP_ENV = 100
+
+
+def test_no_cloud_build_step_exceeds_the_env_entry_cap() -> None:
+    """Cloud Build rejects a step with more than 100 env entries before anything runs.
+
+    Seen live 2026-09-02 on the dev lane: `invalid .steps.env field: build step 3 too
+    many envs (max: 100)` after the September main merge pushed deploy-backend to 101.
+    The five Cloud Run capacity knobs now travel as one packed _CLOUD_RUN_CAPACITY entry.
+    """
+    for rel in ("deploy/backend.cloudbuild.yaml", "deploy/frontend.cloudbuild.yaml"):
+        config = _load(rel)
+        if config is None:
+            continue
+        for step in config.get("steps") or []:
+            count = len(step.get("env") or [])
+            assert count <= CLOUD_BUILD_MAX_STEP_ENV, (
+                f"{rel} step {step.get('id') or step.get('name')} carries {count} env entries; "
+                f"Cloud Build refuses more than {CLOUD_BUILD_MAX_STEP_ENV}"
+            )
+
+
+def test_capacity_knobs_travel_packed_and_unpack_to_the_same_names() -> None:
+    config = _load("deploy/backend.cloudbuild.yaml") or {}
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    packed = [e for e in step.get("env") or [] if e.startswith("_CLOUD_RUN_CAPACITY=")]
+    assert len(packed) == 1, "the capacity knobs must travel as exactly one packed entry"
+    for key in (
+        "max=${_CLOUD_RUN_MAX_INSTANCES}",
+        "cpu=${_CLOUD_RUN_CPU}",
+        "no_traffic=${_CLOUD_RUN_NO_TRAFFIC}",
+    ):
+        assert key in packed[0]
+    assert not any(e.startswith("_CLOUD_RUN_CPU=") for e in step.get("env") or [])
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text(encoding="utf-8")
+    assert 'cpu) _CLOUD_RUN_CPU="${_value}" ;;' in script
+    assert '"--cpu=${_CLOUD_RUN_CPU}"' in script
