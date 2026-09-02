@@ -60,7 +60,7 @@ Both native envelopes use latest-request-wins and exact claim/completion. They
 survive ordinary cold launch and HUSSH sign-in for five minutes and clear on
 completion, failure, expiry, replacement, cancellation, or sign-out. The
 action envelope is stored in this-device-only Keychain storage and is closed
-to sixteen allowlisted generated action identifiers and per-action slot names.
+to seventeen allowlisted generated action identifiers and per-action slot names.
 The App Entity index is owner-bound and contains only existing HUSSH ids and
 display names; it contains no phone numbers, credentials, coordinates, routes,
 tokens, speech, or contact-book records.
@@ -97,6 +97,7 @@ The Siri surface exposes the following useful, bounded subset:
 | Open temporary-link composer | `location.open_temporary_link` | No | No |
 | Open Check-In composer | `location.open_check_in` | No | No |
 | Open SOS review | `location.open_sos` | No; does not send | No |
+| Open emergency SMS contacts | `location.open_sms_contacts` | No | No |
 | Share with a resolved contact | `location.share_selected` | Yes | Yes |
 | Ask a resolved contact for location | `location.send_request` | Yes | Yes |
 | Stop sharing with a resolved contact | `location.stop_share` | Yes | Yes |
@@ -105,13 +106,13 @@ The Siri surface exposes the following useful, bounded subset:
 | Create a named Circle | `location.create_circle` | Yes | Yes |
 | Rename a resolved Circle | `location.rename_circle` | Yes | Yes |
 
-The other 34 contract actions remain available through the existing One Voice
+The other 33 contract actions remain available through the existing One Voice
 and visible Location experience, but are not direct Siri intents in this
 release:
 
-- Ten redundant composer/deep-link actions (`open_people`, `open_links`,
+- Nine redundant composer/deep-link actions (`open_people`, `open_links`,
   `open_share`, `open_ask`, `open_invite`, `open_create_circle`,
-  `open_join_circle`, `open_sms_contacts`, `find_contacts`, and
+  `open_join_circle`, `find_contacts`, and
   `add_connections`) are covered by the narrower destination intents or the
   existing conversational fallback.
 - Three UI-internal selection/refresh steps (`select_ask_recipient`,
@@ -126,10 +127,20 @@ release:
   a confirmation gate. Siri may open the existing SOS review surface, but it
   cannot send the alert in this release.
 
-Apple limits an app to ten zero-setup App Shortcuts, so the provider publishes
-the highest-value phrases: share, ask, stop, location on/off, create Circle,
-Check-In, open Location, open map, review requests, and Talk to One. The other
-App Intents remain discoverable in the Shortcuts app. Android and web
+The installed iOS display and spoken name is `One`, so Apple's mandatory
+`applicationName` phrase token produces direct requests such as “Open One
+Location Agent” instead of requiring the harder-to-pronounce HUSSH brand name.
+One bounded `OneLocationDestinationEntity` represents the ten reviewed,
+non-mutating Location destinations (including map, requests, settings,
+Check-In, SOS review, and emergency SMS contacts). Its `OpenIntent` tells Siri
+that “Location Agent” is content inside One rather than a separate app.
+
+Apple limits an app to ten zero-setup App Shortcuts. The provider deliberately
+publishes eight focused shortcuts: share, ask, stop, location on/off, create
+Circle, Check-In, open a structured Location destination, and Talk to One.
+Mutation intents keep Apple's parameter follow-ups and native confirmation,
+then hand the exact generated action to the existing browser executor. The
+other App Intents remain discoverable in the Shortcuts app. Android and web
 deliberately report this Apple system surface as unsupported/no pending
 invocation.
 

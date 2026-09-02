@@ -43,7 +43,7 @@ describe("One system action invocation bridge contract", () => {
   });
 
   it("contains only generated Location action identifiers", () => {
-    expect(ONE_SYSTEM_ACTION_IDS).toHaveLength(16);
+    expect(ONE_SYSTEM_ACTION_IDS).toHaveLength(17);
     expect(
       ONE_SYSTEM_ACTION_IDS.every((actionId) =>
         actionId.startsWith("location."),

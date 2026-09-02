@@ -9,7 +9,7 @@ struct OneContactEntity: AppEntity, Identifiable, Hashable {
     let id: String
     let name: String
 
-    static let typeDisplayRepresentation: TypeDisplayRepresentation = "HUSSH Contact"
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "One Contact"
     static let defaultQuery = OneContactEntityQuery()
 
     var displayRepresentation: DisplayRepresentation {
@@ -45,11 +45,176 @@ struct OneCircleEntity: AppEntity, Identifiable, Hashable {
     let id: String
     let name: String
 
-    static let typeDisplayRepresentation: TypeDisplayRepresentation = "HUSSH Circle"
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "One Circle"
     static let defaultQuery = OneCircleEntityQuery()
 
     var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(title: "\(name)")
+    }
+}
+
+/// A bounded, non-sensitive description of a destination inside One Location.
+/// The entity teaches Siri that "Location Agent" is content owned by One,
+/// rather than the name of another installed app.
+@available(iOS 16.0, *)
+struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
+    let id: String
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation =
+        "One Location Destination"
+    static let defaultQuery = OneLocationDestinationEntityQuery()
+
+    static let supportedActionIDs: [OneSystemActionID] = [
+        .openLocation,
+        .openLocationMap,
+        .openActiveShares,
+        .openSharedWithMe,
+        .openRequestsToReview,
+        .openLocationSettings,
+        .openTemporaryLink,
+        .openCheckIn,
+        .openEmergencySOS,
+        .openSMSContacts
+    ]
+
+    static let all: [Self] = supportedActionIDs.map {
+        Self(id: $0.rawValue)
+    }
+
+    var actionID: OneSystemActionID? {
+        guard
+            let candidate = OneSystemActionID(rawValue: id),
+            Self.supportedActionIDs.contains(candidate)
+        else { return nil }
+        return candidate
+    }
+
+    var displayRepresentation: DisplayRepresentation {
+        switch actionID {
+        case .openLocation:
+            return makeDisplay(
+                title: "Location Agent",
+                synonyms: ["One Location Agent", "Location Overview"]
+            )
+        case .openLocationMap:
+            return makeDisplay(
+                title: "Location Map",
+                synonyms: ["One Location Map", "Map"]
+            )
+        case .openActiveShares:
+            return makeDisplay(
+                title: "Active Location Shares",
+                synonyms: ["Active Shares", "Who Can See Me"]
+            )
+        case .openSharedWithMe:
+            return makeDisplay(
+                title: "Locations Shared With Me",
+                synonyms: ["Shared With Me", "People Sharing With Me"]
+            )
+        case .openRequestsToReview:
+            return makeDisplay(
+                title: "Location Requests",
+                synonyms: ["Pending Location Requests", "Requests to Review"]
+            )
+        case .openLocationSettings:
+            return makeDisplay(
+                title: "Location Settings",
+                synonyms: ["Location Privacy", "Location Privacy Settings"]
+            )
+        case .openTemporaryLink:
+            return makeDisplay(
+                title: "Temporary Location Link",
+                synonyms: ["Location Link", "Temporary Link"]
+            )
+        case .openCheckIn:
+            return makeDisplay(
+                title: "Location Check In",
+                synonyms: ["Check In", "One Check In"]
+            )
+        case .openEmergencySOS:
+            return makeDisplay(
+                title: "Emergency SOS Review",
+                synonyms: ["SOS Review", "Emergency Screen"]
+            )
+        case .openSMSContacts:
+            return makeDisplay(
+                title: "Emergency SMS Contacts",
+                synonyms: ["SMS Contacts", "Emergency Contacts"]
+            )
+        default:
+            return "One Location"
+        }
+    }
+
+    private func makeDisplay(
+        title: LocalizedStringResource,
+        synonyms: [LocalizedStringResource]
+    ) -> DisplayRepresentation {
+        if #available(iOS 17.0, *) {
+            return .init(title: title, synonyms: synonyms)
+        }
+        return .init(title: title)
+    }
+
+    var searchableNames: [String] {
+        switch actionID {
+        case .openLocation:
+            return ["location agent", "one location agent", "location overview"]
+        case .openLocationMap:
+            return ["location map", "one location map", "map"]
+        case .openActiveShares:
+            return ["active location shares", "active shares", "who can see me"]
+        case .openSharedWithMe:
+            return ["locations shared with me", "shared with me", "people sharing with me"]
+        case .openRequestsToReview:
+            return ["location requests", "pending location requests", "requests to review"]
+        case .openLocationSettings:
+            return ["location settings", "location privacy", "privacy settings"]
+        case .openTemporaryLink:
+            return ["temporary location link", "location link", "temporary link"]
+        case .openCheckIn:
+            return ["location check in", "check in", "check-in"]
+        case .openEmergencySOS:
+            return ["emergency sos review", "sos review", "emergency screen"]
+        case .openSMSContacts:
+            return ["emergency sms contacts", "sms contacts", "emergency contacts"]
+        default:
+            return []
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+struct OneLocationDestinationEntityQuery: EntityStringQuery {
+    func entities(
+        for identifiers: [OneLocationDestinationEntity.ID]
+    ) async throws -> [OneLocationDestinationEntity] {
+        let requested = Set(identifiers)
+        return OneLocationDestinationEntity.all.filter {
+            requested.contains($0.id)
+        }
+    }
+
+    func entities(matching string: String) async throws -> [OneLocationDestinationEntity] {
+        let query = Self.normalize(string)
+        guard !query.isEmpty else { return OneLocationDestinationEntity.all }
+        return OneLocationDestinationEntity.all.filter { destination in
+            destination.searchableNames.contains { candidate in
+                let normalized = Self.normalize(candidate)
+                return normalized == query || normalized.contains(query) || query.contains(normalized)
+            }
+        }
+    }
+
+    func suggestedEntities() async throws -> [OneLocationDestinationEntity] {
+        OneLocationDestinationEntity.all
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .joined(separator: " ")
     }
 }
 
@@ -206,12 +371,12 @@ private enum OneAppIntentActionExecutor {
             slots: request.slots,
             confirmedBySystem: request.confirmedBySystem
         ) else {
-            return "HUSSH could not prepare that action."
+            return "One could not prepare that action."
         }
         guard let completion = await OneSystemActionInvocationCoordinator.shared.waitForCompletion(
             id: invocation.id
         ) else {
-            return "Continue in HUSSH to finish. Your request is waiting."
+            return "Continue in One to finish. Your request is waiting."
         }
         return completion.summary
     }
@@ -223,7 +388,7 @@ private enum OneAppIntentActionExecutor {
 struct TalkToHusshOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Talk to One"
     static let description = IntentDescription(
-        "Open HUSSH One and begin a conversation with your private agent."
+        "Open One and begin a conversation with your private agent."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -244,7 +409,7 @@ struct TalkToHusshOneIntent: AppIntent {
 struct ShareLocationWithOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Share Location"
     static let description = IntentDescription(
-        "Share your live location with an existing HUSSH connection."
+        "Share your live location with an existing One connection."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -280,7 +445,7 @@ struct ShareLocationWithOneIntent: AppIntent {
 struct AskForLocationWithOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask for Location"
     static let description = IntentDescription(
-        "Ask an existing HUSSH connection to share their location."
+        "Ask an existing One connection to share their location."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -351,7 +516,7 @@ struct StopLocationSharingWithOneIntent: AppIntent {
 struct SetOneLocationStateIntent: AppIntent {
     static let title: LocalizedStringResource = "Set Location State"
     static let description = IntentDescription(
-        "Turn HUSSH location updates on or off."
+        "Turn One Location updates on or off."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -364,7 +529,7 @@ struct SetOneLocationStateIntent: AppIntent {
     var state: OneLocationStateIntentValue
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Turn HUSSH location \(\.$state)")
+        Summary("Turn One Location \(\.$state)")
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -379,7 +544,7 @@ struct SetOneLocationStateIntent: AppIntent {
 @available(iOS 16.0, *)
 struct CreateOneCircleIntent: AppIntent {
     static let title: LocalizedStringResource = "Create a Circle"
-    static let description = IntentDescription("Create an empty HUSSH Circle.")
+    static let description = IntentDescription("Create an empty One Circle.")
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
     static let openAppWhenRun = true
@@ -406,7 +571,7 @@ struct CreateOneCircleIntent: AppIntent {
 @available(iOS 16.0, *)
 struct RenameOneCircleIntent: AppIntent {
     static let title: LocalizedStringResource = "Rename a Circle"
-    static let description = IntentDescription("Rename an existing HUSSH Circle.")
+    static let description = IntentDescription("Rename an existing One Circle.")
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
     static let openAppWhenRun = true
@@ -453,10 +618,47 @@ extension OneLocationOpenIntent {
     static var supportedModes: IntentModes { [.foreground(.immediate)] }
 }
 
+/// The canonical system-level opening action. `OpenIntent` tells Siri this is
+/// app-owned content, while the destination entity resolves phrases such as
+/// "Open One Location Agent" without creating a parallel route executor.
+@available(iOS 16.0, *)
+struct OpenOneLocationDestinationIntent: OpenIntent {
+    static let title: LocalizedStringResource = "Open One Location"
+    static let description = IntentDescription(
+        "Open a destination in the existing One Location experience."
+    )
+    static let authenticationPolicy: IntentAuthenticationPolicy =
+        .requiresLocalDeviceAuthentication
+    static let openAppWhenRun = true
+
+    @available(iOS 26.0, *)
+    static let supportedModes: IntentModes = [.foreground(.immediate)]
+
+    @Parameter(
+        title: "Destination",
+        requestValueDialog: "Which One Location destination?"
+    )
+    var target: OneLocationDestinationEntity
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Open \(\.$target) in One")
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let actionID = target.actionID else {
+            return .result(dialog: "That One Location destination is unavailable.")
+        }
+        let summary = await OneAppIntentActionExecutor.run(
+            OneAppIntentActionRequestFactory.open(actionID)
+        )
+        return .result(dialog: "\(summary)")
+    }
+}
+
 @available(iOS 16.0, *)
 struct OpenOneLocationIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Open Location Agent"
-    static let description = IntentDescription("Open the existing HUSSH Location experience.")
+    static let description = IntentDescription("Open the existing One Location experience.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -469,7 +671,7 @@ struct OpenOneLocationIntent: OneLocationOpenIntent {
 @available(iOS 16.0, *)
 struct OpenOneLocationMapIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Open Location Map"
-    static let description = IntentDescription("Open the existing HUSSH location map.")
+    static let description = IntentDescription("Open the existing One Location map.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -482,7 +684,7 @@ struct OpenOneLocationMapIntent: OneLocationOpenIntent {
 @available(iOS 16.0, *)
 struct ViewOneActiveSharesIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "View Active Location Shares"
-    static let description = IntentDescription("Open the list of active HUSSH location shares.")
+    static let description = IntentDescription("Open the list of active One Location shares.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -508,7 +710,7 @@ struct ViewOneSharedLocationsIntent: OneLocationOpenIntent {
 @available(iOS 16.0, *)
 struct ReviewOneLocationRequestsIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Review Location Requests"
-    static let description = IntentDescription("Open HUSSH location requests awaiting review.")
+    static let description = IntentDescription("Open One Location requests awaiting review.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -521,7 +723,7 @@ struct ReviewOneLocationRequestsIntent: OneLocationOpenIntent {
 @available(iOS 16.0, *)
 struct OpenOneLocationSettingsIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Open Location Privacy Settings"
-    static let description = IntentDescription("Open HUSSH Location privacy settings.")
+    static let description = IntentDescription("Open One Location privacy settings.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
@@ -548,7 +750,7 @@ struct CreateOneTemporaryLocationLinkIntent: OneLocationOpenIntent {
 struct CheckInWithOneIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Check In"
     static let description = IntentDescription(
-        "Open the existing HUSSH Check-In flow to choose recipients and review before sending."
+        "Open the existing One Check-In flow to choose recipients and review before sending."
     )
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -563,7 +765,7 @@ struct CheckInWithOneIntent: OneLocationOpenIntent {
 struct OpenOneEmergencySOSIntent: OneLocationOpenIntent {
     static let title: LocalizedStringResource = "Open Emergency SOS"
     static let description = IntentDescription(
-        "Open the existing HUSSH SOS review screen without sending an alert."
+        "Open the existing One SOS review screen without sending an alert."
     )
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -582,7 +784,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: ShareLocationWithOneIntent(),
             phrases: [
-                "Share my location with \(\.$recipient) using \(.applicationName)",
+                "Share my location with \(\.$recipient) in \(.applicationName) Location Agent",
                 "Let \(\.$recipient) see my location with \(.applicationName)"
             ],
             shortTitle: "Share Location",
@@ -591,7 +793,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: AskForLocationWithOneIntent(),
             phrases: [
-                "Ask \(\.$person) for location using \(.applicationName)",
+                "Ask \(\.$person) for location in \(.applicationName) Location Agent",
                 "Request \(\.$person)'s location with \(.applicationName)"
             ],
             shortTitle: "Ask for Location",
@@ -600,8 +802,8 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: StopLocationSharingWithOneIntent(),
             phrases: [
-                "Stop sharing location with \(\.$person) using \(.applicationName)",
-                "Stop my location in \(.applicationName)"
+                "Stop sharing location with \(\.$person) in \(.applicationName) Location Agent",
+                "Stop my location in \(.applicationName) Location Agent"
             ],
             shortTitle: "Stop Sharing",
             systemImageName: "location.slash.fill"
@@ -609,7 +811,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: SetOneLocationStateIntent(),
             phrases: [
-                "Turn my \(.applicationName) location \(\.$state)"
+                "Turn \(.applicationName) Location \(\.$state)"
             ],
             shortTitle: "Location On or Off",
             systemImageName: "location.circle"
@@ -617,8 +819,8 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: CreateOneCircleIntent(),
             phrases: [
-                "Create a Circle in \(.applicationName)",
-                "Make a new Circle with \(.applicationName)"
+                "Create a Circle in \(.applicationName) Location Agent",
+                "Make a new Circle in \(.applicationName) Location Agent"
             ],
             shortTitle: "Create Circle",
             systemImageName: "person.3.fill"
@@ -626,38 +828,21 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: CheckInWithOneIntent(),
             phrases: [
-                "Check in with \(.applicationName)",
-                "Open Check In in \(.applicationName)"
+                "Check in with \(.applicationName) Location Agent",
+                "Open \(.applicationName) Location Check In"
             ],
             shortTitle: "Check In",
             systemImageName: "checkmark.circle.fill"
         )
         AppShortcut(
-            intent: OpenOneLocationIntent(),
+            intent: OpenOneLocationDestinationIntent(),
             phrases: [
-                "Open Location Agent in \(.applicationName)",
-                "Open Location in \(.applicationName)"
+                "Open \(.applicationName) \(\.$target)",
+                "Show \(\.$target) in \(.applicationName)",
+                "Call \(.applicationName) \(\.$target)"
             ],
-            shortTitle: "Open Location",
+            shortTitle: "Open One Location",
             systemImageName: "location.circle.fill"
-        )
-        AppShortcut(
-            intent: OpenOneLocationMapIntent(),
-            phrases: [
-                "Open my location map in \(.applicationName)",
-                "Show the location map in \(.applicationName)"
-            ],
-            shortTitle: "Location Map",
-            systemImageName: "map.fill"
-        )
-        AppShortcut(
-            intent: ReviewOneLocationRequestsIntent(),
-            phrases: [
-                "Review location requests in \(.applicationName)",
-                "Show pending location requests in \(.applicationName)"
-            ],
-            shortTitle: "Review Requests",
-            systemImageName: "person.crop.circle.badge.questionmark"
         )
         AppShortcut(
             intent: TalkToHusshOneIntent(),
