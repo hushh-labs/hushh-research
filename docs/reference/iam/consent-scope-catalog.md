@@ -270,6 +270,27 @@ through the token hierarchy; do not use that pattern for external, vendor,
 network, or cross-process specialist boundaries. See
 [Agent Delegation Boundary](./agent-delegation-boundary.md).
 
+## Consent Lifecycle From Agent Chat
+
+One can run the person-to-person lifecycle from chat on the same service
+layer the REST routes use (`hushh_mcp/services/consent_lifecycle_service.py`,
+`information_request_service.py`), never on a second copy of a ledger write.
+
+| Step | Chat surface | Guard |
+|---|---|---|
+| Discover | `discover_person_information` (connections, then the directory) | VAULT_OWNER re-validated; labels and opaque `psr_` refs only |
+| Propose | `propose_information_request(person, fields, purpose, duration_hours)` parks a proposal under an opaque id | fields matched by label or domain; 8 to 500 character purpose; 1 to 720 hours |
+| Request | `consent.request` (backend-direct, `confirmed: true` after a spoken yes) | proposal re-resolved through `resolve_scope_refs`; requires the requester's active client connector, else One points to the profile once |
+| Pending | `list_pending_information_requests` | the browser renders each request as the existing pending-consent card |
+| Approve | the owner's tap on that card | never a tool: the export is encrypted under the vault key in the owner's browser |
+| Deny / revoke / cancel | `consent.deny`, `consent.revoke`, `consent.cancel_request` (backend-direct, spoken yes) | same ledger writes as `/api/consent/pending/deny`, `/api/consent/revoke`, `/api/one/information-requests/{bundle}/cancel` |
+
+The four `consent.*` actions are `BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS`: the
+spoken `confirmed` slot is the gate, and the person's tap-confirmation
+preference does not park a browser directive for them (nothing on any page
+could run it). The model never sees a raw `attr.*` scope, and One is told to
+say nothing was sent, denied, or revoked until the action result says so.
+
 ## Duration Policy
 
 1. Presets: `24h`, `7d`, `30d`, `90d`

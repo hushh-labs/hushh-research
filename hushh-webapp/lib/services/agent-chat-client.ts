@@ -66,6 +66,8 @@ export type AgentChatStreamHandlers = {
   onToolStart?: (payload: AgentChatToolEvent) => void;
   onToolWaiting?: (payload: AgentChatToolEvent) => void;
   onToolResult?: (payload: AgentChatToolEvent) => void;
+  /** Request ids a server tool reported as waiting on the owner; the workspace renders each as a pending-consent card. */
+  onPendingConsentRequests?: (requestIds: string[]) => void;
   onToken?: (token: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onInterrupt?: (payload: { conversationId: string }) => void;
@@ -122,6 +124,30 @@ export function parseParkedAppActionDirective(content: unknown): ParkedAppAction
   };
 }
 
+/**
+ * list_pending_information_requests answers with request ids only (labels
+ * come from the owner's own pending lookup); the workspace turns each id into
+ * the same card an FCM push would, so approving stays a tap on this device.
+ */
+export function parsePendingConsentRequestIds(toolName: string, content: unknown): string[] {
+  if (toolName !== "list_pending_information_requests") return [];
+  let result: unknown = content;
+  if (typeof result === "string") {
+    try {
+      result = JSON.parse(result);
+    } catch {
+      return [];
+    }
+  }
+  const record = asRecord(result);
+  if (!record || record.status !== "ok") return [];
+  const ids = Array.isArray(record.pendingRequestIds) ? record.pendingRequestIds : [];
+  return ids
+    .map((value) => String(value ?? "").trim())
+    .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index)
+    .slice(0, 20);
+}
+
 const SERVER_TOOL_PRESENTATION: Record<
   string,
   { label: string; message: string }
@@ -129,6 +155,14 @@ const SERVER_TOOL_PRESENTATION: Record<
   discover_person_information: {
     label: "Available information",
     message: "Checking what this person makes available to request.",
+  },
+  list_pending_information_requests: {
+    label: "Pending requests",
+    message: "Checking what is waiting on you.",
+  },
+  propose_information_request: {
+    label: "Information request",
+    message: "Preparing an information request for your confirmation.",
   },
   list_my_connections: {
     label: "Connections",
@@ -312,6 +346,10 @@ export async function streamAgentChat(input: {
       );
       payload.raw.result = event.content;
       handlers.onToolResult?.(payload);
+      const pendingIds = parsePendingConsentRequestIds(toolName, event.content);
+      if (pendingIds.length > 0) {
+        handlers.onPendingConsentRequests?.(pendingIds);
+      }
       // A server-side run_app_action parks a directive for the browser. The
       // Live relay delivers parked directives through session state; this
       // text transport has no such relay, so the parked action is surfaced

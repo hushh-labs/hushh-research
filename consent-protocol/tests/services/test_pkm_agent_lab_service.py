@@ -1802,3 +1802,51 @@ async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch)
     assert first["structure_decision"]["target_domain"] == "travel"
     assert second["structure_decision"]["target_domain"] == "travel"
     assert preview_stub.await_count == 1
+
+
+class TestSensitiveSecretRejection:
+    """A card number, security code, credential, or government id never becomes a plain memory."""
+
+    def test_names_the_secret_kind(self):
+        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
+
+        assert S._contains_sensitive_secret("Card on file: 4111 1111 1111 1111") == "card_number"
+        assert S._contains_sensitive_secret("my pin is 4321 for the door") == "card_security_code"
+        assert S._contains_sensitive_secret("Bank login password: hunter2-please") == "credential"
+        assert S._contains_sensitive_secret("api key = sk_test_abcdefghij1234") == "credential"
+        assert S._contains_sensitive_secret("SSN 123-45-6789") == "government_id"
+        assert (
+            S._contains_sensitive_secret("Passport number: X12345678 renew soon") == "government_id"
+        )
+        assert (
+            S._contains_sensitive_secret("routing number: 021000021 for payroll") == "bank_account"
+        )
+
+    def test_ordinary_numbers_and_prose_pass(self):
+        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
+
+        assert S._contains_sensitive_secret("Order 1234567890123456 shipped") is None  # fails Luhn
+        assert S._contains_sensitive_secret("I prefer early breakfasts and aisle seats.") is None
+        assert S._contains_sensitive_secret("Compensation is $118,000 with 1.5% equity") is None
+        assert (
+            S._contains_sensitive_secret("Start date March 3, 2026, phone +1 425 555 0100") is None
+        )
+
+    def test_normalize_rejects_before_any_agent_output_is_trusted(self):
+        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
+
+        preview = S._normalize_structure_preview(
+            message="Card on file for subscriptions: 4111 1111 1111 1111",
+            current_domains=["financial"],
+            registry_choices=[],
+            intent_frame={},
+            merge_decision={"target_domain": "financial"},
+            financial_guard={},
+            parsed_structure={"structure_decision": {"target_domain": "financial"}},
+            fallback_target_domain="financial",
+            simulated_state=None,
+        )
+        assert preview["write_mode"] == "do_not_save"
+        assert preview["structure_decision"]["action"] == "reject_sensitive_secret"
+        assert preview["validation_hints"] == ["sensitive_card_number_rejected"]
+        assert preview["candidate_payload"] == {}

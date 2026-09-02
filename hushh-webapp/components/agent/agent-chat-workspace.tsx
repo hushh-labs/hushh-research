@@ -47,9 +47,11 @@ import {
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
+import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
+import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
-import { detectLikelyPan } from "@/lib/wallet/pan-paste-guard";
+import { detectLikelyPan, redactLikelyPans, countLikelyPans } from "@/lib/wallet/pan-paste-guard";
 import {
   WalletService,
   type WalletCardSecrets,
@@ -256,6 +258,8 @@ type AgentPkmReview = {
   sourceMessage: string;
   cards: AgentPkmPreviewCard[];
   saving: boolean;
+  /** Cards the owner still wants saved; starts as every reviewable card. */
+  selectedCardIds?: Set<string>;
 };
 
 type AgentPkmActivity = {
@@ -1417,6 +1421,9 @@ export function AgentChatWorkspace({
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
+  // Set by the FCM effect below; lets a server tool result (pending requests
+  // One listed) render the same cards a push would, without a second lookup path.
+  const appendPendingConsentRequestRef = useRef<((requestId: string) => Promise<void>) | null>(null);
   const updateConversationId = useCallback(
     (nextConversationId: string | null) => {
       conversationIdRef.current = nextConversationId;
@@ -2219,9 +2226,11 @@ export function AgentChatWorkspace({
       }
     };
 
+    appendPendingConsentRequestRef.current = appendPendingConsentRequest;
     window.addEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
     return () => {
       cancelled = true;
+      appendPendingConsentRequestRef.current = null;
       window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
     };
   }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
@@ -2495,6 +2504,25 @@ export function AgentChatWorkspace({
     [appendDebugEvent, pkmReviews],
   );
 
+  const togglePkmReviewCards = useCallback(
+    (reviewId: string, cardIds: string[], selected: boolean) => {
+      setPkmReviews((current) =>
+        current.map((review) => {
+          if (review.id !== reviewId || review.saving) return review;
+          const next = new Set(
+            review.selectedCardIds ?? review.cards.map((card) => card.card_id),
+          );
+          for (const cardId of cardIds) {
+            if (selected) next.add(cardId);
+            else next.delete(cardId);
+          }
+          return { ...review, selectedCardIds: next };
+        }),
+      );
+    },
+    [],
+  );
+
   const handleSavePkmReview = useCallback(
     (reviewId: string) => {
       if (savingPkmReviewIdsRef.current.has(reviewId)) return;
@@ -2519,9 +2547,12 @@ export function AgentChatWorkspace({
 
       const saveInBackground = async () => {
         try {
+          const selectedCards = review.selectedCardIds
+            ? review.cards.filter((card) => review.selectedCardIds!.has(card.card_id))
+            : review.cards;
           const result = await addToPKM({
             userId: user.uid,
-            cards: review.cards,
+            cards: selectedCards,
             sourceMessage: review.sourceMessage,
             vaultKey,
             vaultOwnerToken: token,
@@ -2920,10 +2951,17 @@ export function AgentChatWorkspace({
       upsertPkmStatusMessage("Checking what belongs in Memory...", "streaming");
 
       try {
+        const labContext = await loadPkmAgentLabContext({
+          userId,
+          vaultOwnerToken: token,
+        }).catch(() => null);
         const preview = await prepareNaturalLanguagePkm({
           userId,
           message: sourceText,
           currentDomains: turnPkmContext.domains,
+          currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
+          findDuplicate: (candidate) =>
+            AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
           vaultOwnerToken: token,
           source: "agent_chat_explicit_memory",
           onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
@@ -3452,6 +3490,12 @@ export function AgentChatWorkspace({
               return;
             }
             stageToolForConfirmation(toolEvent);
+          },
+          onPendingConsentRequests: (requestIds) => {
+            if (streamAbortController.signal.aborted) return;
+            for (const requestId of requestIds) {
+              void appendPendingConsentRequestRef.current?.(requestId);
+            }
           },
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
@@ -3999,7 +4043,7 @@ export function AgentChatWorkspace({
     enqueueWorkspaceOperation(operation);
   };
 
-  const enqueueMemoryImport = (textInput: string) => {
+  const enqueueMemoryImport = (textInput: string, removedCardNumbers = 0) => {
     const sourceText = textInput.trim();
     if (!sourceText) return;
     enqueueWorkspaceOperation({
@@ -4043,10 +4087,20 @@ export function AgentChatWorkspace({
             vaultOwnerToken: token,
             vaultKey,
           });
+          // Existing manifests let the structurer land facts in scopes that
+          // already exist; the duplicate check reads this session's decrypted
+          // working set and never leaves the device.
+          const labContext = await loadPkmAgentLabContext({
+            userId: user.uid,
+            vaultOwnerToken: token,
+          }).catch(() => null);
           const prepared = await prepareNaturalLanguagePkm({
             userId: user.uid,
             message: sourceText,
             currentDomains: context.domains,
+            currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
+            findDuplicate: (candidate) =>
+              AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
             vaultOwnerToken: token,
             source: "agent_chat_profile_import",
             onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
@@ -4083,9 +4137,31 @@ export function AgentChatWorkspace({
           const reviewBlockCount = prepared.sourceCoverage.filter(
             (block) => block.disposition === "review_required",
           ).length;
+          const failedBlockCount = prepared.sourceCoverage.filter(
+            (block) => block.disposition === "failed",
+          ).length;
+          const duplicateCount = prepared.sourceCoverage.reduce(
+            (total, block) => total + (block.duplicateCount || 0),
+            0,
+          );
+          const excludedSecretCount = prepared.sourceCoverage.reduce(
+            (total, block) => total + (block.excludedSecretCount || 0),
+            0,
+          );
+          const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
+          const parts = [
+            `I organized ${reviewableCards.length} ${plural(reviewableCards.length, "item", "items")} from ${prepared.sourceCoverage.length} ${plural(prepared.sourceCoverage.length, "section", "sections")}, grouped by where each would live.`,
+            reviewBlockCount ? `${reviewBlockCount} ${plural(reviewBlockCount, "section needs", "sections need")} your decision.` : "",
+            duplicateCount ? `${duplicateCount} ${plural(duplicateCount, "item is", "items are")} already in Memory and ${plural(duplicateCount, "was", "were")} left out.` : "",
+            removedCardNumbers ? `${removedCardNumbers} card ${plural(removedCardNumbers, "number was", "numbers were")} removed on this device before analysis and never sent; use the secure Wallet form for cards.` : "",
+            excludedSecretCount ? `${excludedSecretCount} ${plural(excludedSecretCount, "item looks", "items look")} like a card number, password, or id and ${plural(excludedSecretCount, "was", "were")} excluded; use the secure Wallet form for cards.` : "",
+            failedBlockCount ? `${failedBlockCount} ${plural(failedBlockCount, "section", "sections")} could not be prepared; paste ${plural(failedBlockCount, "it", "them")} again on ${plural(failedBlockCount, "its", "their")} own.` : "",
+            ignoredBlockCount ? `${ignoredBlockCount} ${plural(ignoredBlockCount, "section was", "sections were")} intentionally excluded.` : "",
+            "Keep or skip each item, then save.",
+          ].filter(Boolean);
           updateMessage(assistantMessageId, (message) => ({
             ...message,
-            text: `I accounted for all ${prepared.sourceCoverage.length} source ${prepared.sourceCoverage.length === 1 ? "block" : "blocks"} and organized ${reviewableCards.length} memory ${reviewableCards.length === 1 ? "section" : "sections"} for review.${reviewBlockCount ? ` ${reviewBlockCount} ${reviewBlockCount === 1 ? "block needs" : "blocks need"} your decision.` : ""}${ignoredBlockCount ? ` ${ignoredBlockCount} ${ignoredBlockCount === 1 ? "block was" : "blocks were"} intentionally excluded.` : ""} Review the destination, sensitivity, and sharing posture before saving.`,
+            text: parts.join(" "),
             status: "done",
           }));
         } catch (error) {
@@ -4221,6 +4297,13 @@ export function AgentChatWorkspace({
     setComposerPurpose(null);
     // The memory-import path sends plaintext to the PKM structuring API, so
     // the card-number paste guard must run here too, not only in runAgentTurn.
+    // A long recap is not thrown away for one card line: the number is
+    // redacted on this device before anything leaves it, and the summary says
+    // so. A plain chat message carrying a card number is still blocked.
+    if (purpose === "memory" && detectLikelyPan(text)) {
+      enqueueMemoryImport(redactLikelyPans(text), countLikelyPans(text));
+      return;
+    }
     if (detectLikelyPan(text)) {
       appendMessage({
         id: `msg-${Date.now()}-pan-blocked`,
@@ -4806,6 +4889,9 @@ export function AgentChatWorkspace({
                   key={review.id}
                   cards={review.cards}
                   saving={review.saving}
+                  selectedCardIds={review.selectedCardIds}
+                  onToggleCard={(cardId, selected) => togglePkmReviewCards(review.id, [cardId], selected)}
+                  onToggleGroup={(cardIds, selected) => togglePkmReviewCards(review.id, cardIds, selected)}
                   onSave={() => void handleSavePkmReview(review.id)}
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />

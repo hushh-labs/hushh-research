@@ -37,3 +37,10 @@ export function redactLikelyPans(text: string): string {
     return `•••• ${digits.slice(-4)}`;
   });
 }
+
+/** How many likely card numbers a text carries; pairs with redactLikelyPans for the memory-import lane. */
+export function countLikelyPans(text: string): number {
+  const matches = String(text ?? "").match(DIGIT_RUN);
+  if (!matches) return 0;
+  return matches.filter(isLikelyPanRun).length;
+}

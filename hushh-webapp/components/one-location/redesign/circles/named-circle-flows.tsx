@@ -51,7 +51,7 @@ import {
 } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, buildPersonProfileRoute } from "@/lib/navigation/routes";
 import {
   CIRCLE_NAME_INPUT_CLASSNAME,
   CIRCLE_NAME_ROW_CLASSNAME,
@@ -1221,6 +1221,11 @@ function CircleMemberRow({
             that offer nothing, so the kebab column exists on every row. */}
         <CircleMemberActionsMenu
           displayName={member.displayName}
+          profileHref={
+            member.publicPersonRef
+              ? buildPersonProfileRoute(member.publicPersonRef, { from: ROUTES.ONE_LOCATION })
+              : null
+          }
           initials={circleInitials(member.displayName)}
           photoUrl={member.photoUrl}
           verified={Boolean(member.isRia)}

@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from typing import Any, Callable, Literal
 
 from google.adk.tools.tool_context import ToolContext
@@ -47,6 +48,14 @@ from hushh_mcp.services.action_gateway import (
     list_action_gateway_actions,
 )
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
+from hushh_mcp.services.consent_lifecycle_service import (
+    ConsentLifecycleError,
+    ConsentLifecycleService,
+)
+from hushh_mcp.services.information_request_service import (
+    InformationRequestError,
+    InformationRequestService,
+)
 from hushh_mcp.services.live_voice_context import (
     read_completed_action,
     read_failed_action,
@@ -54,6 +63,7 @@ from hushh_mcp.services.live_voice_context import (
     record_completed_action,
     record_failed_action,
 )
+from hushh_mcp.services.one_email_kyc_service import OneEmailKycService
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
@@ -311,8 +321,34 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
         "connect.accept_request",
         "connect.reject_request",
         "location.checkout_nearby",
+        "consent.request",
+        "consent.deny",
+        "consent.revoke",
+        "consent.cancel_request",
     }
 )
+
+# Consent lifecycle actions are backend-direct and gated by a spoken yes (the
+# `confirmed` slot), like connect.remove_connection. They have no local handler
+# on any page, so the person's tap-confirmation preference must never park a
+# browser directive for them: there would be nothing on screen to run it, and
+# the action would silently die. The spoken confirmation is the gate.
+BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS: frozenset[str] = frozenset(
+    {
+        "consent.request",
+        "consent.deny",
+        "consent.revoke",
+        "consent.cancel_request",
+    }
+)
+
+# Proposals parked by propose_information_request, keyed by an opaque id the
+# model hands back to consent.request. The model never sees a scope ref.
+_STATE_INFORMATION_REQUEST_PROPOSALS = "hussh:information_request_proposals"
+_STATE_LAST_INFORMATION_REQUEST = "hussh:last_information_request"
+_INFORMATION_REQUEST_DEFAULT_HOURS = 168
+_INFORMATION_REQUEST_MAX_HOURS = 720
+_INFORMATION_REQUEST_MAX_PROPOSALS = 5
 
 # Directory search shape connect.send_request's resolution mirrors exactly --
 # app/connect/page-client.tsx's own DIRECTORY_RESOLVE_MAX_PAGES/_PAGE_SIZE.
@@ -357,6 +393,7 @@ _BackendDirectError = (
     OneLocationAgentError,
     ConnectionsError,
     NearbyPresenceError,
+    ConsentLifecycleError,
 )
 
 
@@ -1339,6 +1376,9 @@ async def _execute_backend_direct_mutation(
         OneLocationNearbyPresenceService().checkout(user_id=user_id)
         return "Checked you out. You're no longer visible to people nearby.", None
 
+    if action_id in BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS:
+        return await _execute_consent_lifecycle_action(action_id, slots, user_id, tool_context)
+
     raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
 
 
@@ -1474,43 +1514,19 @@ async def discover_person_information(
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
 
     try:
-        connections = ConnectionsService().list_connections(user_id=user_id)
-        resolution = resolve_spoken_names(
-            connections,
-            person,
-            lambda item: str(item.get("displayName") or ""),
-        )
-        if resolution.unresolved:
-            unresolved = resolution.unresolved[0]
-            if unresolved.kind == "ambiguous":
-                return {
-                    "status": "needs_clarification",
-                    "message": (
-                        "More than one connection matched. Ask which person they mean: "
-                        f"{
-                            ambiguous_match_names(
-                                unresolved.matches, lambda item: str(item.get('displayName') or '')
-                            )
-                        }."
-                    ),
-                }
-            return {
-                "status": "not_found",
-                "message": f"{unresolved.spoken_text or person} is not in your connections.",
-            }
-        if len(resolution.resolved) != 1:
-            return {
-                "status": "needs_clarification",
-                "message": "Name one connection whose requestable information you want to inspect.",
-            }
-
-        connection = resolution.resolved[0]
-        person_ref = str(connection.get("publicPersonRef") or "").strip()
-        if not person_ref:
-            return {
-                "status": "unavailable",
-                "message": "That person's request profile is not ready yet.",
-            }
+        try:
+            person_ref, resolved_name = _resolve_person_for_information(
+                ConnectionsService(), user_id, person
+            )
+        except ConsentLifecycleError as exc:
+            status = {
+                "PERSON_AMBIGUOUS": "needs_clarification",
+                "PERSON_NOT_FOUND": "not_found",
+                "PERSON_PROFILE_NOT_READY": "unavailable",
+                "PERSON_REQUIRED": "needs_clarification",
+            }.get(exc.code, "failed")
+            return {"status": status, "message": exc.message}
+        connection = {"displayName": resolved_name}
         profile = await PersonProfileService().get_viewer_profile(
             viewer_user_id=user_id,
             public_person_ref=person_ref,
@@ -1556,6 +1572,424 @@ async def discover_person_information(
             "status": "failed",
             "message": "That information catalog is temporarily unavailable. Please try again.",
         }
+
+
+def _directory_candidates(
+    connections_service: ConnectionsService, user_id: str, spoken_name: str
+) -> list[dict[str, Any]]:
+    """Page the server-owned directory for one spoken name, exactly as connect.send_request does."""
+    search_term = max(spoken_name.split() or [spoken_name], key=len)
+    candidates: list[dict[str, Any]] = []
+    page = 1
+    while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
+        result = connections_service.search_directory(
+            user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+        )
+        candidates.extend(result.get("items") or [])
+        if not result.get("hasMore"):
+            break
+        page += 1
+    return candidates
+
+
+def _person_display_name(person: dict[str, Any]) -> str:
+    return str(person.get("displayName") or "")
+
+
+def _resolve_person_for_information(
+    connections_service: ConnectionsService, user_id: str, spoken: str
+) -> tuple[str, str]:
+    """Resolve one named person to ``(public_person_ref, display_name)``.
+
+    Connections first, then the server-owned directory, the same two sources
+    the Connect screen offers. Ambiguity names the candidates and refuses; a
+    request is never sent to a guess. A relationship grants nothing here: the
+    catalog and every mutation are still re-checked by the person profile
+    service against the subject's own exposure choices.
+    """
+    spoken = str(spoken or "").strip()
+    if not spoken:
+        raise ConsentLifecycleError("PERSON_REQUIRED", "Say whose information you mean.")
+    connections = connections_service.list_connections(user_id=user_id)
+    resolution = resolve_spoken_names(connections, spoken, _person_display_name)
+    person: dict[str, Any] | None = None
+    if resolution.unresolved:
+        unresolved = resolution.unresolved[0]
+        if unresolved.kind == "ambiguous":
+            raise ConsentLifecycleError(
+                "PERSON_AMBIGUOUS",
+                "More than one connection matched. Ask which person they mean: "
+                f"{ambiguous_match_names(unresolved.matches, _person_display_name)}.",
+            )
+        try:
+            candidates = _directory_candidates(connections_service, user_id, spoken)
+        except Exception:  # noqa: BLE001 - the directory is a fallback, never a blocker
+            logger.exception("information_request_directory_lookup_failed")
+            candidates = []
+        matches = match_by_name(candidates, spoken, _person_display_name)
+        if not matches:
+            raise ConsentLifecycleError(
+                "PERSON_NOT_FOUND",
+                f"{unresolved.spoken_text or spoken} is not in your connections or the directory.",
+            )
+        if len(matches) > 1:
+            names = ", ".join(_person_display_name(c) for c in matches[:4])
+            raise ConsentLifecycleError(
+                "PERSON_AMBIGUOUS",
+                f"More than one person matches that name: {names}. Say which one.",
+            )
+        person = matches[0]
+    elif len(resolution.resolved) != 1:
+        raise ConsentLifecycleError(
+            "PERSON_AMBIGUOUS", "Name one person whose information you want."
+        )
+    else:
+        person = resolution.resolved[0]
+    person_ref = str(person.get("publicPersonRef") or "").strip()
+    if not person_ref:
+        raise ConsentLifecycleError(
+            "PERSON_PROFILE_NOT_READY", "That person's request profile is not ready yet."
+        )
+    return person_ref, _person_display_name(person) or "Hussh member"
+
+
+def _split_requested_fields(fields: str) -> list[str]:
+    parts = re.split(r",|;|\band\b|\n", str(fields or ""))
+    seen: list[str] = []
+    for part in parts:
+        cleaned = part.strip(" .")
+        if cleaned and normalize_spoken_name(cleaned) not in {
+            normalize_spoken_name(x) for x in seen
+        }:
+            seen.append(cleaned)
+    return seen
+
+
+def _match_requested_fields(
+    requestable: list[dict[str, Any]], fields: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Match the person's words to catalog labels; a domain name selects that whole domain."""
+    matched: list[dict[str, Any]] = []
+    unmatched: list[str] = []
+    for spoken in _split_requested_fields(fields):
+        wanted = normalize_spoken_name(spoken)
+        if not wanted:
+            continue
+        exact = [
+            item
+            for item in requestable
+            if normalize_spoken_name(str(item.get("label") or "")) == wanted
+        ]
+        partial = [
+            item
+            for item in requestable
+            if wanted in normalize_spoken_name(str(item.get("label") or ""))
+            or normalize_spoken_name(str(item.get("label") or "")) in wanted
+        ]
+        by_domain = [
+            item
+            for item in requestable
+            if normalize_spoken_name(str(item.get("domain") or "")) == wanted
+        ]
+        chosen = exact or partial or by_domain
+        if not chosen:
+            unmatched.append(spoken)
+            continue
+        for item in chosen:
+            if all(item.get("scopeRef") != m.get("scopeRef") for m in matched):
+                matched.append(item)
+    return matched, unmatched
+
+
+def _pending_scope_labels(scopes: list[dict[str, Any]]) -> list[str]:
+    return [str(item.get("label") or "Information") for item in scopes]
+
+
+async def list_pending_information_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List the information requests waiting on the owner's decision: who asks, for what, until when.
+
+    Labels only, never a raw scope or an internal id. Approval is not a tool:
+    the browser shows each request as a card and the owner's tap approves it,
+    because the export is encrypted in their unlocked browser. To decline one,
+    use consent.deny with its requestId after the owner says yes.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        pending = await ConsentLifecycleService().list_pending_incoming(user_id)
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_pending_information_requests failed")
+        return {
+            "status": "failed",
+            "message": "Your pending requests are temporarily unavailable. Please try again.",
+        }
+    request_ids = [str(item.get("requestId") or "") for item in pending if item.get("requestId")]
+    return {
+        "status": "ok",
+        "pendingRequests": pending,
+        "count": len(pending),
+        "pendingRequestIds": request_ids,
+        "nextStep": (
+            "Say who is asking and for what. The browser is showing each request as a card "
+            "with Approve and Deny; approving is the owner's tap. To decline one from here, "
+            "name it, get a yes, then run consent.deny with its requestId and confirmed true."
+            if pending
+            else "Nothing is waiting on them right now."
+        ),
+    }
+
+
+async def propose_information_request(
+    person: str,
+    fields: str,
+    purpose: str,
+    tool_context: ToolContext,
+    duration_hours: int = _INFORMATION_REQUEST_DEFAULT_HOURS,
+) -> dict[str, Any]:
+    """Prepare an information request to one named person for the fields they said, ready to confirm.
+
+    Resolves the person (connections, then the directory), matches the spoken
+    fields to that person's requestable catalog by label or domain, checks the
+    purpose and duration, and parks a proposal. Nothing is sent: read the
+    proposal back, and only after a yes run_app_action("consent.request") with
+    the proposalId and confirmed true. If connectorReady is false the request
+    cannot be sent from chat yet; open profilePath once to set up the secure
+    connector.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        connections_service = ConnectionsService()
+        person_ref, display_name = _resolve_person_for_information(
+            connections_service, user_id, person
+        )
+        profile = await PersonProfileService().get_viewer_profile(
+            viewer_user_id=user_id, public_person_ref=person_ref
+        )
+        requestable = [
+            item for item in (profile.get("requestableScopes") or []) if item.get("scopeRef")
+        ]
+        profile_path = f"/people/{person_ref}"
+        if not requestable:
+            return {
+                "status": "nothing_requestable",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "message": f"{display_name} has not made any information requestable yet.",
+            }
+        matched, unmatched = _match_requested_fields(requestable, fields)
+        if not matched:
+            by_domain: dict[str, list[str]] = {}
+            for item in requestable[:40]:
+                by_domain.setdefault(str(item.get("domain") or "Other"), []).append(
+                    str(item.get("label") or "Information")
+                )
+            return {
+                "status": "needs_clarification",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "unmatchedFields": unmatched,
+                "availableFields": by_domain,
+                "message": (
+                    f"None of those fields match what {display_name} makes requestable. "
+                    "Offer the available fields grouped by domain and ask which they want."
+                ),
+            }
+        cleaned_purpose = str(purpose or "").strip()
+        if not 8 <= len(cleaned_purpose) <= 500:
+            return {
+                "status": "needs_clarification",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "message": "Ask for a purpose of at least a short sentence (8 to 500 characters); "
+                "the other person reads it before deciding.",
+            }
+        try:
+            hours = int(duration_hours or _INFORMATION_REQUEST_DEFAULT_HOURS)
+        except (TypeError, ValueError):
+            hours = _INFORMATION_REQUEST_DEFAULT_HOURS
+        if not 1 <= hours <= _INFORMATION_REQUEST_MAX_HOURS:
+            return {
+                "status": "needs_clarification",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "message": "Access lasts between 1 hour and 30 days (720 hours). Ask for a duration in that range.",
+            }
+        connector = await OneEmailKycService().get_client_connector(user_id=user_id)
+        connector_ready = bool((connector or {}).get("configured"))
+        proposal_id = uuid.uuid4().hex
+        proposals = dict(tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {})
+        proposals[proposal_id] = {
+            "personRef": person_ref,
+            "displayName": display_name,
+            "scopeRefs": [str(item.get("scopeRef")) for item in matched],
+            "labels": _pending_scope_labels(matched),
+            "purpose": cleaned_purpose,
+            "durationHours": hours,
+        }
+        for stale in list(proposals)[:-_INFORMATION_REQUEST_MAX_PROPOSALS]:
+            proposals.pop(stale, None)
+        tool_context.state[_STATE_INFORMATION_REQUEST_PROPOSALS] = proposals
+        return {
+            "status": "proposal_ready",
+            "proposalId": proposal_id,
+            "person": {"displayName": display_name, "profilePath": profile_path},
+            "fields": _pending_scope_labels(matched),
+            "unmatchedFields": unmatched,
+            "purpose": cleaned_purpose,
+            "durationHours": hours,
+            "connectorReady": connector_ready,
+            "nextStep": (
+                "Read back the person, the fields, the purpose, and the duration, then ask for a yes. "
+                "After the yes, call run_app_action with action_id consent.request and slots "
+                "{proposal_id, confirmed: true}. Say nothing was sent until that result confirms it."
+                if connector_ready
+                else "This request cannot be sent from chat yet: their secure connector is not set up. "
+                "Send them to profilePath once to set it up, then they can ask again."
+            ),
+        }
+    except ConsentLifecycleError as exc:
+        status = {
+            "PERSON_AMBIGUOUS": "needs_clarification",
+            "PERSON_NOT_FOUND": "not_found",
+            "PERSON_PROFILE_NOT_READY": "unavailable",
+        }.get(exc.code, "failed")
+        return {"status": status, "message": exc.message}
+    except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
+        return {"status": "failed", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("propose_information_request failed")
+        return {
+            "status": "failed",
+            "message": "That information catalog is temporarily unavailable. Please try again.",
+        }
+
+
+async def _execute_consent_lifecycle_action(
+    action_id: str, slots: dict[str, Any], user_id: str, tool_context: ToolContext
+) -> tuple[str, dict[str, str] | None]:
+    """The four consent transitions One may run after a spoken yes."""
+    confirmed = bool(slots.get("confirmed") is True)
+    if action_id == "consent.request":
+        proposal_id = str(slots.get("proposal_id") or "").strip()
+        proposals = tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {}
+        proposal = proposals.get(proposal_id) if isinstance(proposals, dict) else None
+        if not proposal:
+            raise ConsentLifecycleError(
+                "PROPOSAL_NOT_FOUND",
+                "Propose the request first with propose_information_request, then confirm it.",
+            )
+        name = str(proposal.get("displayName") or "this person")
+        labels = list(proposal.get("labels") or [])
+        if not confirmed:
+            raise _BackendDirectConfirmationNeeded(
+                f"Ask: send {name} a request for {join_names_for_speech(labels)} "
+                f"for {proposal.get('durationHours')} hours, purpose: {proposal.get('purpose')}? "
+                "Only call this action again with confirmed set to true after they say yes."
+            )
+        connector = await OneEmailKycService().get_client_connector(user_id=user_id)
+        connector_key_id = str(
+            ((connector or {}).get("connector") or {}).get("connector_key_id") or ""
+        )
+        if not connector_key_id:
+            raise ConsentLifecycleError(
+                "CONNECTOR_NOT_READY",
+                f"Your secure connector is not set up yet. Open {name}'s profile once to set it up, "
+                "then ask me again.",
+                status_code=409,
+            )
+        try:
+            created = await InformationRequestService().create(
+                requester_user_id=user_id,
+                person_ref=str(proposal.get("personRef")),
+                scope_refs=list(proposal.get("scopeRefs") or []),
+                purpose=str(proposal.get("purpose") or ""),
+                duration_seconds=int(proposal.get("durationHours") or 0) * 3600,
+                connector_key_id=connector_key_id,
+                idempotency_key=f"agent-chat-{proposal_id}",
+            )
+        except InformationRequestError as exc:
+            raise ConsentLifecycleError(
+                "INFORMATION_REQUEST_FAILED", str(exc), status_code=exc.status_code
+            ) from exc
+        except PersonProfileNotFoundError as exc:
+            raise ConsentLifecycleError(
+                "PERSON_NOT_FOUND", f"{name}'s request profile is no longer available."
+            ) from exc
+        remaining = dict(proposals)
+        remaining.pop(proposal_id, None)
+        tool_context.state[_STATE_INFORMATION_REQUEST_PROPOSALS] = remaining
+        bundle_id = str((created or {}).get("bundleId") or (created or {}).get("bundle_id") or "")
+        tool_context.state[_STATE_LAST_INFORMATION_REQUEST] = {
+            "bundleId": bundle_id,
+            "displayName": name,
+        }
+        return (
+            f"Sent {name} a request for {join_names_for_speech(labels)}. "
+            "They will see it in their Consent Center; what they approve appears on their profile.",
+            {"name": name},
+        )
+
+    if action_id == "consent.deny":
+        request_id = str(slots.get("request_id") or "").strip()
+        if not request_id:
+            raise ConsentLifecycleError(
+                "CONSENT_REQUEST_ID_REQUIRED",
+                "Say which request to deny; list_pending_information_requests names them.",
+            )
+        if not confirmed:
+            raise _BackendDirectConfirmationNeeded(
+                "Ask: deny that request? Only call this action again with confirmed set to true "
+                "after they say yes."
+            )
+        result = await ConsentLifecycleService().deny_pending_request(user_id, request_id)
+        return f"Denied that request. {result.get('message') or ''}".strip(), None
+
+    if action_id == "consent.revoke":
+        request_id = str(slots.get("request_id") or "").strip() or None
+        scope = str(slots.get("scope") or "").strip() or None
+        if not request_id and not scope:
+            raise ConsentLifecycleError(
+                "CONSENT_REVOKE_TARGET_REQUIRED", "Say which grant to revoke."
+            )
+        if not confirmed:
+            raise _BackendDirectConfirmationNeeded(
+                "Ask: revoke that access now? Only call this action again with confirmed set to "
+                "true after they say yes."
+            )
+        result = await ConsentLifecycleService().revoke_active_grant(
+            user_id, scope=scope, request_id=request_id
+        )
+        return "Revoked. They no longer have that access.", None
+
+    if action_id == "consent.cancel_request":
+        bundle_id = str(slots.get("bundle_id") or "").strip()
+        last = tool_context.state.get(_STATE_LAST_INFORMATION_REQUEST) or {}
+        if bundle_id.lower() in ("", "last", "latest", "that", "it"):
+            bundle_id = str(last.get("bundleId") or "")
+        if not bundle_id:
+            raise ConsentLifecycleError(
+                "INFORMATION_REQUEST_ID_REQUIRED",
+                "Say which request to cancel; the ones you sent are on that person's profile.",
+            )
+        if not confirmed:
+            raise _BackendDirectConfirmationNeeded(
+                "Ask: cancel that request? Only call this action again with confirmed set to true "
+                "after they say yes."
+            )
+        try:
+            await InformationRequestService().cancel(requester_user_id=user_id, bundle_id=bundle_id)
+        except InformationRequestError as exc:
+            raise ConsentLifecycleError(
+                "INFORMATION_REQUEST_CANCEL_FAILED", str(exc), status_code=exc.status_code
+            ) from exc
+        if str(last.get("bundleId") or "") == bundle_id:
+            tool_context.state[_STATE_LAST_INFORMATION_REQUEST] = {}
+        return "Cancelled that request.", None
+
+    raise AssertionError(f"{action_id} is not a consent lifecycle action")
 
 
 async def list_pending_connection_requests(
@@ -1964,6 +2398,8 @@ async def run_app_action(
     )
     trusted_activation = flags["trustedActivationRequired"]
     needs_confirmation = flags["needsConfirmation"]
+    if clean_id in BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS:
+        needs_confirmation = False
 
     # Backend-direct actions never reach the directive-parking path below --
     # once no confirmation is owed (the ordinary case; the person's own

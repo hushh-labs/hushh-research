@@ -43,3 +43,13 @@ describe("redactLikelyPans", () => {
     expect(redactLikelyPans(text)).toBe(text);
   });
 });
+
+describe("countLikelyPans", () => {
+  it("counts only Luhn-valid card-length runs", async () => {
+    const { countLikelyPans, redactLikelyPans } = await import("@/lib/wallet/pan-paste-guard");
+    const text = "Card 4111 1111 1111 1111 and order 1234567890123456 and 5555 5555 5555 4444";
+    expect(countLikelyPans(text)).toBe(2);
+    expect(countLikelyPans("phone +1 425 555 0100")).toBe(0);
+    expect(redactLikelyPans(text)).not.toContain("4111 1111 1111 1111");
+  });
+});

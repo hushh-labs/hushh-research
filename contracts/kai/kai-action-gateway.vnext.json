@@ -20165,6 +20165,506 @@
       }
     },
     {
+      "action_id": "consent.request",
+      "surface_id": "consents",
+      "label": "Request someone's information",
+      "aliases": [
+        "request their information",
+        "ask them for their",
+        "send an information request"
+      ],
+      "search_keywords": [
+        "request",
+        "information",
+        "consent",
+        "scopes",
+        "ask for"
+      ],
+      "meaning": "Sends an information request to a named person for the exact fields One already proposed with propose_information_request, with the stated purpose and duration. Runs only from a proposal id that tool returned, so the person never handles field identifiers; One asks once in words, then calls this with confirmed set to true. Never call it before propose_information_request has resolved the person and fields.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/consent",
+          "/people/[personRef]",
+          "/one/connect"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "consents",
+          "one_person_profile",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "consent.request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.request",
+        "required_inputs": [
+          {
+            "name": "proposal_id",
+            "prompt": "Which proposal should I send?",
+            "required": true,
+            "slot": "proposal_id",
+            "resolver": "opaque_proposal_id"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "proposal_id": "opaque_proposal_id",
+          "confirmed": "boolean"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Request someone's information",
+            "failure_behavior": "stop",
+            "action_id": "consent.request",
+            "settlement_target": {
+              "route": "/one/consent",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "consent.deny",
+      "surface_id": "consents",
+      "label": "Deny a pending request",
+      "aliases": [
+        "deny that request",
+        "decline the request",
+        "say no to"
+      ],
+      "search_keywords": [
+        "deny",
+        "decline",
+        "pending",
+        "request",
+        "consent"
+      ],
+      "meaning": "Declines one request that is waiting on the owner, by the request id list_pending_information_requests returned. One names the requester and what they asked for, gets a yes, then calls this with confirmed set to true. Approval is never done here: approving is the owner's tap on the request card, because the export is encrypted in their own browser.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/consent",
+          "/people/[personRef]",
+          "/one/connect"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "consents",
+          "one_person_profile",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "consent.deny"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.deny",
+        "required_inputs": [
+          {
+            "name": "request_id",
+            "prompt": "Which request should I deny?",
+            "required": true,
+            "slot": "request_id",
+            "resolver": "opaque_request_id"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "request_id": "opaque_request_id",
+          "confirmed": "boolean"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Deny a pending request",
+            "failure_behavior": "stop",
+            "action_id": "consent.deny",
+            "settlement_target": {
+              "route": "/one/consent",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "consent.revoke",
+      "surface_id": "consents",
+      "label": "Revoke a grant",
+      "aliases": [
+        "revoke that access",
+        "stop sharing that",
+        "take back access"
+      ],
+      "search_keywords": [
+        "revoke",
+        "grant",
+        "access",
+        "stop sharing",
+        "consent"
+      ],
+      "meaning": "Ends one active grant the owner gave earlier, matched by the request it came from, so the other side loses access at once. One names who loses access and to what, gets a yes, then calls this with confirmed set to true.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/consent",
+          "/people/[personRef]",
+          "/one/connect"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "consents",
+          "one_person_profile",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "consent.revoke"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.revoke",
+        "required_inputs": [
+          {
+            "name": "request_id",
+            "prompt": "Which grant should I revoke?",
+            "required": true,
+            "slot": "request_id",
+            "resolver": "opaque_request_id"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "request_id": "opaque_request_id",
+          "confirmed": "boolean"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Revoke a grant",
+            "failure_behavior": "stop",
+            "action_id": "consent.revoke",
+            "settlement_target": {
+              "route": "/one/consent",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "consent.cancel_request",
+      "surface_id": "consents",
+      "label": "Cancel a request you sent",
+      "aliases": [
+        "cancel my information request",
+        "withdraw that request",
+        "take back my information request"
+      ],
+      "search_keywords": [
+        "cancel",
+        "withdraw",
+        "request",
+        "sent",
+        "consent"
+      ],
+      "meaning": "Withdraws an information request the owner sent that the other person has not decided yet. With no bundle_id it withdraws the request sent most recently in this conversation, which is the usual case; One confirms in words first, then calls this with confirmed set to true.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/consent",
+          "/people/[personRef]",
+          "/one/connect"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "consents",
+          "one_person_profile",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "consent.cancel_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.cancel_request",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {
+          "bundle_id": "opaque_bundle_id_optional",
+          "confirmed": "boolean"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Cancel a request you sent",
+            "failure_behavior": "stop",
+            "action_id": "consent.cancel_request",
+            "settlement_target": {
+              "route": "/one/consent",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "analysis.back_to_history",
       "surface_id": "kai_analysis_controls",
       "label": "Back to Analysis History",

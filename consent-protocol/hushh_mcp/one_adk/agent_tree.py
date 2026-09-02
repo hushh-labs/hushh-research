@@ -65,7 +65,9 @@ from hushh_mcp.one_adk.action_tools import (
     list_my_location_shares,
     list_my_outgoing_location_requests,
     list_pending_connection_requests,
+    list_pending_information_requests,
     list_pending_location_requests,
+    propose_information_request,
     run_app_action,
     start_app_goal,
 )
@@ -1626,6 +1628,8 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         list_my_outgoing_location_requests,
         list_my_connections,
         discover_person_information,
+        list_pending_information_requests,
+        propose_information_request,
         list_pending_connection_requests,
         calendar_summary,
         calendar_events,

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 /**
  * The two things you can do TO one person in a Circle -- Share location and
  * Remove from Circle -- and the surface that offers them.
@@ -55,7 +57,7 @@
  */
 
 import { useState, useSyncExternalStore } from "react";
-import { MoreVertical, Share2, Trash2 } from "lucide-react";
+import { MoreVertical, Share2, Trash2, UserRound } from "lucide-react";
 
 import {
   AlertDialog,
@@ -191,6 +193,8 @@ export type CircleMemberActionsMenuProps = {
    *  needed"). Repeated in the sheet header so the sheet identifies the
    *  person exactly the way the row it came from did. */
   secondaryLine?: string | null;
+  /** Present when this member has a request profile: offers View profile. */
+  profileHref?: string | null;
   canShare: boolean;
   canRemove: boolean;
   /** A write is already in flight on this Circle. */
@@ -218,6 +222,7 @@ export function CircleMemberActionsMenu({
   busy,
   onShare,
   onRemove,
+  profileHref,
 }: CircleMemberActionsMenuProps) {
   const asSheet = useSheetPresentation();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -338,6 +343,24 @@ export function CircleMemberActionsMenu({
                   aria-label={menuLabel}
                   className="overflow-hidden rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)]"
                 >
+                  {profileHref ? (
+                    <Link
+                      href={profileHref}
+                      role="menuitem"
+                      className={MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME}
+                      onClick={() => closeSheet()}
+                      data-testid="circle-member-view-profile"
+                    >
+                      <UserRound
+                        className="h-5 w-5 shrink-0 text-[color:var(--app-secondary-label)]"
+                        aria-hidden="true"
+                      />
+                      View profile
+                    </Link>
+                  ) : null}
+                  {profileHref && (canShare || canRemove) ? (
+                    <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />
+                  ) : null}
                   {canShare ? (
                     <button
                       type="button"

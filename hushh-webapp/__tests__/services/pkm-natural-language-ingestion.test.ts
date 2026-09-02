@@ -186,3 +186,74 @@ describe("ingestNaturalLanguagePkm", () => {
     ]);
   });
 });
+
+describe("prepareNaturalLanguagePkm large-paste behavior", () => {
+  beforeEach(() => {
+    mocks.preview.mockReset();
+    mocks.save.mockReset();
+  });
+
+  it("keeps the blocks that prepared when one block fails, and reports the failure", async () => {
+    // Seven numbered sections pack into two chunks (six per chunk).
+    const sections = Array.from({ length: 7 }, (_, i) => `${i + 1}. Section ${i + 1}\nFact number ${i + 1} about me.`);
+    mocks.preview
+      .mockResolvedValueOnce({ cards: [{ card_id: "a", source_text: "Fact number 1 about me.", write_mode: "can_save" }], preview_summary: { total_segments_detected: 1 } })
+      .mockRejectedValueOnce(new Error("Memory preparation failed (http_503). Please try again."));
+    const result = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: sections.join("\n\n"),
+      currentDomains: [],
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_profile_import",
+    });
+    expect(mocks.preview).toHaveBeenCalledTimes(2);
+    expect(result.cards).toHaveLength(1);
+    expect(result.sourceCoverage.map((block) => block.disposition)).toEqual(["proposed", "failed"]);
+  });
+
+  it("fails only when every block failed", async () => {
+    mocks.preview.mockRejectedValueOnce(new Error("Memory preparation failed (http_503). Please try again."));
+    await expect(
+      prepareNaturalLanguagePkm({
+        userId: "user_1",
+        message: "I run at dawn.",
+        currentDomains: [],
+        vaultOwnerToken: "owner-token",
+        source: "agent_chat_profile_import",
+      }),
+    ).rejects.toThrow("failed for every section");
+  });
+
+  it("drops exact duplicates, forces confirmation on near matches, and counts excluded secrets", async () => {
+    mocks.preview.mockResolvedValueOnce({
+      cards: [
+        { card_id: "dup", source_text: "I type at about 85 WPM.", write_mode: "can_save" },
+        { card_id: "near", source_text: "I prefer early breakfasts most days.", write_mode: "can_save" },
+        { card_id: "fresh", source_text: "I run at dawn.", write_mode: "can_save" },
+        { card_id: "secret", source_text: "Card on file 4111 1111 1111 1111", write_mode: "do_not_save", validation_hints: ["sensitive_card_number_rejected"] },
+      ],
+      preview_summary: { total_segments_detected: 4 },
+    });
+    const result = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: "I type at about 85 WPM. I prefer early breakfasts most days. I run at dawn. Card on file 4111 1111 1111 1111",
+      currentDomains: ["preferences"],
+      currentManifests: [{ domain: "preferences" }],
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_profile_import",
+      findDuplicate: (candidate) =>
+        candidate.includes("85 WPM")
+          ? { kind: "exact", domain: "professional", path: ["typing_speed"] }
+          : candidate.includes("breakfast")
+            ? { kind: "possible", domain: "food", path: ["breakfast"] }
+            : null,
+    });
+    expect(mocks.preview).toHaveBeenCalledWith(expect.objectContaining({ currentManifests: [{ domain: "preferences" }] }));
+    const ids = result.cards.map((card) => card.card_id.split("_").at(-1));
+    expect(ids).toEqual(["near", "fresh", "secret"]);
+    const near = result.cards.find((card) => card.card_id.endsWith("near"));
+    expect(near?.write_mode).toBe("confirm_first");
+    expect(near?.validation_hints).toContain("possible_duplicate");
+    expect(result.sourceCoverage[0]).toMatchObject({ duplicateCount: 1, excludedSecretCount: 1 });
+  });
+});

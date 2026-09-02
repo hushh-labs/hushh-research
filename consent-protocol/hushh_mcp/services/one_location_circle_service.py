@@ -593,6 +593,7 @@ class OneLocationCircleService:
         return {
             "userId": str(row.get("user_id") or ""),
             "displayName": display_name or "Circle member",
+            "publicPersonRef": str(row.get("public_person_ref") or "") or None,
             "photoUrl": str(row.get("custom_photo_url") or row.get("photo_url") or "") or None,
             "role": str(row.get("role") or "member"),
             "joinedAt": _iso(row.get("joined_at")),
@@ -1061,6 +1062,7 @@ class OneLocationCircleService:
                   SELECT membership.user_id, membership.role, membership.joined_at,
                          identity.display_name, identity.email, identity.photo_url,
                          identity.custom_photo_url, identity.phone_verified,
+                         profile.public_person_ref,
                          EXISTS (
                            SELECT 1
                            FROM ria_profiles ria_annotation
@@ -1092,6 +1094,8 @@ class OneLocationCircleService:
                    AND membership.status = 'active'
                   LEFT JOIN actor_identity_cache identity
                     ON identity.user_id = membership.user_id
+                  LEFT JOIN actor_profiles profile
+                    ON profile.user_id = membership.user_id
                 ), matched AS (
                   -- How well the query matches, in the same three tiers the
                   -- client picker uses (lib/one-location/people-search.ts):

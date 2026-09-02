@@ -130,3 +130,15 @@ and wait for the widget. `verify-reviewer-wallet.mjs` encodes this as
 own once the parked directive reaches the browser, so `directive_clicks=0` is
 the expected evidence for them.
 
+## Consent lifecycle from chat rehearsal
+
+`verify-reviewer-consent-chat.mjs` (mutation-authorized) proves the person-to-person
+lifecycle from Agent chat: discovery names the requestable field and links the
+profile; a request is proposed, read back, and created only after a spoken yes
+(backend-direct with the requester's active connector key); "what is waiting on me"
+answers from `list_pending_information_requests`; the sent request is withdrawn
+from chat after a spoken yes; and no `attr.` or `psr_` identifier reaches the
+surface. The requester's connector key is read on the backend origin
+(`REVIEWER_BACKEND_ORIGIN`, default `http://localhost:8010`) because the web proxy
+does not serve that read; a first-time requester registers it once from the profile
+page, which the script does on its own when the check reports none.
