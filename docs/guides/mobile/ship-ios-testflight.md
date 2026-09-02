@@ -97,9 +97,10 @@ The workflow decodes and imports `APPSTORE_DISTRIBUTION_CERT_P12_B64` directly i
 
 ### 3. Native iOS Firebase config
 
-The workflow decodes `IOS_GOOGLESERVICE_INFO_PLIST_B64` into `ios/App/App/GoogleService-Info.plist`
-(it does **not** run `sync:native-firebase-configs`, which hard-requires the Android
-`google-services.json`). If not already present:
+The workflow decodes `IOS_GOOGLESERVICE_INFO_PLIST_B64` into the ignored repository-root
+`GoogleService-Info.plist`. The iOS-only native sync validates its bundle id and copies it into
+`ios/App/App/GoogleService-Info.plist`; it does not require the Android `google-services.json`.
+If the secret is not already present:
 
 ```bash
 base64 -i GoogleService-Info.plist \
