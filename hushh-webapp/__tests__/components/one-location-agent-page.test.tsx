@@ -2454,6 +2454,128 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps a selected Circle count scoped to its members when extra people are added", async () => {
+    const readyRecipient = locationState().recipients[0]!;
+    const makeReadyRecipient = (userId: string, displayName: string) => ({
+      ...readyRecipient,
+      userId,
+      displayName,
+      keyId: `${userId}-key`,
+    });
+    const circleMemberOne = makeReadyRecipient(
+      "circle_member_one",
+      "Circle Member One",
+    );
+    const circleMemberTwo = makeReadyRecipient(
+      "circle_member_two",
+      "Circle Member Two",
+    );
+    const outsiderOne = makeReadyRecipient("outside_one", "Outside One");
+    const outsiderTwo = makeReadyRecipient("outside_two", "Outside Two");
+    const circleSummary = {
+      id: "circle_family",
+      name: "Family",
+      kind: "family" as const,
+      role: "owner" as const,
+      // Circle summaries include the viewer; the UI count intentionally does
+      // not. Two shareable people plus the current owner therefore means 3.
+      memberCount: 3,
+      memberLimit: 20,
+    };
+
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      recipients: [
+        circleMemberOne,
+        circleMemberTwo,
+        outsiderOne,
+        outsiderTwo,
+      ],
+      circles: [circleSummary],
+      ownerGrants: [],
+    });
+    mockGetCircle.mockResolvedValue({
+      ...circleSummary,
+      members: [
+        {
+          userId: "user_a",
+          displayName: "Me",
+          role: "owner" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          canReceiveLocation: true,
+          keyId: "owner-key",
+          publicKeyJwk: { kty: "EC" },
+        },
+        ...[circleMemberOne, circleMemberTwo].map((recipient) => ({
+          userId: recipient.userId,
+          displayName: recipient.displayName,
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          canReceiveLocation: true,
+          keyId: recipient.keyId,
+          publicKeyJwk: recipient.publicKeyJwk,
+        })),
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openSharePersonStep();
+    const shareHeader = screen
+      .getByRole("heading", { name: "Who can see you?" })
+      .closest("header");
+    if (!shareHeader) throw new Error("Share flow header was not rendered.");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select the Family Circle, 2 members",
+      }),
+    );
+
+    const selectedCircleRow = await screen.findByRole("button", {
+      name: "Deselect the Family Circle, 2 selected",
+    });
+    expect(within(shareHeader).getByText("2 selected")).toBeTruthy();
+    expect(within(selectedCircleRow).getByText("2 selected")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select Outside One for private sharing",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select Outside Two for private sharing",
+      }),
+    );
+
+    expect(within(shareHeader).getByText("4 selected")).toBeTruthy();
+    expect(
+      within(
+        screen.getByRole("button", {
+          name: "Deselect the Family Circle, 2 selected",
+        }),
+      ).getByText("2 selected"),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Deselect Outside Two for private sharing",
+      }),
+    );
+    expect(within(shareHeader).getByText("3 selected")).toBeTruthy();
+    expect(
+      within(
+        screen.getByRole("button", {
+          name: "Deselect the Family Circle, 2 selected",
+        }),
+      ).getByText("2 selected"),
+    ).toBeTruthy();
+  });
+
   it("resets every abandoned share field and ignores a late review preflight", async () => {
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
