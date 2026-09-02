@@ -16,16 +16,15 @@
     {
       "action_id": "route.kai_dashboard",
       "label": "Open Portfolio Dashboard",
-      "meaning": "Navigates to portfolio dashboard for source/holdings context.",
+      "meaning": "Navigates to portfolio dashboard, the overview above holdings/allocation/performance/sources.",
       "aliases": [
         "open portfolio dashboard",
         "open portfolio",
-        "go to holdings"
+        "show my portfolio"
       ],
       "search_keywords": [
         "portfolio",
-        "dashboard",
-        "holdings"
+        "dashboard"
       ],
       "reachability": {
         "routes": [
