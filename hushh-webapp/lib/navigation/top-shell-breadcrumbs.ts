@@ -491,28 +491,6 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // Debate config is a read-only sub-view of Picks (/ria/picks?view=debate):
-  // it deepens one level below Picks, so back returns to Picks, not RIA home.
-  // Checked before the generic riaSubroutes loop, which would otherwise match
-  // the query-stripped /ria/picks pathname and flatten it to a 3-crumb Picks.
-  if (
-    (pathname === ROUTES.RIA_PICKS ||
-      pathname.startsWith(`${ROUTES.RIA_PICKS}/`)) &&
-    searchParams?.get("view") === "debate"
-  ) {
-    return {
-      backHref: ROUTES.RIA_PICKS,
-      width: "content",
-      align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "RIA", href: ROUTES.RIA_PROFILE },
-        { label: "Picks", href: ROUTES.RIA_PICKS },
-        { label: "Debate" },
-      ],
-    };
-  }
-
   // RIA subtabs (level 3): back returns to the RIA home (level 2).
   const riaSubroutes: Array<[string, string]> = [
     [ROUTES.RIA_PICKS, "Picks"],
