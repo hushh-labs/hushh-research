@@ -473,6 +473,9 @@ class PersonalAgentProvisioningService:
             # and it passes no handle, so it never reads this -- but leaving the name
             # unbound until later would make that ordering a latent NameError rather
             # than a stated invariant.
+            # Bound BEFORE _record closes over it: a failure recorded early (before the
+            # person's cloud is resolved) must not raise on a free variable.
+            cloud = None
             substrate_receipt: Optional[dict[str, Any]] = None
 
             async def _record(status: str, handle: Optional[BackendHandle] = None) -> None:
@@ -500,6 +503,12 @@ class PersonalAgentProvisioningService:
                     # The join key that makes spend attributable. NOT the owner's
                     # handle -- an opaque id that is safe to render as a cloud label.
                     billing_space_id=billing_space_id,
+                    # A failure record must still name the person's cloud, or the registry's
+                    # own check refuses it and the row is left saying "provisioning" forever
+                    # (seen live 2026-09-02).
+                    user_cloud_project=(cloud.project if cloud else None),
+                    user_cloud_region=(cloud.region if cloud else None),
+                    user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
                 )
                 if handle is not None:
                     # None handle fields are dropped by the repo, so NullBackend (all-None)

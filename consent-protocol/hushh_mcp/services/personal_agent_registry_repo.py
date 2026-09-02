@@ -99,6 +99,9 @@ class PersonalAgentRegistryRepo:
         liveness_mode: Optional[str] = None,
         deployment_target: Optional[str] = None,
         model_credential_mode: Optional[str] = None,
+        user_cloud_project: Optional[str] = None,
+        user_cloud_region: Optional[str] = None,
+        user_cloud_bootstrap_sa: Optional[str] = None,
     ) -> None:
         # None fields are dropped so a PENDING/logical row (phone-verify seam, or the
         # NullBackend) leaves them at the schema NULL default; a full provision with a
@@ -126,6 +129,14 @@ class PersonalAgentRegistryRepo:
             # deployment default" -- which is what every pre-906 row is.
             "deployment_target": deployment_target,
             "model_credential_mode": model_credential_mode,
+            # Carried on every write for a user-cloud row: the INSERT half of an upsert
+            # is checked before the conflict resolves, so a status write that names
+            # deployment_target without the project trips
+            # personal_agent_registry_user_gcp_needs_project_check (seen live
+            # 2026-09-02 while recording provisioning_failed).
+            "user_cloud_project": user_cloud_project,
+            "user_cloud_region": user_cloud_region,
+            "user_cloud_bootstrap_sa": user_cloud_bootstrap_sa,
             "status": status,
         }
         data = {k: v for k, v in data.items() if v is not None}

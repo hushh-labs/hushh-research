@@ -98,6 +98,8 @@ readonly -a BOOTSTRAP_ROLES=(
 
 # Mirrors REQUIRED_SERVICES. Enabling an API is idempotent and changes nothing else.
 readonly -a REQUIRED_SERVICES=(
+  
+  "serviceusage.googleapis.com"
   "iam.googleapis.com"
   "iamcredentials.googleapis.com"
   "run.googleapis.com"

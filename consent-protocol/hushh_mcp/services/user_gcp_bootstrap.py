@@ -89,6 +89,13 @@ BOOTSTRAP_ROLES: tuple[tuple[str, str], ...] = (
 #: Measured against a real empty project (hushh-byoc-test, 2026-08-08), seven of these
 #: eight were off -- which made API enablement the actual blocker, not project creation.
 REQUIRED_SERVICES: tuple[str, ...] = (
+    # FIRST, and the reason is the same subtle incompleteness as cloudresourcemanager
+    # below: the bootstrap account's own batchEnable call is quota-attributed to the
+    # person's project, and Service Usage refuses with SERVICE_DISABLED when the
+    # Service Usage API itself is not enabled there. The person's OAuth token can
+    # enable it (their quota project differs); the bootstrap cannot. Seen live
+    # 2026-09-02 in hussh-one-ytxzrc: every substrate step gated off behind a 403.
+    "serviceusage.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "run.googleapis.com",

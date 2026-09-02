@@ -53,6 +53,7 @@ tests/test_byoc_substrate_teardown_surfacing.py
 tests/test_byoc_substrate_teardown_tombstone.py
 tests/test_byoc_substrate_teardown_rowless.py
 tests/test_byoc_cloud_parked_before_record.py
+tests/test_byoc_substrate_first_light_gaps.py
 tests/test_user_cloud_parked_fallback.py
 tests/test_phone_verify_resumes_ai_connection.py
 tests/test_byoc_tenancy_is_per_person.py
