@@ -81,3 +81,32 @@ def test_vertex_readiness_probe_never_probes_the_alias(monkeypatch: pytest.Monke
     assert "gemini-default" not in text_models
     assert "gemini-3.8-flash" in text_models
     assert live_model == "gemini-3.1-flash-live-preview"
+
+
+def test_31_pro_preview_maps_minimal_thinking_to_low() -> None:
+    """Vertex rejects thinking_level MINIMAL for gemini-3.1-pro-preview (400, verified live
+    2026-09-02) and accepts LOW; the readiness probe sends MINIMAL for every text model."""
+    from google.genai import types
+
+    minimal = gemini_config.build_generate_content_config(
+        types,
+        "gemini-3.1-pro-preview",
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+    )
+    assert minimal.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    high = gemini_config.build_generate_content_config(
+        types,
+        "gemini-3.1-pro-preview",
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.HIGH),
+    )
+    assert high.thinking_config.thinking_level == types.ThinkingLevel.HIGH
+    as_dict = gemini_config.build_generate_content_config(
+        types, "gemini-3.1-pro-preview", thinking_config={"thinking_level": "MINIMAL"}
+    )
+    assert str(as_dict.thinking_config.thinking_level).upper().endswith("LOW")
+    flash = gemini_config.build_generate_content_config(
+        types,
+        "gemini-3.7-flash",
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+    )
+    assert flash.thinking_config is None
