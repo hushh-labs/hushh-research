@@ -119,6 +119,12 @@ export function ByocCloudSetupPage() {
   // page used to assume BYOC by construction, so someone who arrived with a
   // Google account and nothing else had no way through this step at all.
   const [choice, setChoice] = useState<"own" | "hosted" | null>(null);
+  // The hosted door is closed for maintenance (founder direction, 2026-09-02):
+  // the card stays visible so the choice is still honest, but it cannot be
+  // taken. Lift it with NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0; no code
+  // change is needed to reopen.
+  const hostedUnderMaintenance =
+    process.env.NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE !== "0";
   const [hostedSaving, setHostedSaving] = useState(false);
   const [hosted, setHosted] = useState<Awaited<
     ReturnType<typeof ApiService.selectHostedCloud>
@@ -147,7 +153,9 @@ export function ByocCloudSetupPage() {
             force: true,
           }).catch(() => undefined);
           if (cancelled) return;
-          const suggestion = await ApiService.suggestByocProject().catch(() => null);
+          const suggestion = await ApiService.suggestByocProject().catch(
+            () => null,
+          );
           if (cancelled) return;
           if (suggestion) {
             setExisting({
@@ -241,7 +249,10 @@ export function ByocCloudSetupPage() {
       // manual route: record the name, show the script, prove on re-save.
       // The fallback is a lane, not an error.
       const message = err instanceof Error ? err.message : "";
-      if (message === "BYOC_AUTHORIZE_BEGIN_FAILED" || /not configured/i.test(message)) {
+      if (
+        message === "BYOC_AUTHORIZE_BEGIN_FAILED" ||
+        /not configured/i.test(message)
+      ) {
         try {
           setSaved(await ApiService.saveByocProject({ projectId }));
           return;
@@ -256,11 +267,14 @@ export function ByocCloudSetupPage() {
       // step of this journey, not a fault), show that reason verbatim — one status
       // line, the actual next action (Restraint Charter: earn every element).
       const serverReason =
-        err instanceof Error && err.message && err.message !== "BYOC_SAVE_FAILED"
+        err instanceof Error &&
+        err.message &&
+        err.message !== "BYOC_SAVE_FAILED"
           ? err.message
           : null;
       setError(
-        serverReason ?? "We could not save your cloud just now. Try again in a moment.",
+        serverReason ??
+          "We could not save your cloud just now. Try again in a moment.",
       );
     } finally {
       setSaving(false);
@@ -286,7 +300,9 @@ export function ByocCloudSetupPage() {
       // normal step of this journey, and replacing it with a generic apology
       // strands the person with no next move.
       const reason =
-        err instanceof Error && err.message && err.message !== "HOSTED_SELECT_FAILED"
+        err instanceof Error &&
+        err.message &&
+        err.message !== "HOSTED_SELECT_FAILED"
           ? err.message
           : null;
       setError(
@@ -425,24 +441,31 @@ export function ByocCloudSetupPage() {
             >
               <p className="text-sm font-semibold">Your own Google Cloud</p>
               <p className="text-sm text-[var(--app-text-secondary)]">
-                Your project, your compute, your bill. hussh cannot read your agent,
-                because the keys never leave it and the project is not ours.
+                Your project, your compute, your bill. hussh cannot read your
+                agent, because the keys never leave it and the project is not
+                ours.
               </p>
             </button>
             <button
               type="button"
               className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left disabled:opacity-60"
               onClick={() => void chooseHosted()}
-              disabled={hostedSaving}
+              disabled={hostedSaving || hostedUnderMaintenance}
+              aria-disabled={hostedUnderMaintenance || undefined}
               data-testid="cloud-tier-hosted"
+              data-maintenance={hostedUnderMaintenance ? "true" : undefined}
             >
               <p className="text-sm font-semibold">
-                {hostedSaving ? "Setting that up…" : "Host it with hussh"}
+                {hostedSaving
+                  ? "Setting that up…"
+                  : hostedUnderMaintenance
+                    ? "Host it with hussh · under maintenance"
+                    : "Host it with hussh"}
               </p>
               <p className="text-sm text-[var(--app-text-secondary)]">
-                Your own instance on hussh&rsquo;s infrastructure, sealed with keys
-                only your agent holds. hussh does not read it, and you can move it to
-                your own cloud any time, with everything it has learned.
+                {hostedUnderMaintenance
+                  ? "Hosted pods are being worked on right now and cannot be chosen. Use your own Google Cloud today; this door reopens on its own, and you can move between the two later."
+                  : "Your own instance on hussh\u2019s infrastructure, sealed with keys only your agent holds. hussh does not read it, and you can move it to your own cloud any time, with everything it has learned."}
               </p>
             </button>
           </div>
@@ -491,10 +514,13 @@ export function ByocCloudSetupPage() {
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
             data-testid="byoc-cloud-authorize"
           >
-            <p className="text-sm font-semibold">One more step, in your own cloud</p>
+            <p className="text-sm font-semibold">
+              One more step, in your own cloud
+            </p>
             <p className="text-sm text-[var(--app-text-secondary)]">
-              Run this in your project to let us build your agent there. It grants one
-              role, to one account, and you can withdraw it with a single command.
+              Run this in your project to let us build your agent there. It
+              grants one role, to one account, and you can withdraw it with a
+              single command.
             </p>
             <pre className="overflow-x-auto rounded-xl bg-[var(--app-surface-sunk)] p-3 text-xs">
               {`PROJECT_ID=${saved.projectId} \\
@@ -502,8 +528,8 @@ HUSHH_CALLER=${saved.hushhCaller} \\
   bash deploy/iam/authorize_byoc_project.sh`}
             </pre>
             <p className="text-xs text-[var(--app-text-secondary)]">
-              Then come back and confirm your project again. Nothing is created until
-              we can prove we can reach it.
+              Then come back and confirm your project again. Nothing is created
+              until we can prove we can reach it.
             </p>
           </div>
         ) : null}
@@ -532,7 +558,9 @@ HUSHH_CALLER=${saved.hushhCaller} \\
         // restated (Restraint Charter: cut copy that repeats a control's own state);
         // the authorize block above already says what is needed.
         supportingText={
-          authorized ? "Your agent will be built in your own project." : undefined
+          authorized
+            ? "Your agent will be built in your own project."
+            : undefined
         }
       />
     </AppPageShell>

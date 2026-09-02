@@ -155,6 +155,21 @@ The **local** `--mode dev` profile deliberately still hydrates `NEXT_PUBLIC_APP_
 would satisfy `devAuthBypassAllowed()` and turn on the vault auth bypasses while talking
 to the shared dev backend. Changing that is a separate decision.
 
+## Google OAuth return URI: the registered form has no `/one` prefix (2026-09-02)
+
+The OAuth client dev shares with UAT (`745506018753-…`) registers return URIs in the
+form `https://<env>.one.hushh.ai/profile/gmail/oauth/return` and
+`http://localhost:3000/profile/gmail/oauth/return`. The app serves that path with a
+307 to `/one/profile/gmail/oauth/return` that keeps `code` and `state`, so the
+registered form works end to end; production's `GMAIL_OAUTH_REDIRECT_URI` uses it.
+Dev's and UAT's secrets had drifted to the `/one/…` form, which Google rejects with
+`redirect_uri_mismatch`, and the BYOC authorize step (`byoc_oauth_authorizer.py`,
+which sends the configured value verbatim) failed on both. Dev's secret was set back
+to the registered form (version 62); UAT's needs the same one-line change under
+founder sign-off. A local hub on any port other than 3000 must also use a registered
+URI, so it points at dev's: the callback completes on the deployed dev frontend and
+hub, whose signed `state` and shared database the local hub reads back.
+
 ## Intentional divergences from UAT
 
 1. **One Email KYC runs in dev through topic fanout (founder-approved 2026-07).**
