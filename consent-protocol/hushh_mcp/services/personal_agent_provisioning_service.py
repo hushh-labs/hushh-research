@@ -685,6 +685,26 @@ class PersonalAgentProvisioningService:
                 )
 
             backend = self._backend_for(spec)
+            # Pre-bind the identity the pod will present. A user-owned pod boots and
+            # heartbeats WHILE the backend is still waiting for Ready, and the hub
+            # binds a heartbeat to the row's recorded runtime identity -- which,
+            # until now, was written only after `provision` returned. So the first
+            # beat of every such pod was refused (`email_not_bound`, live
+            # 2026-09-02) and the handshake waited for the next one. The backend
+            # knows the identity from the spec alone; asking it here is neutral
+            # (no provider named) and optional (a backend without the method
+            # behaves exactly as before).
+            identity_of = getattr(backend, "runtime_identity_for", None)
+            if identity_of is not None:
+                expected_identity = str(identity_of(spec) or "").strip()
+                if expected_identity:
+                    await _record(
+                        "provisioning",
+                        handle=BackendHandle(
+                            backend=getattr(backend, "backend_id", None),
+                            backend_metadata={"runtime_service_account": expected_identity},
+                        ),
+                    )
             handle = await backend.provision(spec)
             # The receipt rides along on the row: identifiers, plan digest and the grant
             # that authorised them -- never attributes, never key material. This is the
@@ -708,9 +728,14 @@ class PersonalAgentProvisioningService:
                     handle.external_agent_id or "<none>",
                     handle.backend or "null",
                 )
+                # The host is Ready and reachable: pull the key NOW rather than
+                # waiting for the pod's next heartbeat to notice `connecting`.
+                # Same collector, same rotation rule as adoption. Best-effort: a
+                # miss leaves the row at `connecting` for the heartbeat path.
+                collected = await self._collect_key_now(user_id)
                 return {
                     "hushhId": hushh_id,
-                    "status": "connecting",
+                    "status": collected or "connecting",
                     "backend": handle.backend,
                     "externalAgentId": handle.external_agent_id,
                     "a2aRoute": handle.a2a_route,
@@ -757,6 +782,25 @@ class PersonalAgentProvisioningService:
             "a2aRoute": handle.a2a_route,
             "standingReadExpiresAt": grant.get("expiresAt"),
         }
+
+    async def _collect_key_now(self, user_id: str) -> Optional[str]:
+        """Pull a freshly built pod's key immediately. Never raises.
+
+        Measured before this existed: host Ready 18:57:00Z, first beat refused
+        18:57:38Z, key attached 18:59:32Z -- two and a half minutes of a person
+        watching "connecting" for a pod that was already answering. Returns the
+        status the collector reached (``provisioned`` on success) or None.
+        """
+        try:
+            row = await self._registry.get(user_id)
+            if not row:
+                return None
+            from hushh_mcp.services.pod_key_collector import refresh_pod_key  # noqa: PLC0415
+
+            return await refresh_pod_key(row, service=self)
+        except Exception as exc:  # noqa: BLE001 - the heartbeat path finishes what this could not
+            logger.info("personal_agent.immediate_key_pull_deferred %s", type(exc).__name__)
+            return None
 
     async def attach_pod_public_key(
         self,

@@ -1052,6 +1052,14 @@ class UserGcpBackend:
             },
         )
 
+    def runtime_identity_for(self, spec: PodSpec) -> str:
+        """The identity this person's pod will present to the hub, known BEFORE the
+        host exists. The provisioning service writes it to the row ahead of the
+        create, so the pod's very first heartbeat, which arrives while the hub is
+        still waiting for Ready, is bound to a row that already names it instead of
+        being refused ``email_not_bound`` (seen live 2026-09-02)."""
+        return self._pod_service_account(spec)
+
     def _pod_service_account(self, spec: PodSpec) -> str:
         """The account this person's pod runs as, in their own project.
 

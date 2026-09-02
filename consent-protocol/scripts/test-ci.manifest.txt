@@ -121,6 +121,7 @@ tests/test_personal_agent_full_cycle.py
 tests/test_personal_agent_reconcile_attach.py
 tests/test_personal_agent_reconcile_worker.py
 tests/test_pod_image_upgrade_path.py
+tests/test_pod_handshake_is_immediate.py
 tests/test_personal_agent_registry_repo.py
 tests/test_personal_agent_routes.py
 tests/test_personal_agent_wiring.py

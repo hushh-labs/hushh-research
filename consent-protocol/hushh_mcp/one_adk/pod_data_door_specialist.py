@@ -155,7 +155,8 @@ def _event_when(event: dict[str, Any]) -> str:
     """When an event happens, from the projected boundary only. All-day events
     render their date; timed events render date and clock in the event's own
     offset. Unparseable input renders as 'time unknown' rather than raising."""
-    start = event.get("start") if isinstance(event.get("start"), dict) else {}
+    raw_start = event.get("start")
+    start: dict[str, Any] = raw_start if isinstance(raw_start, dict) else {}
     if event.get("all_day") or ("date" in start and "dateTime" not in start):
         return f"all day {start.get('date') or 'date unknown'}"
     raw = str(start.get("dateTime") or "")
