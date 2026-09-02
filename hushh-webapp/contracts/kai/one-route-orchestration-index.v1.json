@@ -6423,7 +6423,6 @@
         "ria.picks.open_category_top_picks",
         "ria.picks.open_source_kai",
         "ria.picks.open_source_my",
-        "ria.picks.open_view_debate",
         "route.ria_picks"
       ],
       "action_coverage": "inherited",
