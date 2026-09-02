@@ -9,8 +9,16 @@
   "defaults": {
     "delegate_agent_id": "agent_cards",
     "reachability": {
-      "routes": ["/agent", "/one", "/one/cards"],
-      "screens": ["one_agents", "one_cards"],
+      "routes": [
+        "/agent",
+        "/one",
+        "/one/cards"
+      ],
+      "screens": [
+        "app",
+        "one_agents",
+        "one_cards"
+      ],
       "hidden_navigable": true,
       "navigation_prerequisites": [
         "signed-in vault-owner token and an unlocked vault are required for card operations"
@@ -27,8 +35,16 @@
         "what cards do I have",
         "show my saved cards"
       ],
-      "search_keywords": ["cards", "payment cards", "credit card", "debit card"],
-      "guard_ids": ["auth_signed_in", "vault_owner_token"],
+      "search_keywords": [
+        "cards",
+        "payment cards",
+        "credit card",
+        "debit card"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -36,8 +52,12 @@
         "path": "local_handler",
         "target": "agent_chat_cards_list"
       },
-      "control_ids": ["agent-chat-cards-list"],
-      "state_exposure": ["card metadata (nickname, brand, last4, expiry, region)"],
+      "control_ids": [
+        "agent-chat-cards-list"
+      ],
+      "state_exposure": [
+        "card metadata (nickname, brand, last4, expiry, region)"
+      ],
       "goal": {
         "workflow_steps": [
           {
@@ -53,9 +73,20 @@
       "action_id": "cards.add",
       "label": "Add a card",
       "meaning": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat.",
-      "aliases": ["add a card", "save my card", "store a new card"],
-      "search_keywords": ["add card", "new card", "save card"],
-      "guard_ids": ["auth_signed_in", "vault_owner_token"],
+      "aliases": [
+        "add a card",
+        "save my card",
+        "store a new card"
+      ],
+      "search_keywords": [
+        "add card",
+        "new card",
+        "save card"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -63,12 +94,19 @@
         "path": "local_handler",
         "target": "agent_chat_cards_add"
       },
-      "control_ids": ["secure-card-add-form"],
-      "state_exposure": ["whether the secure add form is open"],
+      "control_ids": [
+        "secure-card-add-form"
+      ],
+      "state_exposure": [
+        "whether the secure add form is open"
+      ],
       "goal": {
         "required_inputs": [],
         "slot_schema": {
-          "nickname": { "type": "string", "maxLength": 60 }
+          "nickname": {
+            "type": "string",
+            "maxLength": 60
+          }
         },
         "workflow_steps": [
           {
@@ -89,8 +127,16 @@
         "reveal my card",
         "what is my card number"
       ],
-      "search_keywords": ["reveal card", "card number", "cvv", "card details"],
-      "guard_ids": ["auth_signed_in", "vault_owner_token"],
+      "search_keywords": [
+        "reveal card",
+        "card number",
+        "cvv",
+        "card details"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "execution_target": {
@@ -98,8 +144,12 @@
         "path": "local_handler",
         "target": "agent_chat_cards_reveal"
       },
-      "control_ids": ["secure-card-reveal"],
-      "state_exposure": ["which stored card was shown (nickname and last4 only)"],
+      "control_ids": [
+        "secure-card-reveal"
+      ],
+      "state_exposure": [
+        "which stored card was shown (nickname and last4 only)"
+      ],
       "goal": {
         "required_inputs": [
           {
@@ -110,7 +160,10 @@
           }
         ],
         "slot_schema": {
-          "card_ref": { "type": "string", "maxLength": 80 }
+          "card_ref": {
+            "type": "string",
+            "maxLength": 80
+          }
         },
         "workflow_steps": [
           {

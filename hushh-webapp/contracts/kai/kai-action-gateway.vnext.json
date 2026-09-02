@@ -827,6 +827,7 @@
             "/one/cards"
           ],
           "screens": [
+            "app",
             "one_agents",
             "one_cards"
           ],
@@ -19030,6 +19031,7 @@
           "/one/cards"
         ],
         "screens": [
+          "app",
           "one_agents",
           "one_cards"
         ],
@@ -19136,6 +19138,7 @@
           "/one/cards"
         ],
         "screens": [
+          "app",
           "one_agents",
           "one_cards"
         ],
@@ -19248,6 +19251,7 @@
           "/one/cards"
         ],
         "screens": [
+          "app",
           "one_agents",
           "one_cards"
         ],
