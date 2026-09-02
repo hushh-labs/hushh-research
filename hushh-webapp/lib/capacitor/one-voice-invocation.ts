@@ -6,6 +6,11 @@ import {
   registerPlugin,
   type PluginListenerHandle,
 } from "@capacitor/core";
+import type {
+  OneSystemActionOutcome,
+  OneSystemEntityIndexEntry,
+  PendingOneSystemActionInvocation,
+} from "@/lib/capacitor/one-system-action-invocation";
 
 export type PendingOneVoiceInvocation = {
   id: string;
@@ -25,9 +30,33 @@ export interface NativeOneVoiceInvocationPlugin {
     id: string;
     outcome: OneVoiceInvocationOutcome;
   }): Promise<void>;
+  getPendingActionInvocation(): Promise<
+    Partial<PendingOneSystemActionInvocation>
+  >;
+  claimActionInvocation(options: {
+    id: string;
+  }): Promise<{ claimed: boolean }>;
+  completeActionInvocation(options: {
+    id: string;
+    outcome: OneSystemActionOutcome;
+    summary: string;
+  }): Promise<void>;
+  updateActionEntityIndex(options: {
+    ownerId: string;
+    contacts: OneSystemEntityIndexEntry[];
+    circles: OneSystemEntityIndexEntry[];
+  }): Promise<{ updated: boolean }>;
+  clearActionState(options: {
+    outcome: "cancelled" | "sign_out";
+    clearEntityIndex: boolean;
+  }): Promise<void>;
   addListener(
     eventName: "voiceInvocationAvailable",
     listener: (invocation: PendingOneVoiceInvocation) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: "systemActionInvocationAvailable",
+    listener: (invocation: PendingOneSystemActionInvocation) => void,
   ): Promise<PluginListenerHandle>;
 }
 
@@ -41,9 +70,26 @@ class OneVoiceInvocationWeb extends WebPlugin {
   }
 
   async completeInvocation(): Promise<void> {}
+
+  async getPendingActionInvocation(): Promise<Record<string, never>> {
+    return {};
+  }
+
+  async claimActionInvocation(): Promise<{ claimed: boolean }> {
+    return { claimed: false };
+  }
+
+  async completeActionInvocation(): Promise<void> {}
+
+  async updateActionEntityIndex(): Promise<{ updated: boolean }> {
+    return { updated: false };
+  }
+
+  async clearActionState(): Promise<void> {}
 }
 
-const NativeOneVoiceInvocation = registerPlugin<NativeOneVoiceInvocationPlugin>(
+export const NativeOneVoiceInvocation =
+  registerPlugin<NativeOneVoiceInvocationPlugin>(
   "HushhVoiceInvocation",
   { web: () => Promise.resolve(new OneVoiceInvocationWeb()) },
 );

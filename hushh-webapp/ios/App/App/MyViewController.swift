@@ -157,7 +157,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         print("   - HushhNotifications (Push Token Registration)")
         print("   - HushhLocation (Foreground Location)")
         print("   - HushhContacts (Contact Matching)")
-        print("   - HushhVoiceInvocation (Siri/App Shortcut handoff)")
+        print("   - HushhVoiceInvocation (Siri voice + generated action handoff)")
         
         // Verify plugins are actually accessible by the bridge
         verifyPluginRegistration()

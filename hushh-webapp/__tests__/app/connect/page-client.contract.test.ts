@@ -13,9 +13,10 @@ describe("Connect canonical surface contract", () => {
     );
 
     expect(source).toContain("<AppPageShell");
-    expect(source).toContain('width="standard"');
+    expect(source).toContain('width="agent"');
     expect(source).toContain("<PageHeader");
-    expect(source).toContain('<PageHeader title="Connect" />');
+    expect(source).toContain('title="Connect"');
+    expect(source).toContain('titleRole="agent"');
     expect(source).not.toContain("icon={BookUser}");
     expect(source).not.toContain('eyebrow="One"');
     expect(source).not.toContain("icon={Users}\n          accent");
@@ -47,43 +48,23 @@ describe("Connect canonical surface contract", () => {
     expect(source).toContain("separatorInset");
   });
 
-  it("requires an explicit capability review whenever there is anything to review", () => {
-    // This test was red on main from 2026-08-15 to 2026-08-16 and nobody saw
-    // it, because vitest never ran on a pull request. Two intentional changes
-    // moved past it: the dialog copy was polished (0b12f55d6), and the
-    // empty-catalog auto-send was added on purpose (a8091214b, "ask each
-    // advisor for their own scope") so a person with nothing to offer is not
-    // shown an empty consent sheet.
-    //
-    // The invariant those changes did NOT alter is the one worth pinning:
-    // a request opens the review sheet with NOTHING pre-granted, and the
-    // auto-send path is reachable ONLY when the catalog is empty on both
-    // sides. Asserting the copy was what made this test stale; asserting the
-    // consent shape is what makes it durable.
+  it("sends the visible Connect action directly without a one-person review dialog", () => {
     const source = readFileSync(
       join(process.cwd(), "app/connect/page-client.tsx"),
       "utf8",
     );
 
-    // The review sheet always opens pre-granting nothing, in both directions.
-    expect(source).toContain("requestedHandles: []");
-    expect(source).toContain("offeredHandles: []");
+    const start = source.indexOf("const sendConnectRequest = useCallback(");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, start + 500);
 
-    // No path may send a request without opening the sheet. The empty-catalog
-    // auto-send existed briefly and was removed on purpose: it made a request
-    // that carried access and a request that carried none look identical from
-    // the outside. Any re-introduction -- on both lists, on one, or on a
-    // truthiness test -- is a silent consent regression.
-    expect(source).not.toMatch(
-      /if\s*\(\s*catalog\.(items|offerableItems)[\s\S]{0,120}?\)\s*\{\s*[\s\S]{0,80}?sendConnectionRequest\(/,
-    );
-
-    // Nothing may pre-select a capability for the person being asked.
-    expect(source).not.toContain("requestedHandles: catalog.items");
-    expect(source).not.toContain("offeredHandles: catalog.offerableItems");
+    expect(body).toContain("await sendConnectionRequest(person)");
+    expect(body).not.toContain("getScopeCatalog");
+    expect(source).not.toContain("<DialogTitle>Send connection request</DialogTitle>");
+    expect(source).not.toContain("setScopeDraft");
   });
 
-  it("keeps Connect navigation split into one primary strip and one compact directory menu", () => {
+  it("keeps Connect navigation on the shared module tab primitive plus a compact directory menu", () => {
     // The old four-option strip was readable only through width overrides and
     // still competed with the page title. Connect now follows the Location hub
     // rhythm: one primary route strip, then a compact directory selector inside
@@ -92,10 +73,23 @@ describe("Connect canonical surface contract", () => {
       join(process.cwd(), "app/connect/page-client.tsx"),
       "utf8",
     );
+    const tabs = readFileSync(
+      join(process.cwd(), "lib/navigation/top-shell-tabs.ts"),
+      "utf8",
+    );
+    const topShellTabs = readFileSync(
+      join(process.cwd(), "components/app-ui/top-shell-tabs.tsx"),
+      "utf8",
+    );
 
-    expect(source).toContain("const CONNECT_PRIMARY_TABS = [");
-    expect(source).toContain('{ value: "connections", label: "Connections" }');
-    expect(source).toContain('{ value: "circles", label: "Circles" }');
+    expect(source).toContain("<TopShellTabs");
+    expect(source).toContain("TOP_SHELL_TAB_REGISTRY.connect");
+    expect(source).not.toContain("<SegmentedTabs");
+    expect(tabs).toContain("connect: {");
+    expect(tabs).toContain('{ value: "all", label: "Connections"');
+    expect(tabs).toContain('value: "circles"');
+    expect(tabs).toContain('label: "Circles"');
+    expect(topShellTabs).toContain('tabSet.id === "location" || tabSet.id === "connect"');
     expect(source).toContain(
       'const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(',
     );
@@ -105,6 +99,32 @@ describe("Connect canonical surface contract", () => {
     expect(source).not.toContain(
       '["people", "advisors", "circles", "nearby"] as const',
     );
+    expect(source).not.toContain('aria-label="Select people"');
+  });
+
+  it("keeps Create and Join Circle as focused tasks outside the Connect dashboard chrome", () => {
+    const source = readFileSync(
+      join(process.cwd(), "app/connect/page-client.tsx"),
+      "utf8",
+    );
+    const providers = readFileSync(
+      join(process.cwd(), "app/providers.tsx"),
+      "utf8",
+    );
+    const routes = readFileSync(
+      join(process.cwd(), "lib/navigation/connect-routes.ts"),
+      "utf8",
+    );
+
+    expect(routes).toContain(
+      'export type FocusedConnectCircleAction = "create-circle" | "join-circle";',
+    );
+    expect(source).toContain("const isFocusedCircleTask =");
+    expect(source).toContain("{isFocusedCircleTask ? (");
+    expect(source).toContain('max-w-[560px]');
+    expect(source).toContain("connectCircleTaskTitle(circleFlowAction)");
+    expect(providers).toContain("const focusedConnectCircleChromeFlow =");
+    expect(providers).toContain("isFocusedConnectCircleTask(");
   });
 
   it("renders a privacy-safe masked identity when duplicate names need disambiguation", () => {

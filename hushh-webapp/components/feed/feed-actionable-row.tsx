@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -130,6 +135,33 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
   );
 }
 
+function initials(value: string): string {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? ""))
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function FeedActionableIdentity({
+  person,
+}: {
+  person: NonNullable<FeedActionable["person"]>;
+}) {
+  return (
+    <Avatar
+      className="h-10 w-10 bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
+      aria-hidden
+      data-testid="feed-actionable-avatar"
+      data-photo-url={person.photoUrl ?? ""}
+    >
+      {person.photoUrl ? <AvatarImage src={person.photoUrl} alt="" /> : null}
+      <AvatarFallback className="bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
+        {initials(person.displayName)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
 /**
  * A live "Needs you" row: a pending request or in-flight task with its inline
  * actions. Reuses SettingsRow — a consent row is a whole-row Review link; a
@@ -181,10 +213,14 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   );
 
   const hasActions = item.actions.length > 0;
+  const leading = item.person ? (
+    <FeedActionableIdentity person={item.person} />
+  ) : undefined;
 
   const shared = {
-    icon: item.icon,
-    iconTone: item.iconTone,
+    icon: leading ? undefined : item.icon,
+    iconTone: leading ? undefined : item.iconTone,
+    leading,
     title: item.title,
     description,
     trailing: <ActionButtons actions={item.actions} />,
@@ -216,20 +252,6 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     ) : (
       <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect} />
     );
-
-  // Emergency SMS alerts get a prominent red frame so a safety alert stands out
-  // from routine "Needs you" rows.
-  if (item.emphasis === "emergency") {
-    return (
-      <div
-        role="alert"
-        data-testid="feed-sms-emergency"
-        className="overflow-hidden rounded-2xl border border-destructive/45 bg-destructive/[0.06] ring-1 ring-inset ring-destructive/20"
-      >
-        {row}
-      </div>
-    );
-  }
 
   return row;
 }

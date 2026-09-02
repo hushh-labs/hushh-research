@@ -265,7 +265,10 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_LOCATION_MAP) {
     return { screen: "one_location_map", subview: null };
   }
-  if (normalizedPath === ROUTES.ONE_LOCATION_CHECK_IN) {
+  if (
+    normalizedPath === ROUTES.ONE_LOCATION_CHECK_IN ||
+    normalizedPath === ROUTES.ONE_LOCATION_HOTEL_CHECK_IN
+  ) {
     return { screen: "one_location_check_in", subview: null };
   }
   if (normalizedPath === ROUTES.ONE_LOCATION) {

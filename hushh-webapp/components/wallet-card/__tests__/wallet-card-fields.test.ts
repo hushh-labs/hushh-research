@@ -9,11 +9,14 @@ vi.mock("@/lib/services/wallet-card-service", () => ({
 
 const {
   EMPTY_WALLET_CARD_DRAFT,
+  PREFERRED_CONTACT_FIELD_META,
   WALLET_CARD_MAX_SKILLS,
   buildSmartDefaultDraft,
+  countWalletCardMoreDetails,
   describeSharedFields,
   draftFromPayload,
   draftToPayload,
+  getWalletCardMoreDetailsFields,
   hasValidationErrors,
   splitSkills,
   validateDraft,
@@ -35,13 +38,48 @@ describe("wallet card smart defaults", () => {
 
   it("falls back to phone when there is no email on the account", () => {
     expect(
-      buildSmartDefaultDraft({ displayName: "Ada", phoneNumber: "+91 99999 90000" })
-        .preferredContact,
+      buildSmartDefaultDraft({
+        displayName: "Ada",
+        phoneNumber: "+91 99999 90000",
+      }).preferredContact,
     ).toBe("phone");
   });
 
   it("invents nothing when the account has nothing to offer", () => {
     expect(buildSmartDefaultDraft({})).toEqual(EMPTY_WALLET_CARD_DRAFT);
+  });
+});
+
+describe("wallet card preferred contact fields", () => {
+  it("defines an editable input contract for every primary contact method", () => {
+    expect(PREFERRED_CONTACT_FIELD_META).toMatchObject({
+      email: { key: "email", type: "email", inputMode: "email" },
+      phone: { key: "phone", type: "tel", inputMode: "tel" },
+      linkedin: { key: "linkedin", type: "url", inputMode: "url" },
+      website: { key: "website", type: "url", inputMode: "url" },
+    });
+  });
+
+  it("keeps the selected primary field out of More details", () => {
+    expect(
+      getWalletCardMoreDetailsFields("linkedin").map((field) => field.key),
+    ).not.toContain("linkedin");
+    expect(
+      getWalletCardMoreDetailsFields("linkedin").map((field) => field.key),
+    ).toEqual(expect.arrayContaining(["email", "phone", "website"]));
+  });
+
+  it("counts only non-empty More details values", () => {
+    expect(
+      countWalletCardMoreDetails({
+        ...EMPTY_WALLET_CARD_DRAFT,
+        email: "ada@example.com",
+        preferredContact: "email",
+        phone: "+91 99999 90000",
+        linkedin: "https://www.linkedin.com/in/ada",
+        skills: "Product, Privacy",
+      }),
+    ).toBe(3);
   });
 });
 
@@ -57,7 +95,8 @@ describe("wallet card draft validation", () => {
 
   it("rejects a malformed email and phone", () => {
     expect(
-      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, email: "not an email" }).email,
+      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, email: "not an email" })
+        .email,
     ).toBeTruthy();
     expect(
       validateDraft({
@@ -82,23 +121,31 @@ describe("wallet card draft validation", () => {
 
   it("enforces the per-field length caps", () => {
     expect(
-      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, fullName: "a".repeat(81) }).fullName,
+      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, fullName: "a".repeat(81) })
+        .fullName,
     ).toBeTruthy();
     expect(
-      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, fullName: "a".repeat(80) }).fullName,
+      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, fullName: "a".repeat(80) })
+        .fullName,
     ).toBeUndefined();
     expect(
-      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, summary: "s".repeat(401) }).summary,
+      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, summary: "s".repeat(401) })
+        .summary,
     ).toBeTruthy();
   });
 
   it("caps skills at twelve entries of forty characters", () => {
-    const tooMany = Array.from({ length: WALLET_CARD_MAX_SKILLS + 1 }, (_, i) => `s${i}`);
+    const tooMany = Array.from(
+      { length: WALLET_CARD_MAX_SKILLS + 1 },
+      (_, i) => `s${i}`,
+    );
     expect(
-      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, skills: tooMany.join(", ") }).skills,
+      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, skills: tooMany.join(", ") })
+        .skills,
     ).toBeTruthy();
     expect(
-      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, skills: "x".repeat(41) }).skills,
+      validateDraft({ ...EMPTY_WALLET_CARD_DRAFT, skills: "x".repeat(41) })
+        .skills,
     ).toBeTruthy();
   });
 

@@ -3253,6 +3253,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/one/location/check-in/hotel/page.tsx",
+      "pathname": "/one/location/check-in/hotel",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.check-in.hotel"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/one/location/invite/[token]/page.tsx",
       "pathname": "/one/location/invite/[token]",
       "route_mode": "hidden",
@@ -5285,13 +5308,13 @@
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "ad1c14d11ad34a758103eb32781f0ee09d5fc4f21070f9d90faabef025b58703",
     "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
-    "cache_manifest": "5ea1ec280ffbf64e8c28d3765b3db052c725dc1cbd3de41b8a4e7b574da28847",
+    "cache_manifest": "958809a57ef67623d3aa0f6c0370cb9e827e7564ad48bc570212488f4f9ff85e",
     "data_plane": "21ffe02aadae25180c00bdd4668075682b8f1ced9c43b04fb3d1b2257c9f4464",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "376cf3193426e923607c74d060cdfe4678e6661dc22042b25f34a36c89e5bbfa",
-    "route_index": "93bea51ad478ab3a7ae03decc2e2bf46995d49808d40cb095d5271a419d2ab05",
-    "route_layout": "f563799530787882c7dca52aeba78fa65ef15371b30b7191067c12b703618c6c",
-    "surface_map": "022af07f9368380d65caf23bb562feb87a1f30a79527b20501c4aecec8fe47e6",
+    "route_index": "b586a44fa796738570e86a4a48782db76d3fb35d27a75033adf579ac41168959",
+    "route_layout": "4bd05e7396a1b9459bf4789823b25e03ef9c61946830ea6a26e84b1462999275",
+    "surface_map": "ec5f917810faba9caddc35bd1c02c9ad775e6b58adabee6f2a9a1b5214f572ad",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5303,7 +5326,7 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 136,
+    "physical_routes": 137,
     "semantic_routes": 14,
     "table_families": 56
   }

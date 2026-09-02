@@ -5,9 +5,7 @@ import type {
 } from "@/lib/one-location/types";
 
 export type CircleRecipientExclusionReason =
-  | "self"
-  | "location_setup_needed"
-  | "phone_verification_needed";
+  "self" | "location_setup_needed" | "phone_verification_needed";
 
 export type CircleRecipientExclusion = {
   member: OneLocationCircleMember;
@@ -87,8 +85,7 @@ export function resolveCircleRecipientSelection(params: {
         phoneVerified: member.phoneVerified,
         keyId: member.keyId!,
         publicKeyJwk: member.publicKeyJwk!,
-        keyAlgorithm:
-          member.keyAlgorithm || "ECDH-P256-AES256-GCM", // gitleaks:allow - public algorithm identifier
+        keyAlgorithm: member.keyAlgorithm || "ECDH-P256-AES256-GCM", // gitleaks:allow - public algorithm identifier
         keyRegisteredAt: member.keyRegisteredAt,
         canReceiveLocation: true,
         connectedFromContacts: member.connectedFromContacts,
@@ -120,7 +117,7 @@ export function isCircleSelectionFullySelected(
 }
 
 /**
- * Count only selected recipients that belong to this resolved Circle snapshot.
+ * Counts only selected recipients that belong to this resolved Circle snapshot.
  *
  * The share composer may contain extra hand-picked people while a whole Circle
  * remains selected. Those people belong in the composer-wide total, but never

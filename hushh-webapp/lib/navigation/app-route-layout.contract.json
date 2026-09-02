@@ -481,6 +481,36 @@
     }
   },
   {
+    "route": "/one/location/check-in/hotel",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "interactionLayerPolicy": {
+      "allowedFamilies": []
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.location.check-in.hotel",
+      "purpose": "Fail closed unless a supported hotel stay is explicitly eligible for online check-in.",
+      "screen": "one_location_check_in",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Return to nearby check-in without exposing unsupported stay details.",
+        "cancelled": "Return to nearby check-in.",
+        "failed": "Keep hotel check-in unavailable unless eligibility is verified.",
+        "timeout": "Keep hotel check-in unavailable unless eligibility is verified.",
+        "callbackError": "Return to nearby check-in.",
+        "routeMismatch": "Use the verified current route."
+      },
+      "completionBoundary": "No hotel check-in completes until a real provider verifies an opaque eligible stay.",
+      "nextRoute": "/one/location/check-in",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally without inventing a hotel check-in control."
+    }
+  },
+  {
     "route": "/c/[token]",
     "mode": "hidden",
     "exemptionReason": "Public Wallet Profile route is a standalone unauthenticated scan surface outside the signed-in app shell.",

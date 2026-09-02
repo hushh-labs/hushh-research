@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, type CSSProperties, type KeyboardEvent } from "react";
+import type { CSSProperties } from "react";
 
 import { cn } from "@/lib/utils";
 
 export interface SegmentedTabOption {
   value: string;
   label: string;
+  accessibleLabel?: string;
 }
 
 export function SegmentedTabs({
@@ -27,9 +28,11 @@ export function SegmentedTabs({
   className?: string;
   ariaLabel?: string;
 }) {
-  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const resolvedDesktopColumns = Math.max(options.length, 1);
-  const resolvedMobileColumns = Math.max(mobileColumns ?? resolvedDesktopColumns, 1);
+  const resolvedMobileColumns = Math.max(
+    mobileColumns ?? resolvedDesktopColumns,
+    1,
+  );
 
   return (
     <div
@@ -37,13 +40,8 @@ export function SegmentedTabs({
       aria-label={ariaLabel}
       className={cn(
         "relative grid min-h-11 w-full rounded-[14px] p-0.5 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
-        // One material with the Location strip: a recessed grey track, no
-        // border. It used to borrow `--app-card-surface-compact` (#fcfcfd) and
-        // a card border, which put a near-white bordered box around a
-        // near-white pill -- the same control as Location's, reading as a
-        // different component on the very next page.
-        "border-0 bg-[color:var(--app-segmented-track-surface)] shadow-none",
-        className
+        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-none",
+        className,
       )}
       style={
         {
@@ -52,17 +50,15 @@ export function SegmentedTabs({
         } as CSSProperties
       }
     >
-      {options.map((option, index) => {
+      {options.map((option) => {
         const isActive = option.value === value;
 
         return (
           <button
             key={option.value}
-            ref={(node) => {
-              tabRefs.current[index] = node;
-            }}
             type="button"
             role="tab"
+            aria-label={option.accessibleLabel}
             aria-selected={isActive}
             tabIndex={isActive ? 0 : -1}
             disabled={disabled}
@@ -70,34 +66,12 @@ export function SegmentedTabs({
             onClick={() => {
               if (!disabled && !isActive) onValueChange(option.value);
             }}
-            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
-              if (disabled || options.length < 2) return;
-              let nextIndex: number | null = null;
-              if (event.key === "ArrowRight") {
-                nextIndex = (index + 1) % options.length;
-              } else if (event.key === "ArrowLeft") {
-                nextIndex = (index - 1 + options.length) % options.length;
-              } else if (event.key === "Home") {
-                nextIndex = 0;
-              } else if (event.key === "End") {
-                nextIndex = options.length - 1;
-              }
-              if (nextIndex === null) return;
-              event.preventDefault();
-              const next = options[nextIndex];
-              if (!next) return;
-              tabRefs.current[nextIndex]?.focus();
-              if (next.value !== value) onValueChange(next.value);
-            }}
             className={cn(
-              "relative isolate flex min-h-10 min-w-0 items-center justify-center overflow-hidden rounded-[12px] border border-transparent px-3 py-2 text-center transition-[background-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:px-4",
+              "relative isolate flex min-h-10 min-w-0 items-center justify-center overflow-hidden rounded-[12px] border px-3 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:px-4",
               isActive
-                ? // Raised, not outlined. `font-semibold` matches the Location
-                  // strip's active label; the colour comes from the label
-                  // class, which forces `--app-label` either way.
-                  "z-10 border-transparent bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[var(--app-segmented-active-shadow)]"
+                ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-normal shadow-[var(--app-segmented-active-shadow)]"
                 : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
-              disabled && "cursor-not-allowed opacity-60"
+              disabled && "cursor-not-allowed opacity-60",
             )}
           >
             {/*

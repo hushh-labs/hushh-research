@@ -125,7 +125,10 @@ beforeEach(() => {
   mocks.listCircles.mockResolvedValue([]);
   mocks.ensureTrusted.mockResolvedValue({});
   mocks.searchParams = new URLSearchParams("tab=circles");
-  mocks.createNamedCircle.mockResolvedValue({ id: "new-circle", name: "Roommates" });
+  mocks.createNamedCircle.mockResolvedValue({
+    id: "new-circle",
+    name: "Roommates",
+  });
   mocks.getCircle.mockResolvedValue({
     id: "mine",
     name: "Roommates",
@@ -218,36 +221,49 @@ describe("circleRowDescription", () => {
 });
 
 describe("orderCircles", () => {
-  it("puts Trusted first, then SMS, then the ones you made", () => {
-    // What is yours and what is the app's, answerable at a glance rather than
-    // per row -- and Trusted first because it is what a person opens this tab
-    // to see.
-    const { system, owned } = orderCircles([
+  it("separates circles you own from circles you joined", () => {
+    // What is yours and what you joined, answerable at a glance rather than per
+    // row -- with your product-managed circles still pinned first.
+    const { owned, joined } = orderCircles([
       circle("mine", "Roommates", 3),
-      circle("sms", "SMS Circle", 4, "sms"),
+      circle("family", "Family", 2, null, "member"),
+      circle("their-sms", "Alice's SMS Circle", 4, "sms", "member"),
+      circle("sms", "SMS Circle", 4, "sms", "owner"),
       circle("trusted", "Trusted", 20, "trusted"),
     ]);
 
-    expect(system.map((c) => c.id)).toEqual(["trusted", "sms"]);
-    expect(owned.map((c) => c.id)).toEqual(["mine"]);
+    expect(owned.map((c) => c.id)).toEqual(["trusted", "sms", "mine"]);
+    expect(joined.map((c) => c.id)).toEqual(["family", "their-sms"]);
   });
 });
 
 describe("ConnectCirclesTab", () => {
-  it("shows the system Circles above the ones you made", async () => {
+  it("shows your Circles separately from joined Circles", async () => {
     mocks.listCircles.mockResolvedValue([
       circle("mine", "Roommates", 3),
+      circle("joined", "Family", 2, null, "member"),
       circle("trusted", "Trusted", 20, "trusted"),
       circle("sms", "SMS Circle", 4, "sms"),
+      circle("their-sms", "Alice's SMS Circle", 4, "sms", "member"),
     ]);
 
     render(<ConnectCirclesTab />);
 
-    expect(await screen.findByText("Trusted")).toBeTruthy();
-    expect(screen.getByText("SMS Circle")).toBeTruthy();
-    expect(screen.getByText("Roommates")).toBeTruthy();
+    const owned = await screen.findByTestId("connect-circle-group-owned");
+    const joined = screen.getByTestId("connect-circle-group-joined");
+
+    expect(within(owned).getByText("Your circles")).toBeTruthy();
+    expect(within(owned).getByText("Trusted")).toBeTruthy();
+    expect(within(owned).getByText("SMS Circle")).toBeTruthy();
+    expect(within(owned).getByText("Roommates")).toBeTruthy();
+    expect(within(owned).queryByText("Family")).toBeNull();
+
+    expect(within(joined).getByText("Joined circles")).toBeTruthy();
+    expect(within(joined).getByText("Family")).toBeTruthy();
+    expect(within(joined).getByText("Alice's SMS Circle")).toBeTruthy();
+    expect(within(joined).queryByText("Roommates")).toBeNull();
     expect(screen.getByTestId("connect-circle-trusted")).toBeTruthy();
-    const smsCircle = screen.getByTestId("connect-circle-sms");
+    const smsCircle = within(owned).getByTestId("connect-circle-sms");
     expect(smsCircle).toBeTruthy();
     expect(smsCircle.querySelector("[data-one-sms-text-icon]")).toBeTruthy();
   });
@@ -502,7 +518,9 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     // The whole point. Before this, the same tap was a router.push into
     // /one/location, where a first-run onboarding takeover -- decided without
     // reading any query parameter -- rendered instead.
-    mocks.searchParams = new URLSearchParams("tab=circles&action=create-circle");
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=create-circle",
+    );
 
     render(<ConnectCirclesTab />);
 
@@ -549,7 +567,9 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
   });
 
   it("shows the list, not a flow, when circle-detail carries no id", async () => {
-    mocks.searchParams = new URLSearchParams("tab=circles&action=circle-detail");
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail",
+    );
 
     render(<ConnectCirclesTab />);
 

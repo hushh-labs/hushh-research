@@ -1056,7 +1056,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                       <ShellActionSurface
                         variant="icon"
-                        aria-label="Go back"
+                        aria-label={topShellBreadcrumb.backLabel ?? "Go back"}
                         onClick={handleTopShellBack}
                         className="!border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent active:!scale-100"
                       >

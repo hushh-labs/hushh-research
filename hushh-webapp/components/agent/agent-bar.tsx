@@ -1,11 +1,9 @@
 // components/agent/agent-bar.tsx
 // Persistent, screen-aware agent launcher bar.
 //
-// A single sleek bar that spans across just above the bottom navbar + search on
-// every authenticated screen. It replaces the old draggable floating "Agent"
-// pill with the single voice entry point. Typed intent belongs to the bottom
-// navigation Search control, which routes normal language into the same agent
-// window without duplicating a second search affordance here.
+// A small dock that sits above the bottom navbar + search on every
+// authenticated screen. Voice and Chat are separate sibling actions: Voice owns
+// the waveform/effects, Chat owns the text conversation entry point.
 
 "use client";
 
@@ -35,6 +33,8 @@ import {
 } from "@/lib/agent/agent-action-runtime";
 import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settlement";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
+import { registerOneSystemActionExecutor } from "@/lib/agent/one-system-action-executor";
+import { executeOneSystemActionThroughGateway } from "@/lib/agent/one-system-action-gateway-adapter";
 import { requiresHardTapConfirmation } from "@/lib/agent/confirmation-tap-policy";
 import {
   readVoicePreferences,
@@ -371,6 +371,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const latestVoiceContextRef = useRef<OneVoiceContextSnapshot | null>(
     runtime?.oneVoiceContextSnapshot ?? null,
   );
+  const latestSystemActionRuntimeRef = useRef(runtime);
+  useEffect(() => {
+    latestSystemActionRuntimeRef.current = runtime;
+  }, [runtime]);
   // UI state updates after async credential resolution. This lease reserves
   // microphone/transport ownership synchronously at the actual tap boundary.
   const voiceLeaseRef = useRef<VoiceSessionLease | null>(null);
@@ -453,6 +457,90 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       }
     };
   }, [runtime, user?.uid, router, busyOperations, setAnalysisParams, switchPersona]);
+
+  // Siri/App Intents are a structured invocation surface, not another action
+  // engine. Register the existing Agent Bar owner as the only executor and
+  // feed it the exact generated action id and slots after native auth settles.
+  useEffect(() => {
+    const execute = async (
+      actionId: string,
+      slots: Record<string, unknown>,
+      goalAuthorization?: { goalId: string; expectedScreen: string } | null,
+    ): Promise<AgentActionRuntimeResult> => {
+      const currentRuntime = latestSystemActionRuntimeRef.current;
+      const runtimeState = currentRuntime?.appRuntimeState;
+      if (!runtimeState) {
+        return {
+          status: "blocked",
+          actionId,
+          label: null,
+          routeBefore: null,
+          resultSummary: "HUSSH is still restoring the action runtime.",
+          reason: "missing_runtime_state",
+        };
+      }
+      const result = await executeAgentGatewayAction({
+        actionId,
+        slots,
+        userId: user?.uid ?? "",
+        router,
+        appRuntimeState: runtimeState,
+        surfaceMetadata: getVoiceSurfaceMetadata(),
+        allowedActionIds:
+          currentRuntime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+        hasPortfolioData:
+          runtimeState.portfolio.has_portfolio_data ||
+          currentRuntime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+        busyOperations,
+        setAnalysisParams,
+        switchPersona,
+        goalAuthorization,
+      });
+      return settleAgentGatewayAction(result, {
+        getCurrentRoute: () =>
+          latestSystemActionRuntimeRef.current?.appRuntimeState.route ??
+          runtimeState.route,
+        getCurrentSurfaceMetadata: getVoiceSurfaceMetadata,
+      });
+    };
+
+    const waitForScreen = async (screen: string): Promise<boolean> => {
+      const deadline = Date.now() + 8_000;
+      while (Date.now() < deadline) {
+        if (
+          latestSystemActionRuntimeRef.current?.appRuntimeState.route.screen ===
+          screen
+        ) {
+          return true;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 25));
+      }
+      return false;
+    };
+
+    const executor = (invocation: Parameters<typeof executeOneSystemActionThroughGateway>[0]["invocation"]) =>
+      executeOneSystemActionThroughGateway({
+        invocation,
+        execute,
+        getCurrentRoute: () => ({
+          pathname:
+            latestSystemActionRuntimeRef.current?.appRuntimeState.route
+              .pathname ?? null,
+          screen:
+            latestSystemActionRuntimeRef.current?.appRuntimeState.route.screen ??
+            null,
+        }),
+        waitForScreen,
+        afterSelection: () =>
+          new Promise<void>((resolve) =>
+            window.requestAnimationFrame(() =>
+              window.requestAnimationFrame(() => resolve()),
+            ),
+          ),
+      });
+
+    return registerOneSystemActionExecutor(executor);
+  }, [busyOperations, router, setAnalysisParams, switchPersona, user?.uid]);
   const relayMintInFlightRef = useRef(false);
   const relayMintCooldownUntilRef = useRef(0);
   const relayMintBackoffMsRef = useRef(5_000);
@@ -2199,7 +2287,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       !isLoginRoute &&
       !isFoundationPublic,
   );
-  // Pill contents for the frosted bar, one JSX source across all modes so
+  // Dock contents for the assistant actions, one JSX source across all modes so
   // the voice/theme controls and test ids never fork.
   const pillContents = conversationActive ? (
     // The ENTIRE bar is the tap target to end the conversation: tapping
@@ -2215,8 +2303,17 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         onClick={stopConversation}
         aria-label="End conversation"
         title="Tap to end conversation"
-        className="relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left"
+        className="bottom-chrome-surface relative z-0 flex h-11 min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left transition-[background-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
       >
+        <span
+          aria-hidden
+          className={cn(
+            "one-bar-aurora -z-10 transition-opacity duration-500",
+            visualOnboardingChrome
+              ? "one-bar-aurora--onboarding"
+              : "one-bar-aurora--active",
+          )}
+        />
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
@@ -2266,10 +2363,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         type="button"
         data-native-voice-control-id="one_voice_agent_bar_start"
         data-testid="one-voice-agent-bar-start-icon"
+        data-agent-action="voice"
         onClick={handleVoiceStartClick}
         aria-label={`Start a voice conversation. ${hint}`}
         title="Start a voice conversation with One"
-        className="agent-bar-voice-launcher press-scale relative flex min-w-0 flex-1 self-stretch items-center gap-2 overflow-hidden rounded-full px-2 text-left transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12]"
+        className="agent-bar-voice-launcher press-scale bottom-chrome-surface relative flex h-11 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full px-3 text-left transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12]"
       >
         <span
           aria-hidden
@@ -2291,12 +2389,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         <button
           type="button"
           data-testid="one-agent-chat-open"
+          data-agent-action="chat"
           onClick={openAgentChat}
-          aria-label={`Open Agent Chat. ${hint}`}
-          title="Open Agent Chat"
-          className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-current/[0.055] text-current transition-colors duration-200 hover:bg-current/[0.09]"
+          aria-label={`Chat with One. ${hint}`}
+          title="Chat with One"
+          className="bottom-chrome-surface press-scale relative flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full px-3 text-current transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12] sm:min-w-[96px]"
         >
           <MessageCircle className="h-[17px] w-[17px]" />
+          <span
+            data-testid="one-agent-chat-label"
+            className="text-[13px] font-medium text-current/70"
+          >
+            Chat
+          </span>
           <span
             aria-hidden
             className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
@@ -2462,24 +2567,21 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       ) : null}
       <div
         data-testid="one-voice-agent-bar"
+        data-agent-dock="one-agent-dock"
+        role="group"
+        aria-label="One assistant"
         data-voice-mode={nativeVoiceMode}
         data-morphy-ax-presentation={runtime?.morphyAxPresentation ?? "idle"}
         className={cn(
-          // z-0 (not just `relative`) is required so this pill forms its own
-          // local stacking context: the `.one-bar-aurora -z-10` glow span
-          // below then resolves ONE level behind THIS element, not behind
-          // the whole `z-[118]` fixed wrapper it's nested in. Without z-0 the
-          // active Gemini Live glow renders invisible/clipped behind other
-          // page content instead of hugging the pill.
-          "pointer-events-auto relative z-0 flex w-full items-center gap-2",
+          // z-0 (not just `relative`) keeps each child action's internal glow
+          // and ripple scoped to that action instead of flattening into the
+          // whole bottom shell.
+          "pointer-events-auto relative z-0 flex w-full items-stretch gap-2",
           // The root, public, and signed-in variants share one bar chassis.
           // Route state may add toggles, but cannot fork width or geometry.
           layout === "slot"
             ? "max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]"
             : "max-w-[min(calc(100vw-2rem),34rem)]",
-          layout === "slot"
-            ? "h-11 rounded-[22px] px-2.5"
-            : "h-11 rounded-full pl-3 pr-1.5",
           // Single, consolidated transition covering surface color plus the
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
           // window lifecycle so it never snaps back into place after closing.
@@ -2487,28 +2589,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           // Bottom-shell material: read the same live ambient token as the
           // shared bottom mask so the Agent Bar never becomes a white pill on
           // a dark/gradient route surface.
-          "backdrop-blur-[24px] backdrop-saturate-[1.6]",
-          "bottom-chrome-surface",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
           barAmbient && "pointer-events-none opacity-70",
         )}
       >
-        {/* Aurora rim only while a live conversation is active, so motion
-            always means something. Pre-auth keeps the same Foundation tone as
-            the onboarding surface; no rainbow competes with One. */}
-        {conversationActive ? (
-          <span
-            aria-hidden
-            className={cn(
-              "one-bar-aurora -z-10 transition-opacity duration-500",
-              visualOnboardingChrome
-                ? "one-bar-aurora--onboarding"
-                : "one-bar-aurora--active",
-            )}
-          />
-        ) : null}
         {pillContents}
       </div>
     </div>

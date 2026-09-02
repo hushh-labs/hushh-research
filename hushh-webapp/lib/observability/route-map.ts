@@ -270,7 +270,12 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
   // Its own id rather than the map's: these are separate screens now, and
   // folding them together would hide the split from every page-view metric.
-  if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
+  if (
+    pathname === ROUTES.ONE_LOCATION_CHECK_IN ||
+    pathname === ROUTES.ONE_LOCATION_HOTEL_CHECK_IN
+  ) {
+    return "one_location_check_in";
+  }
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   // Both paths and both forms.
   //
