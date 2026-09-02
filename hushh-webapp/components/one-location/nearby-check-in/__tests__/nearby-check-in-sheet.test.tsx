@@ -954,8 +954,7 @@ describe("NearbyCheckInSheet", () => {
     expect(drift).not.toHaveTextContent(/match against the place/i);
   });
 
-  it("keeps leaving prominent without using destructive red", async () => {
-    service.getNearbyPresence.mockResolvedValue({
+  it("makes leaving the primary active action without using destructive red", async () => {    service.getNearbyPresence.mockResolvedValue({
       presence: {
         status: "active",
         audience: "all_opted_in",
@@ -994,7 +993,6 @@ describe("NearbyCheckInSheet", () => {
       "bg-[color:var(--app-destructive)]",
     );
     expect(checkout.className).toContain("bg-[color:var(--app-neutral-fill)]");
-
     const addTime = screen.getByRole("button", { name: "Add time" });
     expect(addTime.className).toContain("text-[color:var(--app-accent)]");
 

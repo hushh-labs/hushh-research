@@ -171,8 +171,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     isFocusedConnectCircleTask(
       searchParams?.get("tab") ?? null,
       searchParams?.get("action") ?? null,
-      searchParams?.get("circleId") ?? null,
-    );
+      searchParams?.get("circleId") ?? null,    );
   // Focused query-scoped Location flows clear the bottom command/navigation
   // stack while keeping the top shell route context.
   const bottomChromeHidden =

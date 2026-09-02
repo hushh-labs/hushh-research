@@ -60,8 +60,7 @@ export function SegmentedTabs({
             role="tab"
             aria-label={option.accessibleLabel}
             aria-selected={isActive}
-            tabIndex={isActive ? 0 : -1}
-            disabled={disabled}
+            tabIndex={isActive ? 0 : -1}            disabled={disabled}
             data-state={isActive ? "active" : "inactive"}
             onClick={() => {
               if (!disabled && !isActive) onValueChange(option.value);
