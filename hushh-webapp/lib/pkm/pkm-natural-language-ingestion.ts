@@ -345,6 +345,17 @@ export async function prepareNaturalLanguagePkm(params: {
       continue;
     }
     previews.push(preview);
+    if (params.allowEmpty && preview.cards.length === 0) {
+      // An auto-save-only caller (KYC) accepts a block with nothing durable
+      // in it; that is a valid outcome, not an unaccounted block.
+      sourceCoverage.push({
+        sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
+        disposition: "intentionally_ignored",
+        detectedFactCount: 0,
+        accountedFactCount: 0,
+      });
+      continue;
+    }
     const coverage = classifySourceBlock(preview, sourceCoverage.length);
     const deduped = applyLocalDuplicates(preview.cards, params.findDuplicate);
     if (deduped.dropped > 0) coverage.duplicateCount = deduped.dropped;
