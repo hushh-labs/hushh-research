@@ -47,6 +47,26 @@ export const CIRCLE_MEMBER_ROW_CLASSNAME =
 
 export const CIRCLE_MEMBER_AVATAR_CLASSNAME = "h-11 w-11 shrink-0";
 
+/** Names and state copy remain readable at narrow widths. The row may grow
+ * vertically; silently replacing an identity with an ellipsis is not an
+ * acceptable responsive fallback. */
+export const CIRCLE_MEMBER_NAME_ROW_CLASSNAME =
+  "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[15px] font-semibold leading-5 text-foreground";
+
+export const CIRCLE_MEMBER_NAME_CLASSNAME =
+  "block min-w-0 whitespace-normal [overflow-wrap:anywhere]";
+
+export const CIRCLE_MEMBER_SECONDARY_CLASSNAME =
+  "whitespace-normal [overflow-wrap:anywhere]";
+
+/** Circle detail titles share their row with Edit. The copy column must be
+ * shrinkable and the title must wrap so neither can push the other off-screen. */
+export const CIRCLE_DETAIL_HEADER_CLASSNAME =
+  "flex items-start justify-between gap-4 px-1";
+
+export const CIRCLE_DETAIL_HEADER_COPY_CLASSNAME =
+  "min-w-0 flex-1 [&_h1]:whitespace-normal [&_h1]:[overflow-wrap:anywhere]";
+
 /** The trailing cluster: right-aligned, fixed slots, never wraps under the
  *  name. `gap-1` keeps the action and the kebab reading as one group. */
 export const CIRCLE_MEMBER_TRAILING_CLASSNAME =
@@ -67,11 +87,12 @@ export const CIRCLE_MEMBER_ACTION_CLASSNAME =
 export const CIRCLE_MEMBER_MENU_CLASSNAME = "h-11 w-11 shrink-0 rounded-full";
 
 /**
- * Two-line rows are 64px and rosters run to 100 members (migration 158), so
- * the card is capped and scrolls inside itself rather than pushing "Leave
- * circle" past the bottom of a phone.
+ * Phones retain one page scroll so touch gestures cannot get trapped inside a
+ * nested roster. On larger screens, rosters can be capped for fast access to
+ * actions below them.
  */
-export const CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME = "flex max-h-[60vh] flex-col";
+export const CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME =
+  "flex flex-col sm:max-h-[60vh]";
 
 export const CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME =
-  "min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
+  "min-h-0 flex-1 sm:overflow-y-auto sm:overscroll-contain sm:[-webkit-overflow-scrolling:touch]";

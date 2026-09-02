@@ -18,6 +18,7 @@ import {
 
 import {
   AppPageContentRegion,
+  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
@@ -100,6 +101,12 @@ import {
 import { CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME } from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import {
+  CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME,
+  CONNECT_PAGE_CONTENT_CLASSNAME,
+  CONNECT_WRAPPING_TEXT_CLASSNAME,
+  CONNECT_WRAPPING_TITLE_ROW_CLASSNAME,
+} from "./connect-surface-layout";
 
 type ConnectTab = "people" | "advisors" | "nearby";
 
@@ -500,6 +507,7 @@ export default function ConnectPageClient() {
   const isFocusedCircleTask = isFocusedConnectCircleTask(
     surface,
     circleFlowAction,
+    circleFlowId,
   );
 
   // Every navigation on this page passes `scroll: false`, because the surface
@@ -2320,8 +2328,8 @@ export default function ConnectPageClient() {
       }}
     >
       {isFocusedCircleTask ? (
-        <AppPageContentRegion className="min-w-0 overflow-x-hidden pb-6 sm:pb-8">
-          <div className="mx-auto w-full max-w-[560px] pt-5 sm:pt-6">
+        <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
+          <div className="mx-auto w-full max-w-[560px]">
             <ConnectCirclesTab
               onStateChange={setCirclesState}
               currentUserId={user?.uid ?? null}
@@ -2332,14 +2340,17 @@ export default function ConnectPageClient() {
           </div>
         </AppPageContentRegion>
       ) : (
-      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden pb-[var(--app-bottom-content-clearance)]">
-        <PageHeader
-          title="Connect"
-          titleRole="agent"
-          className="[&_[data-slot=page-header-row]]:!items-center"
-        />
+        <>
+          <AppPageHeaderRegion>
+            <PageHeader
+              title="Connect"
+              titleRole="agent"
+              className="[&_[data-slot=page-header-row]]:!items-center"
+            />
+          </AppPageHeaderRegion>
 
-        <SurfaceStack compact>
+          <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
+            <SurfaceStack compact>
           <div
             ref={connectStackRef}
             className="relative space-y-4 sm:space-y-5"
@@ -2468,7 +2479,7 @@ export default function ConnectPageClient() {
                   <div className="space-y-4 sm:space-y-5">
                     <SettingsGroup
                       title={
-                        <span className="min-w-0 truncate">
+                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                           {connectionsHeading}
                         </span>
                       }
@@ -2504,7 +2515,7 @@ export default function ConnectPageClient() {
                       separatorInset
                       contentClassName={
                         sortedConnections.length > 0
-                          ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
+                          ? CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME
                           : undefined
                       }
                       testId="connect-my-connections-group"
@@ -2545,8 +2556,10 @@ export default function ConnectPageClient() {
                             // column. The People list below has never stacked; these
                             // two lists sit on the same screen and now agree.
                             title={
-                              <span className="flex min-w-0 items-center gap-1.5">
-                                <span className="min-w-0 truncate">
+                              <span
+                                className={CONNECT_WRAPPING_TITLE_ROW_CLASSNAME}
+                              >
+                                <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                                   {connection.displayName || connection.userId}
                                 </span>
                                 {connection.connectedFromContacts ? (
@@ -2555,7 +2568,8 @@ export default function ConnectPageClient() {
                               </span>
                             }
                             // SettingsRow derives `data-voice-label` from a string
-                            // title, and this one is now an element so it can truncate.
+                            // title, and this one is an element so it can wrap with
+                            // its provenance badge.
                             // Passing the name keeps the attribute the row already had.
                             voiceLabel={
                               connection.displayName || connection.userId
@@ -2913,13 +2927,13 @@ export default function ConnectPageClient() {
                                   />
                                 }
                                 title={
-                                  <span className="block min-w-0 truncate">
+                                  <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                                     {title}
                                   </span>
                                 }
                                 description={
                                   description ? (
-                                    <span className="block min-w-0 truncate">
+                                    <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                                       {description}
                                     </span>
                                   ) : undefined
@@ -3136,8 +3150,9 @@ export default function ConnectPageClient() {
               </>
             )}
           </div>
-        </SurfaceStack>
-      </AppPageContentRegion>
+            </SurfaceStack>
+          </AppPageContentRegion>
+        </>
       )}
 
       <Dialog
@@ -3180,7 +3195,9 @@ export default function ConnectPageClient() {
                         />
                       }
                       title={
-                        <span className="block min-w-0 truncate">{title}</span>
+                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                          {title}
+                        </span>
                       }
                       density="compact"
                       trailing={
@@ -3250,7 +3267,7 @@ export default function ConnectPageClient() {
                       icon={BadgeCheck}
                       iconTone="green"
                       title={
-                        <span className="block min-w-0 truncate">
+                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                           {row.title}
                         </span>
                       }

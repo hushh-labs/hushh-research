@@ -7,6 +7,7 @@ import {
   resolveTopShellBreadcrumb,
   type TopShellBreadcrumbConfig,
 } from "@/lib/navigation/top-shell-breadcrumbs";
+import { isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
 import { ROUTES } from "@/lib/navigation/routes";
 
 type SearchParamsLike = { get(name: string): string | null } | null | undefined;
@@ -86,8 +87,11 @@ export function resolveTopShellBackAction(params: {
   // to their header, so the shell's arrow is the only control on the screen.
   const connectCircleFlowOpen =
     params.pathname === ROUTES.CONNECT &&
-    params.searchParams?.get("tab") === "circles" &&
-    Boolean(params.searchParams?.get("action")?.trim());
+    isFocusedConnectCircleTask(
+      params.searchParams?.get("tab") ?? null,
+      params.searchParams?.get("action") ?? null,
+      params.searchParams?.get("circleId") ?? null,
+    );
 
   const action = (
     href: string,
