@@ -13,6 +13,15 @@
           "cap.one.invoke"
         ]
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -151,6 +160,13 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": "HUSHH_LOCAL_CRM_ENABLED",
+        "environments": [
+          "development"
+        ],
+        "loopback_only": true
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -209,6 +225,13 @@
       "status": "experimental",
       "subagents": [
         {
+          "availability": {
+            "enable_flag": "HUSHH_LOCAL_CRM_ENABLED",
+            "environments": [
+              "development"
+            ],
+            "loopback_only": true
+          },
           "description": "Maps a CRM's public field catalogue to the verified-profile semantics needed for safe onboarding.",
           "id": "crm_schema_mapper",
           "inputs": [
@@ -287,6 +310,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -370,6 +402,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -449,6 +490,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -545,6 +595,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -628,6 +687,15 @@
         "invocation": [
           "agent.kai.analyze"
         ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -717,6 +785,15 @@
       "status": "experimental",
       "subagents": [
         {
+          "availability": {
+            "enable_flag": null,
+            "environments": [
+              "development",
+              "uat",
+              "production"
+            ],
+            "loopback_only": false
+          },
           "description": "Advisor-workspace subagent owned by Kai Finance.",
           "id": "agent_ria",
           "inputs": [],
@@ -753,6 +830,15 @@
           "telemetry_namespace": "agent.kai.ria"
         },
         {
+          "availability": {
+            "enable_flag": null,
+            "environments": [
+              "development",
+              "uat",
+              "production"
+            ],
+            "loopback_only": false
+          },
           "description": "Personal portfolio-review subagent owned by Kai Finance.",
           "id": "agent_investor",
           "inputs": [],
@@ -832,6 +918,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {
         "approved_disclosure_formatter": {
@@ -948,6 +1043,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -1084,6 +1188,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -1228,6 +1341,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -1371,6 +1493,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {},
       "credential_policy": {
         "allowed": [
@@ -1474,6 +1605,15 @@
         "data": [],
         "invocation": []
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {
         "direct_subagents": [
           "agent_connections"
@@ -1560,6 +1700,15 @@
         "invocation": [
           "one.internal"
         ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -1677,6 +1826,15 @@
           "cap.one.invoke"
         ]
       },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
       "capabilities": {
         "heads": {
           "live": "gemini-3.1-flash-live-preview",
@@ -1775,7 +1933,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "a2b0351622f9b900559ee22a426593e4c659b0b2852ba8c5e8409809901494c2",
+      "system_instruction_sha256": "ebfb4c037008c965607acde7b991c84de31bc69a921b5c1bc7c1783ecd8bda00",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",
@@ -1787,6 +1945,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -1904,6 +2071,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -2042,6 +2218,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {
@@ -2188,6 +2373,15 @@
         "actions": [],
         "data": [],
         "invocation": []
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
       },
       "capabilities": {},
       "credential_policy": {

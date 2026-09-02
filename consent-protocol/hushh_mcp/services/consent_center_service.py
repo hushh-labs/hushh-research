@@ -196,6 +196,13 @@ class ConsentCenterService:
             if not counterpart_id and normalized_agent.startswith("investor:"):
                 counterpart_id = normalized_agent.split(":", 1)[1] or None
             return "investor", counterpart_id
+        if metadata.get("requester_actor_type") == "person" or normalized_agent.startswith(
+            "one_person:"
+        ):
+            counterpart_id = metadata.get("requester_entity_id")
+            if not counterpart_id and normalized_agent.startswith("one_person:"):
+                counterpart_id = normalized_agent.split(":", 1)[1] or None
+            return "person", counterpart_id
         if normalized_agent in {"self", ""}:
             return "self", None
         return "developer", normalized_agent or None
@@ -217,6 +224,12 @@ class ConsentCenterService:
             ).strip()
             if investor_label:
                 return investor_label
+        if metadata.get("requester_actor_type") == "person":
+            person_label = str(
+                metadata.get("requester_label") or metadata.get("requester_entity_id") or ""
+            ).strip()
+            if person_label:
+                return person_label
         return str(agent_id or "").strip()
 
     @staticmethod

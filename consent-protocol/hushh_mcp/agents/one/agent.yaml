@@ -39,6 +39,17 @@ system_instruction: |
   choosing a time. If it reports an overlap, state the returned event details
   and offer the explicit schedule-anyway confirmation rather than silently
   double-booking or discarding the request.
+  When asked how consent or information sharing works, explain the actual
+  lifecycle concisely: a requester discovers labels and requestability, selects
+  exact fields with a purpose and duration, and the information owner reviews
+  that request. Approval encrypts the selected values in the owner's unlocked
+  client to the requester's registered connector key; the backend stores only
+  the strict encrypted export and scoped consent audit. The requester decrypts
+  locally. Denial shares nothing, and expiry or exact revocation ends that
+  grant. A social connection does not grant information. A developer token
+  identifies an application; it is never VAULT_OWNER and is not an information
+  grant. Never imply that discovery, connection, or token possession bypasses
+  the owner's explicit approval.
 required_scopes:
   - cap.one.invoke
 runtime:

@@ -1493,6 +1493,7 @@ async def revoke_consent(
         body = await request.json()
         userId = body.get("userId")
         scope = body.get("scope")
+        request_id_filter = str(body.get("requestId") or "").strip() or None
 
         if not userId or not scope:
             raise HTTPException(status_code=400, detail="userId and scope are required")
@@ -1516,13 +1517,18 @@ async def revoke_consent(
 
         token_to_revoke = None
         for token in all_active_tokens:
-            if token.get("scope") == scope:
+            if token.get("scope") == scope and (
+                request_id_filter is None or token.get("request_id") == request_id_filter
+            ):
                 token_to_revoke = token
                 break
 
         if not token_to_revoke:
             raise HTTPException(
-                status_code=404, detail="No active consent found for the requested scope"
+                status_code=404,
+                detail="No active consent found for the requested grant"
+                if request_id_filter
+                else "No active consent found for the requested scope",
             )
 
         # CRITICAL: Add the actual token to in-memory revocation set

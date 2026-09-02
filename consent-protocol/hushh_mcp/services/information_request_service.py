@@ -10,7 +10,12 @@ import uuid
 from typing import Any
 
 from db.db_client import get_db
+from hushh_mcp.consent.export_envelope import (
+    connector_key_fingerprint,
+    scope_handle_for_machine_scope,
+)
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.consent_request_links import build_consent_request_url
 from hushh_mcp.services.person_profile_service import PersonProfileService, requester_principal
 
 
@@ -18,6 +23,9 @@ class InformationRequestError(ValueError):
     def __init__(self, message: str, *, status_code: int = 400) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+_ONE_INFORMATION_REQUEST_APP_ID = "agent_one"
 
 
 class InformationRequestService:
@@ -39,7 +47,8 @@ class InformationRequestService:
 
     async def _viewer(self, user_id: str) -> dict[str, Any]:
         rows = await self._rows(
-            """SELECT profile.public_person_ref, identity.display_name
+            """SELECT profile.public_person_ref, identity.display_name,
+                      COALESCE(identity.custom_photo_url, identity.photo_url) AS photo_url
                FROM actor_profiles profile
                LEFT JOIN actor_identity_cache identity ON identity.user_id = profile.user_id
                WHERE profile.user_id = :user_id LIMIT 1""",
@@ -81,8 +90,10 @@ class InformationRequestService:
         purpose = purpose.strip()
         if not 8 <= len(purpose) <= 500:
             raise InformationRequestError("Purpose must be between 8 and 500 characters.")
-        if not 300 <= duration_seconds <= 2_592_000:
-            raise InformationRequestError("Duration must be between 5 minutes and 30 days.")
+        if not 3_600 <= duration_seconds <= 2_592_000:
+            raise InformationRequestError("Duration must be between 1 hour and 30 days.")
+        if duration_seconds % 3600 != 0:
+            raise InformationRequestError("Duration must be a whole number of hours.")
         if not 16 <= len(idempotency_key) <= 256:
             raise InformationRequestError("Idempotency key must be between 16 and 256 characters.")
 
@@ -162,6 +173,16 @@ class InformationRequestService:
                     )
                 bundle_id = str(raced[0]["bundle_id"])
         expires_at = int(time.time() * 1000) + duration_seconds * 1000
+        expiry_hours = duration_seconds // 3600
+        try:
+            recipient_key_fingerprint = connector_key_fingerprint(
+                str(connector["connector_public_key"])
+            )
+        except ValueError as exc:
+            raise InformationRequestError(
+                "The requesting device connector key is invalid. Register it again.",
+                status_code=409,
+            ) from exc
         for index, scope in enumerate(scopes, start=1):
             request_id = f"one_person_{uuid.uuid5(uuid.UUID(bundle_id), str(index)).hex}"
             await self._rows(
@@ -195,9 +216,21 @@ class InformationRequestService:
                 poll_timeout_at=expires_at,
                 metadata={
                     "request_source": "one_person_profile",
+                    # Person requests use the same strict zero-knowledge export
+                    # envelope as MCP developer requests, but the requesting
+                    # person remains the distinct first-party principal.  The
+                    # connector key is transport/key custody; it is not consent
+                    # authority and never receives VAULT_OWNER privileges.
+                    "developer_app_id": _ONE_INFORMATION_REQUEST_APP_ID,
+                    "scope_handle": scope_handle_for_machine_scope(
+                        subject_user_id, str(scope["scope"])
+                    ),
+                    "scope_contract_version": 2,
+                    "expiry_hours": expiry_hours,
                     "requester_actor_type": "person",
                     "requester_entity_id": str(viewer["public_person_ref"]),
                     "requester_label": str(viewer.get("display_name") or "A Hussh member"),
+                    "requester_image_url": str(viewer.get("photo_url") or "").strip() or None,
                     "reason": purpose,
                     "bundle_id": bundle_id,
                     "bundle_scope_count": len(scopes),
@@ -205,6 +238,10 @@ class InformationRequestService:
                     "connector_key_id": connector["connector_key_id"],
                     "connector_wrapping_alg": connector["connector_wrapping_alg"],
                     "connector_public_key_fingerprint": connector["public_key_fingerprint"],
+                    "recipient_key_fingerprint": recipient_key_fingerprint,
+                    "request_url": build_consent_request_url(
+                        request_id=request_id, bundle_id=bundle_id, view="pending"
+                    ),
                 },
             )
         return await self.get(requester_user_id=requester_user_id, bundle_id=bundle_id)
@@ -238,6 +275,12 @@ class InformationRequestService:
                 str(bundle["subject_user_id"]), str(item["request_id"])
             )
             action = str((status or {}).get("action") or "REQUESTED")
+            expires_at = (status or {}).get("expires_at") or (status or {}).get("poll_timeout_at")
+            is_expired = action == "TIMEOUT" or (
+                action == "REQUESTED"
+                and expires_at is not None
+                and int(expires_at) <= int(time.time() * 1000)
+            )
             output.append(
                 {
                     "requestId": item["request_id"],
@@ -248,7 +291,8 @@ class InformationRequestService:
                         "CONSENT_GRANTED": "granted",
                         "CONSENT_DENIED": "denied",
                         "REVOKED": "revoked",
-                    }.get(action, "pending"),
+                        "TIMEOUT": "expired",
+                    }.get(action, "expired" if is_expired else "pending"),
                 }
             )
         return {

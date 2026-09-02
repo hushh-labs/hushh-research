@@ -280,7 +280,10 @@ class PersonProfileService:
                 "CONSENT_GRANTED": "granted",
                 "CONSENT_DENIED": "denied",
                 "REVOKED": "revoked",
+                "TIMEOUT": "expired",
             }.get(action, "pending")
+            if state == "pending" and expires_at and int(expires_at) <= now_ms:
+                state = "expired"
             if state == "granted" and expires_at and int(expires_at) <= now_ms:
                 state = "expired"
             if item.get("cancelled_at") and state == "pending":
