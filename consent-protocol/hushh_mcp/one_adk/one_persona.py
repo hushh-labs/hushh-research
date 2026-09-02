@@ -129,10 +129,12 @@ def _runnable_area_names() -> list[str]:
     """Areas with at least one voice action that can actually run today.
 
     Derived, not authored, and that is the entire point. A hand-written list of
-    what One can do rots silently: the "What can I say" page still teaches
-    "Connect my Gmail" and "Sync my Gmail receipts now", and both map to
-    unwired actions that cannot execute. Somebody follows the tutorial, the
-    thing does not happen, and they conclude the agent is broken.
+    what One can do rots silently: the "What can I say" page used to teach
+    "Connect my Gmail" and "Sync my Gmail receipts now", and both mapped to
+    unwired actions that could not execute (fixed by removing them in #6308,
+    which is what this derivation exists to make durable). Somebody follows
+    the tutorial, the thing does not happen, and they conclude the agent is
+    broken.
 
     The same three conditions the publishing surfaces use -- wired, a path that
     actually dispatches, and not manual_only -- so this answer moves with the
