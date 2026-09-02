@@ -93,6 +93,16 @@ def generation_config_kwargs(model: str | None, **kwargs: Any) -> dict[str, Any]
     elif is_gemini_31_pro_preview(model):
         for field in _GEMINI_31_PRO_UNSUPPORTED_FIELDS:
             result.pop(field, None)
+        # The pro preview rejects ``thinking_level`` outright (Vertex 400: "thinking_level
+        # MINIMAL is not supported by this model"). Seen live 2026-09-02 when the dev
+        # readiness probe exercised it as a candidate; strip the level the way the 3.x
+        # flash sanitizer does and keep include_thoughts / thinking_budget.
+        if "thinking_config" in result:
+            sanitized = _sanitize_thinking_config_for_flash_v3(result["thinking_config"])
+            if sanitized is not None:
+                result["thinking_config"] = sanitized
+            else:
+                result.pop("thinking_config", None)
     return result
 
 

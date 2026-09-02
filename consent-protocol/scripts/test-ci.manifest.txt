@@ -241,6 +241,7 @@ tests/test_dependency_health_classifier.py
 tests/test_rca_runner_can_say_it_did_not_look.py
 tests/test_capability_health.py
 tests/test_managed_vertex_readiness_script.py
+tests/test_gemini_31_pro_preview_thinking_level.py
 tests/test_verify_uat_release.py
 
 # Contact matching correctness.
