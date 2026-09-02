@@ -3547,6 +3547,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -3625,6 +3626,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -3657,6 +3659,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -3952,6 +3955,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -3977,6 +3981,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -4002,6 +4007,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -4027,6 +4033,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -4052,6 +4059,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -4077,6 +4085,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -4102,6 +4111,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -5445,21 +5455,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "e8b5d21689d690414b63e3cda7c6022b0531fdfd065959192b070ab3d481c6fe",
+    "action_gateway": "f35fa559114acde190d9253ecce8a47333e0ee56352d525a34b24aa8a599a0f5",
     "agent_registry": "2609926d2369f154d08549a9075969f346f7b18e73d4bb32544fab4ba9a7c33d",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
     "data_plane": "25ee768e87ca24a3b84ec95dc20adc6f17f615de7243030dd3ad591299a11763",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "e2eca1cf8dca4ff3bd66d289ae64120ca6f7dc87fa5692d445780d1c17e2219f",
-    "route_index": "c01a8f88aba69f168fc20843a062a2a70ceca700a60b6fe4ed7ed623d6786c43",
+    "route_index": "e546902877fb584de669c0c30f1c83acdd498d6b76f92f12d2a58ac919a74fdb",
     "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
-    "surface_map": "3ac14d4e5369302b3a77f6dd81a8a930447a919fe4031e6017debbb39e3b3d44",
+    "surface_map": "2f9ac5937480d6e63876249864059876489ad849a17c9ab2fbe1850caaf0862f",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 206,
+    "actions": 207,
     "agents": 20,
     "aliases": 3,
     "decision_required": 2,

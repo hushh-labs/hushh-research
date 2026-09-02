@@ -4863,6 +4863,7 @@
       },
       "voice_action_contract_file": "app/one/profile/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
         "profile.sign_out",
@@ -9460,5 +9461,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d515f279966dfc47f40409f8f24c7dfd9e8457a4d730c6fd3a62d050bd56b95e"
+  "content_sha256": "6cf1bef3f6b2a36f8d0afdf2b27c6e0a57c759071aa0a27d871253e380330f62"
 }
