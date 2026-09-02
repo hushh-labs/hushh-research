@@ -41,6 +41,30 @@ allowlist changes. Every text agent, including the memory chain and the summary 
 case, and never `gemini-3.1-pro-preview`). Only the Live head keeps an explicit pin.
 `tests/test_fleet_text_model_switch.py` refuses any manifest that pins a Flash generation.
 
+### Who chooses the model (2026-09-02)
+
+The environment names a default, never the only possibility. A turn resolves its model
+at call time through `hushh_mcp/services/model_preference_service.py`, highest tier first:
+
+1. **the person's own choice** — `one_model_preferences` (migration 196), set from Agent
+   chat (`set_preferred_model`) or `PUT /api/one/models/preference`, and validated against
+   the served catalog on write;
+2. **the lane default** — `HUSSH_GEMINI_TEXT_MODEL`, read by module attribute rather than
+   copied into any consumer;
+3. **`FLEET_TEXT_MODEL_DEFAULT`** — the generation proven in every lane.
+
+The catalog of choices lives in `hushh_mcp/runtime_providers/model_catalog.py` and is
+derived from the provider registry, so adding a generation is one registry row plus one
+entry in `FLEET_TEXT_MODEL_CHOICES`; no client release and no browser environment variable
+is involved. `GET /api/one/models/preference` serves the list, what the person chose, and
+what is actually running.
+
+Two failure rules keep a preference from ever costing a turn: a choice that outlived its
+catalog entry degrades to the lane default (and stays visible so a surface can explain
+it), and an unreachable preference store resolves to the lane default rather than raising.
+A change takes effect on the person's next message; nothing is redeployed and no other
+person is affected.
+
 ## Lifecycle
 
 1. A person chooses managed Gemini or BYOK in AI access.

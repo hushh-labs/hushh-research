@@ -275,6 +275,35 @@ updated, so a revoked device can never appear live again. Enforcement never
 consults these columns: trust remains decided by `status` and
 `is_trusted_device_active`.
 
+### A login is not trust
+
+A trusted device holds two separable things, and conflating them cost the
+founder's machine weeks of invisible downtime in August 2026.
+
+**Trust** is the `trusted_devices` row. Only the owner revokes it, and
+revocation seals the device's local copy. **A login** is the Firebase refresh
+token the device holds. It ages out on its own, and dies outright when the
+account's sessions are reset.
+
+When the login dies the failure is silent by design. `post_heartbeat`
+deliberately reads the cached token and never refreshes it, because refreshing
+runs the revocation check, which can seal the device: telemetry must never be
+able to destroy local data as a side effect of being sent. So a dead login
+means no heartbeat, and this page shows the machine as gone while every surface
+on the machine reports healthy.
+
+The repair is `/hussh-one reconnect` on the device (or
+`POST /api/hussh-one/connect {"reconnect": true}` against its local dashboard).
+It re-approves the **same** account through this same authorize page, passes
+`replaces_device_id` so the server swaps the row atomically, and removes
+nothing: the vault envelope, the encrypted replica and Source Library custody
+all survive, and the device refuses the exchange outright if the browser comes
+back signed in as a different account. Switching accounts remains the explicit
+disconnect path, because that custody belongs to the account being left.
+
+The flow is per device. A second machine repairs itself the same way without
+touching the first, and each device's approval is a separate row here.
+
 The devices surface reports `Active now` only while a heartbeat is fresher than
 21 minutes (`HEARTBEAT_FRESH_MS` in `hushh-webapp/lib/trusted-device/sync-display.ts`,
 kept above twice the agent's 600-second keepalive so one missed beat does not

@@ -171,9 +171,7 @@ def _runnable_area_names() -> list[str]:
             runnable_prefixes.add(action_id.split(".", 1)[0])
 
     return [
-        name
-        for name, prefixes in _USER_FACING_AREAS
-        if runnable_prefixes.intersection(prefixes)
+        name for name, prefixes in _USER_FACING_AREAS if runnable_prefixes.intersection(prefixes)
     ]
 
 

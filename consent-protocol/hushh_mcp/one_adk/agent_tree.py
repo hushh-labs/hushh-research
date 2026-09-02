@@ -59,6 +59,7 @@ from hushh_mcp.one_adk.action_tools import (
     get_location_circle_members,
     journey_for_specialist_request,
     list_app_actions,
+    list_available_models,
     list_location_shared_with_me,
     list_my_connections,
     list_my_location_circles,
@@ -69,6 +70,7 @@ from hushh_mcp.one_adk.action_tools import (
     list_pending_location_requests,
     propose_information_request,
     run_app_action,
+    set_preferred_model,
     start_app_goal,
 )
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
@@ -1628,8 +1630,10 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         list_my_outgoing_location_requests,
         list_my_connections,
         discover_person_information,
+        list_available_models,
         list_pending_information_requests,
         propose_information_request,
+        set_preferred_model,
         list_pending_connection_requests,
         calendar_summary,
         calendar_events,

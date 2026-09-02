@@ -160,6 +160,10 @@
       "file": "app/api/hermes/models/route.ts"
     },
     {
+      "template": "/api/hermes/resources",
+      "file": "app/api/hermes/resources/route.ts"
+    },
+    {
       "template": "/api/hermes/status",
       "file": "app/api/hermes/status/route.ts"
     },
@@ -9456,5 +9460,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "67ad60c1aeb89eab103b1e77f2b6701ea34226aab3f9245ea5ec2f8ad28f185a"
+  "content_sha256": "bc43cbf120406979f67f622711b0a408f81ddb4f5682c9dd8f531e39237afcec"
 }

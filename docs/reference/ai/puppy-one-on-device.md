@@ -206,7 +206,29 @@ become work items rather than N/A.
 | Chat surface | `hushh-webapp/app/one/puppy/page.tsx` |
 | AG-UI translation | `hushh-webapp/app/api/hermes/chat/stream/route.ts` |
 | Model picker | `hushh-webapp/components/agent/puppy-model-picker.tsx` |
+| Resource monitor | `hushh-webapp/components/agent/puppy-resource-monitor.tsx` |
+| Resource proxy | `hushh-webapp/app/api/hermes/resources/route.ts` |
+| Puppy One mode in Agent Chat | `hushh-webapp/components/agent/puppy-one-surface.tsx` |
 | Heartbeat allow-list | `consent-protocol/hushh_mcp/services/trusted_device_service.py` |
+
+## Puppy One inside Agent Chat
+
+Agent Chat carries a two-chip switch, One and Puppy. It changes which
+transcript is on screen and nothing else. The two agents never share a message,
+a conversation or a history row: Puppy One brings its own transcript, its own
+composer and its own session, and One's transcript and composer are removed
+from the page (and from the tab order and the accessibility tree) while it is
+showing. The header names the agent actually answering, because that name is
+the reader's only guarantee about where an answer came from.
+
+The mode is deliberately not persisted. It resets to One every time the
+workspace mounts, so a toggle left on yesterday can never make a cloud answer
+look like it was generated on the owner's machine.
+
+The workspace also shows the resource monitor above the Puppy transcript, and
+the monitor leads with the link banner: a machine can be enrolled, healthy and
+still signed out of Hussh One, and that is the state the owner most needs to be
+told about because nothing else on the machine reveals it.
 
 ## Status and toggles, audited 2026-09-02
 
