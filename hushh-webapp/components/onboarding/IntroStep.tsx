@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback } from "react";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
@@ -11,10 +10,9 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import styles from "./IntroStep.module.css";
 
 /* ────────────────────────────────────────────────────────────
- * Welcome ("/"). A restrained, Foundation-warm canvas carries one centered
- * brand anchor, one "One" moment, and one clear next action. The public
- * destinations below the CTA are a real navigation group with equal targets,
- * not footer text that happens to be clickable.
+ * Welcome ("/"). hussh is the brand, One is the product: a small quiet
+ * wordmark leads into one dominant "One" moment and one clear next action
+ * — nothing else competing for attention.
  * ──────────────────────────────────────────────────────────── */
 
 // One's four motions, shown as a quiet typographic rhythm — never as chips,
@@ -79,19 +77,19 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   });
 
   return (
-    <main className={styles.shell}>
+    <main className={styles.shell} data-screen="welcome">
       <OnboardingHeroBackground />
 
       <div className={styles.stage}>
-        {/* One centered brand anchor keeps the page calm on both compact and
-            wide surfaces; the old wordmark/emoji pair read as two competing
-            logos rather than one header. */}
-        <div className={styles.brand}>
-          <HushhWordmark className={styles.wordmark} />
-        </div>
-
-        {/* ── Typography-led hero. No cards, no fake metrics. ── */}
+        {/* ── Typography-led hero. No cards, no fake metrics. hussh leads
+              as a clearly-legible brand mark with its own quiet presence;
+              One is still the product and the dominant visual event below
+              it. ── */}
         <div className={styles.hero}>
+          <div className={styles.wordmarkWrap}>
+            <HushhWordmark className={styles.wordmark} />
+          </div>
+
           <span className={styles.eyebrow}>
             Your private agent
           </span>
@@ -133,15 +131,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               </span>
             ))}
           </div>
-
-          {/* Plain words only. "Encrypted" and "consent" are the mechanism and
-              the legal term; "locked" and "your yes" are what a person actually
-              pictures. "Vault" is a code noun and never appears in copy. */}
-          <p className={styles.description}>
-            Everything you save stays locked.
-            <br />
-            Nothing moves without your yes.
-          </p>
         </div>
 
         {/* ── CTA: Morphy Button, ink surface, gradient ripple. Sits in the
@@ -162,33 +151,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             </span>
             <MaterialRipple variant="gradient" effect="fill" className="z-10" />
           </button>
-
-          {/* Public destinations share the CTA width and use equal hit areas.
-              That preserves discoverable navigation on small screens without
-              letting the longest label push its siblings out of rhythm. */}
-          <nav
-            aria-label="Explore Hussh"
-            className={styles.links}
-          >
-            <Link
-              href={ROUTES.RESEARCH}
-              className={styles.link}
-            >
-              Research
-            </Link>
-            <Link
-              href={ROUTES.BLOG}
-              className={styles.link}
-            >
-              Blog
-            </Link>
-            <Link
-              href={ROUTES.DEVELOPERS}
-              className={styles.link}
-            >
-              Developers
-            </Link>
-          </nav>
         </div>
       </div>
     </main>
