@@ -20,9 +20,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
-import {
-  notifyGeminiRuntimeConfigurationChanged,
-} from "@/lib/connections/gemini-runtime-configuration";
+import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 import { ApiService } from "@/lib/services/api-service";
 import {
   GEMINI_RUNTIME_CREDENTIAL_REF,
@@ -71,7 +69,10 @@ const COMING_SOON_PROVIDERS = RUNTIME_PROVIDER_CATALOG.filter(
   (provider) => provider.availability === "coming_soon",
 );
 
-function assertRuntimeSecretStored(result: { success: boolean; conflict?: boolean }) {
+function assertRuntimeSecretStored(result: {
+  success: boolean;
+  conflict?: boolean;
+}) {
   if (!result.success) {
     throw new Error(result.conflict ? "PKM_CONFLICT" : "PKM_WRITE_FAILED");
   }
@@ -93,7 +94,9 @@ export function GeminiRuntimeSettingsCard({
   onPreVaultDraftCleared,
 }: GeminiRuntimeSettingsCardProps) {
   const router = useRouter();
-  const [mode, setMode] = useState<RuntimeCredentialMode>("hushh_managed_vertex");
+  const [mode, setMode] = useState<RuntimeCredentialMode>(
+    "hushh_managed_vertex",
+  );
   // The person's own recorded cloud, when one exists. For them "Use Hussh's
   // AI" does NOT mean a shared runtime: their pod thinks with their own
   // project's Vertex AI identity, and that linkage was invisible at the moment
@@ -114,7 +117,8 @@ export function GeminiRuntimeSettingsCard({
   }, []);
   const [hasSavedKey, setHasSavedKey] = useState<boolean | null>(null);
   const [draftKey, setDraftKey] = useState("");
-  const [transport, setTransport] = useState<GeminiRuntimeTransport>("developer_api");
+  const [transport, setTransport] =
+    useState<GeminiRuntimeTransport>("developer_api");
   const [vertexProject, setVertexProject] = useState("");
   const [vertexLocation, setVertexLocation] = useState("global");
   const [isSaving, setIsSaving] = useState(false);
@@ -135,9 +139,7 @@ export function GeminiRuntimeSettingsCard({
   }, []);
 
   useEffect(() => {
-    setHasExplicitSelection(
-      !requiresExplicitSelection || initiallyConfigured,
-    );
+    setHasExplicitSelection(!requiresExplicitSelection || initiallyConfigured);
   }, [initiallyConfigured, requiresExplicitSelection]);
 
   useEffect(() => {
@@ -157,42 +159,47 @@ export function GeminiRuntimeSettingsCard({
     }
     const selectionRevision = selectionRevisionRef.current;
     try {
-      const [savedMode, savedKey, savedTransport, savedProject, savedLocation] = await Promise.all([
-        PersonalKnowledgeModelService.loadRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
-        }),
-        PersonalKnowledgeModelService.loadRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
-        }),
-        PersonalKnowledgeModelService.loadRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_RUNTIME_TRANSPORT_REF,
-        }),
-        PersonalKnowledgeModelService.loadRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_VERTEX_PROJECT_REF,
-        }),
-        PersonalKnowledgeModelService.loadRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_VERTEX_LOCATION_REF,
-        }),
-      ]);
+      const [savedMode, savedKey, savedTransport, savedProject, savedLocation] =
+        await Promise.all([
+          PersonalKnowledgeModelService.loadRuntimeSecret({
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
+          }),
+          PersonalKnowledgeModelService.loadRuntimeSecret({
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+          }),
+          PersonalKnowledgeModelService.loadRuntimeSecret({
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: GEMINI_RUNTIME_TRANSPORT_REF,
+          }),
+          PersonalKnowledgeModelService.loadRuntimeSecret({
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: GEMINI_VERTEX_PROJECT_REF,
+          }),
+          PersonalKnowledgeModelService.loadRuntimeSecret({
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: GEMINI_VERTEX_LOCATION_REF,
+          }),
+        ]);
       if (selectionRevisionRef.current !== selectionRevision) return;
       setMode(savedMode === "byok" ? "byok" : "hushh_managed_vertex");
       setHasSavedKey(Boolean(savedKey));
-      setTransport(savedTransport === "vertex_api_key" ? "vertex_api_key" : "developer_api");
+      setTransport(
+        savedTransport === "vertex_api_key"
+          ? "vertex_api_key"
+          : "developer_api",
+      );
       setVertexProject(savedProject || "");
       setVertexLocation(savedLocation || "global");
     } catch {
@@ -227,7 +234,7 @@ export function GeminiRuntimeSettingsCard({
       confirmation: {
         confirmedByUser: true,
         surface: "web",
-          source: "profile_gemini_runtime_mode",
+        source: "profile_gemini_runtime_mode",
       },
     });
     assertRuntimeSecretStored(result);
@@ -272,7 +279,14 @@ export function GeminiRuntimeSettingsCard({
           : selection.agentReason
             ? `Your private agent was not started: ${selection.agentReason}.`
             : "";
-      toast.success(["Using Hussh's AI.", agentLine].filter(Boolean).join(" "));
+      toast.success(
+        [
+          ownCloudProject ? "Using your pod's AI." : "Using Hussh's AI.",
+          agentLine,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
     } catch (error) {
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
@@ -287,9 +301,7 @@ export function GeminiRuntimeSettingsCard({
         return;
       }
       if (error instanceof Error && error.message === "CLOUD_GRANT_REVOKED") {
-        toast.error(
-          "Re-authorize Hushh’s access to your project to continue.",
-        );
+        toast.error("Re-authorize Hushh’s access to your project to continue.");
         router.push(ROUTES.ONE_SETUP_CLOUD);
         return;
       }
@@ -331,11 +343,17 @@ export function GeminiRuntimeSettingsCard({
       toast.error("Enter your Gemini API key.");
       return;
     }
-    if (transport === "vertex_api_key" && (!vertexProject.trim() || !vertexLocation.trim())) {
+    if (
+      transport === "vertex_api_key" &&
+      (!vertexProject.trim() || !vertexLocation.trim())
+    ) {
       toast.error("Enter the Google Cloud project ID and Vertex location.");
       return;
     }
-    if (!requiresExplicitSelection && (!vaultReady || !userId || !vaultKey || !vaultOwnerToken)) {
+    if (
+      !requiresExplicitSelection &&
+      (!vaultReady || !userId || !vaultKey || !vaultOwnerToken)
+    ) {
       requestVault();
       return;
     }
@@ -345,11 +363,17 @@ export function GeminiRuntimeSettingsCard({
       await ApiService.validateGeminiRuntimeCredential({
         credential,
         transport,
-        vertexProject: transport === "vertex_api_key" ? vertexProject.trim() : null,
-        vertexLocation: transport === "vertex_api_key" ? vertexLocation.trim() : null,
+        vertexProject:
+          transport === "vertex_api_key" ? vertexProject.trim() : null,
+        vertexLocation:
+          transport === "vertex_api_key" ? vertexLocation.trim() : null,
       });
       if (credentialRevisionRef.current !== revision) return;
-      setCredentialValidation({ status: "ready", revision, validatedAt: Date.now() });
+      setCredentialValidation({
+        status: "ready",
+        revision,
+        validatedAt: Date.now(),
+      });
     } catch (error) {
       if (credentialRevisionRef.current !== revision) return;
       const message =
@@ -366,7 +390,8 @@ export function GeminiRuntimeSettingsCard({
     const validationIsFresh =
       credentialValidation.status === "ready" &&
       credentialValidation.revision === credentialRevisionRef.current &&
-      Date.now() - credentialValidation.validatedAt <= CREDENTIAL_VALIDATION_TTL_MS;
+      Date.now() - credentialValidation.validatedAt <=
+        CREDENTIAL_VALIDATION_TTL_MS;
     if (!validationIsFresh) {
       setCredentialValidation({ status: "idle" });
       toast.error("Validate this Gemini key before confirming it.");
@@ -387,15 +412,23 @@ export function GeminiRuntimeSettingsCard({
         onPreVaultDraftStaged({
           transport,
           credential,
-          vertexProject: transport === "vertex_api_key" ? vertexProject.trim() || null : null,
-          vertexLocation: transport === "vertex_api_key" ? vertexLocation.trim() || null : null,
+          vertexProject:
+            transport === "vertex_api_key"
+              ? vertexProject.trim() || null
+              : null,
+          vertexLocation:
+            transport === "vertex_api_key"
+              ? vertexLocation.trim() || null
+              : null,
         });
         await onSelectionReadyChange?.("byok_pending_vault");
         setDraftKey("");
         invalidateCredentialValidation();
         setMode("byok");
         setHasExplicitSelection(true);
-        toast.success("Gemini access is ready to protect when you finish setup.");
+        toast.success(
+          "Gemini access is ready to protect when you finish setup.",
+        );
       } catch {
         toast.error("Gemini access could not be staged. Try again.");
       } finally {
@@ -411,20 +444,22 @@ export function GeminiRuntimeSettingsCard({
     setIsSaving(true);
     selectionPendingRef.current = true;
     try {
-      const credentialResult = await PersonalKnowledgeModelService.storeRuntimeSecret({
-        userId,
-        vaultKey,
-        vaultOwnerToken,
-        credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
-        secret: credential,
-        confirmation: {
-          confirmedByUser: true,
-          surface: "web",
-          source: "profile_gemini_api_key",
-        },
-      });
+      const credentialResult =
+        await PersonalKnowledgeModelService.storeRuntimeSecret({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+          secret: credential,
+          confirmation: {
+            confirmedByUser: true,
+            surface: "web",
+            source: "profile_gemini_api_key",
+          },
+        });
       assertRuntimeSecretStored(credentialResult);
-      const transportResult = await PersonalKnowledgeModelService.storeRuntimeSecret({
+      const transportResult =
+        await PersonalKnowledgeModelService.storeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -440,14 +475,28 @@ export function GeminiRuntimeSettingsCard({
       if (transport === "vertex_api_key") {
         const [projectResult, locationResult] = await Promise.all([
           PersonalKnowledgeModelService.storeRuntimeSecret({
-            userId, vaultKey, vaultOwnerToken, credentialRef: GEMINI_VERTEX_PROJECT_REF,
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: GEMINI_VERTEX_PROJECT_REF,
             secret: vertexProject.trim(),
-            confirmation: { confirmedByUser: true, surface: "web", source: "profile_gemini_vertex_project" },
+            confirmation: {
+              confirmedByUser: true,
+              surface: "web",
+              source: "profile_gemini_vertex_project",
+            },
           }),
           PersonalKnowledgeModelService.storeRuntimeSecret({
-            userId, vaultKey, vaultOwnerToken, credentialRef: GEMINI_VERTEX_LOCATION_REF,
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: GEMINI_VERTEX_LOCATION_REF,
             secret: vertexLocation.trim(),
-            confirmation: { confirmedByUser: true, surface: "web", source: "profile_gemini_vertex_location" },
+            confirmation: {
+              confirmedByUser: true,
+              surface: "web",
+              source: "profile_gemini_vertex_location",
+            },
           }),
         ]);
         assertRuntimeSecretStored(projectResult);
@@ -455,12 +504,26 @@ export function GeminiRuntimeSettingsCard({
       } else {
         const [projectResult, locationResult] = await Promise.all([
           PersonalKnowledgeModelService.removeRuntimeSecret({
-            userId, vaultKey, vaultOwnerToken, credentialRef: GEMINI_VERTEX_PROJECT_REF,
-            confirmation: { confirmedByUser: true, surface: "web", source: "profile_gemini_vertex_project_clear" },
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: GEMINI_VERTEX_PROJECT_REF,
+            confirmation: {
+              confirmedByUser: true,
+              surface: "web",
+              source: "profile_gemini_vertex_project_clear",
+            },
           }),
           PersonalKnowledgeModelService.removeRuntimeSecret({
-            userId, vaultKey, vaultOwnerToken, credentialRef: GEMINI_VERTEX_LOCATION_REF,
-            confirmation: { confirmedByUser: true, surface: "web", source: "profile_gemini_vertex_location_clear" },
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            credentialRef: GEMINI_VERTEX_LOCATION_REF,
+            confirmation: {
+              confirmedByUser: true,
+              surface: "web",
+              source: "profile_gemini_vertex_location_clear",
+            },
           }),
         ]);
         assertRuntimeSecretStored(projectResult);
@@ -476,7 +539,9 @@ export function GeminiRuntimeSettingsCard({
         await onSelectionReadyChange?.("byok_pending_vault");
       }
       notifyGeminiRuntimeConfigurationChanged();
-      toast.success("Your Gemini configuration is saved in your encrypted vault.");
+      toast.success(
+        "Your Gemini configuration is saved in your encrypted vault.",
+      );
     } catch {
       toast.error("Gemini key could not be saved.");
     } finally {
@@ -492,19 +557,21 @@ export function GeminiRuntimeSettingsCard({
     }
     setIsRemoving(true);
     try {
-      const credentialResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
-        userId,
-        vaultKey,
-        vaultOwnerToken,
-        credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
-        confirmation: {
-          confirmedByUser: true,
-          surface: "web",
-          source: "profile_gemini_api_key_remove",
-        },
-      });
+      const credentialResult =
+        await PersonalKnowledgeModelService.removeRuntimeSecret({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+          confirmation: {
+            confirmedByUser: true,
+            surface: "web",
+            source: "profile_gemini_api_key_remove",
+          },
+        });
       assertRuntimeSecretStored(credentialResult);
-      const transportResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
+      const transportResult =
+        await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -516,7 +583,8 @@ export function GeminiRuntimeSettingsCard({
           },
         });
       assertRuntimeSecretStored(transportResult);
-      const projectResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
+      const projectResult =
+        await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -528,7 +596,8 @@ export function GeminiRuntimeSettingsCard({
           },
         });
       assertRuntimeSecretStored(projectResult);
-      const locationResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
+      const locationResult =
+        await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -562,54 +631,59 @@ export function GeminiRuntimeSettingsCard({
         separatorInset
       >
         <SettingsRow
-        asChild
-        leading={<GeminiLogo className="h-8 w-8" />}
-        title="Use Hussh's AI"
-        description={
-          ownCloudProject
-            ? `No key needed. Runs in your own project ${ownCloudProject}, on its own Vertex AI identity.`
-            : "No key needed."
-        }
-        // The default we want people to take. Until it is chosen the row says
-        // so out loud, so the fast path is the obvious one rather than the one
-        // you work out by elimination.
-        trailing={
-          mode === "hushh_managed_vertex" && hasExplicitSelection ? (
-            <Badge variant="secondary">Selected</Badge>
-          ) : (
-            <Badge variant="outline">Recommended</Badge>
-          )
-        }
-        testId="profile-managed-runtime"
-      >
-        <button
-          type="button"
-          onClick={() => void selectManaged()}
-          aria-pressed={mode === "hushh_managed_vertex"}
-        />
+          asChild
+          leading={<GeminiLogo className="h-8 w-8" />}
+          // The first option is the POD's own AI, and it is named for where the
+          // pod lives (founder direction, 2026-09-02): a person on their own cloud
+          // is choosing Vertex AI in their own project on the pod's identity, not
+          // a shared hussh runtime; a person on a hussh pod is choosing hussh's key.
+          // The stored choice is the same either way: the pod's default AI.
+          title={ownCloudProject ? "Use your pod's AI" : "Use Hussh's AI"}
+          description={
+            ownCloudProject
+              ? `Vertex AI in your own project ${ownCloudProject}, on your pod's own identity. No key needed; billed to you.`
+              : "No key needed. Runs on your hussh pod's key."
+          }
+          // The default we want people to take. Until it is chosen the row says
+          // so out loud, so the fast path is the obvious one rather than the one
+          // you work out by elimination.
+          trailing={
+            mode === "hushh_managed_vertex" && hasExplicitSelection ? (
+              <Badge variant="secondary">Selected</Badge>
+            ) : (
+              <Badge variant="outline">Recommended</Badge>
+            )
+          }
+          testId="profile-managed-runtime"
+        >
+          <button
+            type="button"
+            onClick={() => void selectManaged()}
+            aria-pressed={mode === "hushh_managed_vertex"}
+          />
         </SettingsRow>
 
         <SettingsRow
-        asChild
-        leading={<GeminiLogo className="h-8 w-8" />}
-        title="Use my own key"
-        description={
-          requiresExplicitSelection && !vaultReady
-            ? "Add your own Gemini key."
-            : "Your key stays locked to you."
-        }
-        trailing={
-          mode === "byok" && hasExplicitSelection ? (
-            <Badge variant="secondary">Selected</Badge>
-          ) : null
-        }
-        testId="profile-byok-runtime"
-      >
-        <button
-          type="button"
-          onClick={() => void selectByok()}
-          aria-pressed={mode === "byok"}
-        />
+          asChild
+          leading={<GeminiLogo className="h-8 w-8" />}
+          title="Use your own key"
+          description={
+            requiresExplicitSelection && !vaultReady
+              ? "Add your own Gemini key. It runs on your pod and stays locked to you."
+              : "Your key runs on your pod and stays locked to you."
+          }
+          trailing={
+            mode === "byok" && hasExplicitSelection ? (
+              <Badge variant="secondary">Selected</Badge>
+            ) : null
+          }
+          testId="profile-byok-runtime"
+        >
+          <button
+            type="button"
+            onClick={() => void selectByok()}
+            aria-pressed={mode === "byok"}
+          />
         </SettingsRow>
 
         {mode === "byok" ? (
@@ -617,7 +691,13 @@ export function GeminiRuntimeSettingsCard({
             <div className="flex items-center justify-between gap-3">
               <CardTitle as="p">Gemini connection</CardTitle>
               <Badge variant={hasSavedKey ? "secondary" : "outline"}>
-                {needsVaultCreation ? "Vault needed" : needsUnlock ? "Locked" : hasSavedKey ? "Saved" : "Not set"}
+                {needsVaultCreation
+                  ? "Vault needed"
+                  : needsUnlock
+                    ? "Locked"
+                    : hasSavedKey
+                      ? "Saved"
+                      : "Not set"}
               </Badge>
             </div>
             <FormLabel className="block space-y-1">
@@ -629,7 +709,11 @@ export function GeminiRuntimeSettingsCard({
                   setTransport(event.target.value as GeminiRuntimeTransport);
                   invalidateCredentialValidation();
                 }}
-                disabled={isSaving || isRemoving || credentialValidation.status === "checking"}
+                disabled={
+                  isSaving ||
+                  isRemoving ||
+                  credentialValidation.status === "checking"
+                }
                 /* The SAME class the key field under it uses, so the two
                    stacked controls finally agree on radius, height, inset,
                    surface, border and focus ring — they were 24px/40px/12px
@@ -646,7 +730,10 @@ export function GeminiRuntimeSettingsCard({
 
                    `pr-9` then reserves the space the arrow used to get for
                    free, now that we are drawing the control ourselves. */
-                className={cn(INPUT_CLASSNAME, "appearance-none bg-no-repeat pr-9")}
+                className={cn(
+                  INPUT_CLASSNAME,
+                  "appearance-none bg-no-repeat pr-9",
+                )}
                 style={{
                   // The disclosure arrow, drawn by us because appearance-none
                   // removes the UA's. Inline because it is a data: URI keyed to
@@ -696,7 +783,11 @@ export function GeminiRuntimeSettingsCard({
                 setDraftKey(event.target.value);
                 invalidateCredentialValidation();
               }}
-              placeholder={transport === "vertex_api_key" ? "Paste a Google Cloud Vertex API key" : "Paste a Google AI Studio Gemini key"}
+              placeholder={
+                transport === "vertex_api_key"
+                  ? "Paste a Google Cloud Vertex API key"
+                  : "Paste a Google AI Studio Gemini key"
+              }
               disabled={isSaving || isRemoving}
               aria-label="Gemini API key"
             />
@@ -717,7 +808,9 @@ export function GeminiRuntimeSettingsCard({
                   Key is responding and ready to save.
                 </span>
               ) : credentialValidation.status === "error" ? (
-                <span className="text-destructive">{credentialValidation.message}</span>
+                <span className="text-destructive">
+                  {credentialValidation.message}
+                </span>
               ) : (
                 "Validate the key before confirming it."
               )}
@@ -734,7 +827,12 @@ export function GeminiRuntimeSettingsCard({
                   onClick={() => void saveByok()}
                   disabled={isSaving || isRemoving}
                 >
-                  {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
+                  {isSaving ? (
+                    <Loader2
+                      className="mr-2 h-4 w-4 animate-spin"
+                      aria-hidden
+                    />
+                  ) : null}
                   Confirm and save
                 </Button>
               ) : (
@@ -750,14 +848,30 @@ export function GeminiRuntimeSettingsCard({
                   }
                 >
                   {credentialValidation.status === "checking" ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                    <Loader2
+                      className="mr-2 h-4 w-4 animate-spin"
+                      aria-hidden
+                    />
                   ) : null}
                   Validate key
                 </Button>
               )}
               {hasSavedKey ? (
-                <Button type="button" variant="none" effect="fade" onClick={() => void removeByok()} disabled={isSaving || isRemoving}>
-                  {isRemoving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="mr-2 h-4 w-4" aria-hidden />}
+                <Button
+                  type="button"
+                  variant="none"
+                  effect="fade"
+                  onClick={() => void removeByok()}
+                  disabled={isSaving || isRemoving}
+                >
+                  {isRemoving ? (
+                    <Loader2
+                      className="mr-2 h-4 w-4 animate-spin"
+                      aria-hidden
+                    />
+                  ) : (
+                    <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+                  )}
                   Remove key
                 </Button>
               ) : null}
@@ -780,7 +894,12 @@ export function GeminiRuntimeSettingsCard({
           {COMING_SOON_PROVIDERS.map((provider) => (
             <SettingsRow
               key={provider.id}
-              leading={<RuntimeProviderMark provider={provider} className="!h-8 !w-8" />}
+              leading={
+                <RuntimeProviderMark
+                  provider={provider}
+                  className="!h-8 !w-8"
+                />
+              }
               title={provider.name}
               disabled
               testId={`profile-coming-soon-${provider.id}`}

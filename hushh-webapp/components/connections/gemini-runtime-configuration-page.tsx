@@ -109,12 +109,10 @@ export function GeminiRuntimeConfigurationPage({
     }
   }, [authLoading, router, setupMode, user]);
 
-  const needsVaultCreation = !setupMode && Boolean(
-    user && !isVaultUnlocked && hasVault === false,
-  );
-  const needsUnlock = !setupMode && Boolean(
-    user && !isVaultUnlocked && hasVault === true,
-  );
+  const needsVaultCreation =
+    !setupMode && Boolean(user && !isVaultUnlocked && hasVault === false);
+  const needsUnlock =
+    !setupMode && Boolean(user && !isVaultUnlocked && hasVault === true);
   const returnToSetupHub = useCallback(() => {
     setFinishing(true);
     const requested = requestInternalAppNavigation({
@@ -217,7 +215,10 @@ export function GeminiRuntimeConfigurationPage({
                       kept the mark's own 48px default, so they overflowed their
                       slots and overlapped each other by 4px, which is why the
                       logos looked cramped and Grok came out clipped. */}
-                  <RuntimeProviderMark provider={provider} className="h-9 w-9" />
+                  <RuntimeProviderMark
+                    provider={provider}
+                    className="h-9 w-9"
+                  />
                 </span>
                 <span className="sr-only">
                   {provider.availability === "available"
@@ -232,7 +233,7 @@ export function GeminiRuntimeConfigurationPage({
           title={setupMode ? "Choose your AI" : "Gemini settings"}
           description={
             setupMode
-              ? "Use ours, or bring your own key."
+              ? "Your pod's AI, or your own key."
               : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
@@ -258,10 +259,11 @@ export function GeminiRuntimeConfigurationPage({
           onSelectionReadyChange={
             setupMode && user?.uid
               ? async (choice) => {
-                  const state = await PreVaultUserStateService.markOneRuntimeChoice(
-                    user.uid,
-                    choice,
-                  );
+                  const state =
+                    await PreVaultUserStateService.markOneRuntimeChoice(
+                      user.uid,
+                      choice,
+                    );
                   setSetupChoice(state.oneRuntimeSetupChoice);
                   setHasRuntimeChoice(true);
                   // Taking the recommended option IS the whole decision —
@@ -277,7 +279,11 @@ export function GeminiRuntimeConfigurationPage({
           }
           onPreVaultDraftStaged={
             setupMode && user?.uid
-              ? (draft) => PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
+              ? (draft) =>
+                  PreVaultSensitiveDraftService.stageGeminiRuntime(
+                    user.uid,
+                    draft,
+                  )
               : undefined
           }
           onPreVaultDraftCleared={
