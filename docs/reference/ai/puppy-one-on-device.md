@@ -1,6 +1,7 @@
 # Puppy One: the on-device tier
 
-**Status:** implemented and measured on real hardware, 2026-08-28.
+**Status:** implemented and measured on real hardware, 2026-08-28; status and
+toggle wiring audited and repaired 2026-09-02 (see the last section).
 
 ## Visual Map
 
@@ -206,3 +207,35 @@ become work items rather than N/A.
 | AG-UI translation | `hushh-webapp/app/api/hermes/chat/stream/route.ts` |
 | Model picker | `hushh-webapp/components/agent/puppy-model-picker.tsx` |
 | Heartbeat allow-list | `consent-protocol/hushh_mcp/services/trusted_device_service.py` |
+
+## Status and toggles, audited 2026-09-02
+
+Every status the owner can see and every toggle they can flip, with its source
+of truth, after an end-to-end audit of both repositories. The Hermes side is
+in the fork at
+[hushh-labs/hussh-one-hermes](https://github.com/hushh-labs/hussh-one-hermes).
+
+| Surface | Source of truth | State after the audit |
+| --- | --- | --- |
+| `/one/puppy` header dot and model name | `GET /api/hermes/status` reading the gateway's `/health/detailed` on loopback | Repaired. The gateway did not name its model in that payload and the route read a field that never existed, so a connected agent showed no model. The gateway now reports `model` and `provider` there and the route reads every shape. |
+| Model picker | `GET /api/hermes/models` reading the gateway's `/api/model/options` | Repaired. The gateway names a provider by `slug` and lists models as strings with a capabilities map; the route mapped `id` and `{id}` objects, so every provider and model rendered as an empty string. |
+| Model pin | `POST /api/hermes/models` to the gateway's `/api/model/set` | Repaired. That route existed only in the Hermes dashboard, never in the loopback API server, so every pin from One answered "could not change the model". The API server now serves it with the same expensive-model confirmation and next-session semantics. |
+| `on-device` / `any model` pill | Browser state, sent per turn as the provider pin | Now remembered per browser. It reset to on-device on every reload while the header kept the last choice. |
+| Bridge on/off | `HERMES_API_SERVER_KEY` in the webapp's server-side env, same value as `API_SERVER_KEY` in `~/.hermes/.env` | Documented in `.env.example`. It was absent from every env template, so a localhost stack rendered "not connected" with a healthy gateway beside it. |
+| Devices page liveness | `trusted_devices.last_heartbeat_at` and `heartbeat`, posted by the device to the environment it enrolled in | Working, with one consequence to know: a device enrolls in one environment (`api_base` in its identity record), so the founder's machine reports to UAT and is invisible to a localhost or dev stack. |
+| Machine specs on the heartbeat | `TrustedDeviceHeartbeatRequest` | Repaired. The request model declared six of the fourteen allow-listed fields, so brand, processor, RAM and battery were dropped before the service saw them. No surface renders them yet. |
+| On-device gate | `hussh_one.on_device_only` in the Hermes config, read by the auxiliary client and the egress audit | On for the founder's machine; readable only on the device (`hermes_cli.hussh_one_egress_audit`, the health index). Not exposed to One. |
+| Vault while the screen is locked | `hussh_one.vault.lock_with_workstation`, default off | On-device config only. The always-on agent keeps its vault while the console is locked unless the owner opts in. |
+| Daily jobs, harness, learning loop | Versioned in the fork under `scripts/hussh-one-cron/`; graded by `hermes puppy jobs`; ledger at `~/.hermes/evolution-ledger.jsonl` | On-device only. Nothing ships the health index, the doctor state, the ledger or the job audit off the machine. |
+
+Two surfaces remain dangling and are recorded rather than hidden:
+`/one/profile/preferences/device` (breadcrumb "On-device first") has no panel
+behind it, and the Capacitor `HushhAgent` plugin with its `useRemoteLLM` and
+`preferredLLMProvider` settings has no callers and no native implementation.
+Neither is reachable from a control the owner can see.
+
+What a phone could read today without new plumbing is exactly the heartbeat
+record: model, sessions, busy, version, machine specs and power, and the seal
+state. Everything else on the device (gate, doctor, ledger, job audit, every
+`hussh_one.*` toggle) needs either a new heartbeat field or the outbound
+rendezvous the live-bridge design describes.

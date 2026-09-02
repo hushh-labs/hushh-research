@@ -80,14 +80,54 @@ export async function GET(request: NextRequest) {
   }
 
   const payload = (await upstream.json().catch(() => ({}))) as {
-    providers?: Array<{ id?: unknown; name?: unknown; models?: unknown }>;
+    providers?: Array<{
+      id?: unknown;
+      slug?: unknown;
+      name?: unknown;
+      models?: unknown;
+      capabilities?: unknown;
+      is_current?: unknown;
+      authenticated?: unknown;
+    }>;
     model?: unknown;
     provider?: unknown;
   };
 
-  const providers = (Array.isArray(payload.providers) ? payload.providers : []).map(
-    (entry) => {
-      const id = String(entry?.id ?? "");
+  // Hermes identifies a provider by `slug` and lists its models as plain
+  // strings, with per-model capabilities in a sibling map keyed by model id.
+  // An older shape used `id` and `{id}` objects. Read both: a picker that
+  // renders every provider and model as "" is the one surface that lies
+  // about the runtime, and it is exactly what the old mapping produced.
+  const providers = (Array.isArray(payload.providers) ? payload.providers : [])
+    .map((entry) => {
+      const id = String(entry?.slug ?? entry?.id ?? "");
+      const capabilities =
+        entry?.capabilities && typeof entry.capabilities === "object"
+          ? (entry.capabilities as Record<string, Record<string, unknown> | undefined>)
+          : {};
+      const models = Array.isArray(entry?.models)
+        ? (entry.models as Array<unknown>)
+            .map((model) => {
+              const modelId =
+                typeof model === "string"
+                  ? model
+                  : String((model as Record<string, unknown>)?.id ?? "");
+              const inline =
+                typeof model === "object" && model !== null
+                  ? (model as Record<string, unknown>)
+                  : {};
+              return {
+                id: modelId,
+                supportsReasoning: Boolean(
+                  (inline.capabilities as Record<string, unknown> | undefined)
+                    ?.reasoning ??
+                    inline.supports_reasoning ??
+                    capabilities[modelId]?.reasoning,
+                ),
+              };
+            })
+            .filter((model) => model.id)
+        : [];
       return {
         id,
         name: String(entry?.name ?? id),
@@ -95,18 +135,11 @@ export async function GET(request: NextRequest) {
         // providers cannot explain why they are missing; one that shows them
         // as off-machine tells the truth about what the choice costs.
         onDevice: LOCAL_PROVIDERS.has(id.toLowerCase()),
-        models: Array.isArray(entry?.models)
-          ? (entry.models as Array<Record<string, unknown>>).map((model) => ({
-              id: String(model?.id ?? ""),
-              supportsReasoning: Boolean(
-                (model?.capabilities as Record<string, unknown> | undefined)
-                  ?.reasoning ?? model?.supports_reasoning,
-              ),
-            }))
-          : [],
+        isCurrent: Boolean(entry?.is_current),
+        models,
       };
-    },
-  );
+    })
+    .filter((provider) => provider.id);
 
   return Response.json({
     configured: true,

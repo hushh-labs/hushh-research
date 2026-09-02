@@ -12,6 +12,9 @@ import {
 import { fetchPuppyStatus, type PuppyStatus } from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
 
+/** Per-viewer browser preference for the on-device pill ("1" or "0"). */
+const ON_DEVICE_STORAGE_KEY = "hussh.puppy.on_device";
+
 /**
  * Chat with Puppy One, the agent running on the owner's own machine.
  *
@@ -37,7 +40,31 @@ export function HermesChatPanel({ className }: { className?: string }) {
   const [turns, setTurns] = useState<PuppyTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [onDevice, setOnDevice] = useState(true);
+  // The on-device pill is a per-viewer preference, so it survives a reload:
+  // a toggle that silently reset to "on-device" on every mount told the user
+  // one thing and sent the turn somewhere else. Storage can be unavailable
+  // (private window, blocked site data), so every access is guarded and the
+  // default stays on-device.
+  const [onDevice, setOnDeviceState] = useState(true);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(ON_DEVICE_STORAGE_KEY);
+      if (stored === "0") setOnDeviceState(false);
+    } catch {
+      /* storage unavailable: keep the on-device default */
+    }
+  }, []);
+  const setOnDevice = useCallback((update: boolean | ((value: boolean) => boolean)) => {
+    setOnDeviceState((value) => {
+      const next = typeof update === "function" ? update(value) : update;
+      try {
+        window.localStorage.setItem(ON_DEVICE_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* storage unavailable: the choice still applies to this session */
+      }
+      return next;
+    });
+  }, []);
   const [error, setError] = useState("");
   const sessionRef = useRef<string>("");
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -80,7 +107,7 @@ export function HermesChatPanel({ className }: { className?: string }) {
         },
       ]);
     },
-    [],
+    [setOnDevice],
   );
 
   const appendDelta = useCallback((assistantId: string, delta: string) => {
