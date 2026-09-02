@@ -65,7 +65,13 @@ const BRAND_PREFIX_RANGES: ReadonlyArray<[CardBrand, number, number]> = [
   ["elo", 636368, 636368],
   ["verve", 506099, 506198],
   ["verve", 650002, 650027],
+  // Discover's specific windows must outrank RuPay's broad 60 and 65-adjacent
+  // prefixes; RuPay's own 6521/6522 window outranks Discover's broad 65.
   ["rupay", 6521, 6522],
+  ["discover", 6011, 6011],
+  ["discover", 622126, 622925],
+  ["discover", 644, 649],
+  ["discover", 65, 65],
   ["rupay", 508, 508],
   ["rupay", 353, 353],
   ["rupay", 356, 356],
@@ -77,10 +83,6 @@ const BRAND_PREFIX_RANGES: ReadonlyArray<[CardBrand, number, number]> = [
   ["diners", 300, 305],
   ["diners", 36, 36],
   ["diners", 38, 39],
-  ["discover", 6011, 6011],
-  ["discover", 622126, 622925],
-  ["discover", 644, 649],
-  ["discover", 65, 65],
   ["unionpay", 62, 62],
   ["mastercard", 2221, 2720],
   ["mastercard", 51, 55],
@@ -187,8 +189,9 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
     errors.push("expiry_year_invalid");
   } else if (Number.isInteger(month) && month >= 1 && month <= 12) {
     const now = input.now ?? new Date();
-    const endOfExpiryMonth = new Date(year, month, 1);
-    if (endOfExpiryMonth <= now) {
+    // UTC on both sides: the boundary must not move with the viewer's zone.
+    const endOfExpiryMonth = Date.UTC(year, month, 1);
+    if (endOfExpiryMonth <= now.getTime()) {
       errors.push("card_expired");
     }
   }

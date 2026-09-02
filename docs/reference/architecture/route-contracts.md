@@ -107,6 +107,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
+- `/one/cards`
 - `/one/gmail`
 - `/one/email`
 - `/one/kyc`

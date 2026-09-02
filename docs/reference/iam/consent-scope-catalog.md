@@ -39,6 +39,16 @@ Define canonical scope families and template policy for Investor + RIA consent r
 8. `source_library` is a reserved owner-managed capability boundary, not a
    shareable PKM scope. Every `attr.source_library.*` form is non-discoverable,
    non-requestable, non-issuable, and non-authorizing.
+9. `payment_cards` is a reserved owner-managed PKM domain that is deliberately
+   shareable, unlike `source_library`: exactly two branch wildcards,
+   `attr.payment_cards.summary.*` (nickname, brand, last4, expiry, issuing
+   region) and `attr.payment_cards.secrets.*` (PAN, CVV, PIN, cardholder
+   name), are externally requestable, and every grant is an explicit owner
+   approval delivered through the encrypted-export path. The domain wildcard,
+   exact-path scopes, and public projection stay closed. Natural-language
+   structuring can never invent or repurpose the domain, and scope display
+   metadata carries a `reserved` indicator so chat and consent surfaces render
+   reserved-domain grants distinctly from ordinary dynamic ones.
 
 ### Source Library object-share boundary
 
@@ -248,6 +258,7 @@ replace specialist scopes or PKM/data scopes.
 | --- | --- |
 | `cap.one.invoke` | Create or resume an Agent One task; grants no private-data read or mutation authority |
 | `agent.kai.analyze` | Invoke Kai for finance, portfolio, market, and RIA/investor analysis |
+| `agent.cards.manage` | Invoke the Cards specialist for storing, listing, and revealing payment cards; control-plane only, never a `payment_cards` data read |
 | `agent.nav.review` | Invoke Nav for privacy, consent, vault, deletion, and scope-review guidance |
 | `agent.kyc.process` | Invoke KYC for identity workflow state and approval-gated KYC processing |
 

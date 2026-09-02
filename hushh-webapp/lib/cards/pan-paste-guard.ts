@@ -5,48 +5,35 @@
  * contain a full card number must never reach /api/one/agent-chat, the model,
  * history, logs, or telemetry. Shared with the secure add-card form.
  *
- * Heuristic: any 13-19 digit run (spaces/dashes tolerated) that passes Luhn is
- * treated as a likely PAN. Phone numbers and order ids fall outside the length
- * window or fail the checksum.
+ * Heuristic: a MAXIMAL digit run (spaces/dashes tolerated) of PAN length
+ * (13-19) that passes Luhn as a whole is treated as a likely PAN. Judging the
+ * whole run, rather than sliding a window inside it, is deliberate: a random
+ * 16-digit order id has about a 1-in-10 chance of containing SOME Luhn-valid
+ * window, which made the windowed version block ordinary ids.
  */
 
 import { luhnValid } from "./card-validation";
 
-const CANDIDATE_RUN = /(?:\d[ -]?){13,19}/g;
+const DIGIT_RUN = /\d(?:[ -]?\d)*/g;
+
+function isLikelyPanRun(run: string): boolean {
+  const digits = run.replace(/[\s-]/g, "");
+  return digits.length >= 13 && digits.length <= 19 && luhnValid(digits);
+}
 
 export function detectLikelyPan(text: string): boolean {
   const value = String(text ?? "");
   if (!value) return false;
-  const matches = value.match(CANDIDATE_RUN);
+  const matches = value.match(DIGIT_RUN);
   if (!matches) return false;
-  for (const match of matches) {
-    const digits = match.replace(/[\s-]/g, "");
-    // A long digit run can embed a PAN at any offset; slide the window.
-    for (let length = 19; length >= 13; length -= 1) {
-      for (let start = 0; start + length <= digits.length; start += 1) {
-        if (luhnValid(digits.slice(start, start + length))) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
+  return matches.some(isLikelyPanRun);
 }
 
 /** Redact likely PAN runs, keeping the last four digits for orientation. */
 export function redactLikelyPans(text: string): string {
-  return String(text ?? "").replace(CANDIDATE_RUN, (match) => {
+  return String(text ?? "").replace(DIGIT_RUN, (match) => {
+    if (!isLikelyPanRun(match)) return match;
     const digits = match.replace(/[\s-]/g, "");
-    let isPan = false;
-    for (let length = 19; length >= 13 && !isPan; length -= 1) {
-      for (let start = 0; start + length <= digits.length; start += 1) {
-        if (luhnValid(digits.slice(start, start + length))) {
-          isPan = true;
-          break;
-        }
-      }
-    }
-    if (!isPan) return match;
     return `•••• ${digits.slice(-4)}`;
   });
 }

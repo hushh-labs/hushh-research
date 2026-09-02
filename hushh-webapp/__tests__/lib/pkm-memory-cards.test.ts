@@ -209,6 +209,13 @@ describe("PKM memory cards", () => {
       expect(shouldSkipPkmMemoryKey("access_token")).toBe(true);
       expect(shouldSkipPkmMemoryKey("artifact_id")).toBe(true);
     });
+
+    it("keeps payment cards out of agent memory context, at both the domain and the secrets subtree", () => {
+      // The domain-level guard is the primary wall; the `secrets` key name
+      // matching SECRET_KEY_PATTERN is deliberate defense in depth.
+      expect(shouldSkipPkmMemoryKey("payment_cards")).toBe(true);
+      expect(shouldSkipPkmMemoryKey("secrets")).toBe(true);
+    });
   });
 
   describe("pkmMemoryRowLabels", () => {
