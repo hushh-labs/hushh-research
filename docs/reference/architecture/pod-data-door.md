@@ -11,6 +11,25 @@ asks the **hub broker** to run one fixed, read-only read on the owner's own proj
 and hand back a **fail-closed projection**. This is the mechanism behind the
 north-star's "staged door-by-door plan."
 
+## Visual Map
+
+```mermaid
+flowchart TB
+  relay["Hub relay<br/>mints a short-TTL per-specialist scope, best-effort"]
+  pod["Keyless pod<br/>no DB credential, no OAuth token"]
+  broker["Hub broker (pod_specialist)<br/>verify_pod_identity + re-validate scope + owner bind"]
+  read["One fixed READ-ONLY read on the owner's own project<br/>location: list_state(read_only) · email: list_nudges (OAuth)"]
+  projection["Fail-closed projection (pod_data_door)<br/>allow-list only: no body, no PII, no key, no resource handle"]
+  summary["Deterministic summary rendered IN the pod<br/>_format_X_summary, from the projection"]
+
+  relay -->|couriers dataDoorGrants[name] into the turn| pod
+  pod -->|hands the scope token back to the broker| broker
+  broker -->|A's scope on B's pod is refused| read
+  read -->|raw owner state| projection
+  projection -->|pod-safe subset only| summary
+  summary -->|the specialist's answer, no runtime_unavailable| pod
+```
+
 ## The four invariants (enforced in code, not asserted in prose)
 
 1. **Read-only w.r.t. DOMAIN state.** No reader mutates the owner's location shares,
