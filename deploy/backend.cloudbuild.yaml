@@ -74,6 +74,10 @@ steps:
   # A separate step gets its own budget; failure here stops the build the same way.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
+    env:
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL}"
     args:
       - "-c"
       - |

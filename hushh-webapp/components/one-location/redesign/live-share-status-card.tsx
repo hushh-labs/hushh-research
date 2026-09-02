@@ -307,7 +307,6 @@ export function LiveShareStatusCard({
     event.preventDefault();
     onManage();
   };
-
   return (
     <section
       aria-label="Your live location share"
@@ -317,8 +316,7 @@ export function LiveShareStatusCard({
       role={cardManageEnabled ? "button" : undefined}
       tabIndex={cardManageEnabled ? 0 : undefined}
       onClick={cardManageEnabled ? onManage : undefined}
-      onKeyDown={handleCardKeyDown}
-      className={cn(CARD_SURFACE, LIVE_SHARE_CARD_CLASSNAME)}
+      onKeyDown={handleCardKeyDown}      className={cn(CARD_SURFACE, LIVE_SHARE_CARD_CLASSNAME)}
     >
       <div className={LIVE_SHARE_HEADER_CLASSNAME}>
         <span className="inline-flex min-w-0 items-center gap-2">

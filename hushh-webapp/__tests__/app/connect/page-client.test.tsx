@@ -2089,7 +2089,6 @@ describe("Connect — Circles", () => {
     expect(screen.queryByRole("tab", { name: "Circles" })).toBeNull();
     expect(screen.queryByLabelText("Search people")).toBeNull();
   });
-
   it("names the default surface explicitly, so back to People navigates", async () => {
     // The App Router refuses a navigation whose only change is that the whole
     // query string disappears -- measured on UAT, recorded in

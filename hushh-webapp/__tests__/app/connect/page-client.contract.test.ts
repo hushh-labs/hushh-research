@@ -14,8 +14,7 @@ describe("Connect canonical surface contract", () => {
 
     expect(source).toContain("<AppPageShell");
     expect(source).toContain('width="agent"');
-    expect(source).toContain("<AppPageHeaderRegion>");
-    expect(source).toContain("<PageHeader");
+    expect(source).toContain("<AppPageHeaderRegion>");    expect(source).toContain("<PageHeader");
     expect(source).toContain('title="Connect"');
     expect(source).toContain('titleRole="agent"');
     expect(source).not.toContain("icon={BookUser}");
@@ -117,8 +116,8 @@ describe("Connect canonical surface contract", () => {
       "utf8",
     );
 
-    expect(routes).toContain(
-      'export type FocusedConnectCircleAction =\n  | "create-circle"\n  | "join-circle"\n  | "circle-detail";',
+    expect(routes).toMatch(
+      /export type FocusedConnectCircleAction =\s*\|\s*"create-circle"\s*\|\s*"join-circle"\s*\|\s*"circle-detail";/,
     );
     expect(source).toContain("const isFocusedCircleTask =");
     expect(source).toContain("{isFocusedCircleTask ? (");
@@ -186,8 +185,7 @@ describe("Connect canonical surface contract", () => {
     );
     expect(adaptiveSurface).toContain(
       '? "whitespace-normal break-words [overflow-wrap:anywhere]"',
-    );
-  });
+    );  });
 
   it("renders a privacy-safe masked identity when duplicate names need disambiguation", () => {
     const serviceSource = readFileSync(

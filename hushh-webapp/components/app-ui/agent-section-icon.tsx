@@ -76,12 +76,12 @@ const ICON_SIZE_CLASS = {
     pixels: 40,
   },
   "roster-dashboard": {
-    surface: "h-[52px] w-[52px]",
-    lucideSurface: "h-[52px] w-[52px] rounded-[14px]",
-    imageSurface: "rounded-[14px]",
-    lucide: "h-[23px] w-[23px]",
+    surface: "h-14 w-14",
+    lucideSurface: "h-14 w-14 rounded-[16px]",
+    imageSurface: "rounded-[16px]",
+    lucide: "h-6 w-6",
     image: "h-full w-full object-contain",
-    pixels: 52,
+    pixels: 56,
   },
   // Larger rounded-square tile for the dashboard grid card (reference design).
   "roster-lg": {
@@ -101,7 +101,7 @@ const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
   menu: "rounded-[11px]",
   setup: "rounded-[10px]",
   roster: "rounded-[12px]",
-  "roster-dashboard": "rounded-[14px]",
+  "roster-dashboard": "rounded-[16px]",
   "roster-lg": "rounded-[18px]",
 };
 
@@ -231,10 +231,7 @@ export function AgentSectionIcon({
           // ancestor cannot override the requested contrast. Branded chips
           // use dark glyphs in light mode and light glyphs in dark mode; the
           // same primitive drives the dashboard grid and the top switcher.
-          className={cn(
-            classes.lucide,
-            tone ? "!text-white" : "text-current",
-          )}
+          className={cn(classes.lucide, tone ? "!text-white" : "text-current")}
           aria-hidden
         />
       ) : null}

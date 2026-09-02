@@ -1068,9 +1068,9 @@ export function AuthStep({
         data-auth-content-block
       >
         {/* Center the complete sign-in group as one visual block while the
-            fixed Back control remains independently anchored above it. The
-            clusters use one deliberate rhythm: identity, provider actions,
-            then the consent and legal context. */}
+            fixed Back control remains independently anchored above it. Legal
+            copy is anchored separately at the bottom like a standard auth
+            footer, so it does not read as primary sign-in content. */}
         <div
           className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"
           data-auth-signin-clusters
@@ -1142,45 +1142,34 @@ export function AuthStep({
               ) : null}
             </div>
 
-            <div
-              className="flex flex-col items-center gap-3"
-              data-auth-supporting-content
-            >
-              {/* Consent-first reassurance chip. */}
-              <div className="flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
-                <Icon
-                  icon={Shield}
-                  size="sm"
-                  className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
-                />
-                <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
-                  You choose what One can see.
-                </span>
-              </div>
-
-              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
-                By continuing you agree to our{" "}
-                <button
-                  type="button"
-                  onClick={() => void openLegalDoc("terms")}
-                  data-voice-control-id="auth_terms"
-                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-                >
-                  Terms
-                </button>
-                <span aria-hidden="true"> and </span>
-                <button
-                  type="button"
-                  onClick={() => void openLegalDoc("privacy")}
-                  data-voice-control-id="auth_privacy"
-                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-                >
-                  Privacy Policy
-                </button>
-                .
-              </p>
-            </div>
           </div>
+        </div>
+      </div>
+      <div className="absolute inset-x-6 bottom-5 z-10 flex justify-center">
+        <div
+          className="flex flex-col items-center gap-3"
+          data-auth-supporting-content
+        >
+          <p className="type-footnote mx-auto max-w-[24rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+            By continuing you agree to our{" "}
+            <button
+              type="button"
+              onClick={() => void openLegalDoc("terms")}
+              data-voice-control-id="auth_terms"
+              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+            >
+              Terms
+            </button>
+            <span aria-hidden="true"> and </span>
+            <button
+              type="button"
+              onClick={() => void openLegalDoc("privacy")}
+              data-voice-control-id="auth_privacy"
+              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+            >
+              Privacy Policy
+            </button>
+          </p>
         </div>
       </div>
       <AuthLegalDialog
