@@ -1194,12 +1194,58 @@ async def startup_personal_agent_reconcile_worker() -> None:
                 f"column, so any candidate is age-based ({external_agent_id[:8]}…)"
             )
 
+        # The image-upgrade sweep. The hub's HUSSH_ONE_POD_IMAGE is set by the deploy
+        # that built it, so "hub at sha X, pods at sha X" is the invariant this keeps:
+        # until it existed a hub deploy left every running pod on whatever image it
+        # was born with (the founder's first BYOC pod, 2026-09-02, five commits behind).
+        def _upgrade_service():
+            from hushh_mcp.services.compute_backend import resolve_compute_backend
+            from hushh_mcp.services.personal_agent_provisioning_service import (
+                PersonalAgentProvisioningService,
+            )
+            from hushh_mcp.services.personal_agent_registry_repo import (
+                PersonalAgentRegistryRepo,
+            )
+
+            return PersonalAgentProvisioningService(
+                registry=PersonalAgentRegistryRepo(),
+                backend=resolve_compute_backend(),
+            )
+
+        def _current_pod_image() -> str:
+            return str(os.environ.get("HUSSH_ONE_POD_IMAGE") or "").strip()
+
+        async def fetch_stale() -> list:
+            from hushh_mcp.services.personal_agent_provisioning_service import running_image
+            from hushh_mcp.services.personal_agent_reconcile_worker import StalePod
+
+            current = _current_pod_image()
+            if not current:
+                return []
+            rows = await _upgrade_service().list_upgrade_candidates(current_image=current)
+            return [
+                StalePod(
+                    user_id=str(r.get("user_id") or ""),
+                    hushh_id=str(r.get("hushh_id") or ""),
+                    image=running_image(r) or "",
+                )
+                for r in rows
+                if r.get("user_id")
+            ]
+
+        async def upgrade(user_id: str) -> None:
+            await _upgrade_service().upgrade_pod(
+                user_id=user_id, current_image=_current_pod_image()
+            )
+
         task = start_personal_agent_reconcile_loop(
             fetch_stalled=fetch_stalled,
             retry=retry,
             fetch_idle=fetch_idle,
             reap=reap,
             interval_seconds=300,
+            fetch_stale=fetch_stale,
+            upgrade=upgrade,
         )
         if task is None:
             logger.info("startup.personal_agent_reconcile_off flag=disabled")

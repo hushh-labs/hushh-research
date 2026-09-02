@@ -256,10 +256,12 @@ assertions:
     statement: "A running pod can be moved to a newer image without losing its memory."
     falsifiable: true
     owner_action: >-
-      _ensure_pod_image deliberately pins the recorded digest so a heal cannot roll
-      forward (user_gcp_backend.py:487), so an upgrade is an operator action outside
-      the product today. Ship the path, then write the named test to prove an upgraded
-      pod still recalls what it was taught and keeps its identity key.
+      Shipped 2026-09-02: `UserGcpBackend.upgrade` / `GcpBackend.upgrade` replace the
+      revision in place on the hub's current image (a heal still pins the deployed
+      digest), `PersonalAgentProvisioningService.upgrade_pod` rewrites only the image
+      facts on the row, and the reconcile worker's bounded sweep
+      (PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED, PERSONAL_AGENT_UPGRADE_BATCH) moves the
+      fleet after each hub deploy. `scripts/ops/pod_upgrade.py` is the operator hand.
     check:
       # Names a test that does NOT exist yet, on purpose. `manual` here would report
       # UNKNOWN forever; a missing pytest target FAILS, which is the accurate word

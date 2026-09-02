@@ -83,10 +83,13 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from hushh_mcp.runtime_settings import (
     personal_agent_enabled,
     personal_agent_reconcile_enabled,
+    personal_agent_upgrade_batch,
+    personal_agent_upgrade_sweep_enabled,
     pod_idle_reap_hours,
 )
 from hushh_mcp.services.personal_agent_provisioning_service import (
@@ -136,6 +139,21 @@ class IdlePod:
     external_agent_id: str
 
 
+@dataclass(frozen=True)
+class StalePod:
+    """
+    Minimal record returned by the fetch_stale callable.
+
+    user_id  — owner of the registry row (the upgrade's subject)
+    hushh_id — opaque agent identifier; may be empty
+    image    — the image the row says the pod was built from
+    """
+
+    user_id: str
+    hushh_id: str
+    image: str
+
+
 @dataclass
 class ReconcileReport:
     """Summary returned by a single scan_and_reconcile() call."""
@@ -148,6 +166,8 @@ class ReconcileReport:
     scan_end: datetime
     skipped: bool = False
     label: str = _LABEL
+    upgraded_count: int = 0
+    upgrade_failed_count: int = 0
 
     @property
     def total_scanned(self) -> int:
@@ -156,6 +176,8 @@ class ReconcileReport:
             + self.retry_failed_count
             + self.reaped_count
             + self.reap_failed_count
+            + self.upgraded_count
+            + self.upgrade_failed_count
         )
 
     def summary(self) -> str:
@@ -163,8 +185,9 @@ class ReconcileReport:
         return (
             f"[{self.label}] Reconcile scan: "
             f"{self.retried_count} retried, {self.reaped_count} reaped, "
-            f"{self.retry_failed_count + self.reap_failed_count} failed "
-            f"of {self.total_scanned} in {elapsed:.2f}s"
+            f"{self.upgraded_count} upgraded, "
+            f"{self.retry_failed_count + self.reap_failed_count + self.upgrade_failed_count} "
+            f"failed of {self.total_scanned} in {elapsed:.2f}s"
         )
 
 
@@ -214,6 +237,18 @@ class PersonalAgentReconcileWorker:
         tombstone, no row delete.  Signature::
 
             async def reap(external_agent_id: str) -> None: ...
+
+    fetch_stale / upgrade (optional)
+        The image-upgrade sweep. ``fetch_stale`` returns the whole pods whose
+        recorded build is not the hub's current image; ``upgrade`` moves ONE pod
+        onto it in place. Both default to None, which disables the sweep
+        structurally; it is further gated by
+        ``PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED`` and bounded per pass by
+        ``PERSONAL_AGENT_UPGRADE_BATCH``, because it restarts people's pods.
+        Signatures::
+
+            async def fetch_stale() -> list[StalePod]: ...
+            async def upgrade(user_id: str) -> None: ...
     """
 
     def __init__(
@@ -222,11 +257,15 @@ class PersonalAgentReconcileWorker:
         retry: Callable[[str], Awaitable[None]],
         fetch_idle: Callable[[datetime], Awaitable[list[IdlePod]]],
         reap: Callable[[str], Awaitable[None]],
+        fetch_stale: Optional[Callable[[], Awaitable[list[StalePod]]]] = None,
+        upgrade: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> None:
         self._fetch_stalled = fetch_stalled
         self._retry = retry
         self._fetch_idle = fetch_idle
         self._reap = reap
+        self._fetch_stale = fetch_stale
+        self._upgrade = upgrade
 
     async def scan_and_reconcile(self) -> ReconcileReport:
         """
@@ -246,6 +285,7 @@ class PersonalAgentReconcileWorker:
 
         retried, retry_failed = await self._retry_stalled()
         reaped, reap_failed = await self._reap_idle()
+        upgraded, upgrade_failed = await self._upgrade_stale()
 
         report = ReconcileReport(
             retried_count=retried,
@@ -254,6 +294,8 @@ class PersonalAgentReconcileWorker:
             reap_failed_count=reap_failed,
             scan_start=scan_start,
             scan_end=datetime.now(timezone.utc),
+            upgraded_count=upgraded,
+            upgrade_failed_count=upgrade_failed,
         )
         logger.info(report.summary())
         return report
@@ -323,10 +365,58 @@ class PersonalAgentReconcileWorker:
                 logger.exception("[%s] personal_agent.reap_failed", _LABEL)
         return reaped, failed
 
+    # ---------------------------------------------------------------------------
+    # Background loop
+    # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Background loop
-# ---------------------------------------------------------------------------
+    async def _upgrade_stale(self) -> tuple[int, int]:
+        """Move at most one batch of stale pods onto the current image.
+
+        Inert unless BOTH callables were injected AND the sweep flag is on; the
+        flag is read per pass so it can be flipped off mid-rollout. One failed
+        upgrade never stops the batch, and the batch is small on purpose (see
+        ``personal_agent_upgrade_batch``): a bad image is found by the first few
+        people it reaches, not by everyone at once.
+        """
+        if self._fetch_stale is None or self._upgrade is None:
+            return 0, 0
+        if not personal_agent_upgrade_sweep_enabled():
+            return 0, 0
+        try:
+            stale = await self._fetch_stale()
+        except Exception:
+            logger.exception("[%s] fetch_stale failed; skipping upgrade sweep", _LABEL)
+            return 0, 0
+        batch = stale[: personal_agent_upgrade_batch()]
+        if stale and not batch:
+            return 0, 0
+        upgraded = 0
+        failed = 0
+        for pod in batch:
+            try:
+                await self._upgrade(pod.user_id)
+                upgraded += 1
+                logger.info(
+                    "[%s] upgraded hushh_id=%s from=%s",
+                    _LABEL,
+                    pod.hushh_id or "<none>",
+                    (pod.image or "-").rsplit("/", 1)[-1][:48],
+                )
+            except Exception as exc:
+                failed += 1
+                # Type only, never the message: the message can carry a cloud error
+                # body, a URL, or a token.
+                logger.warning(
+                    "[%s] upgrade failed hushh_id=%s error=%s",
+                    _LABEL,
+                    pod.hushh_id or "<none>",
+                    type(exc).__name__,
+                )
+        if len(stale) > len(batch):
+            logger.info(
+                "[%s] %d stale pods remain after this batch", _LABEL, len(stale) - len(batch)
+            )
+        return upgraded, failed
 
 
 async def _reconcile_loop(
@@ -353,6 +443,8 @@ def start_personal_agent_reconcile_loop(
     fetch_idle: Callable[[datetime], Awaitable[list[IdlePod]]],
     reap: Callable[[str], Awaitable[None]],
     interval_seconds: float = 900.0,
+    fetch_stale: Optional[Callable[[], Awaitable[list[StalePod]]]] = None,
+    upgrade: Optional[Callable[[str], Awaitable[None]]] = None,
 ) -> asyncio.Task | None:
     """
     Schedule the reconcile worker as a background asyncio Task.
@@ -374,6 +466,8 @@ def start_personal_agent_reconcile_loop(
         retry=retry,
         fetch_idle=fetch_idle,
         reap=reap,
+        fetch_stale=fetch_stale,
+        upgrade=upgrade,
     )
     return asyncio.create_task(
         _reconcile_loop(worker, interval_seconds),

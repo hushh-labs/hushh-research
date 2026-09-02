@@ -274,6 +274,32 @@ class _Grant(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class PersonalAgentUpgradeUnsupportedError(RuntimeError):
+    """The backend that holds this pod has no in-place upgrade. Only a backend that
+    replaces a revision under a stable address can promise the person's memory and
+    identity survive, so a backend without ``upgrade`` is refused rather than
+    rebuilt."""
+
+
+def running_image(row: Optional[dict[str, Any]]) -> Optional[str]:
+    """The hub-side image a pod was built from, as its registry row records it.
+
+    ``source_image`` on a user-owned pod (its own registry holds a digest-pinned
+    COPY, so the recorded ``image`` is the copy, not what the hub ships) and
+    ``image`` on a hussh-hosted one. Neither means the row has no host, which is
+    "nothing to upgrade" rather than "stale".
+    """
+    meta = (row or {}).get("backend_metadata") or {}
+    value = meta.get("source_image") or meta.get("image")
+    return str(value).strip() or None if value else None
+
+
+#: A pod that failed to come up on one target image is retried this many times for
+#: THAT image, then left alone until the image moves again. Without the cap a pod
+#: whose new revision cannot boot would be replaced every pass forever.
+UPGRADE_ATTEMPTS_PER_IMAGE = 3
+
+
 class PersonalAgentProvisioningService:
     """Orchestrates provisioning and teardown of a user's own agent."""
 
@@ -927,6 +953,162 @@ class PersonalAgentProvisioningService:
 
         await attach_parked_cloud(user_id, registry=self._registry)
         return {"hushhId": hushh_id, "status": "pending"}
+
+    async def list_upgrade_candidates(
+        self, *, current_image: str, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        """Whole pods whose recorded build is not the hub's current image.
+
+        Skips rows with no recorded host image (nothing to move) and rows that
+        already failed ``UPGRADE_ATTEMPTS_PER_IMAGE`` times on THIS image, so a
+        revision that cannot boot is not replayed every pass. A pod that failed on
+        an older image becomes a candidate again the moment the image moves.
+        """
+        target = str(current_image or "").strip()
+        if not target:
+            return []
+        rows = await self._registry.fetch_upgrade_candidates(limit=limit)
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            built_from = running_image(row)
+            if not built_from or built_from == target:
+                continue
+            marker = ((row or {}).get("backend_metadata") or {}).get("upgrade") or {}
+            if (
+                str(marker.get("failedImage") or "") == target
+                and int(marker.get("attempts") or 0) >= UPGRADE_ATTEMPTS_PER_IMAGE
+            ):
+                continue
+            out.append(row)
+        return out
+
+    async def upgrade_pod(self, *, user_id: str, current_image: str) -> dict[str, Any]:
+        """Move one person's running pod onto ``current_image``, keeping who it is.
+
+        ``provision`` heals to the digest a pod already runs -- correct for a heal,
+        and the reason a fix shipped to the hub never reached a running pod. This is
+        the deliberate roll-forward: same service, same bucket, same identity key,
+        new revision. It reads the row for everything (billing space, cloud
+        coordinates, key columns) and re-derives nothing, and it writes back ONLY the
+        backend metadata that changed -- status, ``provisioned_at``, identity and the
+        substrate receipt are untouched by construction (``record_image_upgrade``).
+
+        A failure is recorded on the row as an ``upgrade`` marker and re-raised
+        unchanged; the marker is what bounds retries per image.
+        """
+        if not personal_agent_enabled():
+            raise PersonalAgentDisabledError(
+                "upgrade requested while PERSONAL_AGENT_ENABLED is off"
+            )
+        row = await self._registry.get(user_id)
+        if row is None:
+            raise ValueError("no personal agent is registered for this person")
+        if str(row.get("status") or "") != "provisioned":
+            raise ValueError(
+                f"only a provisioned pod can be upgraded (status is {row.get('status')!r})"
+            )
+        hushh_id = str(row.get("hushh_id") or "").strip()
+        phone_hash = str(row.get("phone_e164_hash") or "").strip()
+        if not hushh_id or not phone_hash:
+            raise ValueError("registry row is missing its identity; refusing to upgrade")
+
+        cloud = await resolve_user_cloud(user_id, repo=self._registry)
+        if cloud is not None and cloud.blocks_provisioning:
+            raise PersonalAgentCloudNotAuthorizedError(
+                "this person's own cloud is recorded but not authorized; their pod "
+                "cannot be upgraded there until they re-run the authorization"
+            )
+        spec = PodSpec(
+            hushh_id=hushh_id,
+            phone_e164_hash=phone_hash,
+            billing_space_id=row.get("billing_space_id"),
+            pod_pubkey=str(row.get("pod_pubkey") or ""),
+            deployment_target=row.get("deployment_target")
+            or (cloud.deployment_target if cloud else None),
+            model_credential_mode=row.get("model_credential_mode")
+            or (cloud.model_credential_mode if cloud else None),
+            user_cloud_project=(cloud.project if cloud else None),
+            user_cloud_region=(cloud.region if cloud else None),
+            user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
+        )
+        backend = self._backend_for(spec)
+        upgrade = getattr(backend, "upgrade", None)
+        if upgrade is None:
+            raise PersonalAgentUpgradeUnsupportedError(
+                f"backend {getattr(backend, 'backend_id', '?')!r} cannot upgrade a pod in place"
+            )
+        old_meta = dict(row.get("backend_metadata") or {})
+        previous = running_image(row)
+        try:
+            handle = await upgrade(spec)
+        except Exception as exc:
+            marker = old_meta.get("upgrade") or {}
+            attempts = (
+                int(marker.get("attempts") or 0) + 1
+                if str(marker.get("failedImage") or "") == current_image
+                else 1
+            )
+            reason = user_safe_failure_reason(exc)
+            try:
+                await self._registry.record_image_upgrade(
+                    user_id=user_id,
+                    backend_metadata={
+                        **old_meta,
+                        "upgrade": {
+                            "failedImage": current_image,
+                            "attempts": attempts,
+                            "lastError": reason,
+                        },
+                    },
+                )
+            except Exception:
+                logger.exception("personal_agent.upgrade_marker_write_failed")
+            await pod_lifecycle_append(
+                user_id,
+                stage="authority_live",
+                registry_status="provisioned",
+                event="upgrade_failed",
+                hushh_id=hushh_id,
+                attempt=attempts,
+                reason=reason,
+            )
+            logger.warning(
+                "personal_agent.upgrade_failed hushh_id=%s attempt=%s reason=%s",
+                hushh_id,
+                attempts,
+                reason,
+            )
+            raise
+
+        new_meta = {**old_meta, **(handle.backend_metadata or {})}
+        new_meta.pop("upgrade", None)
+        changed = bool(new_meta.get("upgraded", True))
+        await self._registry.record_image_upgrade(
+            user_id=user_id,
+            backend_metadata=new_meta,
+            liveness_mode=new_meta.get("livenessMode"),
+        )
+        await pod_lifecycle_append(
+            user_id,
+            stage="authority_live",
+            registry_status="provisioned",
+            event="upgraded" if changed else "upgrade_noop",
+            hushh_id=hushh_id,
+            reason=f"{previous or '-'} -> {running_image({'backend_metadata': new_meta}) or '-'}",
+        )
+        logger.info(
+            "personal_agent.upgraded hushh_id=%s service=%s changed=%s",
+            hushh_id,
+            handle.external_agent_id or "<none>",
+            changed,
+        )
+        return {
+            "hushhId": hushh_id,
+            "status": "provisioned",
+            "upgraded": changed,
+            "image": running_image({"backend_metadata": new_meta}),
+            "previousImage": previous,
+        }
 
     async def adopt_orphan(self, *, user_id: str) -> Optional[dict[str, Any]]:
         """Reconnect to a pod that ALREADY exists in the user's project, not rebuild it.

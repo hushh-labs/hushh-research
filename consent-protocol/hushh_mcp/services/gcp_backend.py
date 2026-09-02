@@ -48,6 +48,7 @@ from hushh_mcp.services.compute_backend import (
     TIER_LOGICAL,
     BackendHandle,
     BackendStatus,
+    PodBootFailedError,
     PodSpec,
 )
 
@@ -520,6 +521,90 @@ class GcpBackend:
             status="planned",
             backend=self.backend_id,
             backend_metadata=metadata,
+            attestation_ref=("pending-attestation" if spec.tier == TIER_DEDICATED else None),
+        )
+
+    async def upgrade(self, spec: PodSpec) -> BackendHandle:
+        """Roll THIS person's hussh-hosted pod onto the hub's current image tag.
+
+        Same contract as the user-owned tier's ``upgrade``: replace in place, never
+        delete + create, refuse when no service exists, raise rather than record
+        when the new revision does not become Ready. The managed tier deploys a TAG
+        (Cloud Run pins the digest per revision), so the revision nonce is the tag
+        itself: the template changes exactly when the hub's image moved, and a
+        replay on the same tag mints nothing.
+        """
+        config = self.render_deploy_config(spec)
+        name = str(config["metadata"]["name"])
+        route = f"{A2A_ADDRESS_BASE}/{spec.hushh_id}"
+        if not self._live:
+            return BackendHandle(
+                external_agent_id=name,
+                a2a_route=route,
+                status="planned",
+                backend=self.backend_id,
+                backend_metadata={"service": name, "image": self._image, "upgraded": False},
+            )
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+        from hushh_mcp.services.hosted_tier_guard import require_hosted_pod_creates_permitted
+
+        # A fleet that is not aimed may not be rolled either.
+        require_hosted_pod_creates_permitted("hussh-managed pod upgrade")
+        client = self._client or self._build_client()
+
+        def _run() -> tuple[bool, Optional[dict[str, Any]], Optional[str]]:
+            existing = client.get_service(name)
+            if existing is None:
+                raise RuntimeError(
+                    f"cannot upgrade {name}: no such pod service; provision it instead"
+                )
+            previous = None
+            try:
+                previous = str(
+                    existing["spec"]["template"]["spec"]["containers"][0].get("image", "")
+                )
+            except (KeyError, IndexError, TypeError):
+                previous = None
+            tag = str(self._image or "").rsplit(":", 1)[-1] or "latest"
+            client.replace_service(
+                name,
+                client.merge_for_replace(existing, config, revision_nonce=f"image-{tag}"),
+            )
+            ready, svc = client.wait_ready(name)
+            if not ready:
+                boot_failure = GcpRunClient.ready_failure(svc)
+                if boot_failure is not None:
+                    raise PodBootFailedError(
+                        f"pod {name} failed to start on {self._image}: "
+                        f"{' '.join(boot_failure.split())[:200]} -- the previous "
+                        "revision keeps serving"
+                    )
+                raise RuntimeError(
+                    f"upgrade of {name} to {self._image} was not confirmed Ready in time"
+                )
+            return ready, svc, previous
+
+        ready, svc, previous = await asyncio.to_thread(_run)
+        logger.info("gcp_backend.upgraded service=%s image=%s", name, self._image)
+        return BackendHandle(
+            external_agent_id=name,
+            a2a_route=route,
+            status="live",
+            backend=self.backend_id,
+            backend_metadata={
+                "project": self._project,
+                "projectSource": self._project_source,
+                "region": spec.region or self._region,
+                "service": name,
+                "url": GcpRunClient.service_url(svc) or "",
+                "ready": ready,
+                "tier": spec.tier,
+                "ingress": self._ingress,
+                "image": self._image,
+                "previous_image": previous,
+                "upgraded": True,
+                "livenessMode": _liveness_mode(_rendered_min_scale(config)),
+            },
             attestation_ref=("pending-attestation" if spec.tier == TIER_DEDICATED else None),
         )
 

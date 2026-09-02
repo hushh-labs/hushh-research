@@ -373,6 +373,7 @@ user_gcp_substrate_apply=""
 pod_ingress=""
 pod_lifecycle_log=""
 personal_agent_reconcile=""
+personal_agent_upgrade_sweep=""
 personal_agent_reachability=""
 dev_phone_test_numbers=""
 dev_pod_state_bucket=""
@@ -524,6 +525,11 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # documented as the recovery path while enabled NOWHERE -- the promise
   # "we'll retry automatically" was false in every environment.
   personal_agent_reconcile="true"
+  # The image-upgrade sweep inside that worker: with it off, a hub deploy leaves
+  # every running pod on the image it was born with, so a fix shipped here never
+  # reaches a person's pod (seen 2026-09-02: a BYOC pod five commits behind its
+  # hub). Bounded per pass by PERSONAL_AGENT_UPGRADE_BATCH (default 3).
+  personal_agent_upgrade_sweep="true"
   # Let the wake path DISTINGUISH a gone pod (service deleted) from a cold one.
   # Off, a deleted host reports "waking" forever and the returning user hangs; on,
   # a confirmed-gone verdict flips the row to needs_reinit and the app offers the
@@ -639,6 +645,7 @@ append_optional_env "HUSSH_USER_GCP_SUBSTRATE_APPLY" "${user_gcp_substrate_apply
 append_optional_env "HUSSH_POD_INGRESS" "${pod_ingress}"
 append_optional_env "POD_LIFECYCLE_LOG_ENABLED" "${pod_lifecycle_log}"
 append_optional_env "PERSONAL_AGENT_RECONCILE_ENABLED" "${personal_agent_reconcile}"
+append_optional_env "PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED" "${personal_agent_upgrade_sweep}"
 append_optional_env "PERSONAL_AGENT_REACHABILITY_GATE" "${personal_agent_reachability}"
 append_optional_env "HUSSH_HOSTED_POD_TIER_ENABLED" "${hosted_pod_tier}"
 append_optional_env "HUSSH_POD_PROJECT" "${hosted_pod_project}"

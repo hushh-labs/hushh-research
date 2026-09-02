@@ -294,3 +294,36 @@ probe that proved memory is erased today.
 
 - Verified reading of `pod_storage.py`, `pod_commit_log.py`, `pod_pkm_store.py`, `user_gcp_backend.py`, `personal_agent_reconcile_worker.py`, `runtime_settings.py` and `api/routes/account.py`, plus an exhaustive caller search for the storage resolver and commit log across `consent-protocol/`, 2026-08-07.
 - Companion records: [the north star](../architecture/private-agent-north-star.md), [Anypoint vs user-owned GCP](../architecture/anypoint-vs-user-gcp.md), and [the plan of record](../architecture/private-agent-one-plan-of-record.md).
+
+## Upgrading a running pod to the hub's current image
+
+A heal converges a pod to the digest it already runs, on purpose: a heal must never
+silently change what a person is running. The consequence, found on 2026-09-02, was
+that nothing else moved a pod either. The founder's first user-owned pod stayed on an
+image five commits behind the hub that built it and served that older code's 502 on
+the calendar door while every hub-side test was green.
+
+The upgrade path is the deliberate roll-forward, and it is the only path that
+resolves the mutable source tag again:
+
+- **Backend** (`UserGcpBackend.upgrade`, `GcpBackend.upgrade`): copies the hub's
+  current image into the person's own registry, replaces the Cloud Run service in
+  place (PUT, never delete and create, so the URL survives), waits for Ready, and
+  raises rather than records when the new revision does not come up. Cloud Run keeps
+  serving the previous revision in that case.
+- **Service** (`PersonalAgentProvisioningService.upgrade_pod`): reads everything from
+  the registry row, re-derives nothing, and writes back only the image facts
+  (`record_image_upgrade`). Status, `provisioned_at`, the identity key columns and
+  the substrate receipt are untouched by construction. Memory and identity survive
+  because they live in the person's bucket and pod service account, not in the
+  container.
+- **Sweep**: the reconcile worker moves a bounded batch per pass once
+  `PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED=true` (`PERSONAL_AGENT_UPGRADE_BATCH`,
+  default 3). The hub's own `HUSSH_ONE_POD_IMAGE` is the fleet target, so the
+  invariant is "hub at sha X, pods at sha X" a few passes after each deploy. A pod
+  that fails three times on one image is left alone until the image moves again.
+- **Operator hand**: `uv run python scripts/ops/pod_upgrade.py --list | --user-id <uid> | --all`
+  from a hub environment. `--image <tag>` rolls a pod back to a tag that still exists.
+
+Guard: `consent-protocol/tests/test_pod_image_upgrade_path.py`, the ledger item
+`pod-image-has-a-supported-upgrade-path`.

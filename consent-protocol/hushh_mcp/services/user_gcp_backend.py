@@ -945,6 +945,113 @@ class UserGcpBackend:
             },
         )
 
+    async def upgrade(self, spec: PodSpec) -> BackendHandle:
+        """Move THIS person's running pod onto the hub's current image, in place.
+
+        The one path that resolves the mutable source tag AGAIN. A heal through
+        ``provision`` deliberately converges to the digest already deployed (see
+        ``_ensure_pod_image``), so until this existed a fix shipped to the hub never
+        reached a pod that was already running: the founder's first BYOC pod ran an
+        image five commits behind the hub that had built it, and served that older
+        code's 502 on the calendar door while every hub test was green (2026-09-02).
+
+        What it preserves, and why an upgrade is not a rebuild:
+
+        * the SERVICE is replaced (PUT), never deleted, so its name, URL and the
+          hub's recorded route survive;
+        * the config is the same one ``provision`` renders, so the pod's bucket
+          (``POD_STORAGE_GCS_BUCKET`` / ``_PREFIX``), its durable identity key and
+          its service account are unchanged -- memory and identity live THERE, not
+          in the container that is being swapped;
+        * Cloud Run keeps serving the previous revision when the new one never
+          becomes Ready, and this raises rather than returns, so the caller records
+          nothing and the row keeps telling the truth about what is serving.
+
+        A pod already on the current digest is a no-op that reports ``upgraded``
+        False. No service at all is a refusal: an upgrade is not a create.
+        """
+        name = _service_name(spec.hushh_id)
+        route = f"{A2A_ADDRESS_BASE}/{spec.hushh_id}"
+        if not self._live:
+            return BackendHandle(
+                external_agent_id=name,
+                a2a_route=route,
+                status="planned",
+                backend=self.backend_id,
+                backend_metadata={
+                    "tenancy": "user-owned",
+                    "service": name,
+                    "source_image": self._image,
+                    "upgraded": False,
+                },
+            )
+        import asyncio  # noqa: PLC0415
+
+        client = await asyncio.to_thread(self._client)
+        existing = await asyncio.to_thread(client.get_service, name)
+        if existing is None:
+            raise RuntimeError(
+                f"cannot upgrade {name}: no pod service exists in the person's project; "
+                "provision (or adopt) it instead"
+            )
+        previous_digest = _digest_from_service(existing)
+        # `None` for the recorded digest is the whole difference from a heal: resolve
+        # the source tag fresh and copy THAT digest into the person's registry.
+        image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, None)
+        config = self.render_deploy_config(spec, image_digest=image_digest)
+        changed = image_digest != previous_digest
+        svc: Optional[dict[str, Any]] = existing
+        if changed:
+            await asyncio.to_thread(
+                client.replace_service, name, client.merge_for_replace(existing, config)
+            )
+            ready, svc = await asyncio.to_thread(client.wait_ready, name)
+            if not ready:
+                from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
+
+                boot_failure = GcpRunClient.ready_failure(svc)
+                if boot_failure is not None:
+                    raise PodBootFailedError(
+                        f"pod {name} failed to start on {image_digest[:19]}: "
+                        f"{' '.join(boot_failure.split())[:200]} -- the previous "
+                        "revision keeps serving"
+                    )
+                raise RuntimeError(
+                    f"upgrade of {name} to {image_digest[:19]} was not confirmed Ready "
+                    "in time; nothing recorded, the next sweep re-checks"
+                )
+        url = client.service_url(svc)
+        logger.info(
+            "user_gcp_backend.upgraded service=%s changed=%s from=%s to=%s",
+            name,
+            changed,
+            (previous_digest or "-")[:19],
+            image_digest[:19],
+        )
+        return BackendHandle(
+            external_agent_id=name,
+            a2a_route=route,
+            status="live",
+            backend=self.backend_id,
+            backend_metadata={
+                "tenancy": "user-owned",
+                "project": self._user_project,
+                "region": spec.region or self._user_region,
+                "service": name,
+                "url": url or "",
+                "ingress": "internal",
+                "image": self._user_pod_image_ref(spec, image_digest),
+                "source_image": self._image,
+                "image_digest": image_digest,
+                "previous_image_digest": previous_digest,
+                "upgraded": changed,
+                "keyless": True,
+                "credential": "impersonated bootstrap SA, 15-minute token",
+                "runtime_service_account": self._pod_service_account(spec),
+                "livenessMode": _liveness_mode(_rendered_min_scale(config)),
+            },
+        )
+
     def _pod_service_account(self, spec: PodSpec) -> str:
         """The account this person's pod runs as, in their own project.
 

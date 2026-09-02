@@ -708,6 +708,37 @@ def personal_agent_reconcile_enabled() -> bool:
     return _bool_from_value(_clean_env("PERSONAL_AGENT_RECONCILE_ENABLED"), default=False)
 
 
+def personal_agent_upgrade_sweep_enabled() -> bool:
+    """Kill-switch for the pod IMAGE UPGRADE sweep inside the reconcile worker.
+
+    Default **OFF**, and a third switch on top of ``PERSONAL_AGENT_ENABLED`` and
+    ``PERSONAL_AGENT_RECONCILE_ENABLED``: the sweep REPLACES running pods' revisions
+    across the fleet whenever the hub's ``HUSSH_ONE_POD_IMAGE`` moves, which is a
+    fleet-wide rollout and must be turned on deliberately per lane. Off, the worker
+    never reads a candidate and never calls an upgrade, so a hub deploy leaves every
+    running pod exactly as it was (the pre-2026-09-02 behaviour, now a choice rather
+    than a gap)."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED"), default=False)
+
+
+_PERSONAL_AGENT_UPGRADE_BATCH_DEFAULT = 3
+
+
+def personal_agent_upgrade_batch() -> int:
+    """How many pods ONE reconcile pass may move to the current image.
+
+    Small on purpose: an upgrade restarts a person's pod, and a bad image that
+    passes its own startup probe is only found by the first few people it reaches.
+    A pass every five minutes at the default therefore rolls a fleet gradually and
+    leaves a window to flip the sweep off before it reaches everyone."""
+    raw = _clean_env("PERSONAL_AGENT_UPGRADE_BATCH")
+    try:
+        value = int(raw) if raw else _PERSONAL_AGENT_UPGRADE_BATCH_DEFAULT
+    except ValueError:
+        value = _PERSONAL_AGENT_UPGRADE_BATCH_DEFAULT
+    return max(1, value)
+
+
 # Failed-pod count /health/ready tolerates before it calls the fleet degraded.
 # Small on purpose: at dev fleet sizes (see _PERSONAL_AGENT_MAX_PODS_DEFAULT) a
 # handful of wedged pods is already a signal, and the check is reported-only, so a

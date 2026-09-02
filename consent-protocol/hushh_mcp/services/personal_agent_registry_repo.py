@@ -636,6 +636,57 @@ class PersonalAgentRegistryRepo:
         )
         return list(response.data or [])
 
+    async def fetch_upgrade_candidates(self, *, limit: int = 200) -> list[dict]:
+        """Every whole pod, with the metadata that says which image it runs.
+
+        Only ``provisioned`` rows: a pod mid-handshake (``connecting``) or mid-retry
+        is owned by another sweep, and replacing its revision underneath would race
+        it. The caller decides staleness by comparing the row's recorded source image
+        with the hub's current one -- a JSON comparison this client cannot express as
+        a filter, and the fleet is small enough that the rows are cheaper than the
+        abstraction.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select(
+                "user_id",
+                "hushh_id",
+                "status",
+                "backend",
+                "backend_metadata",
+                "deployment_target",
+            )
+            .eq("status", "provisioned")
+            .limit(limit)
+            .execute()
+        )
+        return list(response.data or [])
+
+    async def record_image_upgrade(
+        self,
+        *,
+        user_id: str,
+        backend_metadata: dict,
+        liveness_mode: Optional[str] = None,
+    ) -> None:
+        """Write what an image upgrade changed, and NOTHING it did not.
+
+        Deliberately not :meth:`upsert`: that path re-stamps ``provisioned_at`` for a
+        ``provisioned`` status (the pod was not provisioned again, it was moved) and
+        appends the ``authority_live`` funnel stage a second time, which would show
+        the person a journey that "completed" once per hub deploy. An upgrade keeps
+        the row's status, identity, key columns and cloud coordinates untouched by
+        construction, because this method cannot reach them.
+        """
+        data: dict[str, Any] = {
+            "backend_metadata": backend_metadata,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if liveness_mode:
+            data["liveness_mode"] = liveness_mode
+        self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()
+
     async def count_active_pods(self, *, exclude_user_id: Optional[str] = None) -> int:
         """How many rows currently hold (or are standing up) a pod. The cap's denominator.
 
