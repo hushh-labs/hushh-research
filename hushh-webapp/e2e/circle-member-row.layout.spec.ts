@@ -11,12 +11,19 @@ import {
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
+  CIRCLE_DETAIL_HEADER_CLASSNAME,
+  CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
+  CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
+  CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_AVATAR_CLASSNAME,
+  CIRCLE_MEMBER_NAME_CLASSNAME,
+  CIRCLE_MEMBER_NAME_ROW_CLASSNAME,
   CIRCLE_MEMBER_MENU_CLASSNAME,
   CIRCLE_MEMBER_ROW_CLASSNAME,
   CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX,
   CIRCLE_MEMBER_MENU_SLOT_PX,
+  CIRCLE_MEMBER_SECONDARY_CLASSNAME,
   CIRCLE_MEMBER_TRAILING_CLASSNAME,
 } from "../components/one-location/redesign/circles/circle-member-row-layout";
 import { buttonVariants } from "../components/ui/button";
@@ -49,8 +56,8 @@ import { cn } from "../lib/utils";
 
 /** Every common iPhone width, plus one tablet reference. `sm:` is 640px, so
  *  everything below that is what actually ships to the App Store. */
-const PHONE_WIDTHS = [320, 360, 375, 390, 430] as const;
-const WIDTHS = [...PHONE_WIDTHS, 768] as const;
+const PHONE_WIDTHS = [320, 360, 393, 430, 600] as const;
+const WIDTHS = [...PHONE_WIDTHS, 768, 1440] as const;
 
 /** The app's horizontal page padding at phone widths, as a conservative floor.
  *  Assuming LESS room than the screen really has can only make these stricter. */
@@ -130,6 +137,7 @@ async function buildFixture(name: string, body: string, candidates: string[]) {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css"></head>
 <body style="margin:0"><div style="padding:0 ${PAGE_PADDING_PX}px">${body}</div></body></html>`,
@@ -263,9 +271,9 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
       const rowClass = legacy
         ? "flex items-start gap-3 px-4 py-3"
         : CIRCLE_MEMBER_ROW_CLASSNAME;
-      const nameClass = legacy
-        ? "break-words text-[15px] font-semibold leading-snug text-foreground"
-        : "truncate text-[15px] font-semibold leading-5 text-foreground";
+      const nameMarkup = legacy
+        ? `<p data-testid="row-name" class="break-words text-[15px] font-semibold leading-snug text-foreground">${row.name}</p>`
+        : `<p class="${CIRCLE_MEMBER_NAME_ROW_CLASSNAME}"><span data-testid="row-name" class="${CIRCLE_MEMBER_NAME_CLASSNAME}">${row.name}</span></p>`;
 
       return `<div data-testid="row" data-row="${index}" class="${rowClass}">
   <span data-testid="row-avatar" class="${cn(
@@ -273,8 +281,8 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
     "inline-flex items-center justify-center rounded-full bg-muted",
   )}">DR</span>
   <div class="min-w-0 flex-1">
-    <p data-testid="row-name" class="${nameClass}">${row.name}</p>
-    <p class="ui-text-row-description truncate">${row.secondary}</p>
+    ${nameMarkup}
+    <p class="ui-text-row-description ${legacy ? "truncate" : CIRCLE_MEMBER_SECONDARY_CLASSNAME}">${row.secondary}</p>
   </div>
   ${
     legacy
@@ -295,7 +303,14 @@ const CANDIDATES = [
   ...CIRCLE_MEMBER_ROW_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_TRAILING_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_AVATAR_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBER_NAME_ROW_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBER_NAME_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBER_SECONDARY_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_MENU_CLASSNAME.split(/\s+/),
+  ...CIRCLE_DETAIL_HEADER_CLASSNAME.split(/\s+/),
+  ...CIRCLE_DETAIL_HEADER_COPY_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME.split(/\s+/),
   "flex",
   "items-start",
   "items-center",
@@ -316,6 +331,7 @@ const CANDIDATES = [
   "leading-snug",
   "text-foreground",
   "ui-text-row-description",
+  "ui-text-page-title",
   "divide-y",
   "divide-border/60",
   "rounded-[var(--app-card-radius-standard,24px)]",
@@ -353,16 +369,31 @@ test.describe("Circle roster row", () => {
       expect(spread(names.map((n) => n.left)), "name left edge").toBeLessThanOrEqual(0.5);
       expect(spread(avatars.map((a) => a.left)), "avatar left edge").toBeLessThanOrEqual(0.5);
 
-      // One beat down the list. A name long enough to wrap used to double its
-      // own row's height; `truncate` is what holds this flat.
-      expect(
-        spread(rows.map(contentHeight)),
-        "row height",
-      ).toBeLessThanOrEqual(0.5);
+      // Every row keeps the common minimum beat. Long identities may grow the
+      // row instead of being replaced by an ellipsis.
       for (const row of rows) {
         expect(contentHeight(row)).toBeGreaterThanOrEqual(
           CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX - 0.5,
         );
+      }
+
+      const nameMetrics = await page.evaluate(() =>
+        Array.from(
+          document.querySelectorAll<HTMLElement>('[data-testid="row-name"]'),
+        ).map((node) => ({
+          clientWidth: node.clientWidth,
+          scrollWidth: node.scrollWidth,
+          clientHeight: node.clientHeight,
+          scrollHeight: node.scrollHeight,
+          textOverflow: getComputedStyle(node).textOverflow,
+          whiteSpace: getComputedStyle(node).whiteSpace,
+        })),
+      );
+      for (const metric of nameMetrics) {
+        expect(metric.scrollWidth).toBeLessThanOrEqual(metric.clientWidth + 1);
+        expect(metric.scrollHeight).toBeLessThanOrEqual(metric.clientHeight + 1);
+        expect(metric.textOverflow).not.toBe("ellipsis");
+        expect(metric.whiteSpace).not.toBe("nowrap");
       }
 
       // The avatar and the trailing control sit on the row's centre line, so
@@ -411,10 +442,98 @@ test.describe("Circle roster row", () => {
       "the shipped roster's trailing edge",
     ).toBeGreaterThan(20);
 
-    // And the long name really did take its row to a different height.
+    // The old wrapping layout also made row heights inconsistent without
+    // aligning the trailing columns; the stagger above is the regression's
+    // essential geometry.
     expect(
       spread(rows.map(contentHeight)),
       "the shipped row heights",
     ).toBeGreaterThan(4);
   });
+});
+
+test.describe("Circle detail responsive layout", () => {
+  for (const width of WIDTHS) {
+    test(`keeps the complete Circle title and Edit action visible at ${width}px`, async ({
+      page,
+    }) => {
+      const body = `<div data-detail-header class="${CIRCLE_DETAIL_HEADER_CLASSNAME}">
+  <div class="${CIRCLE_DETAIL_HEADER_COPY_CLASSNAME}">
+    <header><h1 data-circle-title class="ui-text-page-title">Trusted Family and Emergency Circle Featherstonehaugh-Rajendran</h1></header>
+  </div>
+  <button data-edit class="h-11 shrink-0 rounded-full px-4">Edit</button>
+</div>`;
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(
+        await buildFixture("circle-detail-title", body, [
+          ...CANDIDATES,
+          "h-11",
+          "shrink-0",
+          "px-4",
+        ]),
+      );
+      await awaitProductFont(page);
+
+      const result = await page.evaluate(() => {
+        const title = document.querySelector<HTMLElement>("[data-circle-title]")!;
+        const edit = document.querySelector<HTMLElement>("[data-edit]")!;
+        const header = document.querySelector<HTMLElement>("[data-detail-header]")!;
+        const style = getComputedStyle(title);
+        return {
+          titleClientWidth: title.clientWidth,
+          titleScrollWidth: title.scrollWidth,
+          titleClientHeight: title.clientHeight,
+          titleScrollHeight: title.scrollHeight,
+          textOverflow: style.textOverflow,
+          whiteSpace: style.whiteSpace,
+          editRight: edit.getBoundingClientRect().right,
+          headerRight: header.getBoundingClientRect().right,
+        };
+      });
+
+      expect(result.titleScrollWidth).toBeLessThanOrEqual(
+        result.titleClientWidth + 1,
+      );
+      expect(result.titleScrollHeight).toBeLessThanOrEqual(
+        // Integer DOM metrics round a fractional line box in opposite
+        // directions; two pixels is browser rounding, not clipped content.
+        result.titleClientHeight + 2,
+      );
+      expect(result.textOverflow).not.toBe("ellipsis");
+      expect(result.whiteSpace).not.toBe("nowrap");
+      expect(result.editRight).toBeLessThanOrEqual(result.headerRight + 1);
+    });
+
+    test(`uses a single phone scroller for the Circle roster at ${width}px`, async ({
+      page,
+    }) => {
+      const body = `<div data-roster-shell class="${CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME}">
+  <div data-roster-scroll class="${CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME}">
+    <div style="height: 1200px">Members</div>
+  </div>
+</div>`;
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(
+        await buildFixture("circle-roster-scroll", body, CANDIDATES),
+      );
+      await awaitProductFont(page);
+
+      const result = await page.evaluate(() => {
+        const shell = document.querySelector<HTMLElement>("[data-roster-shell]")!;
+        const scroll = document.querySelector<HTMLElement>("[data-roster-scroll]")!;
+        return {
+          maxHeight: getComputedStyle(shell).maxHeight,
+          overflowY: getComputedStyle(scroll).overflowY,
+        };
+      });
+
+      if (width < 640) {
+        expect(result.maxHeight).toBe("none");
+        expect(result.overflowY).toBe("visible");
+      } else {
+        expect(result.maxHeight).not.toBe("none");
+        expect(result.overflowY).toBe("auto");
+      }
+    });
+  }
 });
