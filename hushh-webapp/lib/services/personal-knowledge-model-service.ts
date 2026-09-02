@@ -40,6 +40,7 @@ import {
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import {
   buildConfirmedPkmMutationPlanV2,
+  sha256Hex,
   type PkmMutationPlanV2,
   type PkmUserConfirmation,
 } from "@/lib/personal-knowledge-model/mutation-plan";
@@ -1326,6 +1327,8 @@ export class PersonalKnowledgeModelService {
     domain: string;
     domainData: Record<string, unknown>;
     previousManifest?: DomainManifest | null;
+    /** Opaque `s_…` handles per branch, matching the mutation-plan builder. */
+    scopeHandles: Record<"llm" | "agent_memory", string>;
   }): {
     summary: Record<string, unknown>;
     structureDecision: StructureDecision;
@@ -1333,6 +1336,12 @@ export class PersonalKnowledgeModelService {
   } {
     const nowIso = new Date().toISOString();
     const domainContractVersion = currentDomainContractVersion(params.domain);
+    const reusableHandle = (branch: string): string | undefined => {
+      const handle = params.previousManifest?.scope_registry?.find(
+        (entry) => String(entry.summary_projection?.top_level_scope_path || "") === branch,
+      )?.scope_handle;
+      return handle && /^(?:s|scope|pending)_[A-Za-z0-9_-]{6,128}$/.test(handle) ? handle : undefined;
+    };
     const providerDescriptors = [
       {
         provider: "gemini",
@@ -1490,7 +1499,9 @@ export class PersonalKnowledgeModelService {
       paths,
       scope_registry: [
         {
-          scope_handle: "runtime_secrets.llm",
+          // The plan builder copies this into target_scope_handle; the server
+          // only accepts opaque handles, so a dotted label 422s the first write.
+          scope_handle: reusableHandle("llm") || params.scopeHandles.llm,
           scope_label: "Runtime model credentials",
           segment_ids: ["llm"],
           sensitivity_tier: "restricted",
@@ -1508,7 +1519,7 @@ export class PersonalKnowledgeModelService {
           },
         },
         {
-          scope_handle: "runtime_secrets.agent_memory",
+          scope_handle: reusableHandle("agent_memory") || params.scopeHandles.agent_memory,
           scope_label: "Private agent memory preferences",
           segment_ids: ["agent_memory"],
           sensitivity_tier: "restricted",
@@ -3904,6 +3915,10 @@ export class PersonalKnowledgeModelService {
       domain: params.domain,
       domainData: params.domainData,
       previousManifest,
+      scopeHandles: {
+        llm: `s_${(await sha256Hex(`${params.userId}:${params.domain}:llm`)).slice(0, 12)}`,
+        agent_memory: `s_${(await sha256Hex(`${params.userId}:${params.domain}:agent_memory`)).slice(0, 12)}`,
+      },
     });
     const mutationPlan = await buildConfirmedPkmMutationPlanV2({
       userId: params.userId,
@@ -4004,6 +4019,8 @@ export class PersonalKnowledgeModelService {
     domain: string;
     domainData: Record<string, unknown>;
     previousManifest?: DomainManifest | null;
+    /** Opaque `s_…` handles per branch, matching the mutation-plan builder. */
+    scopeHandles: Record<"summary" | "secrets", string>;
   }): {
     summary: Record<string, unknown>;
     structureDecision: StructureDecision;
@@ -4012,6 +4029,15 @@ export class PersonalKnowledgeModelService {
     const nowIso = new Date().toISOString();
     const domainContractVersion = currentDomainContractVersion(params.domain);
     const manifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + 1;
+    const scopeHandleFor = (
+      manifest: DomainManifest | null | undefined,
+      branch: string,
+    ): string | undefined => {
+      const handle = manifest?.scope_registry?.find(
+        (entry) => String(entry.summary_projection?.top_level_scope_path || "") === branch,
+      )?.scope_handle;
+      return handle && /^(?:s|scope|pending)_[A-Za-z0-9_-]{6,128}$/.test(handle) ? handle : undefined;
+    };
     const summaryBranch = this.isPlainObject(params.domainData.summary)
       ? (params.domainData.summary as Record<string, unknown>)
       : {};
@@ -4081,8 +4107,12 @@ export class PersonalKnowledgeModelService {
       source_agent: "payment_cards_settings",
       contract_version: 1,
     };
+    // The plan builder copies this handle into target_scope_handle, and the
+    // server only accepts opaque `s_`/`scope_`/`pending_` handles - a dotted
+    // label here produced a 422 on every first write (reviewer rehearsal,
+    // 2026-09-02). Reuse the previous manifest's handle when it exists.
     const scopeRegistryEntry = (branch: "summary" | "secrets") => ({
-      scope_handle: `payment_cards.${branch}`,
+      scope_handle: scopeHandleFor(params.previousManifest, branch) || params.scopeHandles[branch],
       scope_label: branch === "summary" ? "Card summaries" : "Card secrets",
       segment_ids: [branch],
       sensitivity_tier: branch === "summary" ? "confidential" : "restricted",
@@ -4153,10 +4183,15 @@ export class PersonalKnowledgeModelService {
         vaultKey: params.vaultKey,
         domainData,
       });
+      const scopeHandles = {
+        summary: `s_${(await sha256Hex(`${params.userId}:${domain}:summary`)).slice(0, 12)}`,
+        secrets: `s_${(await sha256Hex(`${params.userId}:${domain}:secrets`)).slice(0, 12)}`,
+      };
       const artifacts = this.buildPaymentCardsArtifacts({
         domain,
         domainData,
         previousManifest,
+        scopeHandles,
       });
       const mutationPlan = await buildConfirmedPkmMutationPlanV2({
         userId: params.userId,
