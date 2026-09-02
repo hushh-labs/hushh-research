@@ -298,9 +298,11 @@ steps:
         add_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
         add_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
         add_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
+        add_env "ONE_WALLET_ENABLED" "${_ONE_WALLET_ENABLED}"
         add_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
         add_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
         add_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"
+        add_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"
         add_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
         add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
@@ -510,6 +512,9 @@ substitutions:
   # workflow changes; add_secret skips gracefully where the secret is absent.
   _HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET: HUSHH_MANAGED_GEMINI_LIVE_API_KEY
   _AGENT_ONE_ADK_MODEL: ""
+  # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the
+  # proven default; set only after the lane's Vertex allowed-models policy admits the id.
+  _HUSSH_GEMINI_TEXT_MODEL: ""
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
@@ -577,6 +582,8 @@ substitutions:
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _ONE_WALLET_CARD_ENABLED: ""
+  # Wallet subagent (agent_wallet) roster flag. Empty/false keeps it out of the tree.
+  _ONE_WALLET_ENABLED: ""
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""
   # Durable Kai analyze-run terminal-checkpoint store (migration 125). Empty =>

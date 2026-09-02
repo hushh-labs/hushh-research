@@ -202,6 +202,31 @@ It checks that:
 2. Each deployed environment resolves one active analytics measurement ID and one active GTM ID.
 3. Maintainer-only overlays are intentionally excluded from generated contributor runtime files.
 
+### Fleet text model switch (2026-09-02)
+
+`HUSSH_GEMINI_TEXT_MODEL` (backend, `_HUSSH_GEMINI_TEXT_MODEL` substitution) moves
+every text agent to one Gemini generation at once: agent manifests say
+`gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
+generation proven in every lane (`FLEET_TEXT_MODEL_DEFAULT`, 3.7 Flash today). A
+lane may flip it only after its project's `constraints/vertexai.allowedModels`
+policy admits the id; `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
+2026-09-02 and remains outside the production allowlist. The memory chain (3.1 Pro
+preview), the reducer (3.1 Flash lite), and the Live head keep their explicit pins.
+
+### Wallet subagent flags and the central One mailbox (2026-09-02)
+
+- `ONE_WALLET_ENABLED` (backend, `_ONE_WALLET_ENABLED` substitution) puts `agent_wallet`
+  in One's roster; `NEXT_PUBLIC_ONE_WALLET_ENABLED` (frontend build arg, same
+  substitution) offers the Wallet tile, `/one/wallet`, and the chat card widgets.
+  Both are `true` in the dev and UAT lanes and unset (off) in production until the
+  founder promotes the feature; the frontend flag never overrides a dark backend.
+- Support, invite, and capability mail: every `SUPPORT_EMAIL_*` address defaults to
+  `ONE_EMAIL_ADDRESS` (`one@hushh.ai`). UAT and production carry no overrides; the
+  dev project's `SUPPORT_EMAIL_*` secrets point at `one@hushh.ai` in test mode. The
+  mailbox credential is never stored in the repo or Secret Manager; sending rides
+  the delegated service identity. Forwarding from `one@hushh.ai` to a person is a
+  Google Workspace admin setting, not a repo concern.
+
 ### Ops-only GitHub identity variables (deploy/backup governance)
 
 These are not Cloud Run runtime secrets.

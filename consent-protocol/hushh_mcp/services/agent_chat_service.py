@@ -29,6 +29,7 @@ from hushh_mcp.runtime_providers import (
     build_managed_runtime_client,
     build_runtime_client,
 )
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.types import EncryptedPayload
@@ -1023,7 +1024,7 @@ class AgentChatService:
         self._client = None
         self._settings = None
         self.runtime_manifest = load_one_agent_runtime_manifest()
-        self.model = (model or self.runtime_manifest.model.name).strip()
+        self.model = (model or resolve_fleet_model_name(self.runtime_manifest.model.name)).strip()
         if not self.model:
             raise ValueError("Agent Chat manifest must declare a runtime model")
         self._vault_key_hex = vault_key_hex

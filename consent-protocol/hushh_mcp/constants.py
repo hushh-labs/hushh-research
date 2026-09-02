@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
 from typing import Optional
@@ -367,15 +368,24 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # debate agents, HushhAgent manifest default, portfolio import). Keep every
 # agent lane on the same generation; the voice head uses the dedicated Live
 # model via AGENT_ONE_ADK_MODEL instead.
-GEMINI_MODEL = "gemini-3.7-flash"
+#
+# One switch: HUSSH_GEMINI_TEXT_MODEL moves every text agent to a new generation
+# at once (manifests say `gemini-default` and resolve here). The default is the
+# last generation proven in every lane; a lane flips the switch through the
+# `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex allowed-models
+# policy admits the new id. Pins that name a different family (the memory chain
+# on 3.1 pro preview, the reducer on 3.1 flash lite, the Live head) are
+# deliberate and stay explicit in their manifests.
+FLEET_TEXT_MODEL_DEFAULT = "gemini-3.7-flash"
+GEMINI_MODEL = (os.getenv("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
 
 # Vertex AI model (for Google Cloud deployments)
-GEMINI_MODEL_VERTEX = "gemini-3.7-flash"
+GEMINI_MODEL_VERTEX = GEMINI_MODEL
 
 # ==================== Kai Portfolio Import Defaults ====================
 
 # Portfolio import extraction is prompt-first and optimized for lower latency.
-KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.7-flash"
+KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = GEMINI_MODEL
 KAI_PORTFOLIO_IMPORT_ENABLE_THINKING = True
 KAI_PORTFOLIO_IMPORT_THINKING_LEVEL = "LOW"
 KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS = 32768

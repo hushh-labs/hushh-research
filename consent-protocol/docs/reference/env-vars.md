@@ -182,6 +182,8 @@ Kai generation behavior for import/optimize/debate is also constants-driven (not
 Maintainer-only overlay vars used by release verification, migration/reset utilities, and review flows:
 
 - `APP_REVIEW_MODE`
+- `ONE_WALLET_ENABLED` (Wallet subagent `agent_wallet` in One's roster; on in dev and UAT lanes, off in production)
+- `HUSSH_GEMINI_TEXT_MODEL` (one switch for every text agent; manifests say `gemini-default`; blank = `FLEET_TEXT_MODEL_DEFAULT`; a lane may flip it only after its Vertex allowed-models policy admits the id)
 - `REVIEWER_UID`
 - `REVIEWER_VAULT_PASSPHRASE`
 
