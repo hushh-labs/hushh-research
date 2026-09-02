@@ -51,6 +51,17 @@ function newIdempotencyKey(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function parseToFieldSegment(toValue: string) {
+  const lastIndex = Math.max(toValue.lastIndexOf(","), toValue.lastIndexOf(";"));
+  if (lastIndex === -1) {
+    return { prefix: "", activeQuery: toValue.trim().toLowerCase() };
+  }
+  const rawPrefix = toValue.slice(0, lastIndex + 1);
+  const prefix = rawPrefix.endsWith(" ") ? rawPrefix : `${rawPrefix} `;
+  const activeQuery = toValue.slice(lastIndex + 1).trim().toLowerCase();
+  return { prefix, activeQuery };
+}
+
 export function EmailDraftCard({
   initialInstruction,
   initialDraft = null,
@@ -125,13 +136,9 @@ export function EmailDraftCard({
 
   const selectConnection = (conn: ConnectionSummaryEntry) => {
     const chosenEmail = conn.email?.trim() || "";
-    const name = conn.displayName?.trim() || "";
     if (!chosenEmail) return;
-    if (name) {
-      updateDraft("to", `${name} <${chosenEmail}>`);
-    } else {
-      updateDraft("to", chosenEmail);
-    }
+    const { prefix } = parseToFieldSegment(draft.to);
+    updateDraft("to", `${prefix}${chosenEmail}`);
     setShowToDropdown(false);
   };
 
@@ -246,12 +253,13 @@ export function EmailDraftCard({
   const disabled = busy !== null;
   const isDrafting = busy === "draft";
 
+  const { activeQuery } = parseToFieldSegment(draft.to);
+
   const matchingConnections = connections
     .filter((conn) => {
-      if (!draft.to.trim()) return true;
-      const query = draft.to.trim().toLowerCase();
-      const nameMatch = conn.displayName?.toLowerCase().includes(query);
-      const emailMatch = conn.email?.toLowerCase().includes(query);
+      if (!activeQuery) return true;
+      const nameMatch = conn.displayName?.toLowerCase().includes(activeQuery);
+      const emailMatch = conn.email?.toLowerCase().includes(activeQuery);
       return Boolean(nameMatch || emailMatch);
     })
     .slice(0, 6);
@@ -289,7 +297,12 @@ export function EmailDraftCard({
 
       {isDrafting ? (
         <div className="space-y-4 p-6 sm:p-8">
-          <div className="flex items-center gap-3 text-sm font-medium text-primary">
+          <div
+            data-testid="one-email-draft-preparing"
+            role="status"
+            aria-busy="true"
+            className="flex items-center gap-3 text-sm font-medium text-primary"
+          >
             <Loader2 className="h-4 w-4 animate-spin" />
             <span>One is preparing your email draft...</span>
           </div>
