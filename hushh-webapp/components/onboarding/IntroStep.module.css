@@ -27,7 +27,11 @@
   position: relative;
   z-index: 10;
   display: grid;
-  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
+  /* The shell above already sizes itself to exactly one viewport; this row
+     only needs to fill that box, and `min-height: 0` is what lets the middle
+     grid row (the hero) shrink below its own content height instead of
+     forcing the page to overflow. */
+  block-size: 100%;
   min-height: 0;
   width: 100%;
   max-width: 34rem;
@@ -38,29 +42,60 @@
      stale browser/native inset without sacrificing the real status-bar
      clearance needed by an edge-to-edge WebView. */
   padding: calc(clamp(28px, var(--app-safe-area-top-effective, 0px), 64px) + 12px)
-    24px 24px;
+    24px clamp(8px, 3vh, 24px);
   text-align: center;
 }
 
+/* ── Brand row: wordmark + public nav share the top of the page instead of
+      splitting the wordmark up here and the links below the CTA. ── */
 .brand {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: clamp(8px, 3vw, 16px);
+  width: 100%;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 
 .wordmark {
-  height: 34px;
+  height: clamp(24px, 2.8vh, 34px);
   width: auto;
+  flex-shrink: 0;
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: clamp(0px, 1vw, 6px);
+  min-width: 0;
+}
+
+.link {
+  display: inline-flex;
+  /* Tap target stays 44px tall regardless of how compact the label reads. */
+  min-height: 44px;
+  align-items: center;
+  padding: 0 clamp(6px, 2vw, 12px);
+  border-radius: 999px;
+  color: var(--foundation-dim);
+  font-size: clamp(10px, 1.3vh, 12px);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color var(--motion-duration-sm, 180ms)
+    var(--motion-ease-standard, ease-out);
+}
+
+.link:hover {
+  color: var(--foundation-ink);
 }
 
 .hero {
   align-self: center;
   display: flex;
+  min-height: 0;
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
-  transform: translateY(-8px);
   flex-direction: column;
   align-items: center;
 }
@@ -68,7 +103,7 @@
 .eyebrow {
   margin: 0;
   color: var(--foundation-dim);
-  font-size: 12px;
+  font-size: clamp(8px, 1.3vh, 12px);
   font-weight: 700;
   letter-spacing: 0.26em;
   line-height: 1;
@@ -77,15 +112,15 @@
 }
 
 .emoji {
-  margin-top: 32px;
-  font-size: 48px;
+  margin-top: clamp(6px, 2.6vh, 32px);
+  font-size: clamp(16px, 4.4vh, 48px);
   line-height: 1;
   filter: drop-shadow(0 8px 18px rgba(109, 67, 26, 0.16));
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both;
 }
 
 .title {
-  margin: 12px 0 0;
+  margin: clamp(2px, 0.9vh, 12px) 0 0;
   font-family: var(--font-app-display);
   line-height: 1;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
@@ -110,7 +145,10 @@
   background-clip: text;
   color: transparent;
   font-family: var(--font-app-display);
-  font-size: clamp(88px, 29vw, 118px);
+  /* Bounded on both axes: a width-only clamp keeps growing on a short
+     landscape viewport at exactly the moment the vertical room shrinks,
+     which is what pushes the hero into the row above it. */
+  font-size: clamp(36px, min(24vw, 11vh), 116px);
   font-weight: 800;
   letter-spacing: -4px;
   line-height: 1.04;
@@ -121,7 +159,7 @@
 .divider {
   width: 100%;
   height: 1px;
-  margin-top: 36px;
+  margin-top: clamp(6px, 2.6vh, 36px);
   background: linear-gradient(
     90deg,
     transparent,
@@ -133,9 +171,9 @@
 
 .tagline {
   max-width: 22rem;
-  margin: 36px auto 0;
+  margin: clamp(6px, 2.6vh, 36px) auto 0;
   color: var(--foundation-ink);
-  font-size: 20px;
+  font-size: clamp(11px, 2.3vh, 20px);
   font-weight: 600;
   letter-spacing: -0.2px;
   line-height: 1.35;
@@ -148,9 +186,9 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  margin-top: 26px;
+  margin-top: clamp(4px, 1.8vh, 26px);
   color: var(--foundation-dim);
-  font-size: 11px;
+  font-size: clamp(6px, 1.2vh, 11px);
   font-weight: 700;
   letter-spacing: 0.16em;
   line-height: 1.2;
@@ -171,9 +209,9 @@
 
 .description {
   max-width: 23rem;
-  margin: 30px auto 0;
+  margin: clamp(6px, 2vh, 30px) auto 0;
   color: var(--foundation-dim);
-  font-size: 16px;
+  font-size: clamp(7px, 1.7vh, 16px);
   line-height: 1.45;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
 }
@@ -183,6 +221,7 @@
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
+  padding-top: clamp(8px, 3vh, 26px);
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
 }
 
@@ -190,7 +229,7 @@
   position: relative;
   overflow: hidden;
   display: inline-flex;
-  min-height: 56px;
+  min-height: clamp(44px, 6.4vh, 56px);
   width: 100%;
   align-items: center;
   justify-content: center;
@@ -202,7 +241,7 @@
   background: var(--app-accent);
   color: var(--app-accent-fg);
   font-family: var(--font-app-body);
-  font-size: 16px;
+  font-size: clamp(15px, 1.9vh, 16px);
   font-weight: 700;
   line-height: 1;
   transition:
@@ -219,30 +258,6 @@
   }
 }
 
-.links {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 16px;
-  border-top: 1px solid var(--foundation-hairline);
-  color: var(--foundation-dim);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.link {
-  display: flex;
-  min-height: 46px;
-  align-items: center;
-  justify-content: center;
-  border-left: 1px solid var(--foundation-hairline);
-  text-align: center;
-  line-height: 1.1;
-}
-
-.link:first-child {
-  border-left: 0;
-}
-
 @keyframes reveal {
   from {
     opacity: 0;
@@ -253,37 +268,5 @@
     opacity: 1;
     transform: translate3d(0, 0, 0);
     filter: blur(0);
-  }
-}
-
-@media (max-height: 740px) {
-  .hero {
-    transform: translateY(-4px);
-  }
-
-  .emoji {
-    margin-top: 22px;
-    font-size: 42px;
-  }
-
-  .molten {
-    font-size: clamp(76px, 26vw, 104px);
-  }
-
-  .divider {
-    margin-top: 24px;
-  }
-
-  .tagline {
-    margin-top: 24px;
-  }
-
-  .motions {
-    margin-top: 18px;
-  }
-
-  .description {
-    margin-top: 20px;
-    font-size: 14px;
   }
 }
