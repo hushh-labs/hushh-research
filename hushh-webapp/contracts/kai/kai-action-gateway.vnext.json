@@ -987,7 +987,7 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "kai_news",
+      "surface_id": "kai_market_news",
       "surface_title": "Kai Market News",
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md"
@@ -11877,7 +11877,9 @@
           "profile_preferences"
         ],
         "hidden_navigable": true,
-        "navigation_prerequisites": [],
+        "navigation_prerequisites": [
+          "profile route must be active"
+        ],
         "active_personas": [
           "investor",
           "ria"
@@ -21440,7 +21442,7 @@
     },
     {
       "action_id": "route.kai_news",
-      "surface_id": "kai_news",
+      "surface_id": "kai_market_news",
       "label": "Open Market News",
       "aliases": [
         "open market news",
@@ -21459,7 +21461,7 @@
           "/one/kai/news"
         ],
         "screens": [
-          "kai_news"
+          "kai_market_news"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
@@ -21515,7 +21517,7 @@
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kai/news",
-              "screen": "kai_news"
+              "screen": "kai_market_news"
             }
           }
         ],

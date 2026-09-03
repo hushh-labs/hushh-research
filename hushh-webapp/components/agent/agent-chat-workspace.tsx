@@ -127,6 +127,7 @@ import {
 } from "@/lib/agent/agent-chat-history-cache";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
@@ -1313,8 +1314,10 @@ export function AgentChatWorkspace({
     personaTransitionTarget,
     riaSetupAvailable,
     riaSwitchAvailable,
+    riaOnboardingStatus,
     switchPersona,
   } = usePersonaState();
+  const riaOnboardingComplete = isRiaAdvisoryAccessReady(riaOnboardingStatus);
   const analysisParams = useKaiSession((state) => state.analysisParams);
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
@@ -1688,6 +1691,7 @@ export function AgentChatWorkspace({
         transition_target: personaTransitionTarget,
         ria_switch_available: riaSwitchAvailable,
         ria_setup_available: riaSetupAvailable,
+        ria_onboarding_complete: riaOnboardingComplete,
       },
       voice: {
         available: false,
@@ -1734,6 +1738,7 @@ export function AgentChatWorkspace({
     primaryNavPersona,
     riaSetupAvailable,
     riaSwitchAvailable,
+    riaOnboardingComplete,
     runningImportTask,
     routeInfo.screen,
     routeInfo.subview,
