@@ -422,14 +422,24 @@ export function PuppyMachineSheet({ className }: { className?: string }) {
         {asSheet ? (
           <Sheet open={open} onOpenChange={setOpen} modal>
             <SheetTrigger asChild>{trigger}</SheetTrigger>
-            <SheetContent side="bottom" className="gap-0 p-0">
-              <SheetHeader className="px-4 pb-2 pr-12 pt-3 text-left">
+            <SheetContent
+              side="bottom"
+              // The primitive scrolls as a whole; here the HEADER stays put and
+              // only the body scrolls, so a machine with forty scheduled jobs
+              // still shows its title, and the list scrolls inside the sheet
+              // rather than pushing the viewport (founder, 2026-09-03).
+              className="flex flex-col gap-0 overflow-hidden p-0"
+            >
+              <SheetHeader className="shrink-0 px-4 pb-2 pr-12 pt-3 text-left">
                 <SheetTitle className="text-base">{PANEL_TITLE}</SheetTitle>
                 <SheetDescription>{PANEL_DESCRIPTION}</SheetDescription>
               </SheetHeader>
               {/* No padding of its own: every section inside already carries
                   `px-4`, which is the header's gutter too. */}
-              <div className="pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+              <div
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(1rem+env(safe-area-inset-bottom,0px))]"
+                data-testid="puppy-machine-body"
+              >
                 {panel}
               </div>
             </SheetContent>
@@ -438,7 +448,10 @@ export function PuppyMachineSheet({ className }: { className?: string }) {
           <Dialog open={open} onOpenChange={setOpen} modal>
             <DialogTrigger asChild>{trigger}</DialogTrigger>
             <DialogContent
-              className="gap-0 p-0 sm:max-w-md"
+              // Same pinned-header shape as the sheet: the primitive's own
+              // overflow is turned off so the title and close control never
+              // scroll away, and the body below is the one scroll region.
+              className="gap-0 overflow-hidden p-0 sm:max-w-md"
               // `DialogContent` already renders the one accessible
               // description this dialog is allowed to have; a second
               // `DialogDescription` would collide with it on the same id. So
@@ -446,13 +459,18 @@ export function PuppyMachineSheet({ className }: { className?: string }) {
               // and hidden from the reader that has already been told it.
               srDescription={PANEL_DESCRIPTION}
             >
-              <DialogHeader className="px-4 pb-2 pr-12 pt-3 text-left">
+              <DialogHeader className="shrink-0 px-4 pb-2 pr-12 pt-3 text-left">
                 <DialogTitle className="text-base">{PANEL_TITLE}</DialogTitle>
                 <p className="text-sm text-muted-foreground" aria-hidden>
                   {PANEL_DESCRIPTION}
                 </p>
               </DialogHeader>
-              <div className="pb-4">{panel}</div>
+              <div
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
+                data-testid="puppy-machine-body"
+              >
+                {panel}
+              </div>
             </DialogContent>
           </Dialog>
         )}
@@ -1178,8 +1196,8 @@ function PuppyJobList({
   }
 
   return (
-    <ul className="flex flex-col gap-1">
-      {payload.jobs.map((job) => (
+    <ul className="flex flex-col gap-1" data-testid="puppy-job-list">
+      {orderJobsForReading(payload.jobs).map((job) => (
         <JobRow
           key={job.id}
           job={job}
@@ -1189,6 +1207,25 @@ function PuppyJobList({
         />
       ))}
     </ul>
+  );
+}
+
+/**
+ * The order a person reads a long schedule in: what is failing first, then
+ * what runs, then what they switched off, and by name within each so the
+ * list is stable across refreshes. With forty jobs on a machine the
+ * gateway's order (creation, mostly) buried the one that needed a hand.
+ * Pure, so a test can pin it.
+ */
+export function orderJobsForReading(jobs: ReadonlyArray<PuppyJob>): PuppyJob[] {
+  const rank = (job: PuppyJob): number => {
+    const failing =
+      nonEmpty(job.lastStatus)?.toLowerCase() === "error" || job.failureStreak > 0;
+    if (failing) return 0;
+    return job.paused ? 2 : 1;
+  };
+  return [...jobs].sort(
+    (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
   );
 }
 
