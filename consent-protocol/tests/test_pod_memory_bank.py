@@ -299,3 +299,52 @@ def test_the_hub_accepts_the_engine_id_and_nothing_else_new() -> None:
     from api.routes.one.pod_heartbeat import _SELF_REPORT_FIELDS
 
     assert set(_SELF_REPORT_FIELDS) == {"imageTag", "revision", "memoryBankEngine"}
+
+
+class _HttpSeq:
+    """Scripted create answers in order, after one list miss."""
+
+    def __init__(self, creates):
+        self.creates = list(creates)
+        self.posts: list[dict] = []
+
+    def get(self, url, **kw):
+        return _Resp(200, {"reasoningEngines": []})
+
+    def post(self, url, **kw):
+        self.posts.append(kw.get("json") or {})
+        return self.creates.pop(0)
+
+
+def test_a_refused_model_choice_retries_with_the_service_defaults() -> None:
+    http = _HttpSeq(
+        [
+            _Resp(400, {"error": {"message": "generationConfig.model is not supported"}}),
+            _Resp(
+                200,
+                {
+                    "name": "projects/p/locations/us-central1/reasoningEngines/91",
+                    "done": True,
+                    "response": {"name": "projects/p/locations/us-central1/reasoningEngines/91"},
+                },
+            ),
+        ]
+    )
+    assert mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN) == "91"
+    assert "generationConfig" in http.posts[0]["contextSpec"]["memoryBankConfig"]
+    assert http.posts[1]["contextSpec"]["memoryBankConfig"] == {}, (
+        "the retry lets the service choose"
+    )
+
+
+def test_a_double_refusal_names_both_reasons() -> None:
+    http = _HttpSeq(
+        [
+            _Resp(400, {"error": {"message": "generationConfig.model is not supported"}}),
+            _Resp(400, {"error": {"message": "Memory Bank is not available in this region"}}),
+        ]
+    )
+    with pytest.raises(mb.MemoryBankUnavailable) as exc:
+        mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN)
+    text = str(exc.value)
+    assert "not available in this region" in text and "not supported" in text

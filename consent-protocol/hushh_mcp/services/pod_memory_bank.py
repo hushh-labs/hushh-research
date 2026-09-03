@@ -117,20 +117,35 @@ def _adc_token() -> str:
     return str(credentials.token)
 
 
-def _engine_body(cfg: MemoryBankConfig) -> dict[str, Any]:
-    """A Memory-Bank-only Agent Engine: no code deployed, just the memory store."""
-    publisher = f"projects/{cfg.project}/locations/{cfg.location}/publishers/google/models"
-    generation = (os.getenv("POD_MEMORY_BANK_GENERATION_MODEL") or "gemini-2.5-flash").strip()
-    embedding = (os.getenv("POD_MEMORY_BANK_EMBEDDING_MODEL") or "text-embedding-005").strip()
+def _api_error(response: Any) -> str:
+    """The API's own error message, bounded; the raw body when there is none."""
+    try:
+        body = response.json() or {}
+    except Exception:  # noqa: BLE001
+        body = {}
+    message = str((body.get("error") or {}).get("message") or "")
+    return " ".join((message or str(getattr(response, "text", "") or "")).split())[:300]
+
+
+def _engine_body(cfg: MemoryBankConfig, *, explicit_models: bool = True) -> dict[str, Any]:
+    """A Memory-Bank-only Agent Engine: no code deployed, just the memory store.
+
+    ``explicit_models=False`` leaves the extraction and embedding models to the
+    service's defaults; the explicit form names them on the person's own publisher.
+    """
+    memory_bank: dict[str, Any] = {}
+    if explicit_models:
+        publisher = f"projects/{cfg.project}/locations/{cfg.location}/publishers/google/models"
+        generation = (os.getenv("POD_MEMORY_BANK_GENERATION_MODEL") or "gemini-2.5-flash").strip()
+        embedding = (os.getenv("POD_MEMORY_BANK_EMBEDDING_MODEL") or "text-embedding-005").strip()
+        memory_bank = {
+            "generationConfig": {"model": f"{publisher}/{generation}"},
+            "similaritySearchConfig": {"embeddingModel": f"{publisher}/{embedding}"},
+        }
     return {
         "displayName": cfg.display_name,
         "description": "Hussh One private agent memory. Owned by this project's pod.",
-        "contextSpec": {
-            "memoryBankConfig": {
-                "generationConfig": {"model": f"{publisher}/{generation}"},
-                "similaritySearchConfig": {"embeddingModel": f"{publisher}/{embedding}"},
-            }
-        },
+        "contextSpec": {"memoryBankConfig": memory_bank},
     }
 
 
@@ -159,7 +174,7 @@ def find_or_create_engine(
         timeout=30,
     )
     if listing.status_code != 200:
-        raise MemoryBankUnavailable(f"list {listing.status_code}: {listing.text[:200]}")
+        raise MemoryBankUnavailable(f"list {listing.status_code}: {_api_error(listing)}")
     for engine in (listing.json() or {}).get("reasoningEngines") or []:
         if engine.get("displayName") == cfg.display_name:
             found = _engine_id_from_name(engine.get("name", ""))
@@ -168,8 +183,24 @@ def find_or_create_engine(
     created = http.post(
         f"{_base_url(cfg)}/reasoningEngines", headers=headers, json=_engine_body(cfg), timeout=60
     )
-    if created.status_code not in (200, 201):
-        raise MemoryBankUnavailable(f"create {created.status_code}: {created.text[:200]}")
+    if created.status_code == 400:
+        # The explicit model choices were refused (seen live 2026-09-03 in a BYOC
+        # project). Try once more letting the service pick its own defaults; a
+        # Memory Bank with default models beats no Memory Bank, and the refusal is
+        # kept in the error if the retry fails too.
+        first = _api_error(created)
+        created = http.post(
+            f"{_base_url(cfg)}/reasoningEngines",
+            headers=headers,
+            json=_engine_body(cfg, explicit_models=False),
+            timeout=60,
+        )
+        if created.status_code not in (200, 201):
+            raise MemoryBankUnavailable(
+                f"create {created.status_code}: {_api_error(created)} (with models: {first})"
+            )
+    elif created.status_code not in (200, 201):
+        raise MemoryBankUnavailable(f"create {created.status_code}: {_api_error(created)}")
     operation = created.json() or {}
     engine_id = _engine_id_from_name(
         ((operation.get("response") or {}).get("name")) or operation.get("name", "")
@@ -220,7 +251,7 @@ def memory_bank_status() -> dict[str, Any]:
     if _STATE.get("engine_id"):
         out["memoryBankEngine"] = str(_STATE["engine_id"])
     if _STATE.get("error"):
-        out["memoryBankError"] = str(_STATE["error"])[:200]
+        out["memoryBankError"] = str(_STATE["error"])[:400]
     return out
 
 
@@ -290,7 +321,7 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
         )
         return engine_id
     except Exception as exc:  # noqa: BLE001 - memory must never take the pod down
-        _STATE["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+        _STATE["error"] = f"{type(exc).__name__}: {str(exc)[:360]}"
         logger.warning("pod_memory_bank.unavailable reason=%s", _STATE["error"])
         return None
 
