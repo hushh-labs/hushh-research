@@ -183,7 +183,15 @@ async def test_heartbeat_records_the_report_under_observed_and_never_the_deploye
     before = len(db.raw_calls)
     await repo.record_heartbeat(hushh_id="ha1_x", observed={"imageTag": "dev-1"})
     assert len(db.raw_calls) == before
-    # Bodyless beat: nothing touched either.
+    # Bodyless beat from a row that carries a report: the process beating now does
+    # not report (an older image), so the stale report is dropped, not kept.
+    row = await repo.record_heartbeat(hushh_id="ha1_x")
+    assert "observed" not in row["backend_metadata"]
+    sql, params = db.raw_calls[-1]
+    assert "- 'observed'" in sql and params == {"hushh_id": "ha1_x"}
+    # And a bodyless beat on a row with no report touches nothing.
+    db.row["backend_metadata"].pop("observed", None)
+    before = len(db.raw_calls)
     await repo.record_heartbeat(hushh_id="ha1_x")
     assert len(db.raw_calls) == before
 

@@ -274,9 +274,27 @@ class PersonalAgentRegistryRepo:
         )
         rows = list(response.data or [])
         row = rows[0] if rows else None
-        if row is not None and observed:
+        if row is not None:
             current = (row.get("backend_metadata") or {}).get("observed")
-            if current != observed:
+            if not observed and current:
+                # A bodyless beat from a row that carries a self-report: the process
+                # beating now is one that does not report (an older image), so the
+                # old report is no longer what the pod says it is. Seen live
+                # 2026-09-03: a draining hub revision moved a pod BACK to an older
+                # image, the older pod beat without a body, and the stale report
+                # kept the status claiming the newer build was running.
+                self._db().execute_raw(
+                    """
+                    UPDATE personal_agent_registry
+                    SET backend_metadata = coalesce(backend_metadata, '{}'::jsonb) - 'observed'
+                    WHERE hushh_id = :hushh_id
+                    """,
+                    {"hushh_id": normalized},
+                )
+                meta = dict(row.get("backend_metadata") or {})
+                meta.pop("observed", None)
+                row = {**row, "backend_metadata": meta}
+            elif observed and current != observed:
                 self._db().execute_raw(
                     """
                     UPDATE personal_agent_registry
