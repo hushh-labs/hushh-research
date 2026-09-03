@@ -62,7 +62,6 @@ describe("OneDashboardPage", () => {
 
     render(
       <OneDashboardPage
-        displayName="Dismissed User"
         userId={userId}
         capabilityStatusById={buildStatusMap({
           finance: { state: "not-started", requiresUnlock: true },
@@ -81,7 +80,6 @@ describe("OneDashboardPage", () => {
   it("renders the primary One agent modes with route targets", () => {
     const { container } = render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
           finance: { state: "not-started", requiresUnlock: true },
           gmail: { state: "blocked", prerequisite: "oauth" },
@@ -93,12 +91,14 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
+    // The greeting is gone entirely (founder, 2026-09-02: "I still have the greeting
+    // message on the /one route for some reason added, we don't need that").
+    expect(screen.queryByText(/Good (morning|afternoon|evening), /)).toBeNull();
     expect(screen.queryByText("Your private agent")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
     // A resolved journey is redirected by that workspace to the normal product
@@ -135,6 +135,11 @@ describe("OneDashboardPage", () => {
     // rows distinguishable, and that property is preserved.
     const rosterPaletteOrder = [
       "finance",
+      // Wallet joined ONE_CAPABILITIES in second place during the 2026-09-02 main
+      // sync, which is why the roster now reads nine. Listing it here keeps the
+      // assertion contiguous and keeps this test about the PROPERTY (slots follow
+      // roster position) rather than about a frozen set of eight agents.
+      "wallet",
       "location",
       "ria",
       "gmail",
@@ -157,6 +162,7 @@ describe("OneDashboardPage", () => {
       "5",
       "6",
       "7",
+      "8",
     ]);
     const iconBackgrounds = Object.fromEntries(
       rosterPaletteOrder.map((id) => [
@@ -212,7 +218,8 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText("Explore")).toBeNull();
     // Gmail and Calendar are first-class setup capabilities; Memory and
     // Consent remain direct workspaces and do not inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(8);
+    // Nine since Wallet joined the roster in the 2026-09-02 main sync.
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
@@ -230,7 +237,6 @@ describe("OneDashboardPage", () => {
   it("reflects completed setup across all capabilities", () => {
     const { container } = render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
           finance: { state: "completed" },
           gmail: { state: "completed" },
@@ -245,7 +251,7 @@ describe("OneDashboardPage", () => {
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
     expect(countRosterMetrics(container, "0", "actions")).toBe(6);
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
   });
 
@@ -311,7 +317,6 @@ describe("OneDashboardPage", () => {
   it("shows the finance mover as a concise green percentage without redundant winner copy", () => {
     render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         userId="roster-finance-metric"
       />,
     );

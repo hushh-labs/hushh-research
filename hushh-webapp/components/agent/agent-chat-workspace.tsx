@@ -1809,6 +1809,7 @@ export function AgentChatWorkspace({
       activeActionRun,
       agentVoiceEnabled,
       agentWaking,
+      isPuppySurface,
       isChatLoading,
       isLoadingHistory,
       isPkmMemoryWorking,

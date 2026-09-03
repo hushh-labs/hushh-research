@@ -37,6 +37,16 @@ import { ApiService } from "@/lib/services/api-service";
 
 export type WakeState = "awake" | "waking" | "gone";
 
+/** How often to re-touch the pod while the person is actually looking at the app.
+ *
+ * Founder directive 2026-09-02: "we don't need to keep the agent asleep when user is
+ * already on the app or has active tab running." A single wake is not enough for that
+ * -- one request keeps a Cloud Run instance warm only for its idle window, so a person
+ * reading the app for ten minutes still paid the ~11s cold start on their next message.
+ * This re-touches inside that window, and ONLY while the tab is visible: the moment
+ * they leave, the ticks stop and the pod goes back to costing nothing. */
+const KEEP_ALIVE_INTERVAL_MS = 240_000;
+
 /** Longer than cold start (~11s) + the serving idle window: one wake keeps the pod
  *  warm, so a second inside this window buys nothing and costs a request on a costed
  *  fleet. */
@@ -90,10 +100,23 @@ export function useProactiveAgentWake(input: {
   state: string | null;
   health: string | null;
   enabled?: boolean;
-}): { wakeNow: (reason: string) => void; isWaking: boolean; etaMs: number } {
+}): {
+  wakeNow: (reason: string) => void;
+  isWaking: boolean;
+  etaMs: number;
+  /** What the POD last told us, as opposed to what the status poll last cached.
+   *
+   * `useAgentDeploymentFollow` stops polling the moment the row is terminal, so its
+   * `health` freezes at whatever it read first -- which is why a pod that had been
+   * woken kept reporting "Asleep" for the rest of the session. The wake route answers
+   * with the pod's live state on every touch, so this is the fresher of the two and
+   * the chip prefers it. `null` means nothing has answered yet. */
+  livePresence: WakeState | null;
+} {
   const enabled = input.enabled ?? true;
   const [isWaking, setIsWaking] = useState(false);
   const [etaMs, setEtaMs] = useState(0);
+  const [livePresence, setLivePresence] = useState<WakeState | null>(null);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The latest gating inputs, read by the STABLE wakeNow closure so it never goes
   // stale without making wakeNow itself change identity on every poll. Written in an
@@ -113,6 +136,7 @@ export function useProactiveAgentWake(input: {
       try {
         const result = await issueWakeDeduped();
         if (!result) return; // cooldown suppressed it; the pod is already warm enough
+        setLivePresence(result.state);
         if (result.state === "waking") {
           setEtaMs(result.etaMs || 0);
           setIsWaking(true);
@@ -153,5 +177,50 @@ export function useProactiveAgentWake(input: {
     };
   }, [enabled, input.state, input.health, wakeNow]);
 
-  return { wakeNow, isWaking, etaMs };
+  // The keep-alive. Deliberately NOT routed through `wakeNow`: that path asks
+  // `shouldWakePod`, which declines once health reads `healthy` -- correct for a
+  // courtesy wake, wrong for "stay awake while I am here", which is a decision about
+  // the person's presence rather than about the pod's last known health. The
+  // module-level cooldown still applies, so several open surfaces collapse to one
+  // request, and a hidden tab schedules nothing at all.
+  useEffect(() => {
+    if (!enabled) return;
+    if (input.state !== "active") return;
+    if (typeof document === "undefined") return;
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const touch = () => {
+      void (async () => {
+        try {
+          const result = await issueWakeDeduped();
+          if (result) setLivePresence(result.state);
+        } catch {
+          // Best effort: a missed tick costs a cold start, never a broken surface.
+        }
+      })();
+    };
+    const start = () => {
+      if (timer) return;
+      touch();
+      timer = setInterval(touch, KEEP_ALIVE_INTERVAL_MS);
+    };
+    const stop = () => {
+      if (!timer) return;
+      clearInterval(timer);
+      timer = null;
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") start();
+      else stop();
+    };
+
+    onVisibility();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      stop();
+    };
+  }, [enabled, input.state]);
+
+  return { wakeNow, isWaking, etaMs, livePresence };
 }

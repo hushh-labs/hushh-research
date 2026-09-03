@@ -46,11 +46,21 @@ describe("OneAgentPresence", () => {
     expect(screen.queryByLabelText("Your Agent One")).toBeNull();
   });
 
-  it("shows 'Live' once the agent is provisioned", async () => {
+  it("shows 'Online' once the agent is provisioned", async () => {
     mockStatus.mockResolvedValue({ state: "active", hushhId: "ha1_abc" });
     render(<OneAgentPresence />);
-    expect(await screen.findByText("Live")).toBeTruthy();
-    expect(screen.getByText(/Live and yours/)).toBeTruthy();
+    expect(await screen.findByText("Online")).toBeTruthy();
+  });
+
+  // Founder directive 2026-09-02: an indicator, not a card. The explanatory
+  // sentences ("Asleep to save you money", "Live and yours, isolated to you
+  // alone") were true and are now said once during setup, not on every visit.
+  it("carries no explanatory body copy", async () => {
+    mockStatus.mockResolvedValue({ state: "active", hushhId: "ha1_abc" });
+    render(<OneAgentPresence />);
+    const chip = await screen.findByTestId("one-agent-presence");
+    expect(chip.textContent).not.toMatch(/isolated to you alone|save you money/i);
+    expect((chip.textContent || "").length).toBeLessThan(40);
   });
 
   it("says nothing when the status call errors", async () => {
@@ -74,7 +84,7 @@ describe("OneAgentPresence", () => {
     render(<OneAgentPresence />);
     expect(await screen.findByText(badge)).toBeTruthy();
     // Never claims a live pod while one is still being stood up.
-    expect(screen.queryByText("Live")).toBeNull();
+    expect(screen.queryByText("Online")).toBeNull();
   });
 
   // Health is reported ONLY when the liveness sweep reached a real verdict. The
@@ -91,7 +101,7 @@ describe("OneAgentPresence", () => {
       mockStatus.mockResolvedValue({ state: "active", health });
       render(<OneAgentPresence />);
       expect(await screen.findByText("Not responding")).toBeTruthy();
-      expect(screen.queryByText("Live")).toBeNull();
+      expect(screen.queryByText("Online")).toBeNull();
     },
   );
 
@@ -106,12 +116,12 @@ describe("OneAgentPresence", () => {
     expect(screen.queryByText("Not responding")).toBeNull();
   });
 
-  it("keeps saying 'Live' when the backend sent no health verdict at all", async () => {
+  it("keeps saying 'Online' when the backend sent no health verdict at all", async () => {
     // Absent means absent. Treating a missing verdict as unhealthy would invent
     // the same claim in the opposite direction.
     mockStatus.mockResolvedValue({ state: "active" });
     render(<OneAgentPresence />);
-    expect(await screen.findByText("Live")).toBeTruthy();
+    expect(await screen.findByText("Online")).toBeTruthy();
     expect(screen.queryByText("Not responding")).toBeNull();
   });
 
@@ -134,9 +144,10 @@ describe("OneAgentPresence", () => {
   });
   // ---- where the agent lives ------------------------------------------------
   //
-  // A hosted agent has no user-project coordinates, so before the hosted tier
-  // existed this surface said NOTHING about where such an agent lived -- and
-  // where it lives is the product, not an implementation detail.
+  // Where it lives is the product, not an implementation detail -- but it is not
+  // worth two lines on every visit either (founder, 2026-09-02). Since the chip
+  // became an indicator it travels as the tooltip, and these tests follow it
+  // there: the claim each tier earns is unchanged, only where it is written.
 
   it("says where a hosted agent lives, and offers the move", async () => {
     mockStatus.mockResolvedValue({
@@ -146,8 +157,8 @@ describe("OneAgentPresence", () => {
     });
     render(<OneAgentPresence />);
 
-    expect(await screen.findByTestId("one-agent-hosted-identity")).toBeTruthy();
-    expect(screen.getByTestId("one-agent-migrate")).toBeTruthy();
+    const chip = await screen.findByTestId("one-agent-presence");
+    expect(chip.getAttribute("title")).toMatch(/hosted by hussh/i);
   });
 
   it("makes the claim the hosted tier actually earns", async () => {
@@ -161,9 +172,10 @@ describe("OneAgentPresence", () => {
     });
     render(<OneAgentPresence />);
 
-    const line = await screen.findByTestId("one-agent-hosted-identity");
-    expect(line.textContent).toMatch(/sealed to your agent/i);
-    expect(line.textContent).not.toMatch(/cannot read/i);
+    const where =
+      (await screen.findByTestId("one-agent-presence")).getAttribute("title") || "";
+    expect(where).toMatch(/sealed to your agent/i);
+    expect(where).not.toMatch(/cannot read/i);
   });
 
   it("prefers the person's own project when they have one", async () => {
@@ -179,7 +191,9 @@ describe("OneAgentPresence", () => {
     });
     render(<OneAgentPresence />);
 
-    expect(await screen.findByTestId("one-agent-cloud-identity")).toBeTruthy();
-    expect(screen.queryByTestId("one-agent-hosted-identity")).toBeNull();
+    const where =
+      (await screen.findByTestId("one-agent-presence")).getAttribute("title") || "";
+    expect(where).toMatch(/their-own-project/);
+    expect(where).not.toMatch(/hosted by hussh/i);
   });
 });

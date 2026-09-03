@@ -46,45 +46,19 @@ const AGENT_STATES = [
 type AgentState = (typeof AGENT_STATES)[number];
 
 /**
- * One idea per line: the badge names the state, the body says the one thing the
- * badge does not — matching the feed's provisioning copy, which deliberately never
- * repeats "your private agent" in both halves.
+ * One word per state. Founder directive 2026-09-02: this is a status INDICATOR, not
+ * a card -- "we just need a small status indicator of asleep booting online etc".
+ * The sentences this table used to carry (what a pod is, why it sleeps, where it
+ * lives) were true and are now said once during setup instead of on every visit.
  */
-const COPY: Record<
-  AgentState,
-  { badge: string; body: string; dotClass: string }
-> = {
-  reserved: {
-    badge: "Reserved",
-    body: "Reserved and ready to activate — your private agent, isolated to you alone.",
-    dotClass: "bg-amber-500",
-  },
-  provisioning: {
-    badge: "Setting up",
-    body: "Being set up in the background. Nothing for you to do.",
-    dotClass: "bg-amber-500",
-  },
-  connecting: {
-    badge: "Connecting",
-    body: "Almost there — coming online now.",
-    dotClass: "bg-amber-500",
-  },
-  active: {
-    badge: "Live",
-    // NOT "always on". The default tier is economy: the pod sleeps between turns
-    // and wakes on demand (`gcp_backend.py`, minScale 0 by founder directive). A
-    // person told "always on" who then waits ten seconds for a cold start has been
-    // given the wrong model of their own agent, and the pause reads as a fault.
-    body: "Live and yours, isolated to you alone. It rests when you are away.",
-    dotClass: "bg-emerald-500",
-  },
-  failed: {
-    // Calm, not alarming: there is nothing here for the person to fix, and the
-    // activity feed already carries the detail.
-    badge: "Not ready",
-    body: "Setup did not finish. Nothing was lost, and we will try again.",
-    dotClass: "bg-amber-500",
-  },
+const COPY: Record<AgentState, { badge: string; dotClass: string }> = {
+  reserved: { badge: "Reserved", dotClass: "bg-amber-500" },
+  provisioning: { badge: "Setting up", dotClass: "bg-amber-500" },
+  connecting: { badge: "Connecting", dotClass: "bg-amber-500" },
+  // NOT "always on". The default tier is economy: the pod sleeps between sessions
+  // and wakes on demand (`gcp_backend.py`, minScale 0 by founder directive).
+  active: { badge: "Online", dotClass: "bg-emerald-500" },
+  failed: { badge: "Not ready", dotClass: "bg-amber-500" },
 };
 
 /**
@@ -136,7 +110,16 @@ export function OneAgentPresence() {
   // warms an active-but-asleep pod (the chip's own "it wakes the moment you use it"
   // promise, kept early); it shares ONE module-level cooldown with the chat surface, so
   // mounting it in both places cannot double-wake. No UI of its own here.
-  useProactiveAgentWake({ state: followed as string | null, health });
+  // The wake hook is also the fresher READER. `useAgentDeploymentFollow` stops
+  // polling once the row is terminal, so its `health` freezes at whatever it saw
+  // first -- which is why this chip kept saying "Asleep" for a pod that had been
+  // awake for ten minutes (founder, 2026-09-02: "why is it still asleep!"). The
+  // wake route answers with the pod's live state every time it is touched, and
+  // while a tab is visible it is touched on a keep-alive, so prefer it.
+  const { isWaking, livePresence } = useProactiveAgentWake({
+    state: followed as string | null,
+    health,
+  });
   const router = useRouter();
 
   // Nothing known yet, so nothing claimed. Rendering the chip with a fabricated
@@ -152,11 +135,40 @@ export function OneAgentPresence() {
   // An ALLOWLIST via `isAgentNotAnswering`, not `health !== "healthy"`. The old test
   // swept up `sleeping`, which is the steady state of an economy pod and explicitly
   // not a fault, so every idle agent was reported as broken.
-  const notAnswering = state === "active" && isAgentNotAnswering(health);
+  const notAnswering =
+    state === "active" && livePresence !== "awake" && isAgentNotAnswering(health);
   // Asleep is worth SAYING rather than hiding: it is the honest reason a first turn
   // takes a moment, and a person who knows their agent sleeps reads that pause as
   // normal instead of as a stall.
-  const asleep = state === "active" && isAgentAsleep(health);
+  // Live answer wins over the frozen poll, in both directions: "awake" clears a
+  // stale sleeping read, and nothing invents sleep the pod did not report.
+  const asleep =
+    state === "active" && livePresence !== "awake" && isAgentAsleep(health);
+  const waking = state === "active" && (isWaking || livePresence === "waking");
+  const label = notAnswering
+    ? "Not responding"
+    : waking
+      ? "Waking"
+      : asleep
+        ? "Asleep"
+        : copy.badge;
+  const dotClass = notAnswering
+    ? "bg-amber-500"
+    : waking
+      ? "bg-amber-400 animate-pulse"
+      : asleep
+        ? "bg-emerald-500/50"
+        : copy.dotClass;
+  // Where it lives, kept as a tooltip rather than two more lines on the screen.
+  const whereItLives = cloud
+    ? `In your project ${cloud.project}${cloud.region ? ` (${cloud.region})` : ""}${
+        cloud.credentialMode === "user_adc"
+          ? ", thinking with your own project's Vertex AI"
+          : ""
+      }`
+    : deploymentTarget === "gcp"
+      ? "Hosted by hussh, sealed to your agent's own keys"
+      : undefined;
   // Repair, reachable where the failure is SHOWN. It runs through the SAME
   // shared recovery classifier the chat banner uses (they used to disagree:
   // this chip minted a new identity with no probe). Wake/reconnect preserves
@@ -195,77 +207,26 @@ export function OneAgentPresence() {
   return (
     <section
       aria-label="Your Agent One"
-      className="flex items-center gap-3 rounded-[22px] border border-accent/15 bg-accent-surface/50 px-4 py-3.5 sm:px-5"
+      title={whereItLives}
+      data-testid="one-agent-presence"
+      className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-1"
     >
-      <span
-        className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${
-          notAnswering ? "bg-amber-500" : asleep ? "bg-emerald-500/60" : copy.dotClass
-        }`}
-        aria-hidden
-      />
-      <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="text-[14px] font-semibold text-foreground">
-            <span aria-hidden className="mr-1">
-              🤫
-            </span>
-            Your Agent One
-          </span>
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {notAnswering ? "Not responding" : asleep ? "Asleep" : copy.badge}
-          </span>
-        </span>
-        <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground">
-          {notAnswering
-            ? "Running, but not answering health checks right now. Nothing for you to do."
-            : asleep
-              ? "Asleep to save you money. It wakes the moment you use it."
-              : copy.body}
-        </span>
-        {/* WHERE it lives and AS WHOM it thinks. The pod had no visible
-            identity anywhere in the product (founder finding, 2026-08-21);
-            these are the person's OWN coordinates, so naming them is the
-            architecture speaking, not jargon. */}
-        {cloud ? (
-          <span
-            className="mt-0.5 block text-[12px] leading-snug text-muted-foreground/80"
-            data-testid="one-agent-cloud-identity"
-          >
-            In your project {cloud.project}
-            {cloud.region ? ` (${cloud.region})` : ""}
-            {cloud.credentialMode === "user_adc"
-              ? ", thinking with your own project's Vertex AI"
-              : ""}
-          </span>
-        ) : deploymentTarget === "gcp" ? (
-          // A hosted agent has no user-project coordinates, so without this
-          // branch the surface said NOTHING about where it lives -- and where
-          // it lives is the product. The claim is the one this tier earns: it
-          // is sealed to keys hussh does not hold, and it is movable.
-          <span
-            className="mt-0.5 block text-[12px] leading-snug text-muted-foreground/80"
-            data-testid="one-agent-hosted-identity"
-          >
-            Hosted by hussh, sealed to your agent&rsquo;s own keys.{" "}
-            <a
-              className="underline underline-offset-2"
-              href={`${ROUTES.ONE_SETUP_CLOUD}?intent=migrate`}
-              data-testid="one-agent-migrate"
-            >
-              Move it to my cloud
-            </a>
-          </span>
-        ) : null}
+      <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden />
+      <span className="text-[12px] font-medium text-muted-foreground">
+        Agent One
+      </span>
+      <span className="text-[12px] text-foreground" data-testid="one-agent-status">
+        {label}
       </span>
       {canRebuild ? (
         <button
           type="button"
           onClick={() => void handleRebuild()}
           disabled={rebuilding}
-          className="shrink-0 rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+          className="ml-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-amber-700 underline underline-offset-2 hover:text-amber-800 disabled:opacity-60 dark:text-amber-400"
           data-testid="one-agent-rebuild"
         >
-          {rebuilding ? "Reconnecting…" : "Reconnect your agent"}
+          {rebuilding ? "Reconnecting…" : "Reconnect"}
         </button>
       ) : null}
     </section>
