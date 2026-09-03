@@ -3316,6 +3316,32 @@ class TestBackendDirectLocationReadTools:
         assert list_mock.call_args.kwargs == {"user_id": "user_1"}
 
     @pytest.mark.asyncio
+    async def test_list_my_location_circles_parks_a_circles_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[
+                    {"id": "c1", "name": "Family", "memberCount": 4, "role": "owner"},
+                    {"id": "c2", "name": "Trusted", "memberCount": 1, "role": "member"},
+                ],
+            ),
+        ):
+            await list_my_location_circles(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_location_circles"]
+        assert trace["kind"] == "circles_list"
+        assert trace["payload"] == {
+            "heading": "Your circles",
+            "items": [
+                {"id": "c1", "name": "Family", "detail": "4 members · Owner", "photoUrl": None},
+                {"id": "c2", "name": "Trusted", "detail": "1 member · Member", "photoUrl": None},
+            ],
+        }
+
+    @pytest.mark.asyncio
     async def test_list_my_location_shares_reads_active_owner_grants(self):
         state = self._authorized_state()
         with (
@@ -3331,6 +3357,33 @@ class TestBackendDirectLocationReadTools:
         assert result["status"] == "ok"
         assert result["shares"][0]["recipientDisplayName"] == "Roopmann"
         assert grants_mock.call_args.kwargs == {"owner_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_my_location_shares_parks_a_people_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                return_value=[
+                    {
+                        "recipientUserId": "u1",
+                        "recipientDisplayName": "Roopmann",
+                        "recipientPhotoUrl": "https://x/r.jpg",
+                        "recipientMaskedPhone": "+1***1234",
+                    }
+                ],
+            ),
+        ):
+            await list_my_location_shares(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_location_shares"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Sharing your location with"
+        assert trace["payload"]["items"] == [
+            {"id": "u1", "name": "Roopmann", "detail": "+1***1234", "photoUrl": "https://x/r.jpg"}
+        ]
 
     @pytest.mark.asyncio
     async def test_list_location_shared_with_me_reads_active_recipient_grants(self):
@@ -3350,6 +3403,26 @@ class TestBackendDirectLocationReadTools:
         assert grants_mock.call_args.kwargs == {"recipient_user_id": "user_1"}
 
     @pytest.mark.asyncio
+    async def test_list_location_shared_with_me_parks_a_people_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_recipient_grants",
+                autospec=True,
+                return_value=[{"ownerUserId": "u2", "ownerDisplayName": "Friend"}],
+            ),
+        ):
+            await list_location_shared_with_me(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_location_shared_with_me"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Sharing their location with you"
+        assert trace["payload"]["items"] == [
+            {"id": "u2", "name": "Friend", "detail": None, "photoUrl": None}
+        ]
+
+    @pytest.mark.asyncio
     async def test_list_pending_location_requests_reads_pending_owner_requests(self):
         state = self._authorized_state()
         with (
@@ -3365,6 +3438,26 @@ class TestBackendDirectLocationReadTools:
         assert result["status"] == "ok"
         assert result["requests"][0]["requesterDisplayName"] == "Asker"
         assert requests_mock.call_args.kwargs == {"owner_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_pending_location_requests_parks_a_people_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_owner_requests",
+                autospec=True,
+                return_value=[{"requesterUserId": "u3", "requesterDisplayName": "Asker"}],
+            ),
+        ):
+            await list_pending_location_requests(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_pending_location_requests"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Location requests waiting on you"
+        assert trace["payload"]["items"] == [
+            {"id": "u3", "name": "Asker", "detail": None, "photoUrl": None}
+        ]
 
     @pytest.mark.asyncio
     async def test_list_my_outgoing_location_requests_reads_pending_requester_requests(self):
@@ -3385,6 +3478,26 @@ class TestBackendDirectLocationReadTools:
         assert result["status"] == "ok"
         assert result["requests"][0]["ownerDisplayName"] == "Sarah"
         assert requests_mock.call_args.kwargs == {"requester_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_my_outgoing_location_requests_parks_a_people_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_requester_requests",
+                autospec=True,
+                return_value=[{"ownerUserId": "u4", "ownerDisplayName": "Sarah"}],
+            ),
+        ):
+            await list_my_outgoing_location_requests(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_outgoing_location_requests"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Requests you've sent"
+        assert trace["payload"]["items"] == [
+            {"id": "u4", "name": "Sarah", "detail": None, "photoUrl": None}
+        ]
 
     @pytest.mark.asyncio
     async def test_get_location_circle_members_returns_names_not_just_a_count(self):
@@ -3433,6 +3546,41 @@ class TestBackendDirectLocationReadTools:
         assert "keyId" not in result["members"][0]
         assert "publicKeyJwk" not in result["members"][0]
         assert get_circle_mock.call_args.kwargs == {"user_id": "user_1", "circle_id": "c1"}
+
+    @pytest.mark.asyncio
+    async def test_get_location_circle_members_parks_a_people_list_trace_named_by_the_circle(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "get_circle",
+                autospec=True,
+                return_value={
+                    "name": "Family",
+                    "kind": "trusted",
+                    "members": [
+                        {"displayName": "Sarah Chen", "role": "owner", "keyId": "should-not-leak"},
+                        {"displayName": "Alex Kim", "role": "member"},
+                    ],
+                },
+            ),
+        ):
+            await get_location_circle_members("Family", _tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:get_location_circle_members"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Family members"
+        assert trace["payload"]["items"] == [
+            {"id": "member-0", "name": "Sarah Chen", "detail": "Owner", "photoUrl": None},
+            {"id": "member-1", "name": "Alex Kim", "detail": "Member", "photoUrl": None},
+        ]
+        assert "keyId" not in str(trace)
 
     @pytest.mark.asyncio
     async def test_get_location_circle_members_reports_not_found_instead_of_raising(self):
@@ -3611,8 +3759,9 @@ class TestBackendDirectConnectionReadTools:
         ):
             await list_my_connections(_tool_context(state))
         trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_connections"]
-        assert trace["kind"] == "connections_list"
-        people = trace["payload"]["people"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Your connections"
+        people = trace["payload"]["items"]
         assert people == [
             {
                 "id": "cx1",
@@ -3740,6 +3889,32 @@ class TestBackendDirectConnectionReadTools:
             result = await list_pending_connection_requests(_tool_context(state), "outgoing")
         assert result["status"] == "ok"
         assert requests_mock.call_args.kwargs == {"user_id": "user_1", "direction": "outgoing"}
+
+    @pytest.mark.asyncio
+    async def test_list_pending_connection_requests_parks_a_trace_with_a_direction_matched_heading(self):
+        state = self._authorized_state()
+        row = [{"counterpartUserId": "u5", "counterpartDisplayName": "Priya"}]
+
+        with (
+            self._auth_patch(),
+            patch.object(ConnectionsService, "list_requests", autospec=True, return_value=row),
+        ):
+            await list_pending_connection_requests(_tool_context(state))
+        incoming_trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_pending_connection_requests"]
+        assert incoming_trace["kind"] == "people_list"
+        assert incoming_trace["payload"]["heading"] == "Connection requests waiting on you"
+        assert incoming_trace["payload"]["items"] == [
+            {"id": "u5", "name": "Priya", "detail": None, "photoUrl": None}
+        ]
+
+        state2 = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(ConnectionsService, "list_requests", autospec=True, return_value=row),
+        ):
+            await list_pending_connection_requests(_tool_context(state2), "outgoing")
+        outgoing_trace = state2[f"{_STATE_PENDING_TOOL_TRACE}:list_pending_connection_requests"]
+        assert outgoing_trace["payload"]["heading"] == "Requests you've sent"
 
     @pytest.mark.asyncio
     async def test_refuses_without_a_consent_token(self):

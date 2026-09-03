@@ -362,8 +362,15 @@ export function parseToolTraceCard(
   const payload =
     trace.payload && typeof trace.payload === "object" ? trace.payload : {};
 
-  if (kind === "connections_list") {
-    const rawItems = Array.isArray(payload.people) ? payload.people : [];
+  // Both are the same row shape (id/name/detail/photoUrl) and the same list
+  // layout -- "people_list" backs every person-shaped live-data read
+  // (connections, shares, requests, circle members); "circles_list" is the
+  // one live-data list that isn't people (a circle has a member count and a
+  // role, not an email or a phone). Kept as two kinds rather than one so the
+  // heading default and any future kind-specific rendering can diverge
+  // without a payload-shape guess.
+  if (kind === "people_list" || kind === "circles_list") {
+    const rawItems = Array.isArray(payload.items) ? payload.items : [];
     const items: VoiceDataListItem[] = rawItems
       .filter(
         (item): item is Record<string, unknown> =>
@@ -377,9 +384,12 @@ export function parseToolTraceCard(
       }))
       .filter((item) => item.id.length > 0);
     if (items.length === 0) return null;
+    const heading =
+      String(payload.heading ?? "").trim() ||
+      (kind === "circles_list" ? "Your circles" : "People");
     return {
       kind: "data",
-      heading: "Your connections",
+      heading,
       shape: "list",
       list: { items },
     };
