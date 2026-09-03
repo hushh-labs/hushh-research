@@ -59,6 +59,10 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import {
+  ModelPreferenceService,
+  type ModelPreference,
+} from "@/lib/services/model-preference-service";
+import {
   SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
   SpecialistDirectiveCard,
@@ -278,6 +282,7 @@ type AgentPkmActivity = {
  */
 type AgentWalletWidget =
   | { id: string; kind: "add" }
+  | { id: string; kind: "list"; summaries: WalletCardSummary[] }
   | {
       id: string;
       kind: "reveal";
@@ -1327,8 +1332,10 @@ export function AgentChatWorkspace({
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
   const [input, setInput] = useState("");
+  // Which model runs this person's agent. The catalog is served, so a new
+  // generation appears here without a client release.
+  const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const [composerLong, setComposerLong] = useState(false);
   const [composerPurpose, setComposerPurpose] = useState<"memory" | "chat" | null>(null);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
@@ -1773,6 +1780,23 @@ export function AgentChatWorkspace({
   }, [emailDraftOpen, messages, pkmReviews, pendingSpecialistDirective]);
 
   useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const preference = await ModelPreferenceService.get(await user.getIdToken());
+        if (!cancelled) setModelPreference(preference);
+      } catch {
+        // A picker that cannot load is hidden, never a blocking error: the turn
+        // still runs on whatever the backend resolves.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
     const textarea = composerTextareaRef.current;
     if (!textarea || voiceActive) return;
     textarea.style.height = "0px";
@@ -1780,7 +1804,6 @@ export function AgentChatWorkspace({
     // `scrollHeight` includes soft-wrapped text, which is the visual behavior
     // people notice. Reveal the larger editor after roughly four rendered rows.
     const long = input.trim().length > 0 && nextHeight > 96;
-    setComposerLong(long);
     if (!long) setComposerExpanded(false);
     // The expanded writing surface owns its fixed, spacious height. The compact
     // pill grows only to its CSS ceiling and then scrolls internally.
@@ -2560,6 +2583,43 @@ export function AgentChatWorkspace({
     [],
   );
 
+  /**
+   * Reveal one card from the chat list widget. Decryption happens here, on the
+   * owner's device, and the secrets go straight into a reveal widget: they are
+   * never written into a message, model context, history, or telemetry.
+   */
+  const handleWalletWidgetReveal = useCallback(
+    async (listWidgetId: string, summary: WalletCardSummary) => {
+      const token = getVaultOwnerToken();
+      if (!user?.uid || !vaultKey || !token) {
+        setVaultDialogOpen(true);
+        return;
+      }
+      try {
+        const full = await WalletService.getCard({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken: token,
+          cardId: summary.cardId,
+        });
+        if (!full) return;
+        setWalletWidgets((current) => [
+          ...current,
+          {
+            id: `${listWidgetId}-reveal-${summary.cardId}`,
+            kind: "reveal",
+            summary: full.summary,
+            secrets: full.secrets,
+          },
+        ]);
+      } catch {
+        // A failed decrypt must not surface card material in an error path.
+        setVaultDialogOpen(true);
+      }
+    },
+    [getVaultOwnerToken, user?.uid, vaultKey],
+  );
+
   const handleSavePkmReview = useCallback(
     (reviewId: string) => {
       if (savingPkmReviewIdsRef.current.has(reviewId)) return;
@@ -3125,18 +3185,21 @@ export function AgentChatWorkspace({
             await WalletService.listCardSummaries(cardsContext);
           const described = WalletService.describeSummaries(summaries);
           // Metadata only (nickname, brand, last4, expiry, region): safe to
-          // show in the conversation and to hand back to the model.
-          appendMessage({
-            id: `msg-${Date.now()}-cards-list`,
-            role: "assistant",
-            text:
-              summaries.length === 0
-                ? "No cards are stored yet."
-                : `Your cards:\n${described}`,
-            timestamp: formatNow(),
-            status: "done",
-            renderAsPlainAssistantMessage: true,
-          });
+          // show and to hand back to the model. This renders as a widget rather
+          // than a second assistant message: the model already speaks the answer
+          // from resultSummary, so appending the same text produced two blocks
+          // with two copy/thumbs rails for one question. The widget also carries
+          // a Reveal control per card, which plain text could not.
+          if (summaries.length > 0) {
+            setWalletWidgets((current) => [
+              ...current,
+              {
+                id: `${debugTurnId}-card-list-${current.length}`,
+                kind: "list",
+                summaries,
+              },
+            ]);
+          }
           return {
             status: "succeeded",
             actionId: toolEvent.actionId,
@@ -4791,15 +4854,53 @@ export function AgentChatWorkspace({
                   </button>
                 ))}
               </div>
-              {statusText ? (
-                <span
-                  className="hidden text-xs font-medium text-muted-foreground sm:inline-flex"
-                  role="status"
-                  aria-live="polite"
+              {modelPreference && modelPreference.choices.length > 1 ? (
+                <select
+                  data-testid="agent-chat-model-picker"
+                  aria-label="Model"
+                  title={`Running ${modelPreference.effective_model}`}
+                  value={modelPreference.effective_model}
+                  onChange={(event) => {
+                    const nextModel = event.target.value;
+                    const previous = modelPreference;
+                    // Optimistic: the picker must not stall the header while the
+                    // write lands. A failure restores exactly what was showing.
+                    setModelPreference({ ...previous, effective_model: nextModel });
+                    void (async () => {
+                      try {
+                        if (!user) return;
+                        const saved = await ModelPreferenceService.set(
+                          await user.getIdToken(),
+                          nextModel,
+                        );
+                        setModelPreference(saved);
+                      } catch {
+                        setModelPreference(previous);
+                      }
+                    })();
+                  }}
+                  className="hidden h-7 max-w-[9.5rem] shrink-0 truncate rounded-full bg-foreground/[0.045] px-2 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:text-foreground sm:block"
                 >
-                  {statusText}
-                </span>
+                  {modelPreference.choices.map((choice) => (
+                    <option key={choice.model_id} value={choice.model_id}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
               ) : null}
+              {/* A fixed slot, always present. This used to mount and unmount
+                  with the status, and because the cluster is shrink-0 the whole
+                  right side, One/Puppy toggle included, jumped sideways every
+                  time One started or stopped thinking. The width is reserved so
+                  nothing moves, and the text truncates instead of pushing. */}
+              <span
+                className="hidden w-28 shrink-0 truncate text-right text-xs font-medium text-muted-foreground sm:inline-block"
+                role="status"
+                aria-live="polite"
+                title={statusText || undefined}
+              >
+                {statusText}
+              </span>
               {isPopover ? (
                 <ShellActionSurface
                   variant="icon"
@@ -4988,7 +5089,46 @@ export function AgentChatWorkspace({
               ))}
 
               {walletWidgets.map((widget) =>
-                widget.kind === "add" ? (
+                widget.kind === "list" ? (
+                  <div
+                    key={widget.id}
+                    data-testid="agent-chat-wallet-list"
+                    className="rounded-2xl border border-border/60 bg-card/60 p-3"
+                  >
+                    <p className="px-1 pb-2 text-xs text-muted-foreground">
+                      Your cards. Revealing one decrypts it on this device only.
+                    </p>
+                    <ul className="flex flex-col gap-1">
+                      {widget.summaries.map((summary) => (
+                        <li
+                          key={summary.cardId}
+                          className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 hover:bg-foreground/[0.04]"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">
+                              {summary.nickname || summary.brand}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {summary.brand} ····{summary.last4} ·{" "}
+                              {String(summary.expiryMonth).padStart(2, "0")}/{summary.expiryYear} ·{" "}
+                              {summary.issuingRegion}
+                            </span>
+                          </span>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="shrink-0"
+                            data-testid={`agent-chat-wallet-reveal-${summary.last4}`}
+                            onClick={() => void handleWalletWidgetReveal(widget.id, summary)}
+                          >
+                            Reveal
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : widget.kind === "add" ? (
                   <SecureCardAddForm
                     key={widget.id}
                     compact
@@ -5855,9 +5995,9 @@ export function AgentChatWorkspace({
                   {!composerExpanded ? (
                     <div
                       data-testid="agent-chat-composer"
-                      className="flex min-h-16 items-end gap-2 rounded-[24px] bg-foreground/[0.045] px-3 py-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045] transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]"
+                      className="flex min-h-16 items-center gap-2 rounded-[24px] bg-foreground/[0.045] px-3 py-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045] transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]"
                     >
-                      <div className="relative min-w-0 flex-1 self-stretch">
+                      <div className="relative min-w-0 flex-1">
                         <textarea
                           ref={composerTextareaRef}
                           data-testid="agent-chat-composer-textarea"
@@ -5885,24 +6025,26 @@ export function AgentChatWorkspace({
                           }
                           placeholder="Message One..."
                           rows={1}
-                          className="min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
+                          className="block min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
                         />
-                        {composerLong ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            data-testid="agent-chat-composer-expand"
-                            className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
-                            aria-label="Expand message editor"
-                            title="Expand"
-                            onClick={() => setComposerExpanded(true)}
-                          >
-                            <Maximize2 className="h-4 w-4" />
-                          </Button>
-                        ) : null}
+                        {/* Always top-right. It used to appear only once the
+                            message grew past a threshold, so the control the
+                            owner reaches for arrived late and moved the moment
+                            it did. */}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          data-testid="agent-chat-composer-expand"
+                          className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
+                          aria-label="Expand message editor"
+                          title="Expand"
+                          onClick={() => setComposerExpanded(true)}
+                        >
+                          <Maximize2 className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <div className="flex shrink-0 self-end items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-2">
                         {composerActionRail}
                       </div>
                     </div>
