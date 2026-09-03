@@ -122,26 +122,58 @@ yes, then calls again with `confirmed: true`. `guard_ids` entries named
 descriptive strings only, not enforced anywhere. Do not rely on adding one to
 get confirmation behavior; it does nothing on its own.
 
-## Step 3 — guard_ids: only these do anything, client-side
+## Step 3 — guard_ids: registered is not the same as enforced
 
+Every `guard_id` you write must be a key in
+`contracts/kai/capability-guard-coverage.v1.json` — `generate-kai-action-gateway.mjs`
+(`build:voice-gateway`, already in CI) hard-fails the build otherwise, so a
+typo'd or made-up guard string is caught immediately. That file also
+classifies each guard as `"kind": "projection"` (should be checkable
+client-side, no server round trip needed) or `"kind": "server_only"`
+(the client can never know; don't try).
+
+**Registration is not enforcement — verify separately, don't assume.**
 `evaluateKaiActionAvailability` (`hushh-webapp/lib/voice/kai-action-gateway.ts`)
-enforces exactly this closed set: `auth_signed_in` / `auth_required`,
-`vault_unlocked`, `portfolio_required`, `analysis_idle_required`,
-`active_analysis_required`, `gmail_connected`, `gmail_configured`,
-`ria_persona_available`. Anything else you write into `guard_ids` compiles,
-looks correct, and **does nothing** — it's not an error, there's no lint for
-it, the action just isn't actually gated by it. Reuse one of these if it
-fits; if it doesn't, you're adding a new guard, which means a new `if` branch
-in that function, not a new string in the JSON.
+is the actual client-side enforcer, and it only branches on a subset of the
+guards the registry calls "projection": confirmed wired today are
+`auth_signed_in` / `auth_required`, `vault_unlocked`, `portfolio_required`,
+`analysis_idle_required`, `active_analysis_required`, `gmail_connected`,
+`gmail_configured`, `ria_persona_available`. **#6437**: two other
+registry-declared "projection" guards (`consent_center_available`,
+`ria_onboarding_complete`) turned out to be checked *nowhere* — not this
+function, not the backend — while gating real, voice-executable RIA actions.
+Registering a guard and believing it's therefore live is exactly the trap
+that produced that bug. `__tests__/voice/capability-guard-coverage.test.ts`
+now exercises every registered "projection" guard's actual blocking
+behavior (not just its presence as a string) and fails loudly — as a visible
+`.todo`, not a silent skip — for any guard that doesn't yet have a proven
+way to block. If you add a "projection" guard, add its passing/failing
+`AppRuntimeState` override to that test in the same change, or the test
+itself will tell you to.
 
-The backend does not re-check this same set — its own comment is explicit:
-*"the app re-checks guards before executing."* `run_app_action` enforces a
-different thing: `manual_only`/`unwired` refusal, voice-domain toggles,
-screen reachability (does the scope even claim this screen), delegate
-redirection, and turn-scoped already-completed/already-failed dedup. Treat
-client guards and backend guards as two separate lists that happen to share
-some vocabulary, not one shared enforcement point — a guard that only exists
-client-side is bypassable by anything that reaches `run_app_action` directly.
+For a `"server_only"` guard: there is no generic backend dispatch table
+keyed by the guard_id string or its declared `validator` name — that name in
+the registry is a label for where enforcement is expected to live, not a
+function to go find. You have to write the actual check into whatever
+backend code path the action reaches (the RIA/consent/relationship service
+methods, typically), the same way you'd add any other authorization check to
+that endpoint. Adding the guard_id to the JSON alone enforces nothing.
+
+`guard_ids` named `explicit_user_confirmation` / `manual_user_execution`
+specifically: read `_directive_flags` in `action_tools.py` before assuming
+these gate anything — as of this writing they feed the confirmation-card
+*display* decision (see Step 2), not a hard block on their own.
+
+The backend's `run_app_action` does not re-check the client's guard set
+either way — its own comment is explicit: *"the app re-checks guards before
+executing."* It enforces a different thing: `manual_only`/`unwired`
+refusal, voice-domain toggles, screen reachability (does the scope even
+claim this screen), delegate redirection, and turn-scoped
+already-completed/already-failed dedup. Client guards, the "server_only"
+domain checks, and the backend's own dispatch-time checks are three
+separate things that happen to share some vocabulary — a guard that only
+exists in one of them is bypassable by anything that reaches the others
+directly.
 
 ## Step 4 — regenerate + verify
 
@@ -150,7 +182,7 @@ Same three-artifact regeneration as navigation actions
 
 ```bash
 cd hushh-webapp
-npx vitest run __tests__/voice/kai-action-gateway.test.ts
+npx vitest run __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-guard-coverage.test.ts
 cd ..
 consent-protocol/.venv/Scripts/python.exe -m pytest consent-protocol/tests/test_one_adk_agent_tree.py -q
 ```
