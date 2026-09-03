@@ -326,8 +326,126 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
         return None
 
 
+class _AdcToken:
+    """A cached ADC bearer for the pod's own identity, refreshed when it expires."""
+
+    def __init__(self) -> None:
+        self._credentials: Any = None
+
+    def get(self) -> str:
+        import google.auth  # noqa: PLC0415
+        from google.auth.transport.requests import Request  # noqa: PLC0415
+
+        if self._credentials is None:
+            self._credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+        if not self._credentials.valid:
+            self._credentials.refresh(Request())
+        return str(self._credentials.token)
+
+
+def _event_text(content: Any) -> str:
+    parts = getattr(content, "parts", None) or []
+    texts = [str(getattr(part, "text", "") or "") for part in parts]
+    return "\n".join(t for t in texts if t.strip()).strip()
+
+
+def build_rest_memory_bank_service(
+    cfg: MemoryBankConfig,
+    engine_id: str,
+    *,
+    session: Any = None,
+    token: Any = None,
+    top_k: int = 8,
+) -> Any:
+    """Memory Bank over its REST surface, as an ADK ``BaseMemoryService``.
+
+    ADK ships ``VertexAiMemoryBankService`` but it imports ``google-cloud-aiplatform``,
+    which pins ``google-genai<2`` and cannot live in the same graph as ADK 2.x
+    (``pyproject.toml`` keeps the ``gcp`` extra out on purpose; seen live 2026-09-03
+    as ``ImportError`` on the founder's pod after the engine had been created).
+    The two calls the service makes are plain REST -- ``memories:generate`` after a
+    turn and ``memories:retrieve`` on recall -- so this is the same behaviour on the
+    pod's own identity with no new dependency. Generation is a long-running
+    operation the pod does not wait on; recall is synchronous and bounded.
+    """
+    import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+    from google.adk.memory.base_memory_service import (  # noqa: PLC0415
+        BaseMemoryService,
+        SearchMemoryResponse,
+    )
+    from google.adk.memory.memory_entry import MemoryEntry  # noqa: PLC0415
+    from google.genai import types as genai_types  # noqa: PLC0415
+
+    http = session or requests.Session()
+    bearer = token or _AdcToken()
+    engine = f"{_base_url(cfg)}/reasoningEngines/{engine_id}"
+
+    def _headers() -> dict[str, str]:
+        value = bearer.get() if hasattr(bearer, "get") else str(bearer)
+        return {"Authorization": f"Bearer {value}"}
+
+    class _RestMemoryBankService(BaseMemoryService):
+        engine_id_ = engine_id
+
+        async def add_session_to_memory(self, session: Any) -> None:
+            events = []
+            for event in getattr(session, "events", None) or []:
+                if str(getattr(event, "invocation_id", "") or "").startswith("history_"):
+                    continue  # browser-carried history is read, never re-stored
+                text = _event_text(getattr(event, "content", None))
+                if not text:
+                    continue
+                role = "model" if str(getattr(event, "author", "") or "") != "user" else "user"
+                events.append({"content": {"role": role, "parts": [{"text": text}]}})
+            if not events:
+                return
+            body = {
+                "directContentsSource": {"events": events},
+                "scope": {"user_id": str(getattr(session, "user_id", "") or cfg.display_name)},
+            }
+            await asyncio.to_thread(self._post, "memories:generate", body)
+
+        async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
+            body = {
+                "scope": {"user_id": str(user_id or cfg.display_name)},
+                "similaritySearchParams": {"searchQuery": query, "topK": top_k},
+            }
+            payload = await asyncio.to_thread(self._post, "memories:retrieve", body)
+            memories = []
+            for item in (payload or {}).get("retrievedMemories") or []:
+                fact = str(((item or {}).get("memory") or {}).get("fact") or "").strip()
+                if not fact:
+                    continue
+                memories.append(
+                    MemoryEntry(
+                        content=genai_types.Content(
+                            role="model", parts=[genai_types.Part(text=fact)]
+                        ),
+                        author="memory_bank",
+                        timestamp=str(((item or {}).get("memory") or {}).get("updateTime") or ""),
+                    )
+                )
+            return SearchMemoryResponse(memories=memories)
+
+        def _post(self, verb: str, body: dict[str, Any]) -> dict[str, Any]:
+            response = http.post(f"{engine}/{verb}", headers=_headers(), json=body, timeout=30)
+            if response.status_code not in (200, 201):
+                message = _api_error(response)
+                _STATE["error"] = f"{verb} {response.status_code}: {message}"
+                raise MemoryBankUnavailable(_STATE["error"])
+            _STATE["error"] = None
+            try:
+                return response.json() or {}
+            except Exception:  # noqa: BLE001
+                return {}
+
+    return _RestMemoryBankService()
+
+
 def resolve_memory_bank_service() -> Optional[Any]:
-    """The ADK ``VertexAiMemoryBankService`` for this pod, or None. Never raises.
+    """The pod's Memory Bank as a ``BaseMemoryService``, or None. Never raises.
 
     Only once the engine is known: before ``ensure_memory_bank`` has run (or when it
     failed) the pod's memory is the commit log alone, which is the honest state.
@@ -339,11 +457,7 @@ def resolve_memory_bank_service() -> Optional[Any]:
     if "service" in _SERVICE:
         return _SERVICE["service"]
     try:
-        from google.adk.memory import VertexAiMemoryBankService  # noqa: PLC0415
-
-        service = VertexAiMemoryBankService(
-            project=cfg.project, location=cfg.location, agent_engine_id=str(engine_id)
-        )
+        service = build_rest_memory_bank_service(cfg, str(engine_id))
     except Exception as exc:  # noqa: BLE001
         _STATE["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
         logger.warning("pod_memory_bank.service_failed reason=%s", _STATE["error"])

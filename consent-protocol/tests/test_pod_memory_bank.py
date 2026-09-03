@@ -348,3 +348,100 @@ def test_a_double_refusal_names_both_reasons() -> None:
         mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN)
     text = str(exc.value)
     assert "not available in this region" in text and "not supported" in text
+
+
+# ---- the REST service: generate after a turn, retrieve on recall ---------------------
+
+
+class _RestHttp:
+    def __init__(self, retrieve_body=None, status=200):
+        self.retrieve_body = retrieve_body or {"retrievedMemories": []}
+        self.status = status
+        self.posts: list[tuple[str, dict]] = []
+
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.posts.append((url, json))
+        assert headers["Authorization"].startswith("Bearer ")
+        if url.endswith("memories:retrieve"):
+            return _Resp(self.status, self.retrieve_body)
+        return _Resp(self.status, {"name": "projects/p/locations/us-central1/operations/1"})
+
+
+class _Token:
+    def get(self):
+        return "t"
+
+
+def _rest_session(*texts, user_id="ha1_test"):
+    from google.genai import types as genai_types
+
+    events = [
+        SimpleNamespace(
+            invocation_id="inv_1",
+            author="user" if i % 2 == 0 else "one",
+            content=genai_types.Content(role="user", parts=[genai_types.Part(text=t)]),
+        )
+        for i, t in enumerate(texts)
+    ]
+    events.append(
+        SimpleNamespace(
+            invocation_id="history_3",
+            author="user",
+            content=genai_types.Content(role="user", parts=[genai_types.Part(text="old")]),
+        )
+    )
+    return SimpleNamespace(events=events, user_id=user_id)
+
+
+@pytest.mark.asyncio
+async def test_generate_carries_the_turn_and_never_the_carried_history() -> None:
+    http = _RestHttp()
+    service = mb.build_rest_memory_bank_service(_cfg(), "91", session=http, token=_Token())
+    await service.add_session_to_memory(_rest_session("my dog is Biscuit", "Noted."))
+    url, body = http.posts[0]
+    assert url.endswith("/reasoningEngines/91/memories:generate")
+    events = body["directContentsSource"]["events"]
+    assert [e["content"]["parts"][0]["text"] for e in events] == ["my dog is Biscuit", "Noted."]
+    assert [e["content"]["role"] for e in events] == ["user", "model"]
+    assert body["scope"] == {"user_id": "ha1_test"}
+
+
+@pytest.mark.asyncio
+async def test_retrieve_returns_facts_as_memory_entries() -> None:
+    http = _RestHttp(
+        {
+            "retrievedMemories": [
+                {
+                    "memory": {
+                        "fact": "The dog is called Biscuit",
+                        "updateTime": "2026-09-03T00:00:00Z",
+                    },
+                    "distance": 0.1,
+                }
+            ]
+        }
+    )
+    service = mb.build_rest_memory_bank_service(_cfg(), "91", session=http, token=_Token())
+    out = await service.search_memory(app_name="one", user_id="ha1_test", query="dog")
+    assert [m.content.parts[0].text for m in out.memories] == ["The dog is called Biscuit"]
+    url, body = http.posts[0]
+    assert url.endswith("/reasoningEngines/91/memories:retrieve")
+    assert body["similaritySearchParams"]["searchQuery"] == "dog"
+    assert body["scope"] == {"user_id": "ha1_test"}
+
+
+@pytest.mark.asyncio
+async def test_a_refused_call_raises_and_is_visible_on_pod_info() -> None:
+    http = _RestHttp(status=403)
+    service = mb.build_rest_memory_bank_service(_cfg(), "91", session=http, token=_Token())
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await service.search_memory(app_name="one", user_id="ha1_test", query="dog")
+    assert "memories:retrieve 403" in mb.memory_bank_status()["memoryBankError"]
+
+
+def test_the_resolver_builds_the_rest_service_without_the_aiplatform_package(monkeypatch) -> None:
+    _configure(monkeypatch)
+    mb._STATE["engine_id"] = "91"
+    service = mb.resolve_memory_bank_service()
+    assert service is not None and service.engine_id_ == "91"
+    assert mb.resolve_memory_bank_service() is service, "built once per process"

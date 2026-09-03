@@ -409,6 +409,12 @@ Bank is the first non-lexical retrieval in the system.
   named `one-pod-memory-<hushh_id>` at the pod's own region (Agent Engine is regional;
   `POD_MEMORY_BANK_LOCATION`, rendered by `UserGcpBackend`), off the boot path, and
   records the id once in the pod's own object store (`memory_bank.json`).
+- **Over REST, not the ADK class.** `VertexAiMemoryBankService` imports
+  `google-cloud-aiplatform`, which pins `google-genai<2` and cannot share a graph with ADK
+  2.x (`pyproject.toml` keeps the `gcp` extra out on purpose; the founder's pod created its
+  engine and then hit `ImportError`, 2026-09-03). `build_rest_memory_bank_service` makes the
+  two calls directly (`memories:generate` after a turn, not awaited; `memories:retrieve` on
+  recall) on the pod's ADC, and a refused call lands in `memoryBankError`.
 - **Composite, log underneath.** `build_pod_memory_service(bank=...)` writes every turn to
   the sealed log **and** the bank; `search_memory` asks the bank first and falls back to
   the log. `load_memory` stays bound and observable (`pod_memory.recall
