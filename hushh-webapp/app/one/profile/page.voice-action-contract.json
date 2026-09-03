@@ -290,7 +290,9 @@
           "profile_preferences"
         ],
         "hidden_navigable": true,
-        "navigation_prerequisites": []
+        "navigation_prerequisites": [
+          "profile route must be active"
+        ]
       },
       "guard_ids": [],
       "risk_level": "low",

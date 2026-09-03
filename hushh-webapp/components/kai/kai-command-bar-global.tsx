@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { KaiSearchBar } from "@/components/kai/kai-search-bar";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { useVault } from "@/lib/vault/vault-context";
@@ -64,8 +65,10 @@ export function KaiCommandBarGlobal() {
     personaTransitionTarget,
     riaSetupAvailable,
     riaSwitchAvailable,
+    riaOnboardingStatus,
     switchPersona,
   } = usePersonaState();
+  const riaOnboardingComplete = isRiaAdvisoryAccessReady(riaOnboardingStatus);
   const { isVaultUnlocked, vaultOwnerToken, tokenExpiresAt } = useVault();
   const setAnalysisParams = useKaiSession((s) => s.setAnalysisParams);
   const busyOperations = useKaiSession((s) => s.busyOperations);
@@ -272,6 +275,7 @@ export function KaiCommandBarGlobal() {
         transition_target: personaTransitionTarget || null,
         ria_switch_available: riaSwitchAvailable,
         ria_setup_available: riaSetupAvailable,
+        ria_onboarding_complete: riaOnboardingComplete,
       },
       voice: {
         available: false,
@@ -300,6 +304,7 @@ export function KaiCommandBarGlobal() {
       primaryNavPersona,
       riaSetupAvailable,
       riaSwitchAvailable,
+      riaOnboardingComplete,
     ]
   );
 
