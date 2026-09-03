@@ -3811,7 +3811,9 @@ class TestReadMyPkmDomainSummary:
         state = self._authorized_state()
         index = _FakePkmIndex(
             available_domains=["financial", "identity"],
-            domain_summaries={"financial": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"}},
+            domain_summaries={
+                "financial": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"}
+            },
         )
         with self._auth_patch(), self._pkm_patch(index):
             result = await read_my_pkm_domain_summary("financial", _tool_context(state))

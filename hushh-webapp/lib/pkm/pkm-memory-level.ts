@@ -82,6 +82,11 @@ function humanize(segment: string): string {
   return segment
     .replace(/\[\d+\]/g, " ")
     .replace(/[_-]+/g, " ")
+    // A key that runs letters straight into digits reads as a machine name:
+    // `last4` titled itself "Last4" on the owner's Memory screen. Split the
+    // boundary only when the word is long enough to be a word, so short codes
+    // (w2, k1) stay intact.
+    .replace(/([a-z]{3,})(\d+)/gi, "$1 $2")
     .replace(/\b\w/g, (match) => match.toUpperCase())
     .trim();
 }
@@ -95,6 +100,14 @@ function humanizeSingular(segment: PkmPathSegment | null): string {
 function looksLikeOpaqueId(segment: string): boolean {
   return (
     /^(mem|ent|entity|item|entry|rec|record|obj|node|evt|event)[_-][a-z0-9][a-z0-9_-]{2,}$/i.test(
+      segment,
+    ) ||
+    // Any `<prefix>_<uuid>` segment, whatever the prefix. The list above is a
+    // guess at which prefixes a domain would choose, and it guessed wrong for
+    // the wallet's `card_<uuid>` segments: they fell through to humanize() and
+    // titled a saved card "Card 94d850a3 A02c 414c 9813 A48e64b0fa53" on the
+    // owner's Memory screen. A uuid is opaque no matter what precedes it.
+    /^[a-z][a-z0-9]*[_-][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       segment,
     ) ||
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(segment) ||

@@ -207,3 +207,48 @@ describe("pkmMemoryCardBreadcrumb", () => {
     expect(pkmMemoryCardBreadcrumb(entityCard)).toBe("Changes › History");
   });
 });
+
+describe("opaque segment titles", () => {
+  const WALLET = {
+    summary: {
+      "card_94d850a3-a02c-414c-9813-a48e64b0fa53": {
+        nickname: "Discover",
+        brand: "discover",
+        last4: "3654",
+        expiry_month: 9,
+        expiry_year: 2028,
+        issuing_region: "US",
+      },
+    },
+  };
+  const WALLET_BASE = { domainKey: "wallet", domainTitle: "Wallet", sourceLabel: "Wallet" };
+
+  it("lists a saved card by its nickname, not its uuid segment", () => {
+    const level = resolvePkmMemoryLevel({
+      ...WALLET_BASE,
+      data: WALLET,
+      pathStack: ["summary"],
+    });
+    expect(level.entries.map((entry) => entry.kind === "group" && entry.label)).toEqual([
+      "Discover",
+    ]);
+    // The uuid stays as the navigation segment; it must never be the label.
+    expect(level.entries[0]).toMatchObject({
+      kind: "group",
+      segment: "card_94d850a3-a02c-414c-9813-a48e64b0fa53",
+    });
+  });
+
+  it("titles the card detail with the nickname", () => {
+    // The regression: `card_<uuid>` fell through humanize() and the owner's
+    // screen read "Card 94d850a3 A02c 414c 9813 A48e64b0fa53".
+    const level = resolvePkmMemoryLevel({
+      ...WALLET_BASE,
+      data: WALLET,
+      pathStack: ["summary", "card_94d850a3-a02c-414c-9813-a48e64b0fa53"],
+    });
+    expect(level.title).toBe("Discover");
+    expect(level.crumbs).toEqual(["Wallet", "Summary", "Discover"]);
+    expect(level.title).not.toContain("94d850a3");
+  });
+});
