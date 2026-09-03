@@ -27,12 +27,15 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { formatRelativeTime } from "@/lib/format/relative-time";
+import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import {
   fetchPuppyJobs,
   fetchPuppyResources,
   setPuppyJobPaused,
   type PuppyJob,
   type PuppyJobs,
+  type PuppyLink,
   type PuppyResidentModel,
   type PuppyResourceLink,
   type PuppyResources,
@@ -134,12 +137,22 @@ const TONE_CHIP: Record<Tone, string> = {
  * mount, because the link banner has to be able to announce a dead session
  * without the owner opening anything and the gateway offers no cheaper
  * question than the whole reading. Open, it keeps that reading current.
+ *
+ * Two links are read, from two authorities. The bridge's `payload.link` is the
+ * device's own view of its session with One, readable only on the machine the
+ * page is served from. `link` is One's own view of the device, readable from
+ * anywhere. On a deployed origin the bridge is a container and never the
+ * owner's Mac, so the second is the only one a deployed viewer ever has.
  */
 function useMachineReading(live: boolean): {
   payload: PuppyResources | null;
   readAt: number;
+  link: PuppyLink | null;
 } {
   const [payload, setPayload] = useState<PuppyResources | null>(null);
+  // One's record of the device, from the store every Puppy surface shares:
+  // one poll for the page, and one moment of change for every reader of it.
+  const link = usePuppyLink();
   // Epoch ms of the last successful read, used only when the gateway did not
   // stamp the payload. Preferring the gateway's own clock keeps "in 14 min"
   // free of skew between this browser and the machine.
@@ -188,7 +201,7 @@ function useMachineReading(live: boolean): {
     return () => clearInterval(timer);
   }, [live, read]);
 
-  return { payload, readAt };
+  return { payload, readAt, link };
 }
 
 /**
@@ -352,8 +365,13 @@ const PANEL_DESCRIPTION =
  */
 export function PuppyMachineSheet({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
-  const { payload, readAt } = useMachineReading(open);
+  const { payload, readAt, link } = useMachineReading(open);
   const scheduled = usePuppyScheduledWork(open);
+  // This strip speaks for the DEVICE's own account of its session, which
+  // knows things One cannot (an expired token on a still-trusted machine).
+  // One's record of the device is the chat panel's to explain, directly under
+  // this strip, with the way out; saying it here too put the same sentence
+  // and the same install link on one screen twice. One fact, one place.
   const linkState = describeLink(payload?.link);
   // "ok" resolves to `healthy` and "not_connected" to null, so what is left is
   // exactly the set the owner cannot be left to discover by tapping.
@@ -384,6 +402,7 @@ export function PuppyMachineSheet({ className }: { className?: string }) {
     <PuppyResourceMonitor
       payload={payload}
       readAt={readAt}
+      link={link}
       className="rounded-none border-0"
       scheduled={
         <PuppyJobList
@@ -455,7 +474,22 @@ function LinkNotice({
 }) {
   if (state.kind === "quiet") {
     return (
-      <p className="text-[11px] text-muted-foreground">{state.message}</p>
+      <p className="text-[11px] text-muted-foreground">
+        {state.message}
+        {state.action ? (
+          <>
+            {" · "}
+            <a
+              href={state.action.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              {state.action.label}
+            </a>
+          </>
+        ) : null}
+      </p>
     );
   }
   return (
@@ -500,12 +534,19 @@ function LinkNotice({
 export function PuppyResourceMonitor({
   payload,
   readAt = 0,
+  link = null,
   className,
   scheduled,
 }: {
   payload: PuppyResources | null;
   /** Epoch ms of that read. 0 means "not stamped": no relative time is shown. */
   readAt?: number;
+  /**
+   * One's record of the owner's device. Rendered ONLY when the bridge has
+   * nothing to say: a live reading from the machine itself is always the
+   * better one, and showing both would be two readings of one machine.
+   */
+  link?: PuppyLink | null;
   className?: string;
   /**
    * The job list, rendered under the "Scheduled work" summary.
@@ -522,6 +563,13 @@ export function PuppyResourceMonitor({
   // in exactly the states an owner is most likely to be looking for them: while
   // the readings are still loading, or when the readings call failed. The jobs
   // section carries its own calm states and can speak for itself.
+  //
+  // The two that KNOW the bridge has nothing also carry what One last heard
+  // from the machine: on a deployed origin the bridge is a container, so
+  // "not answering" is the permanent state there and the heartbeat is the
+  // only reading a person will ever get. The loading branch does not: until
+  // the bridge answers, showing One's reading would be a second account of
+  // the machine that a live bridge is about to replace.
   if (!payload) {
     return (
       <Shell className={className}>
@@ -541,6 +589,7 @@ export function PuppyResourceMonitor({
           {payload.message ||
             "Set HERMES_API_SERVER_KEY to read the machine Puppy One runs on."}
         </p>
+        <ReportedReading link={link} />
         {scheduled}
       </Shell>
     );
@@ -552,13 +601,14 @@ export function PuppyResourceMonitor({
         <p className="px-4 py-3 text-xs text-muted-foreground">
           Puppy One is not answering on this machine.
         </p>
+        <ReportedReading link={link} />
         {scheduled}
       </Shell>
     );
   }
 
-  const { agent, machine, models, jobs, link } = payload;
-  const linkState = describeLink(link);
+  const { agent, machine, models, jobs } = payload;
+  const linkState = describeLink(payload.link);
   const origin = describeOrigin(agent?.on_device, agent?.on_device_gate);
   const OriginIcon = origin?.icon ?? Cpu;
 
@@ -829,6 +879,139 @@ export function PuppyResourceMonitor({
         </p>
       ) : null}
     </Shell>
+  );
+}
+
+/**
+ * The machine as it last described itself to Hussh One.
+ *
+ * Only what the heartbeat carried, in the rows the live reading already uses:
+ * the model line, the memory and battery tiles, the next scheduled run. A
+ * field the device did not send renders as nothing. A desktop sends no
+ * battery, and that is not 0%.
+ */
+function ReportedReading({ link }: { link: PuppyLink | null }) {
+  const device = link?.device ?? null;
+  const snapshot = device?.heartbeat ?? null;
+  if (!device || !snapshot) return null;
+
+  const model = nonEmpty(snapshot.current_model);
+  const version = nonEmpty(snapshot.agent_version);
+  const activeSessions = finiteNumber(snapshot.active_sessions);
+  const brand = nonEmpty(snapshot.brand);
+  const processor = nonEmpty(snapshot.processor);
+  const ramTotalGb = finiteNumber(snapshot.ram_total_gb);
+  const ramUsedPct = finiteNumber(snapshot.ram_used_pct);
+  const batteryPct = finiteNumber(snapshot.battery_pct);
+  const batteryDischarging =
+    snapshot.battery_charging === false && snapshot.on_ac === false;
+  // A run that was due before this read is history the snapshot cannot
+  // update, so it is dropped rather than shown as "due now" on a machine that
+  // may have been asleep for a day.
+  const checkedAt = link?.checkedAt ?? 0;
+  const nextCronAt = finiteNumber(snapshot.next_cron_at);
+  // Bounded above as well: the backend stores any non-negative integer, and
+  // `new Date(n).toISOString()` throws past 8.64e15, which with no boundary
+  // between this sheet and the page would replace the page with the error
+  // screen for every viewer of that account. No device sends this field
+  // today; the row exists for the one that will.
+  const nextRun =
+    nextCronAt !== null && nextCronAt > checkedAt && nextCronAt <= 8.64e15
+      ? relativeTime(checkedAt, new Date(nextCronAt).toISOString())
+      : null;
+
+  const hasMachine =
+    brand !== null || processor !== null || ramTotalGb !== null;
+  const hasTiles = ramUsedPct !== null || batteryPct !== null;
+  if (!model && !hasMachine && !hasTiles && !nextRun) return null;
+
+  const activity: string[] = [];
+  if (snapshot.busy === true) activity.push("busy");
+  if (activeSessions !== null) {
+    activity.push(
+      `${activeSessions} active ${activeSessions === 1 ? "session" : "sessions"}`,
+    );
+  }
+  const seen =
+    device.lastHeartbeatAt !== null
+      ? formatRelativeTime(device.lastHeartbeatAt, link?.checkedAt)
+      : "";
+
+  return (
+    <Section label={seen ? `As reported to Hussh One ${seen}` : "As reported to Hussh One"}>
+      {model || activity.length > 0 ? (
+        <div className="flex items-start gap-3">
+          <Cpu
+            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            {model ? (
+              <p className="truncate text-sm font-medium">{model}</p>
+            ) : null}
+            {activity.length > 0 ? (
+              <p className="text-[11px] tabular-nums text-muted-foreground">
+                {activity.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+          {version ? (
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+              {version}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {brand || processor ? (
+        <p
+          className={cn(
+            "truncate text-xs text-muted-foreground",
+            (model || activity.length > 0) && "mt-2",
+          )}
+        >
+          {[brand, processor].filter(Boolean).join(" · ")}
+        </p>
+      ) : null}
+
+      {hasTiles ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          {ramUsedPct !== null ? (
+            <Tile
+              label="Memory"
+              value={`${formatPct(ramUsedPct)} used`}
+              detail={
+                ramTotalGb !== null ? `of ${formatGb(ramTotalGb)}` : undefined
+              }
+            />
+          ) : null}
+          {batteryPct !== null ? (
+            <Tile
+              label="Battery"
+              value={formatPct(batteryPct)}
+              detail={describePower(snapshot.battery_charging, snapshot.on_ac)}
+              warning={
+                batteryPct < BATTERY_WARNING_PCT && batteryDischarging
+                  ? "Running down"
+                  : undefined
+              }
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {ramTotalGb !== null && ramUsedPct === null ? (
+        <p className="mt-2 text-[11px] tabular-nums text-muted-foreground">
+          {formatGb(ramTotalGb)} RAM on this machine
+        </p>
+      ) : null}
+
+      {nextRun ? (
+        <p className="mt-2 text-xs tabular-nums text-muted-foreground">
+          Next scheduled run {nextRun}
+        </p>
+      ) : null}
+    </Section>
   );
 }
 
@@ -1146,7 +1329,7 @@ function JobRow({
 
 type LinkState =
   | { kind: "alert"; tone: "warning" | "danger"; message: string; remedy?: string }
-  | { kind: "quiet"; message: string }
+  | { kind: "quiet"; message: string; action?: { href: string; label: string } }
   | { kind: "healthy"; message: string | null };
 
 /**

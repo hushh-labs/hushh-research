@@ -25,6 +25,13 @@ vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
   };
 });
 
+// One's own record of the device is a separate authority, tested next door
+// in `puppy-machine-sheet-remote-reading.test.tsx`. Here it has nothing to
+// say, so every assertion in this file is about the device's own report.
+vi.mock("@/lib/hermes/use-puppy-link", () => ({
+  usePuppyLink: () => null,
+}));
+
 import {
   MACHINE_PANEL_SHEET_QUERY,
   PuppyMachineSheet,

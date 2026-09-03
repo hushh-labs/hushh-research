@@ -10,7 +10,16 @@
  *
  * These endpoints are Next route handlers on our own origin. The loopback
  * bearer key never reaches the browser; the route handler holds it.
+ *
+ * One reading here does NOT go over loopback: the link to Hussh One
+ * (`fetchPuppyLink`) is read from One's own backend, which every deployed
+ * viewer can reach. The bridge answers "is a gateway on THIS server", which on
+ * a deployed origin is never the owner's Mac; the backend answers "has the
+ * owner's machine reported in", which is the fact a person actually wants.
  */
+
+import { ApiService } from "@/lib/services/api-service";
+import { HEARTBEAT_FRESH_MS } from "@/lib/trusted-device/sync-display";
 
 export interface PuppyStatus {
   connected: boolean;
@@ -367,4 +376,276 @@ export async function assignPuppyModel(input: {
   } catch {
     return { ok: false, error: "Puppy One is not answering on this machine." };
   }
+}
+
+/** Where Puppy One is installed from. Public, so it is linked, not described. */
+export const PUPPY_ONE_INSTALL_URL =
+  "https://github.com/hushh-labs/hussh-one-hermes";
+
+/**
+ * The runtime snapshot a device posts with its heartbeat, as One stores it.
+ *
+ * Field names stay snake_case: this is the backend's allow-list
+ * (`_safe_heartbeat` in `trusted_device_service.py`) read back verbatim, and
+ * every field is optional because a device sends only what it can measure. A
+ * desktop omits the battery fields entirely rather than sending 0, so an
+ * absent field must render as nothing and never as a number.
+ */
+export interface PuppyLinkHeartbeat {
+  current_model?: string;
+  busy?: boolean;
+  active_sessions?: number;
+  /** Epoch ms of the next scheduled job on the device. */
+  next_cron_at?: number;
+  agent_version?: string;
+  machine_id?: string;
+  brand?: string;
+  processor?: string;
+  ram_total_gb?: number;
+  ram_used_pct?: number;
+  battery_pct?: number;
+  battery_minutes_remaining?: number;
+  battery_charging?: boolean;
+  on_ac?: boolean;
+}
+
+export interface PuppyLinkDevice {
+  id: string;
+  name: string;
+  /** Epoch ms. Null when the device has never reported. */
+  lastHeartbeatAt: number | null;
+  /** Epoch ms. Null when the device has never pulled the sync channel. */
+  lastSyncedAt: number | null;
+  heartbeat: PuppyLinkHeartbeat | null;
+}
+
+/**
+ * Whether Hussh One has a Puppy One to point at, as the BACKEND sees it.
+ *
+ *   live         an active device reported within `HEARTBEAT_FRESH_MS`.
+ *   quiet        an active device exists but none has reported recently:
+ *                asleep, offline, or never reported at all.
+ *   unlinked     no device has ever been connected to this account.
+ *   revoked      every device this account had was unlinked.
+ *   unavailable  the list could not be read. Says nothing about the device.
+ *
+ * `device` is set for `live` and `quiet` only: the active device with the
+ * freshest heartbeat, falling back to the most recently created one.
+ */
+export type PuppyLinkState =
+  | "live"
+  | "quiet"
+  | "unlinked"
+  | "revoked"
+  | "unavailable";
+
+export interface PuppyLink {
+  state: PuppyLinkState;
+  device: PuppyLinkDevice | null;
+  /** How many devices are still trusted, whatever their liveness. */
+  activeCount: number;
+  /** Epoch ms of the read, and the base every relative time is measured from. */
+  checkedAt: number;
+}
+
+interface TrustedDeviceRow {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: number;
+  lastHeartbeatAt: number | null;
+  lastSyncedAt: number | null;
+  heartbeat: PuppyLinkHeartbeat | null;
+}
+
+function epochMs(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * One backend row, read defensively.
+ *
+ * A row that is not an object, or has no id, is skipped rather than allowed
+ * to throw: the caller must be able to say "unavailable" for a malformed list
+ * and still say "live" for a well-formed row beside a broken one.
+ */
+function readRow(value: unknown): TrustedDeviceRow | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = typeof row.device_id === "string" ? row.device_id.trim() : "";
+  if (!id) return null;
+  const name =
+    typeof row.device_name === "string" && row.device_name.trim()
+      ? row.device_name.trim()
+      : "your Mac";
+  const heartbeat =
+    row.heartbeat && typeof row.heartbeat === "object"
+      ? (row.heartbeat as PuppyLinkHeartbeat)
+      : null;
+  return {
+    id,
+    name,
+    status: typeof row.status === "string" ? row.status : "",
+    createdAt: epochMs(row.created_at) ?? 0,
+    lastHeartbeatAt: epochMs(row.last_heartbeat_at),
+    lastSyncedAt: epochMs(row.last_synced_at),
+    heartbeat,
+  };
+}
+
+function toLinkDevice(row: TrustedDeviceRow): PuppyLinkDevice {
+  return {
+    id: row.id,
+    name: row.name,
+    lastHeartbeatAt: row.lastHeartbeatAt,
+    lastSyncedAt: row.lastSyncedAt,
+    heartbeat: row.heartbeat,
+  };
+}
+
+/** Freshest heartbeat first; among the never-reported, newest enrolment first. */
+function preferFresher(
+  a: TrustedDeviceRow,
+  b: TrustedDeviceRow,
+): TrustedDeviceRow {
+  const aBeat = a.lastHeartbeatAt ?? Number.NEGATIVE_INFINITY;
+  const bBeat = b.lastHeartbeatAt ?? Number.NEGATIVE_INFINITY;
+  if (aBeat !== bBeat) return aBeat > bBeat ? a : b;
+  return b.createdAt > a.createdAt ? b : a;
+}
+
+/**
+ * Read the link state out of the backend's device list. Pure, so the same
+ * (rows, now) always answers the same way and a test can pin every branch.
+ *
+ * The freshness window is the SAME constant the devices page uses to say
+ * "Active now", so the two surfaces cannot disagree about one machine.
+ */
+export function derivePuppyLink(devices: unknown, nowMs: number): PuppyLink {
+  if (!Array.isArray(devices)) {
+    return {
+      state: "unavailable",
+      device: null,
+      activeCount: 0,
+      checkedAt: nowMs,
+    };
+  }
+
+  const rows = devices
+    .map(readRow)
+    .filter((row): row is TrustedDeviceRow => row !== null);
+  const active = rows.filter((row) => row.status === "active");
+  const revoked = rows.filter((row) => row.status === "revoked");
+
+  if (active.length === 0) {
+    return {
+      state: revoked.length > 0 ? "revoked" : "unlinked",
+      device: null,
+      activeCount: 0,
+      checkedAt: nowMs,
+    };
+  }
+
+  const chosen = active.reduce(preferFresher);
+  const fresh = active.some(
+    (row) =>
+      row.lastHeartbeatAt !== null &&
+      nowMs - row.lastHeartbeatAt <= HEARTBEAT_FRESH_MS,
+  );
+  return {
+    state: fresh ? "live" : "quiet",
+    device: toLinkDevice(chosen),
+    activeCount: active.length,
+    checkedAt: nowMs,
+  };
+}
+
+/**
+ * Read the link to Hussh One from One's own backend. Never throws: a failed
+ * read is "unavailable", which the surfaces render calmly, and is
+ * deliberately NOT "unlinked", which would tell a person with a working
+ * device to go and install one.
+ */
+export async function fetchPuppyLink(): Promise<PuppyLink> {
+  const checkedAt = Date.now();
+  try {
+    const response = await ApiService.listTrustedDevices();
+    if (!response.ok) return derivePuppyLink(null, checkedAt);
+    const payload = (await response.json()) as { devices?: unknown } | null;
+    return derivePuppyLink(payload?.devices, checkedAt);
+  } catch {
+    return derivePuppyLink(null, checkedAt);
+  }
+}
+
+/**
+ * One reader of the link for the whole page.
+ *
+ * The chat panel and the machine strip both need this fact, and when each
+ * polled it on its own cadence the two disagreed on screen: the pill turned
+ * green within thirty seconds of a heartbeat while the strip above it kept
+ * saying One had not heard from the machine for another five minutes. One
+ * fact, one poller, one moment of change. The device pushes a keepalive every
+ * ten minutes, so a read a minute is already generous.
+ */
+export const PUPPY_LINK_POLL_MS = 60_000;
+
+type LinkListener = (link: PuppyLink | null) => void;
+
+const linkStore: {
+  link: PuppyLink | null;
+  listeners: Set<LinkListener>;
+  timer: ReturnType<typeof setInterval> | null;
+  inFlight: Promise<PuppyLink> | null;
+} = { link: null, listeners: new Set(), timer: null, inFlight: null };
+
+/** The last link read, or null before the first read lands. */
+export function getPuppyLinkSnapshot(): PuppyLink | null {
+  return linkStore.link;
+}
+
+/**
+ * Re-read the link now. Single-flight: a second caller while a read is in
+ * the air shares that read rather than starting another. Every subscriber
+ * hears the answer at once.
+ */
+export function refreshPuppyLink(): Promise<PuppyLink> {
+  if (linkStore.inFlight) return linkStore.inFlight;
+  const read = fetchPuppyLink().then((next) => {
+    linkStore.inFlight = null;
+    linkStore.link = next;
+    for (const listener of linkStore.listeners) listener(next);
+    return next;
+  });
+  linkStore.inFlight = read;
+  return read;
+}
+
+/**
+ * Subscribe to the link. The first subscriber starts the poll and the last
+ * one leaving stops it, so a page with no Puppy surface costs One nothing.
+ * `useSyncExternalStore` shaped: the listener is called with the new value.
+ */
+export function subscribePuppyLink(listener: LinkListener): () => void {
+  linkStore.listeners.add(listener);
+  if (linkStore.timer === null) {
+    void refreshPuppyLink();
+    linkStore.timer = setInterval(() => void refreshPuppyLink(), PUPPY_LINK_POLL_MS);
+  }
+  return () => {
+    linkStore.listeners.delete(listener);
+    if (linkStore.listeners.size === 0 && linkStore.timer !== null) {
+      clearInterval(linkStore.timer);
+      linkStore.timer = null;
+    }
+  };
+}
+
+/** Test seam: forget the last read and stop any poll. */
+export function resetPuppyLinkStoreForTests(): void {
+  if (linkStore.timer !== null) clearInterval(linkStore.timer);
+  linkStore.timer = null;
+  linkStore.link = null;
+  linkStore.inFlight = null;
+  linkStore.listeners.clear();
 }

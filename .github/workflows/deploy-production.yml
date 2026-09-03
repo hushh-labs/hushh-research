@@ -246,7 +246,7 @@ jobs:
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
             --one-location-read-only-state-enabled "false" \
-            --hushh-trusted-device-enabled "false" \
+            --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \
             --hushh-tech-client-enabled "false" \
             --hushh-tech-allowed-consent-scopes "" \
             --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
