@@ -106,6 +106,11 @@ function titleize(value: string): string {
   return value
     .replace(/\[\d+\]/g, " ")
     .replace(/[_-]+/g, " ")
+    // A key that runs letters straight into digits reads as a machine name:
+    // `last4` titled itself "Last4" on the owner's Memory screen. Split the
+    // boundary only when the word is long enough to be a word, so short codes
+    // (w2, k1) stay intact.
+    .replace(/([a-z]{3,})(\d+)/gi, "$1 $2")
     .replace(/\b\w/g, (match) => match.toUpperCase())
     .trim();
 }
@@ -511,7 +516,23 @@ export function buildPkmMemorySnapshot(params: {
     cardsByDomain.set(domainKey, cards);
   }
 
-  const cards = Array.from(cardsByDomain.values()).flat().slice(0, maxCards);
+  // Round-robin rather than concatenate-then-truncate. Flattening in domain
+  // order and slicing meant the global budget was spent entirely on whichever
+  // domains happened to come first, so a domain late in the iteration order
+  // could contribute nothing at all and simply be absent from Memory. Taking
+  // one card from each domain per pass keeps every domain represented, and
+  // only the deepest tail of the largest domains is lost when the budget runs
+  // out.
+  const cards: PkmMemoryCard[] = [];
+  const queues = Array.from(cardsByDomain.values());
+  const deepest = queues.reduce((most, queue) => Math.max(most, queue.length), 0);
+  for (let round = 0; round < deepest && cards.length < maxCards; round += 1) {
+    for (const queue of queues) {
+      if (cards.length >= maxCards) break;
+      const card = queue[round];
+      if (card) cards.push(card);
+    }
+  }
   const domainInsights = domainKeys.map((domainKey) =>
     domainInsight({
       domain: domainsByKey.get(domainKey),

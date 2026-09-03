@@ -156,12 +156,20 @@
       "file": "app/api/hermes/chat/stream/route.ts"
     },
     {
+      "template": "/api/hermes/jobs",
+      "file": "app/api/hermes/jobs/route.ts"
+    },
+    {
       "template": "/api/hermes/models",
       "file": "app/api/hermes/models/route.ts"
     },
     {
       "template": "/api/hermes/resources",
       "file": "app/api/hermes/resources/route.ts"
+    },
+    {
+      "template": "/api/hermes/sessions",
+      "file": "app/api/hermes/sessions/route.ts"
     },
     {
       "template": "/api/hermes/status",
@@ -4772,7 +4780,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/pkm/recent",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Frecent",
+        "expectedMarker": "native-route-pkm-recent",
+        "expectedRoute": "/one/pkm/recent",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7992,7 +8013,20 @@
           "out_of_scope_behavior": "Answer naturally without inventing a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/wallet",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fcards",
+        "expectedMarker": "native-route-one-wallet",
+        "expectedRoute": "/one/wallet",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -9504,5 +9538,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b261fe034013a85295fb695874af789bc5807b4ad63e519964047ffb03c5b01b"
+  "content_sha256": "a4221f40c4a009af91b13af30756c3a1fd353f3a8a1c68fabfb8cbc89f37a0ca"
 }

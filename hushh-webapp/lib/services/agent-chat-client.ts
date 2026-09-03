@@ -528,6 +528,55 @@ export async function getAgentChatHistory(input: {
   return Array.isArray(payload.messages) ? payload.messages : [];
 }
 
+/**
+ * Ratings this person has given in one conversation, keyed by message id.
+ * Never throws: an opinion about a turn must not stop the turn from loading.
+ */
+export async function getAgentChatFeedback(input: {
+  conversationId: string;
+  vaultOwnerToken: string;
+}): Promise<Record<string, "up" | "down">> {
+  try {
+    const response = await fetch(
+      `/api/one/agent-chat/feedback?conversation_id=${encodeURIComponent(input.conversationId)}`,
+      {
+        headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return {};
+    const payload = (await response.json()) as {
+      ratings?: Record<string, "up" | "down">;
+    };
+    return payload.ratings ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export async function setAgentChatFeedback(input: {
+  conversationId: string;
+  messageId: string;
+  rating: "up" | "down" | null;
+  vaultOwnerToken: string;
+}): Promise<void> {
+  const response = await fetch("/api/one/agent-chat/feedback", {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${input.vaultOwnerToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      conversation_id: input.conversationId,
+      message_id: input.messageId,
+      rating: input.rating,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
 export async function renameAgentChatConversation(input: {
   conversationId: string;
   title: string;

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 196,
+  "expected_migration_version": 197,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -949,6 +949,15 @@
       "payload_tag",
       "payload_algorithm",
       "revision",
+      "created_at",
+      "updated_at"
+    ],
+    "one_agent_message_feedback": [
+      "user_id",
+      "app_name",
+      "conversation_ref",
+      "message_ref",
+      "rating",
       "created_at",
       "updated_at"
     ],

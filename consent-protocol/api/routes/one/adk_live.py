@@ -79,6 +79,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_LIVE_VOICE_OPTIONS,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
+    STATE_PENDING_TOOL_TRACE,
     STATE_SCREEN,
     STATE_TIMEZONE,
     STATE_USER_ID,
@@ -1664,6 +1665,21 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # run_app_action calls both reaching the browser.
             actions = getattr(event, "actions", None)
             delta = getattr(actions, "state_delta", None) or {}
+
+            # Read-tool traces (display data for a card alongside the spoken
+            # answer, #6434) are simpler than directives: nothing to execute,
+            # nothing to settle, so harvest-and-forward is the whole job. Same
+            # parallel-tool-call caveat as directives above applies here too --
+            # the system instruction keeps read tools to one per turn.
+            tool_traces_to_send = []
+            for key in list(delta.keys()):
+                if key.startswith(f"{STATE_PENDING_TOOL_TRACE}:"):
+                    trace = delta.pop(key)
+                    if isinstance(trace, dict) and trace:
+                        tool_traces_to_send.append(trace)
+
+            for trace in tool_traces_to_send:
+                await websocket.send_text(_safe_json_dumps({"toolTrace": trace}))
 
             directives_to_issue = []
             for key in list(delta.keys()):

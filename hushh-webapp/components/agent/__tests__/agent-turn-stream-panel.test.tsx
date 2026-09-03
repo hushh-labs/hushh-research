@@ -68,7 +68,7 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });
 
-  it("does not expose provider reasoning to the consumer", () => {
+  it("shows provider reasoning to the owner", () => {
     render(
       <AgentTurnStreamPanel
         streamEvents={[]}
@@ -78,9 +78,12 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.queryByText("Reasoning")).not.toBeInTheDocument();
-    expect(screen.queryByText("Checking context")).not.toBeInTheDocument();
-    expect(screen.queryByText((content) => content.includes("Comparing the active settings."))).not.toBeInTheDocument();
+    // Founder directive 2026-09-02: the owner asked to see the agent think.
+    // The reasoning had been received, accumulated and then discarded by a
+    // single `void thinkingText`, so the panel rendered nothing.
+    expect(
+      screen.getByText((content) => content.includes("Comparing the active settings.")),
+    ).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });

@@ -14,6 +14,10 @@ import type {
   WalletCardSecrets,
   WalletCardSummary,
 } from "@/lib/services/wallet-service";
+import {
+  CardNetworkMark,
+  cardNetworkLabel,
+} from "@/components/wallet/card-network-mark";
 
 const AUTO_HIDE_SECONDS = 45;
 
@@ -70,7 +74,7 @@ export function SecureCardReveal({ summary, secrets, onDismiss, onHide }: Secure
   if (hidden) {
     return (
       <div
-        className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground"
+        className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-[var(--motion-duration-sm)] motion-safe:ease-[var(--motion-ease-decelerate)]"
         data-testid="secure-card-reveal-hidden"
       >
         Hidden again.
@@ -85,12 +89,16 @@ export function SecureCardReveal({ summary, secrets, onDismiss, onHide }: Secure
 
   return (
     <div
-      className="flex max-w-md flex-col gap-2 rounded-xl border border-border bg-card p-4"
+      className="flex max-w-md flex-col gap-2 rounded-xl border border-border bg-card p-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-[var(--motion-duration-md)] motion-safe:ease-[var(--motion-ease-decelerate)]"
       data-testid="secure-card-reveal"
     >
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
-          {summary.nickname || summary.brand} · {summary.brand} · {summary.issuingRegion}
+        <span className="flex min-w-0 items-center gap-2">
+          <CardNetworkMark brand={summary.brand} />
+          <span className="truncate">
+            {summary.nickname || cardNetworkLabel(summary.brand)} ·{" "}
+            {cardNetworkLabel(summary.brand)} · {summary.issuingRegion}
+          </span>
         </span>
         <span>hides in {secondsLeft}s</span>
       </div>

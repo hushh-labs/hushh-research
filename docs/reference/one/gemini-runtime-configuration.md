@@ -70,7 +70,8 @@ at call time through `hushh_mcp/services/model_preference_service.py`, highest t
    the served catalog on write;
 2. **the lane default** — `HUSSH_GEMINI_TEXT_MODEL`, read by module attribute rather than
    copied into any consumer;
-3. **`FLEET_TEXT_MODEL_DEFAULT`** — the generation proven in every lane.
+3. **`FLEET_TEXT_MODEL_DEFAULT`** — 3.8 Flash. Every lane that can serve it runs it;
+   production pins 3.7 in its workflow until its allowed-models policy admits 3.8.
 
 The catalog of choices lives in `hushh_mcp/runtime_providers/model_catalog.py` and is
 derived from the provider registry, so adding a generation is one registry row plus one

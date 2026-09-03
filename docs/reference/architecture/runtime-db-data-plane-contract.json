@@ -1129,7 +1129,20 @@
       "deletion_behavior": "Deleted on consume (before validation, so a challenge can never be replayed) or on expiry; user_id may be null for usernameless auth.",
       "trust_boundary": "Ephemeral ceremony state (a random challenge, RP id, ceremony kind) only; no personal data or credential material.",
       "plaintext_posture": "metadata_only",
-      "expected_row_growth": "low_transient_security_nonces"
+      "expected_row_growth": "low_transient_security_nonces",
+      "id": "one_agent_message_feedback",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_agent_message_feedback"
+      ],
+      "primary_access_path": "message feedback service, written from the Agent One chat thumbs control via /api/one/agent-chat/feedback and read for response-quality reporting",
+      "retention_policy": "Retain one row per rated assistant turn while the conversation exists.",
+      "deletion_behavior": "Cascade-delete with the ADK session on conversation deletion and with the actor profile on account deletion; clearing a rating deletes the row.",
+      "trust_boundary": "Rating and message reference only; never message content, prompt or model output, so no vault key and no decrypt path are involved.",
+      "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
+      "expected_row_growth": "at most one row per assistant turn a person chooses to rate"
     }
   ]
 }

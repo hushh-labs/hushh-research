@@ -271,3 +271,26 @@ describe("PKM memory cards", () => {
     });
   });
 });
+
+describe("global card budget fairness", () => {
+  it("keeps every domain represented instead of spending the budget on the first ones", () => {
+    // Before round-robin, cards were flattened in domain order and sliced, so a
+    // domain late in the iteration order (wallet, alphabetically last) could
+    // contribute nothing and vanish from Memory entirely.
+    const fullBlob: Record<string, unknown> = {};
+    for (const domain of ["aaa", "bbb", "ccc", "wallet"]) {
+      const fields: Record<string, string> = {};
+      for (let i = 0; i < 30; i += 1) fields[`field_${i}`] = `${domain} value ${i}`;
+      fullBlob[domain] = fields;
+    }
+    const snapshot = buildPkmMemorySnapshot({
+      metadata: null,
+      fullBlob,
+      maxCards: 8,
+    } as never);
+    const domains = new Set(snapshot.cards.map((card) => card.domain));
+    expect(snapshot.cards.length).toBeLessThanOrEqual(8);
+    expect(domains.has("wallet")).toBe(true);
+    expect(domains.size).toBe(4);
+  });
+});

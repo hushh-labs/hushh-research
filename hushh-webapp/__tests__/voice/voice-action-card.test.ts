@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   VOICE_DISAMBIGUATION_DATA_KEY,
   clearVoiceCard,
+  parseToolTraceCard,
   parseVoiceCard,
   parseVoiceConfirm,
   publishVoiceCard,
@@ -224,5 +225,154 @@ describe("parseVoiceCard", () => {
   it("tags each shape so the card knows which to render", () => {
     expect(parseVoiceCard(payload())?.kind).toBe("choice");
     expect(parseVoiceCard(undefined)).toBeNull();
+  });
+});
+
+describe("parseToolTraceCard", () => {
+  it("turns a people_list trace into a list-shaped data card", () => {
+    const card = parseToolTraceCard({
+      kind: "people_list",
+      payload: {
+        heading: "Your connections",
+        items: [
+          { id: "cx1", name: "Sarah Chen", detail: "s***n@example.com", photoUrl: "https://x/y.jpg" },
+          { id: "cx2", name: "Alex Kim" },
+        ],
+      },
+    });
+    expect(card).toEqual({
+      kind: "data",
+      heading: "Your connections",
+      shape: "list",
+      list: {
+        items: [
+          { id: "cx1", name: "Sarah Chen", detail: "s***n@example.com", photoUrl: "https://x/y.jpg" },
+          { id: "cx2", name: "Alex Kim", detail: null, photoUrl: null },
+        ],
+      },
+    });
+  });
+
+  it("falls back to a generic heading when the payload omits one", () => {
+    const peopleCard = parseToolTraceCard({
+      kind: "people_list",
+      payload: { items: [{ id: "cx1", name: "Sarah Chen" }] },
+    });
+    expect(peopleCard?.heading).toBe("People");
+
+    const circlesCard = parseToolTraceCard({
+      kind: "circles_list",
+      payload: { items: [{ id: "c1", name: "Family" }] },
+    });
+    expect(circlesCard?.heading).toBe("Your circles");
+  });
+
+  it("drops a people_list or circles_list trace with no usable rows", () => {
+    expect(parseToolTraceCard({ kind: "people_list", payload: { items: [] } })).toBeNull();
+    expect(
+      parseToolTraceCard({ kind: "people_list", payload: { items: [{ name: "No id" }] } }),
+    ).toBeNull();
+    expect(parseToolTraceCard({ kind: "circles_list", payload: { items: [] } })).toBeNull();
+  });
+
+  it("turns a pkm_domain_summary trace into a summary-shaped data card", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: {
+        domain: "financial",
+        label: "Financial",
+        summary: { holdings_count: 12, portfolio_value_bucket: "100k-250k", empty_field: "" },
+      },
+    });
+    expect(card).toEqual({
+      kind: "data",
+      heading: "Financial",
+      shape: "summary",
+      summary: {
+        fields: [
+          { label: "Holdings Count", value: "12" },
+          { label: "Portfolio Value Bucket", value: "100k-250k" },
+        ],
+        breakdowns: [],
+      },
+    });
+  });
+
+  it("turns an asset_allocation_pct-shaped field into a breakdown, rescaled from a fraction", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: {
+        label: "Financial",
+        summary: {
+          holdings_count: 4,
+          asset_allocation_pct: { cash: 0.0452, equities: 0.3821, bonds: 0.1204, other: 0.4523 },
+        },
+      },
+    });
+    expect(card?.kind === "data" && card.shape === "summary" ? card.summary : null).toEqual({
+      fields: [{ label: "Holdings Count", value: "4" }],
+      breakdowns: [
+        {
+          label: "Asset Allocation",
+          items: [
+            { label: "Other", value: "45.2%" },
+            { label: "Equities", value: "38.2%" },
+            { label: "Bonds", value: "12%" },
+            { label: "Cash", value: "4.5%" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("leaves an already-0-100-scaled breakdown as-is rather than rescaling it again", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: { summary: { spend_pct: { groceries: 62, dining: 38 } } },
+    });
+    const items =
+      card?.kind === "data" && card.shape === "summary" ? card.summary.breakdowns[0]?.items : null;
+    expect(items).toEqual([
+      { label: "Groceries", value: "62%" },
+      { label: "Dining", value: "38%" },
+    ]);
+  });
+
+  it("drops an empty-object breakdown candidate instead of showing a blank group", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: { summary: { holdings_count: 1, asset_allocation_pct: {} } },
+    });
+    expect(card?.kind === "data" && card.shape === "summary" ? card.summary.breakdowns : null).toEqual(
+      [],
+    );
+  });
+
+  it("drops a breakdown candidate that mixes in a non-numeric value", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: { summary: { asset_allocation_pct: { cash: 0.5, note: "manual override" } } },
+    });
+    expect(card).toBeNull();
+  });
+
+  it("returns a card for a breakdown alone, with no scalar fields at all", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: { summary: { asset_allocation_pct: { cash: 1 } } },
+    });
+    expect(card).not.toBeNull();
+  });
+
+  it("drops a pkm_domain_summary trace with nothing worth showing", () => {
+    expect(
+      parseToolTraceCard({ kind: "pkm_domain_summary", payload: { summary: {} } }),
+    ).toBeNull();
+  });
+
+  it("ignores an unknown trace kind and a missing trace", () => {
+    expect(parseToolTraceCard({ kind: "something_new", payload: {} })).toBeNull();
+    expect(parseToolTraceCard(null)).toBeNull();
+    expect(parseToolTraceCard(undefined)).toBeNull();
   });
 });

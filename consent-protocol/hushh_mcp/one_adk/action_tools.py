@@ -28,6 +28,7 @@ from typing import Any, Callable, Literal
 
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.consent.pii_sanitizer import mask_email
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
@@ -51,6 +52,11 @@ from hushh_mcp.services.connections_service import ConnectionsError, Connections
 from hushh_mcp.services.consent_lifecycle_service import (
     ConsentLifecycleError,
     ConsentLifecycleService,
+)
+from hushh_mcp.services.domain_contracts import (
+    CANONICAL_DOMAIN_REGISTRY,
+    get_canonical_domain_metadata,
+    normalize_domain_key,
 )
 from hushh_mcp.services.information_request_service import (
     InformationRequestError,
@@ -80,6 +86,7 @@ from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
 )
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
@@ -96,6 +103,7 @@ logger = logging.getLogger(__name__)
 # Session state keys shared with agent_tree/adk_live (duplicated string to
 # avoid a circular import; guarded by a test asserting equality).
 _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+_STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
@@ -1423,6 +1431,67 @@ async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dic
     return user_id, None
 
 
+def _publish_tool_trace(
+    tool_context: ToolContext, tool_name: str, *, kind: str, payload: dict[str, Any]
+) -> None:
+    """Park a read tool's display-safe result for the relay to forward to the
+    browser alongside the spoken answer, so the app can render a card in sync
+    with the readout (#6434).
+
+    Only ever park what is already safe to speak -- never the raw service
+    result. Optional: a read tool that returns nothing worth a visual (an
+    empty list, no data yet) should simply not call this, not call it with an
+    empty payload.
+    """
+    tool_context.state[f"{_STATE_PENDING_TOOL_TRACE}:{tool_name}"] = {
+        "kind": kind,
+        "payload": payload,
+    }
+
+
+def _trace_list_rows(
+    rows: list[dict[str, Any]],
+    *,
+    id_key: str,
+    name_key: str,
+    photo_key: str | None = None,
+    detail_fn: Callable[[dict[str, Any]], str | None] | None = None,
+) -> list[dict[str, Any]]:
+    """Reduce a raw service row list to the card-safe {id, name, detail,
+    photoUrl} shape every list-shaped voice card renders -- never the raw
+    row (key material, capability scopes, unmasked contact info, etc). A row
+    with no usable id is dropped rather than shown with a broken React key.
+    """
+    items = [
+        {
+            "id": str(row.get(id_key) or ""),
+            "name": str(row.get(name_key) or "").strip() or "Hussh member",
+            "detail": detail_fn(row) if detail_fn else None,
+            "photoUrl": (str(row.get(photo_key)) if photo_key and row.get(photo_key) else None),
+        }
+        for row in rows
+    ]
+    return [item for item in items if item["id"]]
+
+
+def _publish_list_trace(
+    tool_context: ToolContext,
+    tool_name: str,
+    *,
+    kind: Literal["people_list", "circles_list"],
+    heading: str,
+    items: list[dict[str, Any]],
+) -> None:
+    """`_publish_tool_trace`, specialized for the list-shaped card -- parks
+    nothing when there is nothing to show (an empty list is not a card).
+    """
+    if not items:
+        return
+    _publish_tool_trace(
+        tool_context, tool_name, kind=kind, payload={"heading": heading, "items": items}
+    )
+
+
 async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
     """List the person's own Location circles: name, kind, and role in each.
 
@@ -1434,9 +1503,28 @@ async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your circles", "circles", lambda: OneLocationCircleService().list_circles(user_id=user_id)
     )
+    if result.get("status") == "ok":
+
+        def _circle_detail(row: dict[str, Any]) -> str:
+            count = int(row.get("memberCount") or 0)
+            noun = "member" if count == 1 else "members"
+            role = str(row.get("role") or "member").capitalize()
+            return f"{count} {noun} · {role}"
+
+        items = _trace_list_rows(
+            result.get("circles") or [], id_key="id", name_key="name", detail_fn=_circle_detail
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_location_circles",
+            kind="circles_list",
+            heading="Your circles",
+            items=items,
+        )
+    return result
 
 
 async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
@@ -1446,11 +1534,27 @@ async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your location shares",
         "shares",
         lambda: OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id),
     )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("shares") or [],
+            id_key="recipientUserId",
+            name_key="recipientDisplayName",
+            photo_key="recipientPhotoUrl",
+            detail_fn=lambda row: row.get("recipientMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_location_shares",
+            kind="people_list",
+            heading="Sharing your location with",
+            items=items,
+        )
+    return result
 
 
 async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
@@ -1460,11 +1564,27 @@ async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, A
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "who's sharing with you",
         "shares",
         lambda: OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id),
     )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("shares") or [],
+            id_key="ownerUserId",
+            name_key="ownerDisplayName",
+            photo_key="ownerPhotoUrl",
+            detail_fn=lambda row: row.get("ownerMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_location_shared_with_me",
+            kind="people_list",
+            heading="Sharing their location with you",
+            items=items,
+        )
+    return result
 
 
 async def list_pending_location_requests(tool_context: ToolContext) -> dict[str, Any]:
@@ -1474,11 +1594,46 @@ async def list_pending_location_requests(tool_context: ToolContext) -> dict[str,
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your pending location requests",
         "requests",
         lambda: OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id),
     )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="requesterUserId",
+            name_key="requesterDisplayName",
+            photo_key="requesterPhotoUrl",
+            detail_fn=lambda row: row.get("requesterMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_pending_location_requests",
+            kind="people_list",
+            heading="Location requests waiting on you",
+            items=items,
+        )
+    return result
+
+
+def _connections_trace_people(connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reduce a raw connections row list to the card-safe fields -- the same
+    name+masked-email shape disambiguation candidates already show over
+    voice, never the raw row (public key material, unmasked email, etc).
+    """
+    people = []
+    for row in connections:
+        email = row.get("email")
+        people.append(
+            {
+                "id": str(row.get("connectionId") or row.get("userId") or ""),
+                "name": str(row.get("displayName") or "").strip() or "Hussh member",
+                "detail": mask_email(str(email)) if email else None,
+                "photoUrl": row.get("photoUrl") or None,
+            }
+        )
+    return [p for p in people if p["id"]]
 
 
 async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
@@ -1488,11 +1643,106 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your connections",
         "connections",
         lambda: ConnectionsService().list_connections(user_id=user_id),
     )
+    if result.get("status") == "ok":
+        people = _connections_trace_people(result.get("connections") or [])
+        _publish_list_trace(
+            tool_context,
+            "list_my_connections",
+            kind="people_list",
+            heading="Your connections",
+            items=people,
+        )
+    return result
+
+
+# Domains this tool will never read back over voice, even though they are
+# real PKM domains: runtime_secrets is BYOK model credential material, not
+# personal information -- there is no phrasing of "what do you know about my
+# X" that should ever resolve to it. Kept separate from the general domain
+# registry rather than filtered ad hoc, so a new sensitive domain has one
+# obvious place to be added.
+_VOICE_UNREADABLE_PKM_DOMAINS = frozenset({"runtime_secrets"})
+
+_PKM_READABLE_DOMAIN_KEYS = tuple(
+    entry.domain_key
+    for entry in CANONICAL_DOMAIN_REGISTRY
+    if entry.domain_key not in _VOICE_UNREADABLE_PKM_DOMAINS
+)
+
+
+async def read_my_pkm_domain_summary(domain: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Read the person's own redacted PKM summary for one domain and report it.
+
+    Covers every general information domain (financial, health, travel,
+    subscriptions, professional, identity, and the rest of the canonical PKM
+    registry) through one tool rather than one per domain, since they are all
+    read the same way -- the discovery-only index, never decrypted holdings.
+    Live app data with its own service (Connect's actual connections list,
+    Location's circles) is deliberately out of scope here; use the
+    dedicated read tools for those instead.
+
+    The summary is whatever sanitized, non-sensitive metadata
+    update_domain_summary() has accumulated for that domain -- it may be
+    partial or empty even when the domain itself exists.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    requested = normalize_domain_key(domain)
+    if requested not in _PKM_READABLE_DOMAIN_KEYS:
+        return {
+            "status": "failed",
+            "message": (
+                f'"{domain}" is not a domain I can read. Available domains: '
+                + ", ".join(_PKM_READABLE_DOMAIN_KEYS)
+                + "."
+            ),
+        }
+
+    label = (
+        get_canonical_domain_metadata(requested).display_name
+        if get_canonical_domain_metadata(requested)
+        else requested
+    )
+    # Not _read_tool_result: that helper's `call` is a zero-arg wrapper around
+    # a *synchronous* service call (every existing read tool's service method
+    # is sync), but get_index_v2 is genuinely async. Same shape and same
+    # failure-boundary reasoning as _read_tool_result -- an exception must
+    # never escape a live-session tool call -- just awaited instead of called.
+    try:
+        index = await get_pkm_service().get_index_v2(user_id)
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_read_tool_failed label=%s reason=unexpected", label)
+        return {
+            "status": "failed",
+            "message": f"Could not check {label} right now. Try again in a moment.",
+        }
+    available = list(index.available_domains) if index else []
+    if requested not in available:
+        return {"status": "ok", "result": {"has_data": False, "domain": requested, "summary": {}}}
+    summary = (index.domain_summaries or {}).get(requested) or {}
+    if summary:
+        # Only when there is something to show -- an empty summary dict would
+        # otherwise render as a blank card while the spoken answer already
+        # says "nothing on record yet".
+        _publish_tool_trace(
+            tool_context,
+            "read_my_pkm_domain_summary",
+            kind="pkm_domain_summary",
+            payload={"domain": requested, "label": label, "summary": dict(summary)},
+        )
+    return {
+        "status": "ok",
+        "result": {"has_data": True, "domain": requested, "summary": dict(summary)},
+    }
 
 
 async def discover_person_information(
@@ -2003,11 +2253,33 @@ async def list_pending_connection_requests(
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your pending connection requests",
         "requests",
         lambda: ConnectionsService().list_requests(user_id=user_id, direction=direction),
     )
+    if result.get("status") == "ok":
+        # No photo/masked-contact field on a connection-request row (see
+        # ConnectionsService.list_requests) -- name only, same as any other
+        # row a service genuinely has nothing more to say about.
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="counterpartUserId",
+            name_key="counterpartDisplayName",
+        )
+        heading = (
+            "Requests you've sent"
+            if direction == "outgoing"
+            else "Connection requests waiting on you"
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_pending_connection_requests",
+            kind="people_list",
+            heading=heading,
+            items=items,
+        )
+    return result
 
 
 async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[str, Any]:
@@ -2019,13 +2291,29 @@ async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your outgoing location requests",
         "requests",
         lambda: OneLocationAgentService().list_pending_requester_requests(
             requester_user_id=user_id
         ),
     )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="ownerUserId",
+            name_key="ownerDisplayName",
+            photo_key="ownerPhotoUrl",
+            detail_fn=lambda row: row.get("ownerMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_outgoing_location_requests",
+            kind="people_list",
+            heading="Requests you've sent",
+            items=items,
+        )
+    return result
 
 
 async def get_location_circle_members(circle: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -2067,6 +2355,26 @@ async def get_location_circle_members(circle: str, tool_context: ToolContext) ->
         }
         for member in (detail.get("members") or [])
     ]
+    circle_name = str(detail.get("name") or "That circle")
+    # No stable id on a member row (deliberately -- see the comment above);
+    # the row's position is a fine React key for a roster that only exists
+    # for the life of this one card.
+    trace_items = [
+        {
+            "id": f"member-{index}",
+            "name": member["displayName"],
+            "detail": member["role"].capitalize(),
+            "photoUrl": None,
+        }
+        for index, member in enumerate(members)
+    ]
+    _publish_list_trace(
+        tool_context,
+        "get_location_circle_members",
+        kind="people_list",
+        heading=f"{circle_name} members",
+        items=trace_items,
+    )
     return {
         "status": "ok",
         "circle": {"name": str(detail.get("name") or ""), "kind": str(detail.get("kind") or "")},
