@@ -1056,6 +1056,21 @@
       "expected_row_growth": "medium_per_consent"
     },
     {
+      "id": "one_agent_model_preference",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_model_preferences"
+      ],
+      "primary_access_path": "model preference service, read on every agent chat turn and written from Agent chat or /api/one/models/preference",
+      "retention_policy": "Retain one row per person while the account exists; absent row means the deployment default.",
+      "deletion_behavior": "Cascade-delete with the actor profile on account deletion.",
+      "trust_boundary": "Model identifier only, validated against the server-side catalog on write; carries no user information and grants no access.",
+      "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
+      "expected_row_growth": "one row per person who chooses a model"
+    },
+    {
       "id": "personal_agent_registry",
       "owner": "iam-consent-governance",
       "data_class": "personal_metadata",
