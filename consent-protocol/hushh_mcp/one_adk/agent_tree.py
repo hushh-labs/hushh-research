@@ -69,6 +69,7 @@ from hushh_mcp.one_adk.action_tools import (
     list_pending_information_requests,
     list_pending_location_requests,
     propose_information_request,
+    read_my_pkm_domain_summary,
     run_app_action,
     set_preferred_model,
     start_app_goal,
@@ -589,6 +590,27 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "show a raw scope identifier, or imply that a social connection grants access. End with "
     "a Markdown link using the returned profilePath so the person can select exact fields "
     "and confirm the consent request. Do not claim a request was sent from discovery alone.\n\n"
+    # Reading the person's own PKM data. One general read tool, not one per
+    # domain -- every domain listed here is read the same way (the
+    # discovery-only summary index, never decrypted holdings), so a new
+    # domain needs no new tool, just the domain key added below.
+    "For 'what do you know about my X' / 'tell me about my X' questions -- "
+    "portfolio or investments, health, travel, subscriptions, professional "
+    "background, identity, food preferences, RIA practice, wallet, "
+    "entertainment, shopping, social, location, or anything else about the "
+    "person themselves -- call read_my_pkm_domain_summary with the matching "
+    "domain key: identity, financial, subscriptions, health, travel, food, "
+    "professional, ria, source_library, wallet, entertainment, shopping, "
+    "social, location, or general. Map the person's own words to the "
+    "closest key yourself; if the tool reports the key was not recognised, "
+    "read back the domains it lists rather than guessing again blind. If "
+    "has_data is false, say plainly that nothing has been captured for that "
+    "area yet rather than implying an error. The summary is redacted, "
+    "sanitized metadata, not raw records -- speak only the fields it "
+    "actually returned, in plain language; never invent a figure, date, or "
+    "status it did not report. This is a different tool from the "
+    "Location/Connect read tools above: those read live app data with "
+    "their own services, this reads the general PKM domains only.\n\n"
     # Guide mode: some actions cannot be triggered by the app at all, only by
     # the person (run_app_action reports these as 'manual_only', e.g. picking
     # a file or connecting a third-party account). This is not a dead end.
@@ -1627,6 +1649,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         list_pending_location_requests,
         list_my_outgoing_location_requests,
         list_my_connections,
+        read_my_pkm_domain_summary,
         discover_person_information,
         list_available_models,
         list_pending_information_requests,

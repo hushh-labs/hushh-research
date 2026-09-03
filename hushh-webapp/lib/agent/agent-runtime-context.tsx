@@ -27,6 +27,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -185,7 +186,9 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     personaTransitionTarget,
     riaSetupAvailable,
     riaSwitchAvailable,
+    riaOnboardingStatus,
   } = usePersonaState();
+  const riaOnboardingComplete = isRiaAdvisoryAccessReady(riaOnboardingStatus);
   const analysisParams = useKaiSession((state) => state.analysisParams);
   const busyOperations = useKaiSession((state) => state.busyOperations);
 
@@ -370,6 +373,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         transition_target: personaTransitionTarget,
         ria_switch_available: riaSwitchAvailable,
         ria_setup_available: riaSetupAvailable,
+        ria_onboarding_complete: riaOnboardingComplete,
       },
       voice: {
         available: voiceActive,
@@ -382,6 +386,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       activeAnalysisTicker,
       activePersona,
       availablePersonas,
+      riaOnboardingComplete,
       busyOperations,
       hasPortfolioData,
       isVaultUnlocked,

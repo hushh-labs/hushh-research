@@ -46,6 +46,7 @@ from hushh_mcp.one_adk.action_tools import (
     list_my_outgoing_location_requests,
     list_pending_connection_requests,
     list_pending_location_requests,
+    read_my_pkm_domain_summary,
     run_app_action,
     start_app_goal,
 )
@@ -3727,6 +3728,109 @@ class TestBackendDirectConnectionReadTools:
         ):
             result = await list_pending_connection_requests(_tool_context(state))
         assert result == {"status": "failed", "message": "Try again shortly."}
+
+
+class _FakePkmIndex:
+    def __init__(self, available_domains, domain_summaries):
+        self.available_domains = available_domains
+        self.domain_summaries = domain_summaries
+
+
+class TestReadMyPkmDomainSummary:
+    """read_my_pkm_domain_summary -- the general PKM domain-summary read tool."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    def _pkm_patch(self, index):
+        fake_service = SimpleNamespace(get_index_v2=AsyncMock(return_value=index))
+        return patch(
+            "hushh_mcp.one_adk.action_tools.get_pkm_service",
+            return_value=fake_service,
+        )
+
+    @pytest.mark.asyncio
+    async def test_reads_the_summary_for_a_domain_the_person_has_data_in(self):
+        state = self._authorized_state()
+        index = _FakePkmIndex(
+            available_domains=["financial", "identity"],
+            domain_summaries={"financial": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"}},
+        )
+        with self._auth_patch(), self._pkm_patch(index):
+            result = await read_my_pkm_domain_summary("financial", _tool_context(state))
+        assert result == {
+            "status": "ok",
+            "result": {
+                "has_data": True,
+                "domain": "financial",
+                "summary": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"},
+            },
+        }
+
+    @pytest.mark.asyncio
+    async def test_reports_no_data_rather_than_erroring_for_a_domain_with_none_yet(self):
+        state = self._authorized_state()
+        index = _FakePkmIndex(available_domains=["identity"], domain_summaries={})
+        with self._auth_patch(), self._pkm_patch(index):
+            result = await read_my_pkm_domain_summary("financial", _tool_context(state))
+        assert result == {
+            "status": "ok",
+            "result": {"has_data": False, "domain": "financial", "summary": {}},
+        }
+
+    @pytest.mark.asyncio
+    async def test_normalizes_case_and_whitespace_on_the_spoken_domain(self):
+        state = self._authorized_state()
+        index = _FakePkmIndex(
+            available_domains=["health"], domain_summaries={"health": {"steps_tracked": True}}
+        )
+        with self._auth_patch(), self._pkm_patch(index):
+            result = await read_my_pkm_domain_summary("  Health  ", _tool_context(state))
+        assert result["result"]["domain"] == "health"
+        assert result["result"]["has_data"] is True
+
+    @pytest.mark.asyncio
+    async def test_rejects_an_unknown_domain_and_lists_the_real_ones(self):
+        state = self._authorized_state()
+        with self._auth_patch():
+            result = await read_my_pkm_domain_summary("crypto_wallets", _tool_context(state))
+        assert result["status"] == "failed"
+        assert "financial" in result["message"]
+        assert "health" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_never_reads_back_runtime_secrets_even_if_asked_by_that_exact_key(self):
+        # Credential-shaped domain: excluded regardless of what the model
+        # passes, not filtered after the fact -- see the module-level
+        # _VOICE_UNREADABLE_PKM_DOMAINS comment for why.
+        state = self._authorized_state()
+        with self._auth_patch():
+            result = await read_my_pkm_domain_summary("runtime_secrets", _tool_context(state))
+        assert result["status"] == "failed"
+        assert "runtime_secrets" not in result["message"].split("Available domains: ")[-1]
+
+    @pytest.mark.asyncio
+    async def test_a_db_hiccup_fails_clean_instead_of_killing_the_session(self):
+        state = self._authorized_state()
+        fake_service = SimpleNamespace(
+            get_index_v2=AsyncMock(side_effect=RuntimeError("connection pool exhausted"))
+        )
+        with (
+            self._auth_patch(),
+            patch(
+                "hushh_mcp.one_adk.action_tools.get_pkm_service",
+                return_value=fake_service,
+            ),
+        ):
+            result = await read_my_pkm_domain_summary("financial", _tool_context(state))
+        assert result["status"] == "failed"
+        assert "try again" in result["message"].lower()
 
 
 class TestSettledActionJourneys:

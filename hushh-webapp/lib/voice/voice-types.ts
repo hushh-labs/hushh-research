@@ -157,6 +157,14 @@ export type AppRuntimeState = {
     transition_target?: Persona | null;
     ria_switch_available: boolean;
     ria_setup_available: boolean;
+    /**
+     * Whether the RIA advisor's onboarding has actually settled to a
+     * verified status (active/verified/finra_verified) -- not merely
+     * whether a persona/onboarding record exists. Gates
+     * ria_onboarding_complete and consent_center_available in
+     * evaluateKaiActionAvailability; see #6437.
+     */
+    ria_onboarding_complete: boolean;
   };
   voice: {
     available: boolean;
