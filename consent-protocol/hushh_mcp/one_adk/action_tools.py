@@ -52,6 +52,11 @@ from hushh_mcp.services.consent_lifecycle_service import (
     ConsentLifecycleError,
     ConsentLifecycleService,
 )
+from hushh_mcp.services.domain_contracts import (
+    CANONICAL_DOMAIN_REGISTRY,
+    get_canonical_domain_metadata,
+    normalize_domain_key,
+)
 from hushh_mcp.services.information_request_service import (
     InformationRequestError,
     InformationRequestService,
@@ -80,6 +85,7 @@ from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
 )
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
@@ -1493,6 +1499,81 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
         "connections",
         lambda: ConnectionsService().list_connections(user_id=user_id),
     )
+
+
+# Domains this tool will never read back over voice, even though they are
+# real PKM domains: runtime_secrets is BYOK model credential material, not
+# personal information -- there is no phrasing of "what do you know about my
+# X" that should ever resolve to it. Kept separate from the general domain
+# registry rather than filtered ad hoc, so a new sensitive domain has one
+# obvious place to be added.
+_VOICE_UNREADABLE_PKM_DOMAINS = frozenset({"runtime_secrets"})
+
+_PKM_READABLE_DOMAIN_KEYS = tuple(
+    entry.domain_key
+    for entry in CANONICAL_DOMAIN_REGISTRY
+    if entry.domain_key not in _VOICE_UNREADABLE_PKM_DOMAINS
+)
+
+
+async def read_my_pkm_domain_summary(domain: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Read the person's own redacted PKM summary for one domain and report it.
+
+    Covers every general information domain (financial, health, travel,
+    subscriptions, professional, identity, and the rest of the canonical PKM
+    registry) through one tool rather than one per domain, since they are all
+    read the same way -- the discovery-only index, never decrypted holdings.
+    Live app data with its own service (Connect's actual connections list,
+    Location's circles) is deliberately out of scope here; use the
+    dedicated read tools for those instead.
+
+    The summary is whatever sanitized, non-sensitive metadata
+    update_domain_summary() has accumulated for that domain -- it may be
+    partial or empty even when the domain itself exists.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    requested = normalize_domain_key(domain)
+    if requested not in _PKM_READABLE_DOMAIN_KEYS:
+        return {
+            "status": "failed",
+            "message": (
+                f'"{domain}" is not a domain I can read. Available domains: '
+                + ", ".join(_PKM_READABLE_DOMAIN_KEYS)
+                + "."
+            ),
+        }
+
+    label = (
+        get_canonical_domain_metadata(requested).display_name
+        if get_canonical_domain_metadata(requested)
+        else requested
+    )
+    # Not _read_tool_result: that helper's `call` is a zero-arg wrapper around
+    # a *synchronous* service call (every existing read tool's service method
+    # is sync), but get_index_v2 is genuinely async. Same shape and same
+    # failure-boundary reasoning as _read_tool_result -- an exception must
+    # never escape a live-session tool call -- just awaited instead of called.
+    try:
+        index = await get_pkm_service().get_index_v2(user_id)
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_read_tool_failed label=%s reason=unexpected", label)
+        return {
+            "status": "failed",
+            "message": f"Could not check {label} right now. Try again in a moment.",
+        }
+    available = list(index.available_domains) if index else []
+    if requested not in available:
+        return {"status": "ok", "result": {"has_data": False, "domain": requested, "summary": {}}}
+    summary = (index.domain_summaries or {}).get(requested) or {}
+    return {
+        "status": "ok",
+        "result": {"has_data": True, "domain": requested, "summary": dict(summary)},
+    }
 
 
 async def discover_person_information(
