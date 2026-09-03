@@ -949,3 +949,33 @@ async def test_a_failure_stamps_when_it_happened(service_env) -> None:
     marker = registry.rows["uid-1"]["backend_metadata"]["upgrade"]
     assert marker["attempts"] == 1
     assert marker["lastAttemptAt"], "the cooldown needs to know when the attempt was"
+
+
+@pytest.mark.asyncio
+async def test_the_cooldown_is_judged_on_the_row_as_it_is_after_the_lease(
+    monkeypatch, service_env
+) -> None:
+    """The other worker's failure can land between this worker's first read and its
+    lease claim; the cooldown must see that marker, not the one from before."""
+    from datetime import datetime, timezone
+
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+    backend = FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    async def _claim(*, user_id, target_image):
+        # Another worker just failed on this very image.
+        registry.rows[user_id]["backend_metadata"]["upgrade"] = {
+            "failedImage": target_image,
+            "attempts": 1,
+            "lastError": "temporary_issue",
+            "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
+        }
+        return True
+
+    monkeypatch.setattr(registry, "claim_image_upgrade", _claim, raising=False)
+    result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+    assert result["skipped"] == "cooldown"
+    assert backend.calls == [] if hasattr(backend, "calls") else True
+    assert registry.rows["uid-1"]["backend_metadata"]["upgrade"]["attempts"] == 1

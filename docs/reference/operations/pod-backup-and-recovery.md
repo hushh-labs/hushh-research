@@ -385,6 +385,15 @@ Guard: `tests/test_pod_update_detection.py`, `__tests__/feed/agent-update-detect
   `split_part(..., '|', 1)`.
 - The reconcile worker's failure line now carries `detail=` (the exception text, bounded),
   because `error=ImageCopyError` alone said nothing about which grant or repo refused.
+- **What that detail said, first time out:** `could not start blob upload for sha256:…: HTTP 403`
+  on a pod whose project was authorised before the copy-writer grant existed
+  (`artifact_repo_grant_copy_writer`). The copy into the person's own `one-pod` repository is
+  refused, the marker caps at three attempts, and the pod stays on its build until the grant is
+  re-applied. A heal step that re-applies that grant with the bootstrap token is the missing
+  piece (Pillar 1 recovery); today it is an operator action.
+- **A second retry also stacked once more** because the second worker judged the cooldown on a
+  row it had read before the first worker's failure landed; `upgrade_pod` now re-reads the row
+  after the lease claim.
 
 ## Memory Bank on the person's own Vertex (2026-09-03)
 

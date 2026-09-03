@@ -1195,6 +1195,11 @@ class PersonalAgentProvisioningService:
                 "image": running_image(row),
                 "previousImage": running_image(row),
             }
+        # Re-read AFTER the lease: the row above was read before the claim, and the
+        # other worker's failure marker may have landed in between (seen live
+        # 2026-09-03: the second worker judged the cooldown on a marker that was
+        # already forty seconds stale and stacked a second attempt anyway).
+        row = await self._registry.get(user_id) or row
         old_meta = dict(row.get("backend_metadata") or {})
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)
