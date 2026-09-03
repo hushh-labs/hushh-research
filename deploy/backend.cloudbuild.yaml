@@ -104,6 +104,10 @@ steps:
   # the hushh-gemini-bridge; every other cross-project pairing is refused.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
+    env:
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL}"
     args:
       - "-c"
       - |
@@ -310,6 +314,7 @@ steps:
       - "_GOOGLE_PRIVATE_KEY_SECRET=${_GOOGLE_PRIVATE_KEY_SECRET}"
       - "_RIA_CLAIM_TEST_EMAILS_SECRET=${_RIA_CLAIM_TEST_EMAILS_SECRET}"
       - "_AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}"
+      - "_HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}"
     id: "deploy-backend"
 
   # Candidate-image GenAI probe under the exact runtime identity. This runs
@@ -355,7 +360,7 @@ steps:
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1|AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1|AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}" \
           ${live_key_secret_flag} \
           --max-retries=0 \
           --task-timeout=90s \
@@ -484,6 +489,12 @@ substitutions:
   _FIREBASE_ADMIN_CREDENTIALS_SECRET: FIREBASE_ADMIN_CREDENTIALS_JSON
   _BACKEND_RUNTIME_CONFIG_JSON_SECRET: BACKEND_RUNTIME_CONFIG_JSON
   _PLAID_ACCESS_TOKEN_KEY_SECRET: ""
+  # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the
+  # proven default; set only after the lane's Vertex allowed-models policy admits the id.
+  # Ported from main during the 2026-09-02 sync: deploy-dev.yml has been passing
+  # _HUSSH_GEMINI_TEXT_MODEL=gemini-3.8-flash while this template had no such key, so
+  # the workflow's skew guard silently dropped it and dev never got the switch.
+  _HUSSH_GEMINI_TEXT_MODEL: ""
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
@@ -540,6 +551,7 @@ substitutions:
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _ONE_WALLET_CARD_ENABLED: ""
+  # Wallet subagent (agent_wallet) roster flag. Empty/false keeps it out of the tree.
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""
   # Durable Kai analyze-run terminal-checkpoint store (migration 125). Empty =>

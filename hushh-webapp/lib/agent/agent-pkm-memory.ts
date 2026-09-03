@@ -247,6 +247,8 @@ export async function previewAgentPkmMemory(params: {
   userId: string;
   message: string;
   currentDomains: string[];
+  /** Existing domain manifests: with them the structurer lands facts in scopes that already exist. */
+  currentManifests?: unknown[];
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
@@ -267,6 +269,7 @@ export async function previewAgentPkmMemory(params: {
       user_id: params.userId,
       message: params.message,
       current_domains: params.currentDomains,
+      current_manifests: (params.currentManifests || []).filter(Boolean).slice(0, 256),
     }),
   });
 

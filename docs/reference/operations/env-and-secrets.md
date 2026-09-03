@@ -202,6 +202,49 @@ It checks that:
 2. Each deployed environment resolves one active analytics measurement ID and one active GTM ID.
 3. Maintainer-only overlays are intentionally excluded from generated contributor runtime files.
 
+### Fleet text model switch (2026-09-02)
+
+`HUSSH_GEMINI_TEXT_MODEL` (backend, `_HUSSH_GEMINI_TEXT_MODEL` substitution) moves
+every text agent to one Gemini generation at once: agent manifests say
+`gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
+generation proven in every lane (`FLEET_TEXT_MODEL_DEFAULT`, 3.7 Flash today). A
+lane may flip it only after its project's `constraints/vertexai.allowedModels`
+policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
+2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
+Gemini project is `hushh-gemini-bridge`, whose allowlist still rejects it (verified
+2026-09-02: a direct generateContent returns a policy violation), so UAT stays on the
+default until an org-policy admin admits the id there; production likewise. The
+deploy-time Vertex readiness probe resolves the alias through the same resolver and
+receives `HUSSH_GEMINI_TEXT_MODEL`, so it validates the lane's switched model, never
+the literal alias. Every text agent names the alias, the memory chain and reducer included; only the
+Live head keeps an explicit pin.
+
+### Wallet subagent flags and the central One mailbox (2026-09-02)
+
+- The Wallet ships unconditionally. `ONE_WALLET_ENABLED` and
+  `NEXT_PUBLIC_ONE_WALLET_ENABLED` were removed on 2026-09-02: the feature was
+  complete, the frontend flag was a build-time constant that duplicated the
+  backend's authority, and the manifest's `HUSHH_WALLET_AGENT_DISABLED` kill switch
+  was never wired to anything. Nothing gates the Wallet now, in any lane.
+- Support, invite, and capability mail: every `SUPPORT_EMAIL_*` address defaults to
+  `ONE_EMAIL_ADDRESS` (`one@hushh.ai`). UAT and production carry no overrides; the
+  dev project's `SUPPORT_EMAIL_*` secrets point at `one@hushh.ai` in test mode. The
+  mailbox credential is never stored in the repo or Secret Manager; sending rides
+  the delegated service identity. Forwarding from `one@hushh.ai` to a person is a
+  Google Workspace admin setting, not a repo concern.
+
+### Deploy-step env plumbing and the Cloud Build arg cap (2026-09-02)
+
+The `deploy-backend` step body in `deploy/backend.cloudbuild.yaml` is one Cloud Build
+arg, capped at 10,000 characters after substitution. Optional env values now travel
+through the step's `env:` field (`_NAME=${_NAME}`, which does not count toward the cap)
+and one `for n in ...` loop reads them with `${!v}`; only names that existing contract
+tests assert literally stay as flat `add_env` lines. The file has no
+`automapSubstitutions`, so a name in the loop without an `env:` entry deploys nothing:
+that is how the Gmail personal-information-request monitor settings were silently
+unset before this change. `tests/test_cloudbuild_step_arg_limit.py` guards the cap, the
+per-lane headroom, and the loop-to-`env:` pairing.
+
 ### Ops-only GitHub identity variables (deploy/backup governance)
 
 These are not Cloud Run runtime secrets.

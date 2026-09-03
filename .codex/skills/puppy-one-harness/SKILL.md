@@ -38,6 +38,8 @@ Non-owned surfaces:
 1. Running the benchmark or the judge over a local model.
 2. Grading a review queue, or reviewing someone else's verdicts.
 3. Adding a model to the ladder, or reading the ledger for a trend.
+4. Grading the device's real daily jobs (the cron quality suite, see
+   `.codex/skills/puppy-one-harness/references/cron-quality-suite.md`).
 
 ## Do Not Use
 

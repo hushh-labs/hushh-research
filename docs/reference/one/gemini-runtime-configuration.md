@@ -28,6 +28,62 @@ working route until both are in place. Service-account JSON is not accepted. Exi
 Gemini configuration remains readable after the UI move from Profile; legacy
 BYOK values default to `developer_api`, so no storage migration is required.
 
+### Fleet text model switch (2026-09-02)
+
+Every text agent manifest names the alias `gemini-default`; the alias resolves to
+`constants.GEMINI_MODEL`, which reads `HUSSH_GEMINI_TEXT_MODEL` (deploy substitution
+`_HUSSH_GEMINI_TEXT_MODEL`) and falls back to `FLEET_TEXT_MODEL_DEFAULT`. One value moves
+the whole fleet; a lane may flip it only after its project's Vertex
+`constraints/vertexai.allowedModels` policy admits the id. UAT runs `gemini-3.8-flash`
+(admitted in `hushh-pda-uat` on 2026-09-02); production stays on the default until its
+allowlist changes. Every text agent, including the memory chain and the summary reducer, names the alias
+(founder directive 2026-09-02: the fleet runs Flash, 3.8 preferred, 3.7 next, 3.6 worst
+case, and never `gemini-3.1-pro-preview`). Only the Live head keeps an explicit pin.
+`tests/test_fleet_text_model_switch.py` refuses any manifest that pins a Flash generation.
+
+### Knobs removed as valueless (2026-09-02)
+
+There is one name for the fleet text model and one way to override it. These were
+removed because each was either an alias of `GEMINI_MODEL` or an environment key no
+lane set, and every one of them implied a choice that did not exist:
+
+| Removed | Why |
+|---|---|
+| `GEMINI_MODEL_VERTEX` | Always equal to `GEMINI_MODEL`; the name implied a separate Vertex model. |
+| `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL` | Same value again, under a third name. |
+| `KAI_PORTFOLIO_IMPORT_MODEL` (env) | Read by the portfolio route, set by no lane. |
+| `AGENT_ONE_SPECIALIST_MODEL` (env) | Set by no lane, and it froze the specialist model at import. |
+| `GMAIL_RECEIPT_LLM_MODEL` (env) | Pinned `gemini-2.5-flash-lite` in the local env, quietly outside the Flash-only rule. |
+| `KAI_RECEIPT_MEMORY_LLM_MODEL` (env) | Read by the receipt memory service, set by no lane. |
+
+Removing them is behaviour-preserving in every deployed lane, because no lane set any of
+them. Locally, Gmail receipt extraction moves off the pinned 2.5 generation and onto the
+fleet model like everything else.
+
+### Who chooses the model (2026-09-02)
+
+The environment names a default, never the only possibility. A turn resolves its model
+at call time through `hushh_mcp/services/model_preference_service.py`, highest tier first:
+
+1. **the person's own choice** — `one_model_preferences` (migration 196), set from Agent
+   chat (`set_preferred_model`) or `PUT /api/one/models/preference`, and validated against
+   the served catalog on write;
+2. **the lane default** — `HUSSH_GEMINI_TEXT_MODEL`, read by module attribute rather than
+   copied into any consumer;
+3. **`FLEET_TEXT_MODEL_DEFAULT`** — the generation proven in every lane.
+
+The catalog of choices lives in `hushh_mcp/runtime_providers/model_catalog.py` and is
+derived from the provider registry, so adding a generation is one registry row plus one
+entry in `FLEET_TEXT_MODEL_CHOICES`; no client release and no browser environment variable
+is involved. `GET /api/one/models/preference` serves the list, what the person chose, and
+what is actually running.
+
+Two failure rules keep a preference from ever costing a turn: a choice that outlived its
+catalog entry degrades to the lane default (and stays visible so a surface can explain
+it), and an unreachable preference store resolves to the lane default rather than raising.
+A change takes effect on the person's next message; nothing is redeployed and no other
+person is affected.
+
 ## Lifecycle
 
 1. A person chooses managed Gemini or BYOK in AI access.

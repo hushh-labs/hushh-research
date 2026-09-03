@@ -129,6 +129,8 @@ class TestAgentTreeShape:
             "propose_calendar_reschedule",
             "propose_calendar_cancellation",
             "discover_person_information",
+            "list_pending_information_requests",
+            "propose_information_request",
         }
         if _tree._CRM_PRODUCT_AVAILABLE:
             expected_tools.add("ask_connected_systems_agent")

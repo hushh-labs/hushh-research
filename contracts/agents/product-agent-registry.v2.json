@@ -44,7 +44,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/calendar/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Calendar Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -71,7 +71,7 @@
         "cap.one.invoke"
       ],
       "rollout": {
-        "kill_switch": "CALENDAR_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable Calendar Agent and retain existing Google connection records without executing proposals.",
         "strategy": "internal"
       },
@@ -187,7 +187,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/connected_systems/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Connected Systems Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -209,7 +209,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -244,7 +244,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.7-flash",
+            "name": "gemini-default",
             "provider": "gemini"
           },
           "name": "CRM Schema Mapper",
@@ -340,7 +340,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/connections/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Connections Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -364,7 +364,7 @@
         "agent.one.orchestrate"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -431,7 +431,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/email/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Email Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -453,7 +453,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -527,7 +527,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/financial_guard/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Financial Guard Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -557,7 +557,7 @@
         "attr.financial.*"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -624,7 +624,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/gmail/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Gmail Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -646,7 +646,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -728,7 +728,7 @@
       "model": {
         "credential_ref": null,
         "mode": "hushh_managed_vertex",
-        "name": "gemini-3.7-flash",
+        "name": "gemini-default",
         "provider": "gemini"
       },
       "name": "Kai Financial Agent",
@@ -767,7 +767,7 @@
         "agent.kai.analyze"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -800,7 +800,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.7-flash",
+            "name": "gemini-default",
             "provider": "gemini"
           },
           "name": "RIA",
@@ -814,7 +814,7 @@
             "plaintext_telemetry": false
           },
           "rollout": {
-            "kill_switch": "HUSHH_RIA_AGENT_DISABLED",
+            "kill_switch": null,
             "rollback": "Disable RIA delegation and keep the Finance head active.",
             "strategy": "canary"
           },
@@ -845,7 +845,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.7-flash",
+            "name": "gemini-default",
             "provider": "gemini"
           },
           "name": "Investor",
@@ -861,7 +861,7 @@
             "plaintext_telemetry": false
           },
           "rollout": {
-            "kill_switch": "HUSHH_INVESTOR_AGENT_DISABLED",
+            "kill_switch": null,
             "rollback": "Disable Investor delegation and keep the Finance head active.",
             "strategy": "canary"
           },
@@ -970,7 +970,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/kyc/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Agent KYC",
       "native_requirements": [],
       "optional_scopes": [
@@ -1006,7 +1006,7 @@
         "agent.kyc.process"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1069,7 +1069,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/location/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Location Agent",
       "native_requirements": [],
       "optional_scopes": [
@@ -1096,7 +1096,7 @@
         "cap.location.live.share"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1235,7 +1235,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_intent/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Memory Intent Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1303,7 +1303,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1392,7 +1392,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_merge/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Memory Merge Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1455,7 +1455,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1529,7 +1529,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_segmentation/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Memory Segmentation Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1567,7 +1567,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1637,7 +1637,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/nav/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Consent Center Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1661,7 +1661,7 @@
         "agent.nav.review"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1743,7 +1743,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/onboarding/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Onboarding Specialist",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1838,11 +1838,12 @@
       "capabilities": {
         "heads": {
           "live": "gemini-3.1-flash-live-preview",
-          "specialist_text": "gemini-3.7-flash",
-          "text": "gemini-3.7-flash"
+          "specialist_text": "gemini-default",
+          "text": "gemini-default"
         },
         "specialist_roster": [
           "agent_kai",
+          "agent_wallet",
           "agent_nav",
           "agent_kyc",
           "agent_email",
@@ -1876,7 +1877,7 @@
       "model": {
         "credential_ref": null,
         "mode": "hushh_managed_vertex",
-        "name": "gemini-3.7-flash",
+        "name": "gemini-default",
         "provider": "gemini"
       },
       "name": "Agent One",
@@ -1905,7 +1906,7 @@
         "cap.one.invoke"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1933,7 +1934,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "a2b0351622f9b900559ee22a426593e4c659b0b2852ba8c5e8409809901494c2",
+      "system_instruction_sha256": "3d98c0c2d8079f828d27cda0fcf4c24c4678a3c058a7dfa8711c6442c67addc3",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",
@@ -1971,7 +1972,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/personal_information/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Information Marketplace",
       "native_requirements": [],
       "optional_scopes": [
@@ -1997,7 +1998,7 @@
         "cap.pkm.marketplace.view"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -2133,7 +2134,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/pkm_structure/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "PKM Structure Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -2181,7 +2182,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -2265,7 +2266,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/portfolio_import/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.7-flash",
+      "model": "gemini-default",
       "name": "Portfolio Import Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -2311,7 +2312,7 @@
         "attr.financial.*"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -2410,7 +2411,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/summary_reducer/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.1-flash-lite",
+      "model": "gemini-default",
       "name": "PKM Summary Reducer",
       "native_requirements": [],
       "optional_scopes": [],
@@ -2438,7 +2439,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -2465,6 +2466,131 @@
       },
       "system_instruction_sha256": "f26e3f760cd855eedd8966c5c89352e844cf1493edf7f5eed9aecf27b80cb769",
       "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [
+        "route.one_wallet",
+        "wallet.list",
+        "wallet.add",
+        "wallet.reveal"
+      ],
+      "authorities": {
+        "actions": [
+          "wallet.list",
+          "wallet.add",
+          "wallet.reveal"
+        ],
+        "data": [],
+        "invocation": [
+          "agent.wallet.manage"
+        ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex",
+          "byok"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Payment-cards specialist that helps the owner store, list, and reveal vault-encrypted credit and debit cards without card secrets ever entering model context.",
+      "evaluations": [],
+      "failure_states": [
+        "vault_locked",
+        "feature_disabled"
+      ],
+      "icon": "credit-card",
+      "id": "agent_wallet",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "consent_token",
+          "type": "string"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/wallet/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini"
+      },
+      "name": "Cards Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "response",
+          "type": "string"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 4000,
+        "max_output_tokens": 2048
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "agent.wallet.manage"
+      ],
+      "rollout": {
+        "kill_switch": null,
+        "rollback": "Remove the Wallet AgentTool from One's roster; the /one/wallet surface keeps working without chat.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": "hushh_mcp.one_adk.agent_tree._build_wallet_agent",
+        "kind": "adk",
+        "transport": [
+          "in_process",
+          "chat"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, and MCP exposure are deliberately withheld while card reveal is a screen-only interaction.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "5d17579fa588e8e61791865ff3e95dd21a60dacc771d7c0371849c8c8c8080d2",
+      "telemetry_namespace": "agent.cards",
       "tools": [],
       "ui_type": "chat",
       "version": "1.0.0"

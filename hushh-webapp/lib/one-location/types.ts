@@ -64,6 +64,8 @@ export type OneLocationRecommendationReason = {
 export type OneLocationRecipient = {
   userId: string;
   displayName: string;
+  /** Opaque public person reference; present when this person has a request profile. */
+  publicPersonRef?: string | null;
   photoUrl?: string | null;
   maskedPhone?: string | null;
   phoneVerified: boolean;
@@ -395,6 +397,8 @@ export type OneLocationCircleSummary = {
 export type OneLocationCircleMember = {
   userId: string;
   displayName: string;
+  /** Opaque public person reference; present when this person has a request profile. */
+  publicPersonRef?: string | null;
   photoUrl?: string | null;
   role: OneLocationCircleRole;
   joinedAt?: string | null;

@@ -23,7 +23,6 @@ import io
 import json
 import logging
 import math
-import os
 import re
 import time
 from collections import Counter
@@ -56,11 +55,11 @@ from api.routes.kai.import_run_manager import (
     PortfolioImportRunRecord,
 )
 from hushh_mcp.constants import (
+    GEMINI_MODEL,
     KAI_LLM_TEMPERATURE,
     KAI_LLM_THINKING_ENABLED,
     KAI_PORTFOLIO_IMPORT_ENABLE_THINKING,
     KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS,
-    KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL,
     KAI_PORTFOLIO_IMPORT_THINKING_LEVEL,
 )
 from hushh_mcp.kai_import import (
@@ -139,12 +138,12 @@ _HOLDING_KEY_HINTS = frozenset(
 
 
 def _resolve_portfolio_import_model() -> str:
-    """Resolve operator override while keeping the documented Flash default."""
-    for key in ("KAI_PORTFOLIO_IMPORT_MODEL", "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"):
-        candidate = os.getenv(key, "").strip()
-        if candidate:
-            return candidate
-    return KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL
+    """Portfolio import runs the fleet text model, like every other text agent.
+
+    It used to consult two environment keys that no lane set, in front of a constant
+    that was already equal to the fleet model: three names for one answer.
+    """
+    return GEMINI_MODEL
 
 
 _POSITIONS_PAGE_KEYWORDS = (

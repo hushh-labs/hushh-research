@@ -20,7 +20,7 @@ class CreateInformationRequest(BaseModel):
     person_ref: UUID
     scope_refs: list[str] = Field(min_length=1, max_length=50)
     purpose: str = Field(min_length=8, max_length=500)
-    duration_seconds: int = Field(ge=300, le=2_592_000)
+    duration_seconds: int = Field(ge=3_600, le=2_592_000, multiple_of=3_600)
     connector_key_id: str = Field(min_length=1, max_length=200)
     idempotency_key: str = Field(min_length=16, max_length=256)
 

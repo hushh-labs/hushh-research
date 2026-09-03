@@ -234,3 +234,38 @@ def test_capacity_knobs_travel_packed_and_unpack_to_the_same_names() -> None:
     script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text(encoding="utf-8")
     assert 'cpu) _CLOUD_RUN_CPU="${_value}" ;;' in script
     assert '"--cpu=${_CLOUD_RUN_CPU}"' in script
+
+
+def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env() -> None:
+    """Ported from main during the 2026-09-02 sync, adapted to the extracted script.
+
+    Main asserted this against an inline `for n in ...; do v="_${n}"; add_env` loop in
+    the build body. This branch moved that body into `scripts/deploy/backend-deploy.sh`
+    (the 10,000-character step-arg ceiling), so the same defect now takes a different
+    shape: the script reads `${_FOO}`, and Cloud Build only provides it when `_FOO` is
+    listed in the step's `env:` field. A name the script reads with no env entry
+    silently deploys nothing -- which is exactly what happened to the Gmail monitor
+    settings on main, and to `_HUSSH_GEMINI_TEXT_MODEL` on this branch until this sync.
+    """
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
+    config = _load("deploy/backend.cloudbuild.yaml")
+    assert config is not None
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    provided = {entry.split("=", 1)[0] for entry in step.get("env") or []}
+    packed = " ".join(entry for entry in step.get("env") or [] if "," in entry)
+    # Comments explain the mechanism using placeholder names (`${_FOO}`), so read only
+    # the executable lines -- a doc example is not a substitution the deploy consumes.
+    executable = "\n".join(
+        line for line in script.splitlines() if not line.lstrip().startswith("#")
+    )
+    read_by_script = set(re.findall(r"\$\{(_[A-Z0-9_]+)(?::-[^}]*)?\}", executable))
+    missing = sorted(
+        name
+        for name in read_by_script
+        if name not in provided and name not in packed and name != "_PACKED"
+    )
+    assert not missing, (
+        "backend-deploy.sh reads these substitutions, but the deploy-backend step does "
+        f"not pass them, so Cloud Build leaves them empty: {missing}"
+    )

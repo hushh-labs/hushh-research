@@ -110,8 +110,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       hideBack: false,
       items: [{ label: "One" }],
-    });
-  });
+    });  });
 
   it("uses the shared top-left back affordance for Calendar", () => {
     expect(resolveTopShellBreadcrumb("/one/calendar")).toEqual({
@@ -961,38 +960,10 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("deepens Picks into Debate config for the ?view=debate sub-view", () => {
-    const debateView = new URLSearchParams("view=debate");
-
-    // Debate config lives one level below Picks, so Back returns to Picks and
-    // the trail carries a fourth "Debate" crumb.
-    expect(resolveTopShellBreadcrumb("/ria/picks", debateView)).toEqual({
-      backHref: "/ria/picks",
-      width: "content",
-      align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria/profile" },
-        { label: "Picks", href: "/ria/picks" },
-        { label: "Debate" },
-      ],
-    });
-
-    // Without the view param, bare Picks is untouched: three crumbs, Back to
-    // the canonical RIA Profile tab.
-    expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual({
-      backHref: "/ria/profile",
-      width: "content",
-      align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria/profile" },
-        { label: "Picks" },
-      ],
-    });
-  });
-
-  it("keeps bare Picks for unknown or wrong-case view values", () => {
+  it("keeps bare Picks regardless of any ?view= value", () => {
+    // Picks has no sub-view left to deepen into (the Debate config view was
+    // removed as a duplicate of Screening), so every ?view= value -- known,
+    // unknown, or absent -- resolves to the same plain three-crumb Picks.
     const barePicks = {
       backHref: "/ria/profile",
       width: "content" as const,
@@ -1004,21 +975,14 @@ describe("top shell breadcrumbs", () => {
       ],
     };
 
-    // An unrecognized view value must not deepen into the Debate crumb; it stays
-    // a plain three-crumb Picks with Back to RIA.
+    expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual(barePicks);
+    expect(
+      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=debate")),
+    ).toEqual(barePicks);
     expect(
       resolveTopShellBreadcrumb(
         "/ria/picks",
         new URLSearchParams("view=garbage"),
-      ),
-    ).toEqual(barePicks);
-
-    // The Picks debate match is case-sensitive (view === "debate"), so a
-    // capitalized value is treated as unknown rather than the debate sub-view.
-    expect(
-      resolveTopShellBreadcrumb(
-        "/ria/picks",
-        new URLSearchParams("view=Debate"),
       ),
     ).toEqual(barePicks);
   });

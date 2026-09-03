@@ -9,7 +9,6 @@ import {
   FileSpreadsheet,
   Loader2,
   Medal,
-  MessagesSquare,
   PencilLine,
   Plus,
   Save,
@@ -1668,18 +1667,14 @@ export default function RiaPicksPage() {
   const [avoidLoading, setAvoidLoading] = useState(false);
   const [screeningRows, setScreeningRows] = useState<RiaScreeningRow[]>([]);
   const [screeningLoading, setScreeningLoading] = useState(false);
-  // Debate config surfaces Kai's screening fetch; without an explicit error +
-  // retry state a failed load silently collapses into the "No rules yet" empty
-  // state (indistinguishable from a genuinely empty config). Additive only.
+  // Without an explicit error + retry state a failed screening fetch silently
+  // collapses into the "No rules yet" empty state (indistinguishable from a
+  // genuinely empty config).
   const [screeningError, setScreeningError] = useState(false);
   const [screeningReloadToken, setScreeningReloadToken] = useState(0);
 
   const sourceParam = searchParams?.get("source");
   const categoryParam = searchParams?.get("category");
-  // Debate config is a read-only sub-view of Picks (?view=debate), not a
-  // standalone route — it deep-links, inherits the vault guard + BYOK package,
-  // and never trips the route-inventory / native-parity ship gates.
-  const isDebateView = (searchParams?.get("view") || "").trim() === "debate";
 
   useEffect(() => {
     if (sourceParam === "kai" || sourceParam === "my") {
@@ -1698,22 +1693,13 @@ export default function RiaPicksPage() {
   }, [categoryParam]);
 
   const updatePicksRouteState = useCallback(
-    (next: {
-      source?: PicksSource;
-      category?: PicksCategory;
-      view?: "debate" | null;
-    }) => {
+    (next: { source?: PicksSource; category?: PicksCategory }) => {
       const params = new URLSearchParams(searchParams?.toString() || "");
       if (next.source) {
         params.set("source", next.source);
       }
       if (next.category) {
         params.set("category", next.category);
-      }
-      if (next.view === "debate") {
-        params.set("view", "debate");
-      } else if (next.view === null) {
-        params.delete("view");
       }
       const query = params.toString();
       router.replace(
@@ -1920,9 +1906,10 @@ export default function RiaPicksPage() {
         const data = await RiaService.getRenaissanceScreening(idToken);
         if (!cancelled) setScreeningRows(data.items);
       } catch {
-        // A failed screening fetch previously escaped as an unhandled rejection
-        // and left the debate view silently empty. Surface it so the debate
-        // branch can render an explicit error + retry affordance.
+        // A failed screening fetch previously escaped as an unhandled
+        // rejection and left the screening view silently empty (rendering as
+        // "no rules configured" rather than a real error). Surface it so the
+        // screening branch can render an explicit error + retry affordance.
         if (!cancelled) setScreeningError(true);
       } finally {
         if (!cancelled) setScreeningLoading(false);
@@ -1946,7 +1933,6 @@ export default function RiaPicksPage() {
       { value: "top-picks", label: "Top picks" },
       { value: "avoid", label: "Avoid" },
       { value: "screening", label: "Screening" },
-      { value: "debate", label: RIA_COPY.debate.eyebrow },
     ],
     [],
   );
@@ -2576,31 +2562,22 @@ export default function RiaPicksPage() {
           id: "ria_picks_category_top_picks",
           label: "Top picks",
           type: "tab",
-          state:
-            !isDebateView && category === "top-picks" ? "active" : "available",
+          state: category === "top-picks" ? "active" : "available",
           actionId: "ria.picks.open_category_top_picks",
         },
         {
           id: "ria_picks_category_avoid",
           label: "Avoid",
           type: "tab",
-          state: !isDebateView && category === "avoid" ? "active" : "available",
+          state: category === "avoid" ? "active" : "available",
           actionId: "ria.picks.open_category_avoid",
         },
         {
           id: "ria_picks_category_screening",
           label: "Screening",
           type: "tab",
-          state:
-            !isDebateView && category === "screening" ? "active" : "available",
+          state: category === "screening" ? "active" : "available",
           actionId: "ria.picks.open_category_screening",
-        },
-        {
-          id: "ria_picks_view_debate",
-          label: RIA_COPY.debate.eyebrow,
-          type: "tab",
-          state: isDebateView ? "active" : "available",
-          actionId: "ria.picks.open_view_debate",
         },
         {
           id: "ria_picks_upload_csv",
@@ -2644,8 +2621,8 @@ export default function RiaPicksPage() {
           actionId: "ria.picks.save_package",
         },
       ],
-      activeTab: isDebateView ? `${source}:debate` : `${source}:${category}`,
-      activeFilters: [sourceTitle, isDebateView ? "debate" : category],
+      activeTab: `${source}:${category}`,
+      activeFilters: [sourceTitle, category],
       visibleModules: [
         "Source tabs",
         "Category tabs",
@@ -2660,7 +2637,6 @@ export default function RiaPicksPage() {
       screenMetadata: {
         source,
         category,
-        view: isDebateView ? "debate" : "picks",
         editing,
         upload_open: uploadOpen,
         has_unsaved_changes: hasUnsavedChanges,
@@ -2678,7 +2654,6 @@ export default function RiaPicksPage() {
       category,
       editing,
       hasUnsavedChanges,
-      isDebateView,
       isVaultUnlocked,
       kaiRows.length,
       myTopPicks.length,
@@ -2732,27 +2707,16 @@ export default function RiaPicksPage() {
     >
       <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
-          eyebrow={
-            isDebateView ? RIA_COPY.debate.eyebrow : RIA_COPY.picks.eyebrow
-          }
-          title={isDebateView ? RIA_COPY.debate.title : RIA_COPY.picks.title}
-          description={
-            isDebateView
-              ? RIA_COPY.debate.description
-              : RIA_COPY.picks.description
-          }
-          icon={isDebateView ? MessagesSquare : FileSpreadsheet}
+          eyebrow={RIA_COPY.picks.eyebrow}
+          title={RIA_COPY.picks.title}
+          description={RIA_COPY.picks.description}
+          icon={FileSpreadsheet}
           accent="ria"
         />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        {/* Debate is a read-only config preview — swiping should scroll it, not
-            hop to the adjacent RIA tab, so the pane opts out of route-swipe. */}
-        <SurfaceStack
-          className="gap-6"
-          {...(isDebateView ? { "data-no-route-swipe": "" } : {})}
-        >
+        <SurfaceStack className="gap-6">
           <div data-testid="ria-picks-primary">
             <SegmentedTabs
               value={source}
@@ -2768,148 +2732,17 @@ export default function RiaPicksPage() {
           </div>
 
           <SegmentedTabs
-            value={isDebateView ? "debate" : category}
+            value={category}
             onValueChange={(value) => {
-              if (value === "debate") {
-                updatePicksRouteState({ view: "debate" });
-                return;
-              }
               const nextCategory = value as PicksCategory;
               setCategory(nextCategory);
-              updatePicksRouteState({ category: nextCategory, view: null });
+              updatePicksRouteState({ category: nextCategory });
             }}
             options={categoryOptions}
             mobileColumns={2}
           />
 
-          {isDebateView ? (
-            iamUnavailable ? (
-              <RiaCompatibilityState
-                title="Waiting on IAM schema"
-                description="Debate config needs the IAM tables."
-              />
-            ) : (
-              <div className="space-y-4" data-testid="ria-debate-config">
-                <SurfaceCard>
-                  <SurfaceCardContent className="p-4 sm:p-5">
-                    <p className="text-sm font-semibold text-foreground">
-                      {RIA_COPY.debate.banner.title}
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      {RIA_COPY.debate.banner.description}
-                    </p>
-                  </SurfaceCardContent>
-                </SurfaceCard>
-
-                {source === "my" && myListRequiresUnlock ? (
-                  // Locked My-list vault: without this the debate view rendered
-                  // "No rules yet" cards (false-empty), hiding that the config
-                  // exists but is locked. Mirrors the picks unlock notice.
-                  <SurfaceCard>
-                    <SurfaceCardContent
-                      className="p-4 sm:p-5"
-                      data-testid="ria-debate-unlock"
-                    >
-                      <p className="text-sm font-medium text-foreground">
-                        Unlock required
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        This advisor package is now stored in your PKM. Unlock
-                        the vault to view the debate config.
-                      </p>
-                    </SurfaceCardContent>
-                  </SurfaceCard>
-                ) : source === "kai" && screeningError ? (
-                  // A failed Kai screening fetch used to collapse into the empty
-                  // state. Show it explicitly with a retry that re-arms the loader.
-                  <SurfaceCard>
-                    <SurfaceCardContent
-                      className="space-y-3 p-4 sm:p-5"
-                      data-testid="ria-debate-error"
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-foreground">
-                          Debate config unavailable
-                        </p>
-                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                          The debate screening rules failed to load. Check your
-                          connection and try again.
-                        </p>
-                      </div>
-                      <Button
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        onClick={() => {
-                          setScreeningError(false);
-                          setScreeningReloadToken((token) => token + 1);
-                        }}
-                        className="justify-center"
-                      >
-                        Try again
-                      </Button>
-                    </SurfaceCardContent>
-                  </SurfaceCard>
-                ) : (source === "kai" && screeningLoading) ||
-                  (source === "my" && picksResource.loading) ? (
-                  // Spinner is mutually exclusive with the section list so the
-                  // two never render together, and My-list no longer flashes empty
-                  // while its package is still loading.
-                  <div
-                    className="flex items-center gap-2 py-8 text-sm text-muted-foreground"
-                    data-testid="ria-debate-loading"
-                  >
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading debate config...
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {screeningViewRows.map((section) => (
-                      <SurfaceCard key={section.section}>
-                        <SurfaceCardContent className="p-4">
-                          <h3 className="mb-3 text-sm font-semibold text-foreground">
-                            {section.label}
-                          </h3>
-                          {section.rows.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">
-                              No rules yet for this section.
-                            </p>
-                          ) : (
-                            <div className="space-y-2">
-                              {section.rows.map((rule, index) => (
-                                <div
-                                  key={`${section.section}-${index}`}
-                                  className="border-b border-border/20 pb-2 last:border-0 last:pb-0"
-                                >
-                                  <p className="text-sm font-medium text-foreground">
-                                    {rule.title}
-                                  </p>
-                                  {shouldRenderScreeningDetail(rule) ? (
-                                    <p className="text-xs leading-5 text-muted-foreground">
-                                      {rule.detail}
-                                    </p>
-                                  ) : null}
-                                  {shouldRenderScreeningValue(rule) ? (
-                                    <p className="mt-1 text-xs font-medium text-primary">
-                                      {rule.value_text}
-                                    </p>
-                                  ) : null}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </SurfaceCardContent>
-                      </SurfaceCard>
-                    ))}
-                  </div>
-                )}
-
-                <p className="px-1 text-xs leading-5 text-muted-foreground">
-                  {RIA_COPY.debate.disclaimer}
-                </p>
-              </div>
-            )
-          ) : (
+          {(
             <>
               {showMyListActionRail ? (
                 <SurfaceCard>
@@ -3272,6 +3105,40 @@ export default function RiaPicksPage() {
 
               {!iamUnavailable && category === "screening" ? (
                 <div className="space-y-4">
+                  {source === "kai" && screeningError ? (
+                    // A failed Kai screening fetch used to collapse into the
+                    // empty "No rules yet" state. Show it explicitly with a
+                    // retry that re-arms the loader.
+                    <SurfaceCard>
+                      <SurfaceCardContent
+                        className="space-y-3 p-4 sm:p-5"
+                        data-testid="ria-screening-error"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            Screening rules unavailable
+                          </p>
+                          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                            The screening rules failed to load. Check your
+                            connection and try again.
+                          </p>
+                        </div>
+                        <Button
+                          variant="none"
+                          effect="fade"
+                          size="sm"
+                          onClick={() => {
+                            setScreeningError(false);
+                            setScreeningReloadToken((token) => token + 1);
+                          }}
+                          className="justify-center"
+                        >
+                          Try again
+                        </Button>
+                      </SurfaceCardContent>
+                    </SurfaceCard>
+                  ) : null}
+
                   {source === "kai" && screeningLoading ? (
                     <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -3322,7 +3189,7 @@ export default function RiaPicksPage() {
                     />
                   ) : null}
 
-                  {!editing ? (
+                  {!editing && !screeningError ? (
                     <div className="space-y-6" data-testid="ria-picks-active">
                       {screeningViewRows.map((section) => (
                         <SurfaceCard key={section.section}>

@@ -6,7 +6,7 @@ description: Google Calendar read, availability, and owner-confirmed scheduling 
 status: active
 owner: backend
 parent: agent_one
-model: gemini-3.7-flash
+model: gemini-default
 system_instruction: |
   You are the Calendar Agent under One. Use only the authenticated owner's
   connected Google Calendar through the declared tools. Never see OAuth tokens,
@@ -97,6 +97,5 @@ failure_states:
   - event_changed
   - availability_changed
 rollout:
-  kill_switch: CALENDAR_AGENT_DISABLED
   strategy: internal
   rollback: Disable Calendar Agent and retain existing Google connection records without executing proposals.

@@ -123,23 +123,6 @@ export const RIA_COPY = {
     unlockRail: "Unlock the vault to edit or publish.",
   },
 
-  debate: {
-    eyebrow: "Debate",
-    title: "Debate config",
-    description: "The rules One's investor debate runs on.",
-    banner: {
-      title: "This is your debate config",
-      description:
-        "One's multi-agent debate scores every name against these screening rules and conviction bands.",
-    },
-    // Deliberately names no agent. This is securities-adjacent language on a
-    // regulated RIA surface, so it carries the disclosure and nothing else --
-    // putting a product name here would make the brand the subject of the
-    // legal sentence and require a compliance read every time the brand moves.
-    disclaimer:
-      "This is an educational and informational tool and is not investment advice. Always consult a licensed financial professional before making investment decisions.",
-  },
-
   connect: {
     eyebrow: "SEBI-registered network",
     title: "Connect",

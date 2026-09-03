@@ -10,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
 const appOrigin = String(process.env.REVIEWER_APP_ORIGIN || "http://127.0.0.1:3000").replace(/\/$/, "");
 const timeoutMs = Number(process.env.REVIEWER_APP_TIMEOUT_MS || 360_000);
+const skipAgentDiscovery = process.env.REVIEWER_CONSENT_SKIP_AGENT_DISCOVERY === "true";
 
 if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS !== "true") {
   throw new Error("Consent rehearsal creates and cancels a UAT request. Explicit mutation authority is required.");
@@ -66,37 +67,38 @@ try {
     }
   }
   if (!fixture) throw new Error("Reviewer has no connected person with a requestable scope.");
-  await page.goto(`${appOrigin}/agent`, { waitUntil: "domcontentloaded" });
-  await reviewer.assertVaultContinuity(page, "/agent");
-
   const scopeLabel = clean(fixture.scope.label);
   const scopeDomain = clean(fixture.scope.domain);
-  const prompt = `Show the exact ${scopeDomain || "information"} fields I can request from ${fixture.displayName}, and explain the next consent step.`;
-  const baselineTurns = await page.locator('[data-message-role="assistant"]').count();
-  await page.getByTestId("agent-chat-composer-textarea").fill(prompt);
-  await page.getByRole("button", { name: "Send message" }).click();
-  await page.waitForFunction(
-    ({ baseline, expectedLabel, expectedPath }) => {
-      const turns = [...document.querySelectorAll('[data-message-role="assistant"]')];
-      const latest = turns.at(-1);
-      if (turns.length <= baseline || latest?.getAttribute("data-message-status") === "streaming") return false;
-      const text = latest?.textContent || "";
-      const hasProfileLink = Boolean(latest?.querySelector(`a[href="${expectedPath}"]`));
-      return text.includes(expectedLabel) && hasProfileLink;
-    },
-    {
-      baseline: baselineTurns,
-      expectedLabel: scopeLabel,
-      expectedPath: `/people/${fixture.personRef}`,
-    },
-    { timeout: timeoutMs },
-  );
+  if (!skipAgentDiscovery) {
+    await page.goto(`${appOrigin}/agent`, { waitUntil: "domcontentloaded" });
+    await reviewer.assertVaultContinuity(page, "/agent");
+    const prompt = `Show the exact ${scopeDomain || "information"} fields I can request from ${fixture.displayName}, and explain the next consent step.`;
+    const baselineTurns = await page.locator('[data-message-role="assistant"]').count();
+    await page.getByTestId("agent-chat-composer-textarea").fill(prompt);
+    await page.getByRole("button", { name: "Send message" }).click();
+    await page.waitForFunction(
+      ({ baseline, expectedLabel, expectedPath }) => {
+        const turns = [...document.querySelectorAll('[data-message-role="assistant"]')];
+        const latest = turns.at(-1);
+        if (turns.length <= baseline || latest?.getAttribute("data-message-status") === "streaming") return false;
+        const text = latest?.textContent || "";
+        const hasProfileLink = Boolean(latest?.querySelector(`a[href="${expectedPath}"]`));
+        return text.includes(expectedLabel) && hasProfileLink;
+      },
+      {
+        baseline: baselineTurns,
+        expectedLabel: scopeLabel,
+        expectedPath: `/people/${fixture.personRef}`,
+      },
+      { timeout: timeoutMs },
+    );
 
-  const latestTurn = page.locator('[data-message-role="assistant"]').last();
-  await latestTurn.getByRole("button", { name: /Activity/i }).waitFor({ state: "visible" });
-  await latestTurn.getByRole("link", { name: "Review information", exact: true }).waitFor({
-    state: "visible",
-  });
+    const latestTurn = page.locator('[data-message-role="assistant"]').last();
+    await latestTurn.getByRole("button", { name: /Activity/i }).waitFor({ state: "visible" });
+    await latestTurn.getByRole("link", { name: "Review information", exact: true }).waitFor({
+      state: "visible",
+    });
+  }
   await session.context.close();
   session = await reviewer.openSession(browser, `/people/${fixture.personRef}`);
   page = session.page;
@@ -145,7 +147,7 @@ try {
   }
   session.capture.assertNoCriticalApiFailures("agent consent lifecycle");
   process.stdout.write(
-    "[reviewer-app-testing] PASS real_scope_discovery=1 retained_activity=1 review_sheet=1 request_created=1 request_cancelled=1 raw_scope_ids=0\n",
+    `[reviewer-app-testing] PASS agent_scope_discovery=${skipAgentDiscovery ? 0 : 1} retained_activity=${skipAgentDiscovery ? 0 : 1} profile_scope_review=1 review_sheet=1 request_created=1 request_cancelled=1 raw_scope_ids=0\n`,
   );
 } finally {
   if (createdBundleId && ownerToken) {

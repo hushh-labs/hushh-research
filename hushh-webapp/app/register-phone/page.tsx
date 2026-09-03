@@ -325,7 +325,7 @@ export function PhoneMandatePageContent() {
 
         {/* Verification is a focused task, not a hero. Keep the heading tight
             so the active field row can clear the native keyboard. */}
-        <div className="px-6 pb-3 pt-7 text-center">
+        <div className="px-6 pb-2 pt-7 text-center">
           <h1
             role="heading"
             aria-level={1}
@@ -359,7 +359,9 @@ export function PhoneMandatePageContent() {
             onCompleted={continueToNextRoute}
             onContinueExisting={continueToNextRoute}
             onStepChange={setVerificationStep}
-            confirmLabel="Verify and continue"
+            sendCodeLabel="Send code"
+            confirmLabel="Verify"
+            primaryActionClassName="mx-auto max-w-[21.5rem]"
             className="gap-5"
           />
           <div id="recaptcha-container" className="mt-3 min-h-0" />

@@ -83,10 +83,18 @@ function currentGeneration(userId: string): string {
   return `${globalWorkingSetGeneration}:${workingSetGenerations.get(userId) ?? 0}`;
 }
 
-function invalidateWorkingSet(userId: string): void {
+// Why the last void happened, per owner. Only a domain write may be retried;
+// a vault clear or an explicit invalidation must drop the in-flight load.
+const lastVoidReasons = new Map<string, "domain_changed" | "invalidated">();
+
+function invalidateWorkingSet(
+  userId: string,
+  reason: "domain_changed" | "invalidated" = "invalidated",
+): void {
   workingSets.delete(userId);
   const nextUserGeneration = (workingSetGenerations.get(userId) ?? 0) + 1;
   workingSetGenerations.set(userId, nextUserGeneration);
+  lastVoidReasons.set(userId, reason);
 }
 
 function ensurePkmChangeListener(): void {
@@ -94,7 +102,7 @@ function ensurePkmChangeListener(): void {
   window.addEventListener("pkm-domain-changed", (event: Event) => {
     const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
     const userId = typeof detail?.userId === "string" ? detail.userId.trim() : "";
-    if (userId) invalidateWorkingSet(userId);
+    if (userId) invalidateWorkingSet(userId, "domain_changed");
   });
   pkmChangeListenerInstalled = true;
 }
@@ -426,8 +434,8 @@ export class AgentPkmContextStore {
       });
     }
 
-    const generation = currentGeneration(params.userId);
-    const load = (async (): Promise<AgentPkmWorkingSet | null> => {
+    const loadOnce = async (): Promise<AgentPkmWorkingSet | null> => {
+      const generation = currentGeneration(params.userId);
       const metadata = await PersonalKnowledgeModelService.getMetadata(
         params.userId,
         params.forceRefresh === true,
@@ -453,6 +461,19 @@ export class AgentPkmContextStore {
         loadedAt: Date.now(),
         metadataUpdatedAt,
       };
+    };
+    // A domain written while the working set is loading (a card saved from the
+    // chat widget, a portfolio import) bumps the generation and voids that
+    // load. Rebuild once under the new generation instead of handing the turn
+    // a null that the chat surfaces as "couldn't load your private memory".
+    const startGlobalGeneration = globalWorkingSetGeneration;
+    const load = (async (): Promise<AgentPkmWorkingSet | null> => {
+      const first = await loadOnce();
+      if (first) return first;
+      const retryable =
+        globalWorkingSetGeneration === startGlobalGeneration &&
+        lastVoidReasons.get(params.userId) === "domain_changed";
+      return retryable ? loadOnce() : null;
     })();
     workingSetLoads.set(params.userId, load);
 
@@ -462,7 +483,7 @@ export class AgentPkmContextStore {
     } finally {
       if (workingSetLoads.get(params.userId) === load) workingSetLoads.delete(params.userId);
     }
-    if (!workingSet || generation !== currentGeneration(params.userId)) return null;
+    if (!workingSet) return null;
     workingSets.set(params.userId, workingSet);
     return buildContextText({
       workingSet,

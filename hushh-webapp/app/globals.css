@@ -787,9 +787,15 @@ textarea {
   --ios-account-label: var(--foreground, #1d1d1f);
   --ios-account-secondary-label: var(--muted-foreground, #8e8e93);
   --ios-account-tertiary-label: #aeaeb2;
-  --ios-account-separator: var(--app-card-border-standard, rgba(60, 60, 67, 0.1));
+  --ios-account-separator: var(
+    --app-card-border-standard,
+    rgba(60, 60, 67, 0.1)
+  );
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.12);
-  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #8e8e93);
+  --ios-account-utility-icon-tile-background: var(
+    --app-icon-tile-background,
+    #8e8e93
+  );
   --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #1c1c1e;
   --ios-account-service-icon-glyph: #ffffff;
@@ -883,6 +889,7 @@ textarea {
   /* Foundation (bible): a bright white canvas carries the ambient wash while
      cards remain legible without reverting the app to an opaque flat page. */
   --background: #f2f2f7;
+  --one-launcher-background: #f3f3f7;
   --foreground: oklch(0.232 0.004 286.1);
   --card: #ffffff;
   --card-foreground: oklch(0.232 0.004 286.1);
@@ -1080,6 +1087,7 @@ textarea {
 .dark {
   --app-screen-background: #000000;
   --app-grouped-background: #000000;
+  --one-launcher-background: var(--background);
   --app-primary-surface: #1c1c1e;
   --app-secondary-surface: #2c2c2e;
   --app-elevated-surface: #2c2c2e;
@@ -1160,9 +1168,15 @@ textarea {
   --ios-account-label: var(--foreground, #ffffff);
   --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
-  --ios-account-separator: var(--app-card-border-standard, rgba(84, 84, 88, 0.65));
+  --ios-account-separator: var(
+    --app-card-border-standard,
+    rgba(84, 84, 88, 0.65)
+  );
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.24);
-  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #636366);
+  --ios-account-utility-icon-tile-background: var(
+    --app-icon-tile-background,
+    #636366
+  );
   --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #3a3a3c;
   --ios-account-service-icon-glyph: #ffffff;
@@ -1350,7 +1364,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   margin-top: 14px;
 }
 
-.profile-account-content [data-testid="settings-group"]:first-child > div:first-child {
+.profile-account-content
+  [data-testid="settings-group"]:first-child
+  > div:first-child {
   margin-top: 8px;
 }
 
@@ -1694,7 +1710,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
     filter 180ms ease;
 }
 
-.profile-home-screen [data-profile-avatar-frame="true"][aria-busy="true"]
+.profile-home-screen
+  [data-profile-avatar-frame="true"][aria-busy="true"]
   [data-profile-avatar-display="true"] {
   filter: saturate(0.92);
   opacity: 0.82;
@@ -1788,7 +1805,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   margin-top: 18px;
 }
 
-.profile-home-content [data-testid="settings-group"]:first-child > div:first-child {
+.profile-home-content
+  [data-testid="settings-group"]:first-child
+  > div:first-child {
   margin-top: 8px;
 }
 
@@ -2115,9 +2134,6 @@ html.kb-open .ambient-chrome-mask--bottom {
   transition: opacity 150ms ease;
 }
 
-
-
-
 .app-page-shell {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
@@ -2127,29 +2143,54 @@ html.kb-open .ambient-chrome-mask--bottom {
   padding-bottom: var(--app-page-content-bottom-gap);
 }
 
+body:has([data-one-launcher-root="true"]) {
+  background: var(--one-launcher-background) !important;
+}
+
+body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
+  background-color: var(--one-launcher-background);
+}
+
 .one-agent-launcher-grid {
-  --one-agent-icon-size: clamp(54px, 15.2vw, 62px);
-  --one-agent-cell-height: clamp(86px, 23vw, 98px);
-  --one-agent-column-gap: clamp(8px, 3vw, 16px);
-  --one-agent-row-gap: clamp(8px, 2.3vh, 18px);
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  column-gap: 12px;
+  row-gap: 20px;
 }
 
-.one-agent-launcher-grid-inner {
-  column-gap: var(--one-agent-column-gap);
-  row-gap: var(--one-agent-row-gap);
+.one-agent-launcher-tile {
+  grid-column: span 2;
 }
 
-@media (max-height: 620px) {
+.one-agent-launcher-tile:nth-last-child(2):nth-child(3n + 1) {
+  grid-column: 2 / span 2;
+}
+
+.one-agent-launcher-tile:last-child:nth-child(3n + 2) {
+  grid-column: 4 / span 2;
+}
+
+@media (min-width: 430px) {
   .one-agent-launcher-grid {
-    --one-agent-icon-size: 52px;
-    --one-agent-cell-height: 84px;
+    column-gap: 20px;
   }
 }
 
 @media (min-width: 768px) {
   .one-agent-launcher-grid {
-    --one-agent-icon-size: 62px;
-    --one-agent-cell-height: 98px;
+    column-gap: 28px;
+    row-gap: 28px;
+  }
+}
+
+@media (max-width: 300px) {
+  .one-agent-launcher-tile {
+    grid-column: span 3;
+  }
+
+  .one-agent-launcher-tile:nth-last-child(2):nth-child(3n + 1),
+  .one-agent-launcher-tile:last-child:nth-child(3n + 2) {
+    grid-column-start: auto;
   }
 }
 
@@ -2163,7 +2204,6 @@ html.kb-open .ambient-chrome-mask--bottom {
   min-height: 0 !important;
   flex: 0 0 auto;
 }
-
 
 .app-page-shell--reading {
   max-width: 54rem;
@@ -2418,11 +2458,13 @@ html.native-ios [data-testid="one-location-onboarding"] {
 html:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
 html:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
 html:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
-html:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass],
+html:has([data-testid="one-location-onboarding"])
+  [data-app-bottom-chrome-glass],
 body:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
 body:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
 body:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
-body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass] {
+body:has([data-testid="one-location-onboarding"])
+  [data-app-bottom-chrome-glass] {
   visibility: hidden !important;
   pointer-events: none !important;
 }
@@ -3982,9 +4024,7 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
     text-transform: none !important;
   }
 
-  .app-page-shell
-    .profile-home-content
-    [data-slot="settings-group-heading"],
+  .app-page-shell .profile-home-content [data-slot="settings-group-heading"],
   .app-page-shell
     .profile-home-content
     [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
@@ -4555,9 +4595,21 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
      coloured plastic. Stationary, unlike the bar's breathing aurora -- motion
      on a dialog the person is being asked to read would fight the reading. */
   background-image:
-    radial-gradient(120% 100% at 6% 0%, var(--agent-approval-hue-gold), transparent 55%),
-    radial-gradient(110% 100% at 100% 18%, var(--agent-approval-hue-indigo), transparent 58%),
-    radial-gradient(130% 120% at 62% 108%, var(--agent-approval-hue-pink), transparent 62%);
+    radial-gradient(
+      120% 100% at 6% 0%,
+      var(--agent-approval-hue-gold),
+      transparent 55%
+    ),
+    radial-gradient(
+      110% 100% at 100% 18%,
+      var(--agent-approval-hue-indigo),
+      transparent 58%
+    ),
+    radial-gradient(
+      130% 120% at 62% 108%,
+      var(--agent-approval-hue-pink),
+      transparent 62%
+    );
   -webkit-backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
   backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
   border: 1px solid var(--agent-approval-edge);
@@ -6108,7 +6160,12 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-body, .ui-text-row-label, .ui-text-medium-row-label, .ui-text-row-label-emphasized) {
+:is(
+  .ui-text-body,
+  .ui-text-row-label,
+  .ui-text-medium-row-label,
+  .ui-text-row-label-emphasized
+) {
   color: var(--app-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-row-label-size) !important;
@@ -6280,11 +6337,26 @@ body[data-persona-surface="ria"] {
 .app-page-shell
   :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-xs"],
 .app-page-shell
-  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[10px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-muted-foreground"][class*="text-[10px]"],
 .app-page-shell
-  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[11px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-muted-foreground"][class*="text-[11px]"],
 .app-page-shell
-  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[12px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-muted-foreground"][class*="text-[12px]"],
 .app-page-shell
   :is(p, span, div, label)[class*="text-[#8E8E93]"][class*="text-[12px]"],
 .app-page-shell
@@ -6308,15 +6380,39 @@ body[data-persona-surface="ria"] {
 }
 
 .app-page-shell
-  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[10px]"],
+  :is(
+    p,
+    span,
+    div,
+    label,
+    time
+  )[class*="text-[color:var(--one-fg3)]"][class*="text-[10px]"],
 .app-page-shell
-  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[11px]"],
+  :is(
+    p,
+    span,
+    div,
+    label,
+    time
+  )[class*="text-[color:var(--one-fg3)]"][class*="text-[11px]"],
 .app-page-shell
-  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[12px]"],
+  :is(
+    p,
+    span,
+    div,
+    label,
+    time
+  )[class*="text-[color:var(--one-fg3)]"][class*="text-[12px]"],
 .app-page-shell
   :is(p, span, div, label, time)[class*="text-[#8e8e93]"][class*="text-[13px]"],
 .app-page-shell
-  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg2)]"][class*="text-[12px]"] {
+  :is(
+    p,
+    span,
+    div,
+    label,
+    time
+  )[class*="text-[color:var(--one-fg2)]"][class*="text-[12px]"] {
   color: var(--app-tertiary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-helper-text-size) !important;
@@ -6328,9 +6424,19 @@ body[data-persona-surface="ria"] {
 }
 
 .app-page-shell
-  :is(p, span, div, label)[class*="text-[color:var(--one-fg2)]"][class*="text-[13px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-[color:var(--one-fg2)]"][class*="text-[13px]"],
 .app-page-shell
-  :is(p, span, div, label)[class*="text-[color:var(--one-fg2)]"][class*="text-[14px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-[color:var(--one-fg2)]"][class*="text-[14px]"],
 .app-page-shell
   :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-sm"] {
   color: var(--app-secondary-label) !important;
@@ -6355,11 +6461,25 @@ body[data-persona-surface="ria"] {
 }
 
 .app-page-shell
-  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-muted-foreground"],
+  :is(
+    p,
+    span,
+    div,
+    h2,
+    h3,
+    label
+  )[class*="uppercase"][class*="text-muted-foreground"],
 .app-page-shell
   :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-[#96999e]"],
 .app-page-shell
-  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-[#8b93a1]"] {
+  :is(
+    p,
+    span,
+    div,
+    h2,
+    h3,
+    label
+  )[class*="uppercase"][class*="text-[#8b93a1]"] {
   letter-spacing: 0 !important;
   text-transform: none !important;
 }

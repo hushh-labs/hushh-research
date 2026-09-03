@@ -51,7 +51,7 @@ import {
 } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, buildPersonProfileRoute } from "@/lib/navigation/routes";
 import {
   CIRCLE_NAME_INPUT_CLASSNAME,
   CIRCLE_NAME_ROW_CLASSNAME,
@@ -942,8 +942,7 @@ export function JoinCircleFlow({
               <UsersRound className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">
-                {preview.name}
+              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">                {preview.name}
               </p>
               <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
                 {preview.ownerDisplayName} ·{" "}
@@ -1222,6 +1221,11 @@ function CircleMemberRow({
             that offer nothing, so the kebab column exists on every row. */}
         <CircleMemberActionsMenu
           displayName={member.displayName}
+          profileHref={
+            member.publicPersonRef
+              ? buildPersonProfileRoute(member.publicPersonRef, { from: ROUTES.ONE_LOCATION })
+              : null
+          }
           initials={circleInitials(member.displayName)}
           photoUrl={member.photoUrl}
           verified={Boolean(member.isRia)}

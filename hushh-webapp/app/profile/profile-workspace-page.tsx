@@ -97,6 +97,7 @@ import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow
 import { useAuth } from "@/hooks/use-auth";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { isPkmDeveloperHost } from "@/app/one/pkm/developer-visibility";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
@@ -1198,6 +1199,28 @@ function ProfilePageContent() {
     },
     [hasVault, user?.uid, vaultOwnerToken],
   );
+
+  // A domain written on another route (Wallet, Kai import, chat) reaches this
+  // screen through the epoch when it mounts later, and through the event
+  // while it is mounted. Either way the metadata is re-read, not patched.
+  const appliedPkmEpochRef = useRef(0);
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid || hasVault === null || typeof window === "undefined") return;
+    const epoch = currentPkmInvalidationEpoch(uid);
+    if (epoch > appliedPkmEpochRef.current) {
+      appliedPkmEpochRef.current = epoch;
+      void refreshPkmMetadata(true).catch(() => undefined);
+    }
+    const handleDomainChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
+      if (detail?.userId !== uid) return;
+      appliedPkmEpochRef.current = currentPkmInvalidationEpoch(uid);
+      void refreshPkmMetadata(true).catch(() => undefined);
+    };
+    window.addEventListener("pkm-domain-changed", handleDomainChanged);
+    return () => window.removeEventListener("pkm-domain-changed", handleDomainChanged);
+  }, [hasVault, refreshPkmMetadata, user?.uid]);
 
   const refreshDomainManifest = useCallback(
     async (domainKey: string, force = false) => {

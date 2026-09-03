@@ -24,7 +24,27 @@ const READ_ONLY_SAFE_POST_PATHS = new Set([
   "/api/vault/bootstrap-state",
   "/api/vault/pre-vault-state",
   "/api/consent/vault-owner-token",
+  // Next.js dev-server source-map lookups for console traces; dev-only tooling.
+  "/__nextjs_original-stack-frames",
 ]);
+
+// Firebase authentication hosts. The reviewer login handshake exchanges the
+// review-mode session for a custom token and signs in through Identity
+// Toolkit (signInWithCustomToken, accounts:lookup, token refresh). These are
+// authentication, never a mutation of the shared fixture; blocking them made
+// every read-only localhost rehearsal fail at the first boundary (2026-09-02).
+const AUTH_ONLY_HOSTS = new Set([
+  "identitytoolkit.googleapis.com",
+  "securetoken.googleapis.com",
+]);
+
+function requestHostname(request) {
+  try {
+    return new URL(request.url()).hostname;
+  } catch {
+    return "";
+  }
+}
 
 function requestPathname(request) {
   return endpointPath(request.url());
@@ -45,7 +65,8 @@ function installReadOnlyMutationGuard(context) {
     const pathname = requestPathname(request);
     if (
       !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
-      READ_ONLY_SAFE_POST_PATHS.has(pathname)
+      READ_ONLY_SAFE_POST_PATHS.has(pathname) ||
+      AUTH_ONLY_HOSTS.has(requestHostname(request))
     ) {
       await route.continue();
       return;

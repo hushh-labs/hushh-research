@@ -80,7 +80,7 @@ export function TopShellTabs({
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
   const usesModuleSegmentedTabs =
-    tabSet.id === "location" || tabSet.id === "connect";
+    tabSet.id === "location" || tabSet.id === "connect" || tabSet.id === "ria";
   const shouldResetScrollOnSelection = tabSet.id === "finance";
 
   const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
@@ -194,11 +194,19 @@ export function TopShellTabs({
               //
               // The cap is now the page column's own content width, so the two
               // cannot drift apart again. Both tokens already exist. Scoped to
-              // Location and Connect by the module branch above — the other
-              // tab sets take the underline arm and do not move. Do NOT
-              // generalise this past module hubs: the RIA workspace runs a
-              // 96rem shell, and an 880px cap would leave its strip ~600px
-              // short per side.
+              // Location, Connect, and RIA by the module branch above — the
+              // other tab sets take the underline arm and do not move.
+              //
+              // RIA joined 2026-09 (#6289's follow-up): this wrapper carries
+              // no outer width constraint of its own (see top-app-bar.tsx),
+              // so the `--app-shell-agent` cap here is the only one that
+              // applies — same as Location. RIA Picks' own content already
+              // renders at that same width (`width="agent"` on its
+              // AppPageShell), so this does not narrow anything RIA already
+              // shows wider. Verified by rendering the component directly
+              // (no authenticated route reachable locally without reviewer
+              // credentials) at desktop and mobile widths against Location
+              // side by side.
               "h-9 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
             : "h-full w-full",
         )}
@@ -253,7 +261,7 @@ export function TopShellTabs({
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
                   usesModuleSegmentedTabs
                     ? isActive
-                      ? "font-semibold text-[color:var(--app-label)]"
+                      ? "font-semibold text-[color:var(--app-accent)]"
                       : "font-medium text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]"
                     : isActive
                       ? "text-[color:var(--app-accent)]"

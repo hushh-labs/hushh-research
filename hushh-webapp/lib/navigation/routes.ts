@@ -147,9 +147,11 @@ export const ROUTES = {
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
   PKM: "/one/pkm",
+  PKM_RECENT: "/one/pkm/recent",
   ONE_MARKETPLACE: "/one/marketplace",
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
+  ONE_WALLET: "/one/wallet",
   /** Puppy One: the agent running on the owner's own machine. */
   ONE_PUPPY: "/one/puppy",
   CONNECTED_SYSTEMS: "/one/connected-systems",

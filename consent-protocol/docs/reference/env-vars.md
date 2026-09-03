@@ -182,6 +182,7 @@ Kai generation behavior for import/optimize/debate is also constants-driven (not
 Maintainer-only overlay vars used by release verification, migration/reset utilities, and review flows:
 
 - `APP_REVIEW_MODE`
+- `HUSSH_GEMINI_TEXT_MODEL` (one switch for every text agent; manifests say `gemini-default`; blank = `FLEET_TEXT_MODEL_DEFAULT`; a lane may flip it only after its Vertex allowed-models policy admits the id)
 - `REVIEWER_UID`
 - `REVIEWER_VAULT_PASSPHRASE`
 
@@ -292,7 +293,7 @@ Recommended local testing:
 - `SUPPORT_EMAIL_DELEGATED_USER=one@hushh.ai`
 - `SUPPORT_EMAIL_FROM=one@hushh.ai`
 - `SUPPORT_EMAIL_TO=one@hushh.ai`
-- `SUPPORT_EMAIL_TEST_TO=kushal@hushh.ai`
+- `SUPPORT_EMAIL_TEST_TO=one@hushh.ai`
 - `SUPPORT_EMAIL_MODE=test`
 
 This path requires Workspace domain-wide delegation for client ID `109021324828349644970` with:

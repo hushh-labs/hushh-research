@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2, Lock, ShieldAlert } from "lucide-react";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
+import { ROUTES } from "@/lib/navigation/routes";
 import { PkmMemoryLevel } from "@/components/profile/pkm-memory-level";
 import {
   PkmMemoryDetail,
@@ -86,6 +88,9 @@ const EMPTY_DOMAIN_DETAIL: DomainDetailState = {
   error: false,
 };
 
+/** The Recently learned route lists this many; the home shows one row into it. */
+const RECENT_MEMORIES_LIMIT = 50;
+
 function cardScopePath(card: PkmMemoryCard): string {
   return String(card.pathSegments.find((segment) => typeof segment === "string") || "profile");
 }
@@ -96,10 +101,14 @@ function cardImpactKey(card: PkmMemoryCard): string {
 
 export function PkmNaturalPanel({
   refreshToken = 0,
+  view = "home",
 }: {
   refreshToken?: number;
   onOpenExplorer?: () => void;
+  /** "recent" renders the full Recently learned list on its own route. */
+  view?: "home" | "recent";
 } = {}) {
+  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
@@ -333,8 +342,8 @@ export function PkmNaturalPanel({
               : "loaded";
   const nativeBeacon = (
     <NativeTestBeacon
-      routeId="/one/pkm"
-      marker="native-route-pkm"
+      routeId={view === "recent" ? ROUTES.PKM_RECENT : ROUTES.PKM}
+      marker={view === "recent" ? "native-route-pkm-recent" : "native-route-pkm"}
       authState={user ? "authenticated" : authLoading ? "pending" : "anonymous"}
       dataState={nativeDataState}
       errorCode={nativeDataState === "error" ? "pkm_memory_unavailable" : null}
@@ -915,7 +924,7 @@ export function PkmNaturalPanel({
         `${domain.title} ${domain.summary}`.toLowerCase().includes(trimmedQuery.toLowerCase())
       )
     : categories;
-  const recentMemories = browsableCards.slice(0, 6);
+  const recentMemories = browsableCards.slice(0, RECENT_MEMORIES_LIMIT);
 
   function openMemory(card: PkmMemoryCard) {
     setSelectedCard(card);
@@ -1048,6 +1057,25 @@ export function PkmNaturalPanel({
     );
   }
 
+  if (view === "recent") {
+    return (
+      <>
+        {nativeBeacon}
+        {recentMemories.length > 0 ? (
+          <SettingsGroup separatorInset testId="memory-recent-list">
+            {recentMemories.map((card) => (
+              <PkmMemoryRow key={card.id} card={card} onOpen={openMemory} />
+            ))}
+          </SettingsGroup>
+        ) : (
+          <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground" data-testid="memory-recent-empty">
+            Nothing learned yet.
+          </SurfaceInset>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       {nativeBeacon}
@@ -1113,10 +1141,15 @@ export function PkmNaturalPanel({
           ) : (
             <>
               {recentMemories.length > 0 ? (
-                <SettingsGroup title="Recently learned" separatorInset testId="memory-recently-learned">
-                  {recentMemories.map((card) => (
-                    <PkmMemoryRow key={card.id} card={card} onOpen={openMemory} />
-                  ))}
+                <SettingsGroup separatorInset testId="memory-recently-learned">
+                  <SettingsRow
+                    title="Recently learned"
+                    description={`${recentMemories.length} ${recentMemories.length === 1 ? "memory" : "memories"}`}
+                    onClick={() => router.push(ROUTES.PKM_RECENT)}
+                    chevron
+                    ariaLabel="Open recently learned memories"
+                    testId="memory-recently-learned-row"
+                  />
                 </SettingsGroup>
               ) : null}
 

@@ -19,6 +19,7 @@ from hushh_mcp.runtime_providers import (
     build_generate_content_config,
     build_managed_runtime_client,
 )
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
@@ -330,6 +331,32 @@ Deletions are signaled by: forget, remove, delete, don't remember this anymore.
 Refinements are signaled by: also, still, usually, when possible, prefer, more often.
 
 Output JSON only. Follow the schema exactly. If unsure, choose confirm_first or no_op."""
+_SENSITIVE_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "card_security_code",
+        re.compile(r"\b(?:cvv|cvc|cvv2|pin)\b\s*(?:is|:|=|-)?\s*\d{3,6}\b", re.I),
+    ),
+    (
+        "credential",
+        re.compile(
+            r"\b(?:password|passwd|passphrase|api[ _-]?key|secret[ _-]?key|access[ _-]?token|"
+            r"refresh[ _-]?token|private[ _-]?key|client[ _-]?secret)\b\s*(?:is|:|=|-)\s*\S+",
+            re.I,
+        ),
+    ),
+    ("credential", re.compile(r"\b(?:sk|pk|rk)_(?:live|test|prod)_[A-Za-z0-9]{8,}\b")),
+    ("government_id", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    ("government_id", re.compile(r"\b\d{4}\s\d{4}\s\d{4}\b")),
+    ("government_id", re.compile(r"\bpassport\b[^\n]{0,24}\b[A-Z]{1,2}\d{6,8}\b", re.I)),
+    (
+        "bank_account",
+        re.compile(
+            r"\b(?:account|routing|iban)\s*(?:number|no\.?|#)?\s*(?:is|:|=|-)?\s*[A-Z]{0,2}\d{8,}\b",
+            re.I,
+        ),
+    ),
+)
+
 _INTERNAL_METADATA_SCOPE_TOKENS = {
     "artifact",
     "artifact_id",
@@ -601,6 +628,24 @@ _STRUCTURE_PREVIEW_SCHEMA = {
         "validation_hints",
     ],
 }
+
+
+def _manifest_model_name(manifest: Any) -> str:
+    """The text model a manifest asks for, with the fleet alias resolved.
+
+    Real manifests own the mapping (`model_config_for_runtime`); the lightweight
+    stand-ins tests use only carry `.model`. Either way `gemini-default` lands on
+    the switched fleet model (constants.GEMINI_MODEL).
+    """
+    resolver = getattr(manifest, "model_config_for_runtime", None)
+    if callable(resolver):
+        try:
+            return str(resolver().name or "")
+        except Exception:  # noqa: BLE001 - fall back to the raw field
+            pass
+    raw = getattr(manifest, "model", None)
+    name = getattr(raw, "name", raw)
+    return resolve_fleet_model_name(name if isinstance(name, str) else None)
 
 
 class PKMAgentLabService:
@@ -943,6 +988,39 @@ class PKMAgentLabService:
             seen.add(normalized)
             unique.append(normalized)
         return unique
+
+    @staticmethod
+    def _luhn_ok(digits: str) -> bool:
+        total = 0
+        for index, char in enumerate(reversed(digits)):
+            value = ord(char) - 48
+            if index % 2 == 1:
+                value *= 2
+                if value > 9:
+                    value -= 9
+            total += value
+        return total % 10 == 0
+
+    @classmethod
+    def _contains_sensitive_secret(cls, message: str) -> str | None:
+        """Name the kind of secret a passage carries, or None.
+
+        A card number, a CVV or PIN, a password or API key, a government id, or
+        a bank account never becomes a plain memory, whatever domain the model
+        proposes: the wallet and the vault's secret surfaces exist for those.
+        This runs before any agent so the passage is rejected, not redirected.
+        """
+        text = str(message or "")
+        if not text.strip():
+            return None
+        for run in re.findall(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)", text):
+            digits = re.sub(r"[ -]", "", run)
+            if 13 <= len(digits) <= 19 and cls._luhn_ok(digits):
+                return "card_number"
+        for kind, pattern in _SENSITIVE_VALUE_PATTERNS:
+            if pattern.search(text):
+                return kind
+        return None
 
     @classmethod
     def _looks_opaque_or_nonsense(cls, message: str) -> bool:
@@ -1455,7 +1533,7 @@ class PKMAgentLabService:
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
 
-        active_model = model_override or manifest.model or GEMINI_MODEL
+        active_model = model_override or _manifest_model_name(manifest) or GEMINI_MODEL
         is_salience_model = active_model == "gemini-3.1-pro-preview"
         thinking_level = (
             genai_types.ThinkingLevel.LOW
@@ -1681,6 +1759,7 @@ class PKMAgentLabService:
                 "- Keep each segment self-contained and short.\n"
                 "- source_text must be an exact contiguous quote from the message.\n"
                 "- Split only when the prompt clearly contains multiple independent durable ideas.\n"
+                "- Numbered or Markdown headings are boundaries: never merge across two headings, and never include the heading line in source_text.\n"
                 "- contract_version must be 1.\n"
                 'Examples: {"message":"I like to swim and prefer early breakfasts.","segments":[{"source_text":"I like to swim.","confidence":0.91,"reason":"Exercise preference."},{"source_text":"I prefer early breakfasts.","confidence":0.84,"reason":"Separate food habit."}]} '
                 '{"message":"I usually book aisle seats.","segments":[{"source_text":"I usually book aisle seats.","confidence":0.97,"reason":"Single travel preference."}]}'
@@ -1694,6 +1773,7 @@ class PKMAgentLabService:
             "- Return one segment for one eligible claim; return multiple segments only for independent eligible claims.\n"
             "- Do not split stylistic repetition, explanations, or connective narrative.\n"
             "- source_text must be an exact contiguous quote from the user's message.\n"
+            "- Numbered or Markdown section headings are boundaries: never merge candidates across two headings, and never include the heading line in source_text.\n"
             "- Never emit more than 8 segments.\n"
             "- contract_version must be 1.\n"
         )
@@ -3357,6 +3437,30 @@ class PKMAgentLabService:
         fallback_target_domain: str,
         simulated_state: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        secret_kind = cls._contains_sensitive_secret(message)
+        if secret_kind:
+            # Same terminal shape as the reserved-target rejection: never
+            # redirected, never owner-confirmable, and the hint tells the
+            # surface to point at the secure form instead.
+            return {
+                "candidate_payload": {},
+                "structure_decision": {
+                    "action": "reject_sensitive_secret",
+                    "target_domain": "",
+                    "json_paths": [],
+                    "top_level_scope_paths": [],
+                    "externalizable_paths": [],
+                    "summary_projection": {},
+                    "sensitivity_labels": {},
+                    "confidence": 0.0,
+                    "source_agent": "pkm_structure_agent",
+                    "contract_version": DYNAMIC_DOMAIN_CONTRACT_VERSION,
+                },
+                "write_mode": "do_not_save",
+                "primary_json_path": None,
+                "target_entity_scope": None,
+                "validation_hints": [f"sensitive_{secret_kind}_rejected"],
+            }
         raw_structure = parsed_structure or {}
         raw_decision = raw_structure.get("structure_decision")
         raw_decision = raw_decision if isinstance(raw_decision, dict) else {}
@@ -4575,7 +4679,7 @@ class PKMAgentLabService:
         return {
             "agent_id": agent_manifest.id,
             "agent_name": agent_manifest.name,
-            "model": model_override or agent_manifest.model or GEMINI_MODEL,
+            "model": model_override or _manifest_model_name(agent_manifest) or GEMINI_MODEL,
             "used_fallback": used_fallback,
             "intent_used_fallback": intent_used_fallback,
             "merge_used_fallback": merge_used_fallback,
@@ -4776,7 +4880,7 @@ class PKMAgentLabService:
                     "agent_id": self.memory_segmentation_manifest.id,
                     "agent_name": self.memory_segmentation_manifest.name,
                     "model": model_override
-                    or self.memory_segmentation_manifest.model
+                    or _manifest_model_name(self.memory_segmentation_manifest)
                     or GEMINI_MODEL,
                     "used_fallback": True,
                     "intent_used_fallback": False,

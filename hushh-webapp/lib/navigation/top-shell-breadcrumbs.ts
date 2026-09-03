@@ -16,8 +16,7 @@ import {
 import {
   CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
-  isFocusedConnectCircleTask,
-  readConnectCircleAction,
+  isFocusedConnectCircleTask,  readConnectCircleAction,
 } from "@/lib/navigation/connect-routes";
 import {
   buildNearbyCheckInResumeHref,
@@ -156,6 +155,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.ONE_LOCATION]: "Location",
     [ROUTES.GMAIL]: "Gmail",
     [ROUTES.PKM]: "Memory",
+    [ROUTES.PKM_RECENT]: "Recently learned",
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
@@ -275,6 +275,19 @@ function resolveTopShellBreadcrumbInner(
         // Matches the on-screen title; a crumb that disagrees with the heading
         // reads as two different screens.
         { label: "Choose your AI" },
+      ],
+    };
+  }
+
+  // Wallet is reached from the One home roster tile; the way out is One.
+  if (pathname === ROUTES.ONE_WALLET) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Wallet" },
       ],
     };
   }
@@ -474,28 +487,6 @@ function resolveTopShellBreadcrumbInner(
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "RIA" },
         { label: "Profile" },
-      ],
-    };
-  }
-
-  // Debate config is a read-only sub-view of Picks (/ria/picks?view=debate):
-  // it deepens one level below Picks, so back returns to Picks, not RIA home.
-  // Checked before the generic riaSubroutes loop, which would otherwise match
-  // the query-stripped /ria/picks pathname and flatten it to a 3-crumb Picks.
-  if (
-    (pathname === ROUTES.RIA_PICKS ||
-      pathname.startsWith(`${ROUTES.RIA_PICKS}/`)) &&
-    searchParams?.get("view") === "debate"
-  ) {
-    return {
-      backHref: ROUTES.RIA_PICKS,
-      width: "content",
-      align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "RIA", href: ROUTES.RIA_PROFILE },
-        { label: "Picks", href: ROUTES.RIA_PICKS },
-        { label: "Debate" },
       ],
     };
   }
@@ -941,6 +932,19 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  if (pathname === ROUTES.PKM_RECENT) {
+    return {
+      backHref: ROUTES.PKM,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Memory", href: ROUTES.PKM },
+        { label: "Recently learned" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.CONNECTED_SYSTEMS) {
     const selectedSystemId = String(searchParams?.get("system") || "").trim();
     if (selectedSystemId) {
@@ -999,8 +1003,7 @@ function resolveTopShellBreadcrumbInner(
       action,
       searchParams?.get("circleId") ?? null,
     );
-    if (label && isFocusedTask) {
-      return {
+    if (label && isFocusedTask) {      return {
         // Back closes the flow and returns to the list, naming the tab
         // explicitly -- the App Router refuses a navigation whose only change
         // is the whole query string disappearing.
@@ -1009,8 +1012,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         hideBack: false,
-        items: [{ label }],
-      };
+        items: [{ label }],      };
     }
   }
 

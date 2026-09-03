@@ -10,15 +10,15 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 138,
-    "physical_page_count": 138,
-    "route_contract_count": 138,
-    "surface_map_count": 138,
+    "total_screens": 140,
+    "physical_page_count": 140,
+    "route_contract_count": 140,
+    "surface_map_count": 140,
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
       "redirect/alias": 45,
-      "vault-backed": 52,
+      "vault-backed": 54,
       "hidden flow": 17,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
@@ -3017,8 +3017,8 @@
       "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -3046,6 +3046,52 @@
         "native_beacon": false
       },
       "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/pkm/recent",
+      "page_file": "app/one/pkm/recent/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/pkm/recent",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -3573,8 +3619,8 @@
       "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -5132,6 +5178,52 @@
       ]
     },
     {
+      "route": "/one/wallet",
+      "page_file": "app/one/wallet/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/wallet",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage",
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/wallet-card",
       "page_file": "app/one/wallet-card/page.tsx",
       "route_contract_mode": "standard",
@@ -6169,5 +6261,5 @@
       ]
     }
   ],
-  "content_sha256": "c23544137d731084135b8f80af55df561750d802c13388a1a67b0bf350667b9a"
+  "content_sha256": "a4fca5dc20b40f4bd7fdafeaba92447c1a69e74859b54e2b9717b1b98169abd9"
 }

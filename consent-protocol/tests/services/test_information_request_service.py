@@ -1,7 +1,12 @@
+import base64
 from typing import Any
 
 import pytest
 
+from hushh_mcp.consent.export_envelope import (
+    connector_key_fingerprint,
+    scope_handle_for_machine_scope,
+)
 from hushh_mcp.services.information_request_service import InformationRequestService
 
 
@@ -33,6 +38,7 @@ class _Consent:
 class _Service(InformationRequestService):
     def __init__(self) -> None:
         self.consent = _Consent()
+        self.connector_public_key = base64.b64encode(bytes(range(32))).decode("ascii")
         super().__init__(profiles=_Profiles(), consent_db=self.consent)
         self.bundle: dict[str, Any] | None = None
         self.items: list[dict[str, Any]] = []
@@ -41,12 +47,13 @@ class _Service(InformationRequestService):
         return {
             "public_person_ref": "22222222-2222-4222-8222-222222222222",
             "display_name": "Viewer",
+            "photo_url": "https://example.test/viewer.png",
         }
 
     async def _connector(self, _user_id: str, connector_key_id: str):
         return {
             "connector_key_id": connector_key_id,
-            "connector_public_key": "public-key",
+            "connector_public_key": self.connector_public_key,
             "connector_wrapping_alg": "x25519-aes-gcm",
             "public_key_fingerprint": "fingerprint",
         }
@@ -114,6 +121,22 @@ async def test_create_uses_person_specific_principal_and_is_idempotent() -> None
     event = next(iter(service.consent.events.values()))
     assert event["agent_id"] == "one_person:22222222-2222-4222-8222-222222222222"
     assert event["scope"] == "attr.identity.legal_name"
+    metadata = event["metadata"]
+    assert metadata["requester_actor_type"] == "person"
+    assert metadata["requester_image_url"] == "https://example.test/viewer.png"
+    assert metadata["developer_app_id"] == "agent_one"
+    assert metadata["scope_handle"] == scope_handle_for_machine_scope(
+        "subject", "attr.identity.legal_name"
+    )
+    assert metadata["expiry_hours"] == 168
+    assert metadata["scope_contract_version"] == 2
+    assert metadata["recipient_key_fingerprint"] == connector_key_fingerprint(
+        service.connector_public_key
+    )
+    assert metadata["connector_public_key_fingerprint"] == "fingerprint"
+    assert metadata["request_url"].endswith(
+        f"requestId={event['request_id']}&bundleId={first['bundleId']}"
+    )
 
 
 @pytest.mark.asyncio
@@ -169,3 +192,36 @@ async def test_idempotency_key_cannot_be_replayed_for_different_request() -> Non
     await service.create(**create)
     with pytest.raises(ValueError, match="already bound"):
         await service.create(**{**create, "purpose": "A different approved business purpose"})
+
+
+@pytest.mark.asyncio
+async def test_duration_must_match_hour_based_approval_contract() -> None:
+    service = _Service()
+    with pytest.raises(ValueError, match="whole number of hours"):
+        await service.create(
+            requester_user_id="viewer",
+            person_ref="11111111-1111-4111-8111-111111111111",
+            scope_refs=["psr_opaque"],
+            purpose="Complete an employment verification workflow",
+            duration_seconds=3_601,
+            connector_key_id="client-key",
+            idempotency_key="stable-idempotency-key",
+        )
+
+
+@pytest.mark.asyncio
+async def test_timeout_is_reported_as_expired() -> None:
+    service = _Service()
+    created = await service.create(
+        requester_user_id="viewer",
+        person_ref="11111111-1111-4111-8111-111111111111",
+        scope_refs=["psr_opaque"],
+        purpose="Complete an employment verification workflow",
+        duration_seconds=604800,
+        connector_key_id="client-key",
+        idempotency_key="stable-idempotency-key",
+    )
+    request_id = created["items"][0]["requestId"]
+    service.consent.events[request_id]["action"] = "TIMEOUT"
+    refreshed = await service.get(requester_user_id="viewer", bundle_id=created["bundleId"])
+    assert refreshed["items"][0]["status"] == "expired"

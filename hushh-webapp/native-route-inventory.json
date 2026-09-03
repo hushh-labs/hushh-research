@@ -385,6 +385,21 @@
       ]
     },
     {
+      "route": "/one/email",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Femail",
+      "expectedMarker": "native-route-email-agent",
+      "expectedRoute": "/one/email",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/one/feed",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Ffeed",
@@ -406,21 +421,6 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
-    },
-    {
-      "route": "/one/email",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Femail",
-      "expectedMarker": "native-route-email-agent",
-      "expectedRoute": "/one/email",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loading",
         "loaded",
         "empty-valid",
         "unavailable-valid"
@@ -674,6 +674,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Fpkm",
       "expectedMarker": "native-route-pkm",
       "expectedRoute": "/one/pkm",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/pkm/recent",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Frecent",
+      "expectedMarker": "native-route-pkm-recent",
+      "expectedRoute": "/one/pkm/recent",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1075,6 +1089,11 @@
       ]
     },
     {
+      "route": "/one/puppy",
+      "classification": "excluded-web-only",
+      "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+    },
+    {
       "route": "/one/setup",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fsetup",
@@ -1090,6 +1109,18 @@
       "route": "/one/setup/calendar",
       "classification": "excluded-web-only",
       "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
+    },
+    {
+      "route": "/one/setup/cloud",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+      "expectedMarker": "native-route-one-setup-cloud",
+      "expectedRoute": "/one/setup/cloud",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
     },
     {
       "route": "/one/setup/connected-systems",
@@ -1210,9 +1241,18 @@
       ]
     },
     {
-      "route": "/one/puppy",
-      "classification": "excluded-web-only",
-      "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+      "route": "/one/wallet",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fcards",
+      "expectedMarker": "native-route-one-wallet",
+      "expectedRoute": "/one/wallet",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/wallet-card",
@@ -1225,6 +1265,20 @@
       "allowedDataStates": [
         "loaded",
         "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/people/[personRef]",
+      "classification": "native-required-functional",
+      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "expectedMarker": "native-route-person-profile",
+      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "autoReviewerLogin": false,
+      "expectedAuth": "public",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
         "unavailable-valid"
       ]
     },
@@ -1255,20 +1309,6 @@
       "allowedDataStates": [
         "loaded",
         "empty-valid"
-      ]
-    },
-    {
-      "route": "/people/[personRef]",
-      "classification": "native-required-functional",
-      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
-      "expectedMarker": "native-route-person-profile",
-      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
-      "autoReviewerLogin": false,
-      "expectedAuth": "public",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "unavailable-valid"
       ]
     },
     {
@@ -1412,18 +1452,6 @@
       "route": "/welcome",
       "classification": "excluded-web-only",
       "reason": "Pre-authentication landing page. The native app opens at its own launch surface."
-    },
-    {
-      "route": "/one/setup/cloud",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
-      "expectedMarker": "native-route-one-setup-cloud",
-      "expectedRoute": "/one/setup/cloud",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ]
     }
   ]
 }

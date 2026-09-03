@@ -141,8 +141,10 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = resolvedBackendUrl(call)
-        
-        let body: [String: Any] = ["userId": userId, "scope": scope]
+        var body: [String: Any] = ["userId": userId, "scope": scope]
+        if let requestId = call.getString("requestId"), !requestId.isEmpty {
+            body["requestId"] = requestId
+        }
         
         print("🔒 [\(TAG)] Revoking consent")
         

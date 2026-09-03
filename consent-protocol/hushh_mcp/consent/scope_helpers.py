@@ -56,6 +56,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     _AGENT_SCOPE_MAP = {
         "cap.one.invoke": ConsentScope.CAP_ONE_INVOKE,
         "agent.kai.analyze": ConsentScope.AGENT_KAI_ANALYZE,
+        "agent.wallet.manage": ConsentScope.AGENT_WALLET_MANAGE,
         "agent.nav.review": ConsentScope.AGENT_NAV_REVIEW,
         "agent.kyc.process": ConsentScope.AGENT_KYC_PROCESS,
         "agent.kyc.redraft.llm": ConsentScope.AGENT_KYC_REDRAFT_LLM,
@@ -182,6 +183,8 @@ def get_scope_display_metadata(scope: str) -> dict:
 
     # Dynamic attr.* scopes — resolve via DynamicScopeGenerator + domain contracts
     if generator.is_dynamic_scope(scope):
+        from hushh_mcp.consent.pkm_scope_policy import is_reserved_domain_scope
+
         display_info = generator.get_scope_display_info(scope)
         return {
             "label": display_info["display_name"],
@@ -189,6 +192,10 @@ def get_scope_display_metadata(scope: str) -> dict:
             or f"Access your {display_info['domain']} data",
             "icon_name": display_info["icon_name"],
             "color_hex": display_info["color_hex"],
+            # Owner-managed reserved domains (source_library, wallet)
+            # carry an explicit indicator so chat and consent surfaces never
+            # present a reserved grant as an ordinary dynamic-domain grant.
+            "reserved": is_reserved_domain_scope(scope),
         }
 
     # Static scope metadata
@@ -222,6 +229,12 @@ def get_scope_display_metadata(scope: str) -> dict:
             "description": "Allow Kai agent to analyze your data",
             "icon_name": "brain",
             "color_hex": "#D4AF37",
+        },
+        "agent.wallet.manage": {
+            "label": "Wallet Management",
+            "description": "Allow the Wallet agent to help you store, list, and reveal your cards on this device",
+            "icon_name": "credit-card",
+            "color_hex": "#B45309",
         },
         "agent.nav.review": {
             "label": "Nav Scope Review",
@@ -362,13 +375,14 @@ def get_scope_display_metadata(scope: str) -> dict:
 
     meta = _STATIC_SCOPE_META.get(scope)
     if meta:
-        return meta
+        return {**meta, "reserved": False}
 
     return {
         "label": scope.replace(".", " ").replace("_", " ").title(),
         "description": f"Access: {scope}",
         "icon_name": None,
         "color_hex": None,
+        "reserved": False,
     }
 
 

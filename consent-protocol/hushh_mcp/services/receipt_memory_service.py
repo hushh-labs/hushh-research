@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from db.db_client import DatabaseExecutionError, get_db
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.runtime_providers import build_managed_runtime_client
 
 logger = logging.getLogger(__name__)
@@ -709,7 +710,7 @@ class ReceiptMemoryEnrichmentService:
         return raw not in {"0", "false", "off", "disabled", "no"}
 
     def _model(self) -> str:
-        return _clean_text(os.getenv("KAI_RECEIPT_MEMORY_LLM_MODEL"), "gemini-3.1-flash-lite")
+        return str(GEMINI_MODEL)
 
     def _timeout_seconds(self) -> float:
         raw = _clean_text(os.getenv("KAI_RECEIPT_MEMORY_LLM_TIMEOUT_SECONDS"), "8")

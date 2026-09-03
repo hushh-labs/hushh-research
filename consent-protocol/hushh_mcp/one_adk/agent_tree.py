@@ -64,14 +64,18 @@ from hushh_mcp.one_adk.action_tools import (
     get_location_circle_members,
     journey_for_specialist_request,
     list_app_actions,
+    list_available_models,
     list_location_shared_with_me,
     list_my_connections,
     list_my_location_circles,
     list_my_location_shares,
     list_my_outgoing_location_requests,
     list_pending_connection_requests,
+    list_pending_information_requests,
     list_pending_location_requests,
+    propose_information_request,
     run_app_action,
+    set_preferred_model,
     start_app_goal,
 )
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
@@ -154,6 +158,9 @@ def _load_product_agent_manifest(agent_id: str) -> AgentManifestV2:
 
 _ONE_MANIFEST = _load_product_agent_manifest("agent_one")
 _KAI_MANIFEST = _load_product_agent_manifest("agent_kai")
+# Ported from main during the 2026-09-02 sync: the wallet agent joined the roster
+# there. Keyed on the id the manifest DECLARES, like its two siblings.
+_WALLET_MANIFEST = _load_product_agent_manifest("agent_wallet")
 
 # Session-state keys the relay seeds before the first turn. Tools read them
 # via tool_context.state; the model neither sees nor supplies them.
@@ -260,10 +267,9 @@ ONE_LIVE_VOICE_OPTIONS: dict[str, str] = {
 # send_client_content behavior. A BYOK key must never silently fall back to
 # Hussh's managed Vertex identity.
 _BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
-# All worker agents resolve the same authored Gemini text generation.
-_SPECIALIST_MODEL = (
-    os.getenv("AGENT_ONE_SPECIALIST_MODEL") or _KAI_MANIFEST.model_config_for_runtime().name
-).strip()
+# All worker agents resolve the same authored Gemini text generation, through the
+# manifest alias rather than a private environment knob no lane ever set.
+_SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
 
 
 # The Live compatibility registry lives in runtime_providers so the deploy
@@ -1674,6 +1680,25 @@ def _build_finance_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
+def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
+    """Cards head: metadata-only conversation over client-executed actions.
+
+    Unlike Finance, no PKM context is ever injected - the manifest's
+    context_allowlist is empty by design. Every real operation (list, add,
+    reveal) executes client-side through the Action Gateway, where the browser
+    decrypts under the vault key; card secrets never reach this agent, the
+    model, or the server in plaintext.
+    """
+    specialist_model = model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    return LlmAgent(
+        name="wallet",
+        model=specialist_model,
+        description=_WALLET_MANIFEST.description,
+        instruction=str(_WALLET_MANIFEST.system_instruction),
+        tools=[],
+    )
+
+
 def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
     """The full /one specialist roster, shared by every One head.
 
@@ -1775,6 +1800,10 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         list_my_outgoing_location_requests,
         list_my_connections,
         discover_person_information,
+        list_available_models,
+        list_pending_information_requests,
+        propose_information_request,
+        set_preferred_model,
         list_pending_connection_requests,
         calendar_summary,
         calendar_events,
@@ -1786,6 +1815,10 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
     ]
     if _CRM_PRODUCT_AVAILABLE:
         tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)
+    tools.insert(
+        tools.index(ask_email_agent),
+        AgentTool(agent=_build_wallet_agent(model=specialist_model)),
+    )
     return tools
 
 

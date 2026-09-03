@@ -1705,6 +1705,7 @@ class OneLocationAgentService:
             "publicKeyJwk": _loads_json(row.get("public_key_jwk")),
             "keyAlgorithm": str(row.get("algorithm") or "ECDH-P256-AES256-GCM"),
             "keyRegisteredAt": _iso(row.get("key_created_at") or row.get("created_at")),
+            "publicPersonRef": str(row.get("public_person_ref") or "") or None,
             "canReceiveLocation": bool(row.get("key_id")),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
             "isRia": bool(row.get("is_ria")),
@@ -3978,6 +3979,7 @@ class OneLocationAgentService:
             f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
+              profile.public_person_ref,
               COALESCE(a.custom_photo_url, a.photo_url) AS photo_url,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at,
               EXISTS (
@@ -4004,6 +4006,7 @@ class OneLocationAgentService:
                   AND {RIA_VERIFIED_STATUS_SQL}
               ) AS is_ria
             FROM actor_identity_cache a
+            LEFT JOIN actor_profiles profile ON profile.user_id = a.user_id
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
               FROM one_location_recipient_keys
@@ -4397,9 +4400,11 @@ class OneLocationAgentService:
             """
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
+              profile.public_person_ref,
               COALESCE(a.custom_photo_url, a.photo_url) AS photo_url,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM actor_identity_cache a
+            LEFT JOIN actor_profiles profile ON profile.user_id = a.user_id
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
               FROM one_location_recipient_keys

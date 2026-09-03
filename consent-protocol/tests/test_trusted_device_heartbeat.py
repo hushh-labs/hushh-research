@@ -245,3 +245,62 @@ async def test_heartbeat_route_records_and_acknowledges(
     assert result["recorded"] is True
     assert isinstance(result["server_time_ms"], int)
     assert seen[0]["snapshot"]["current_model"] == "gemini-3.6-flash"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_route_forwards_machine_specs_and_power(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The request model must declare every field the service allow-lists.
+
+    Pydantic drops undeclared fields at the route boundary, so before these
+    were declared a device posting its brand, processor, RAM and battery had
+    them silently discarded and the service never saw them. The devices page
+    could then never show the machine the agent runs on.
+    """
+    from api.routes import account
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    seen: list[dict[str, Any]] = []
+
+    class _Svc:
+        def record_heartbeat(self, **kwargs: Any) -> None:
+            seen.append(kwargs)
+
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+
+    payload = account.TrustedDeviceHeartbeatRequest.model_validate(
+        {
+            "machine_id": "gw-studio",
+            "current_model": "google/gemma-4-26b-a4b-qat",
+            "brand": "Apple",
+            "processor": "Apple M4 Max",
+            "ram_total_gb": 128,
+            "ram_used_pct": 61.5,
+            "battery_pct": 88,
+            "battery_charging": True,
+            "on_ac": True,
+            "battery_minutes_remaining": 240,
+            "serial_number": "must-not-pass",
+        }
+    )
+    await account.trusted_device_heartbeat(device_id=DEVICE_ID, payload=payload, firebase_uid="u1")
+    snapshot = seen[0]["snapshot"]
+    for key in (
+        "brand",
+        "processor",
+        "ram_total_gb",
+        "ram_used_pct",
+        "battery_pct",
+        "battery_charging",
+        "on_ac",
+        "battery_minutes_remaining",
+    ):
+        assert key in snapshot, key
+    assert snapshot["brand"] == "Apple"
+    assert snapshot["ram_total_gb"] == 128
+    # Identifying fields are not declared, so they never reach the service.
+    assert "serial_number" not in snapshot
