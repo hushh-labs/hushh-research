@@ -17,7 +17,6 @@ import {
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
-import { isWalletBuildEnabled } from "@/lib/wallet/wallet-availability";
 import {
   ONE_SETUP_CAPABILITY_IDS,
   type OneSetupCapabilityId,
@@ -353,7 +352,5 @@ export function isOneCapabilityEnabled(capability: OneCapability | string | unde
     return false;
   }
   if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
-  // Wallet ships dark: the tile exists only where the build lane opts in.
-  if (resolved.id === "wallet") return isWalletBuildEnabled();
   return true;
 }

@@ -46,7 +46,6 @@ const DOMAIN_DATA = {
 
 describe("WalletService", () => {
   beforeEach(() => {
-    vi.stubEnv("NEXT_PUBLIC_ONE_WALLET_ENABLED", "true");
     mockLoadDomainData.mockResolvedValue(DOMAIN_DATA);
     mockStoreWalletDomain.mockResolvedValue({ success: true });
   });
@@ -72,25 +71,6 @@ describe("WalletService", () => {
     const full = await WalletService.getCard({ ...CONTEXT, cardId: CARD_ID });
     expect(full?.secrets.pan).toBe("4111111111111111");
     expect(full?.secrets.pin).toBe("1234");
-  });
-
-  it("refuses addCard when the feature flag is off", async () => {
-    vi.stubEnv("NEXT_PUBLIC_ONE_WALLET_ENABLED", "false");
-    await expect(
-      WalletService.addCard({
-        ...CONTEXT,
-        surface: "web",
-        source: "test",
-        card: {
-          nickname: "n",
-          cardholderName: "A",
-          pan: "4111111111111111",
-          expiryMonth: 4,
-          expiryYear: 2030,
-          issuingRegion: "US",
-        },
-      }),
-    ).rejects.toThrow("not enabled");
   });
 
   it("refuses an invalid card before any storage call", async () => {

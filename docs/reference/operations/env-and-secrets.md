@@ -221,11 +221,11 @@ Live head keeps an explicit pin.
 
 ### Wallet subagent flags and the central One mailbox (2026-09-02)
 
-- `ONE_WALLET_ENABLED` (backend, `_ONE_WALLET_ENABLED` substitution) puts `agent_wallet`
-  in One's roster; `NEXT_PUBLIC_ONE_WALLET_ENABLED` (frontend build arg, same
-  substitution) offers the Wallet tile, `/one/wallet`, and the chat card widgets.
-  Both are `true` in the dev and UAT lanes and unset (off) in production until the
-  founder promotes the feature; the frontend flag never overrides a dark backend.
+- The Wallet ships unconditionally. `ONE_WALLET_ENABLED` and
+  `NEXT_PUBLIC_ONE_WALLET_ENABLED` were removed on 2026-09-02: the feature was
+  complete, the frontend flag was a build-time constant that duplicated the
+  backend's authority, and the manifest's `HUSHH_WALLET_AGENT_DISABLED` kill switch
+  was never wired to anything. Nothing gates the Wallet now, in any lane.
 - Support, invite, and capability mail: every `SUPPORT_EMAIL_*` address defaults to
   `ONE_EMAIL_ADDRESS` (`one@hushh.ai`). UAT and production carry no overrides; the
   dev project's `SUPPORT_EMAIL_*` secrets point at `one@hushh.ai` in test mode. The

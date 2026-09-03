@@ -97,6 +97,5 @@ failure_states:
   - event_changed
   - availability_changed
 rollout:
-  kill_switch: CALENDAR_AGENT_DISABLED
   strategy: internal
   rollback: Disable Calendar Agent and retain existing Google connection records without executing proposals.

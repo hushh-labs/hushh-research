@@ -20,7 +20,6 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
-from hushh_mcp.runtime_settings import one_wallet_enabled
 from hushh_mcp.services.domain_contracts import (
     canonical_top_level_domain,
     domain_registry_payload,
@@ -508,14 +507,6 @@ def _enforce_wallet_write_policy(request: "StoreDomainRequest", canonical_domain
     """
     if canonical_domain != "wallet":
         return
-    if not one_wallet_enabled():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "WALLET_DISABLED",
-                "message": "Payment cards are not enabled in this environment.",
-            },
-        )
     try:
         validate_wallet_card_envelope(request.summary)
     except ValueError as exc:

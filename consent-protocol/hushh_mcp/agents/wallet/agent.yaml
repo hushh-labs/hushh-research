@@ -98,14 +98,13 @@ performance:
   latency_p95_ms: 4000
   max_output_tokens: 2048
 rollout:
-  kill_switch: HUSHH_WALLET_AGENT_DISABLED
   strategy: "off"
-  rollback: Remove the Cards AgentTool from One's roster; the /one/wallet surface keeps working without chat.
+  rollback: Remove the Wallet AgentTool from One's roster; the /one/wallet surface keeps working without chat.
 availability:
   environments:
     - development
     - uat
+    - production
   loopback_only: false
-  enable_flag: ONE_WALLET_ENABLED
 ui_type: chat
 icon: credit-card

@@ -71,7 +71,7 @@
         "cap.one.invoke"
       ],
       "rollout": {
-        "kill_switch": "CALENDAR_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable Calendar Agent and retain existing Google connection records without executing proposals.",
         "strategy": "internal"
       },
@@ -209,7 +209,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -364,7 +364,7 @@
         "agent.one.orchestrate"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -453,7 +453,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -557,7 +557,7 @@
         "attr.financial.*"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -646,7 +646,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -767,7 +767,7 @@
         "agent.kai.analyze"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -814,7 +814,7 @@
             "plaintext_telemetry": false
           },
           "rollout": {
-            "kill_switch": "HUSHH_RIA_AGENT_DISABLED",
+            "kill_switch": null,
             "rollback": "Disable RIA delegation and keep the Finance head active.",
             "strategy": "canary"
           },
@@ -861,7 +861,7 @@
             "plaintext_telemetry": false
           },
           "rollout": {
-            "kill_switch": "HUSHH_INVESTOR_AGENT_DISABLED",
+            "kill_switch": null,
             "rollback": "Disable Investor delegation and keep the Finance head active.",
             "strategy": "canary"
           },
@@ -1006,7 +1006,7 @@
         "agent.kyc.process"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1096,7 +1096,7 @@
         "cap.location.live.share"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1303,7 +1303,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1455,7 +1455,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1567,7 +1567,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1661,7 +1661,7 @@
         "agent.nav.review"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1906,7 +1906,7 @@
         "cap.one.invoke"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -1998,7 +1998,7 @@
         "cap.pkm.marketplace.view"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -2182,7 +2182,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -2312,7 +2312,7 @@
         "attr.financial.*"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -2439,7 +2439,7 @@
       "prompt_reference": null,
       "required_scopes": [],
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -2489,10 +2489,11 @@
         ]
       },
       "availability": {
-        "enable_flag": "ONE_WALLET_ENABLED",
+        "enable_flag": null,
         "environments": [
           "development",
-          "uat"
+          "uat",
+          "production"
         ],
         "loopback_only": false
       },
@@ -2562,8 +2563,8 @@
         "agent.wallet.manage"
       ],
       "rollout": {
-        "kill_switch": "HUSHH_WALLET_AGENT_DISABLED",
-        "rollback": "Remove the Cards AgentTool from One's roster; the /one/wallet surface keeps working without chat.",
+        "kill_switch": null,
+        "rollback": "Remove the Wallet AgentTool from One's roster; the /one/wallet surface keeps working without chat.",
         "strategy": "off"
       },
       "runtime": {

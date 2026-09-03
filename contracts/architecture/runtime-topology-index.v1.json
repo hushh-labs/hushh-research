@@ -4,7 +4,7 @@
       "id": "agent_calendar",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "CALENDAR_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable Calendar Agent and retain existing Google connection records without executing proposals.",
         "strategy": "internal"
       },
@@ -37,7 +37,7 @@
       "id": "agent_connected_systems",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -70,7 +70,7 @@
       "id": "agent_connections",
       "parent": "agent_nav",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -103,7 +103,7 @@
       "id": "agent_email",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -136,7 +136,7 @@
       "id": "agent_financial_guard",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -169,7 +169,7 @@
       "id": "agent_gmail",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -202,7 +202,7 @@
       "id": "agent_kai",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -237,7 +237,7 @@
       "id": "agent_kyc",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -270,7 +270,7 @@
       "id": "agent_location",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -303,7 +303,7 @@
       "id": "agent_memory_intent",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -336,7 +336,7 @@
       "id": "agent_memory_merge",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -369,7 +369,7 @@
       "id": "agent_memory_segmentation",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -402,7 +402,7 @@
       "id": "agent_nav",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -470,7 +470,7 @@
       "id": "agent_one",
       "parent": null,
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -506,7 +506,7 @@
       "id": "agent_personal_information",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -539,7 +539,7 @@
       "id": "agent_pkm_structure",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -572,7 +572,7 @@
       "id": "agent_portfolio_import",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -605,7 +605,7 @@
       "id": "agent_summary_reducer",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -638,8 +638,8 @@
       "id": "agent_wallet",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_WALLET_AGENT_DISABLED",
-        "rollback": "Remove the Cards AgentTool from One's roster; the /one/wallet surface keeps working without chat.",
+        "kill_switch": null,
+        "rollback": "Remove the Wallet AgentTool from One's roster; the /one/wallet surface keeps working without chat.",
         "strategy": "off"
       },
       "runtime": {
@@ -5475,7 +5475,7 @@
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "2e2739dbeb59933b3695634d50d1cfdd0071c1feadf8328d0a7ee00745fe9b32",
-    "agent_registry": "287f0c25daedf444e9211e88fc1dd5f07f72d4ff7aeb5e1321d6e5ed836607db",
+    "agent_registry": "bbb216914b5071e301b0a923fcd61695c9260691f56097a482510b1229ff6112",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
     "data_plane": "76399599594d347d840307b338dd681728ecaa9583990e32275f6199d3ce2290",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
