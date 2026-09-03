@@ -74,6 +74,7 @@ const PASSING_STATE: AppRuntimeState = {
     available: ["investor", "ria"],
     ria_switch_available: true,
     ria_setup_available: true,
+    ria_onboarding_complete: true,
   },
   voice: { available: true, tts_playing: false },
 };
@@ -129,19 +130,49 @@ const FAILING_OVERRIDE: Record<
         available: ["investor"],
         ria_switch_available: false,
         ria_setup_available: false,
+        ria_onboarding_complete: true,
+      },
+    },
+  },
+  // #6437: both were registered as "projection" but checked nowhere until
+  // this same change wired them in evaluateKaiActionAvailability, gated on
+  // whether RIA onboarding has actually settled to a verified status (not
+  // merely whether a persona/onboarding record exists). Deliberately
+  // changes nothing about `persona.active`/`available` here -- the fixture
+  // base (route.kai_analysis) requires the investor persona, and flipping
+  // persona fields too would make the earlier persona-reachability check
+  // block first, proving nothing about this guard specifically.
+  ria_onboarding_complete: {
+    state: {
+      persona: {
+        active: "investor",
+        primary_nav: "investor",
+        available: ["investor", "ria"],
+        ria_switch_available: true,
+        ria_setup_available: true,
+        ria_onboarding_complete: false,
+      },
+    },
+  },
+  consent_center_available: {
+    state: {
+      persona: {
+        active: "investor",
+        primary_nav: "investor",
+        available: ["investor", "ria"],
+        ria_switch_available: true,
+        ria_setup_available: true,
+        ria_onboarding_complete: false,
       },
     },
   },
 };
 
 // Registered as "projection" (client-checkable) but with no known way to
-// make them block today -- see #6437. Kept as .todo rather than omitted so
-// the gap stays visible in test output instead of silently disappearing,
-// and so fixing #6437 has an exact test to un-skip.
-const KNOWN_UNENFORCED_PROJECTION_GUARDS = new Set([
-  "consent_center_available",
-  "ria_onboarding_complete",
-]);
+// make them block today. Kept as .todo rather than omitted so the gap stays
+// visible in test output instead of silently disappearing, and so fixing
+// the linked issue has an exact test to un-skip.
+const KNOWN_UNENFORCED_PROJECTION_GUARDS = new Set<string>([]);
 
 // Registered as "projection" but confirmed, separately from #6437, to be
 // either unused by any live action today (active_persona_investor/_ria --

@@ -1029,6 +1029,27 @@ export function evaluateKaiActionAvailability(input: {
             : null,
       };
     }
+    // #6437: registered in capability-guard-coverage.v1.json as
+    // "projection" (client-checkable) since these were authored, but never
+    // actually wired here -- both gated real, voice-executable RIA
+    // client-workspace actions with nothing enforcing them. An onboarding
+    // *record* existing (ria_persona_available, checked above) is not the
+    // same as onboarding being *complete*; see isRiaAdvisoryAccessReady.
+    if (
+      (guardId === "ria_onboarding_complete" ||
+        guardId === "consent_center_available") &&
+      appRuntimeState?.persona?.ria_onboarding_complete !== true
+    ) {
+      return {
+        status: "blocked",
+        reason: "Finish RIA verification before using this action.",
+        target_persona: "ria",
+        blocked_guidance:
+          appRuntimeState?.persona?.ria_setup_available === true
+            ? "Complete RIA setup to unlock this."
+            : null,
+      };
+    }
   }
 
   return {
