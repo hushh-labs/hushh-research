@@ -55,6 +55,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from hmac import compare_digest
 from typing import Any, Optional, Protocol
 
@@ -302,6 +303,28 @@ def running_image(row: Optional[dict[str, Any]]) -> Optional[str]:
 #: A lease younger than this is another worker mid-upgrade; older, it was left by
 #: a worker that died and the row is a candidate again. Mirrors the repo's TTL.
 UPGRADE_LEASE_FRESH_FOR_SECONDS = 600
+
+
+#: After a failed attempt, leave the pod alone this long before trying again. The
+#: lease is released the moment a failure is recorded, so without this the OTHER
+#: gunicorn worker (which listed the same candidates) retried the same pod fifteen
+#: seconds later and the three-attempt cap burned in two passes (seen live 2026-09-03).
+UPGRADE_RETRY_COOLDOWN_SECONDS = 600
+
+
+def _attempted_recently(marker: Any, *, now: Optional[datetime] = None) -> bool:
+    raw = str((marker or {}).get("lastAttemptAt") or "").strip() if isinstance(marker, dict) else ""
+    if not raw:
+        return False
+    try:
+        at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    return (
+        (now or datetime.now(timezone.utc)) - at
+    ).total_seconds() < UPGRADE_RETRY_COOLDOWN_SECONDS
 
 
 def hub_revision() -> str:
@@ -1085,6 +1108,8 @@ class PersonalAgentProvisioningService:
                 # A newer hub already moved this pod; this process is the previous
                 # revision draining out, and its target is the past.
                 continue
+            if _attempted_recently(marker):
+                continue
             if _lease_is_fresh(((row or {}).get("backend_metadata") or {}).get("upgradeLease")):
                 continue
             out.append(row)
@@ -1173,6 +1198,19 @@ class PersonalAgentProvisioningService:
         old_meta = dict(row.get("backend_metadata") or {})
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)
+        if _attempted_recently(old_meta.get("upgrade")):
+            # Listed before another worker's attempt failed; do not stack a second
+            # attempt on the same failure within the cooldown.
+            await self._registry.record_image_upgrade(user_id=user_id, backend_metadata=old_meta)
+            logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=cooldown", hushh_id)
+            return {
+                "hushhId": hushh_id,
+                "status": "provisioned",
+                "upgraded": False,
+                "skipped": "cooldown",
+                "image": previous,
+                "previousImage": previous,
+            }
         # Narrated as its own stage so the status stream can say "Updating your
         # agent" instead of a spinner. The previous revision serves throughout.
         await pod_lifecycle_append(
@@ -1202,6 +1240,7 @@ class PersonalAgentProvisioningService:
                             "failedImage": current_image,
                             "attempts": attempts,
                             "lastError": reason,
+                            "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
                         },
                     },
                 )

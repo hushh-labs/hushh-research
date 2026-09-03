@@ -500,6 +500,17 @@ async def test_upgrade_pod_records_a_bounded_failure_marker_and_reraises(service
         ("authority_live", "upgrade_failed"),
     ]
 
+    # A second attempt right away is on cooldown (the other worker's retry, seen
+    # burning the cap in two passes live); age the marker past it to retry for real.
+    from datetime import datetime, timedelta, timezone
+
+    from hushh_mcp.services.personal_agent_provisioning_service import (
+        UPGRADE_RETRY_COOLDOWN_SECONDS,
+    )
+
+    registry.rows["uid-1"]["backend_metadata"]["upgrade"]["lastAttemptAt"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=UPGRADE_RETRY_COOLDOWN_SECONDS + 1)
+    ).isoformat()
     with pytest.raises(PodBootFailedError):
         await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
     assert registry.rows["uid-1"]["backend_metadata"]["upgrade"]["attempts"] == 2
@@ -863,3 +874,78 @@ def test_the_lease_claim_parses_only_the_timestamp_half() -> None:
     src = inspect.getsource(PersonalAgentRegistryRepo.claim_image_upgrade)
     assert "split_part(backend_metadata->>'upgradeLease', '|', 1)" in src
     assert "CAST(backend_metadata->>'upgradeLease' AS timestamptz)" not in src
+
+
+# ---- one failure, one attempt: the other worker waits (2026-09-03) ---------------------
+
+
+def test_a_recent_failed_attempt_puts_the_pod_on_cooldown() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from hushh_mcp.services.personal_agent_provisioning_service import (
+        UPGRADE_RETRY_COOLDOWN_SECONDS,
+        _attempted_recently,
+    )
+
+    now = datetime.now(timezone.utc)
+    fresh = {"lastAttemptAt": (now - timedelta(seconds=15)).isoformat()}
+    stale = {
+        "lastAttemptAt": (now - timedelta(seconds=UPGRADE_RETRY_COOLDOWN_SECONDS + 5)).isoformat()
+    }
+    assert _attempted_recently(fresh, now=now) is True
+    assert _attempted_recently(stale, now=now) is False
+    assert _attempted_recently({}, now=now) is False
+    assert _attempted_recently({"lastAttemptAt": "garbage"}, now=now) is False
+
+
+@pytest.mark.asyncio
+async def test_candidates_skip_a_pod_that_just_failed(monkeypatch, service_env) -> None:
+    from datetime import datetime, timezone
+
+    pas, _ = service_env
+    registry = FakeRegistry({})
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=FakeUpgradingBackend()
+    )
+    old = "gcr.io/p/consent-protocol-pod:dev-old"
+    new = "gcr.io/p/consent-protocol-pod:dev-new"
+
+    async def _rows(limit=200):
+        return [
+            {
+                "user_id": "u-cool",
+                "hushh_id": "ha1_cool",
+                "backend_metadata": {
+                    "source_image": old,
+                    "upgrade": {
+                        "failedImage": new,
+                        "attempts": 1,
+                        "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
+                    },
+                },
+            },
+            {
+                "user_id": "u-plain",
+                "hushh_id": "ha1_plain",
+                "backend_metadata": {"source_image": old},
+            },
+        ]
+
+    monkeypatch.setattr(registry, "fetch_upgrade_candidates", _rows, raising=False)
+    out = await service.list_upgrade_candidates(current_image=new)
+    assert [row["hushh_id"] for row in out] == ["ha1_plain"]
+
+
+@pytest.mark.asyncio
+async def test_a_failure_stamps_when_it_happened(service_env) -> None:
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=FakeUpgradingBackend(fail=RuntimeError("copy refused"))
+    )
+    with pytest.raises(RuntimeError):
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    marker = registry.rows["uid-1"]["backend_metadata"]["upgrade"]
+    assert marker["attempts"] == 1
+    assert marker["lastAttemptAt"], "the cooldown needs to know when the attempt was"
