@@ -40,6 +40,7 @@ import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { EmailDraftCard } from "@/components/agent/email-draft-card";
 import {
   EmailDeliveryHistoryCard,
@@ -4822,38 +4823,28 @@ export function AgentChatWorkspace({
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              <div
-                role="group"
-                aria-label="Agent"
-                className="flex items-center gap-0.5 rounded-full bg-foreground/[0.045] p-0.5"
-              >
-                {(
-                  [
-                    { id: "one", label: "One" },
-                    { id: "puppy", label: "Puppy" },
-                  ] as const
-                ).map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setAgentSurface(option.id)}
-                    aria-pressed={agentSurface === option.id}
-                    className={cn(
-                      "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
-                      agentSurface === option.id
-                        ? "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    title={
-                      option.id === "puppy"
-                        ? "Puppy One, on your machine. Its own conversation."
-                        : "One, your cloud agent."
-                    }
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
+              {/*
+                The app's own segmented control, not a hand-rolled pair of
+                pills. The first version animated `transition-colors` only, so
+                switching agents snapped where every other tab strip in the app
+                eases: this primitive transitions background, border, shadow and
+                colour together over 150ms, and carries the tablist semantics
+                (aria-selected, roving tabIndex) that a pair of buttons does not.
+              */}
+              <SegmentedTabs
+                ariaLabel="Agent"
+                value={agentSurface}
+                onValueChange={(next) => setAgentSurface(next as AgentChatSurface)}
+                options={[
+                  { value: "one", label: "One", accessibleLabel: "One, your cloud agent" },
+                  {
+                    value: "puppy",
+                    label: "Puppy",
+                    accessibleLabel: "Puppy One, on your machine, with its own conversation",
+                  },
+                ]}
+                className="w-auto min-h-9 shrink-0"
+              />
               {modelPreference && modelPreference.choices.length > 1 ? (
                 <select
                   data-testid="agent-chat-model-picker"

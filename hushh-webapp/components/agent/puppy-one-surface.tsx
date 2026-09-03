@@ -1,7 +1,7 @@
 "use client";
 
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
-import { PuppyResourceMonitor } from "@/components/agent/puppy-resource-monitor";
+import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,9 +15,10 @@ import { cn } from "@/lib/utils";
  * invariant; it is held structurally here, by the two agents keeping separate
  * state, rather than by a rule someone has to remember.
  *
- * The monitor sits above the conversation for the same reason it does on
- * /one/puppy: the reader should be able to see WHERE answers are generated
- * before reading one.
+ * The machine's readings sit above the conversation, as a control rather than
+ * a block: the owner asks for them, and the answer opens in a sheet. What the
+ * control cannot swallow is a broken link to Hussh One, which stays on the
+ * strip whether or not anything is open -- see `PuppyMachineSheet`.
  */
 export function PuppyOneSurface({ className }: { className?: string }) {
   return (
@@ -28,7 +29,7 @@ export function PuppyOneSurface({ className }: { className?: string }) {
       )}
       data-agent-surface="puppy"
     >
-      <PuppyResourceMonitor className="shrink-0 bg-background" />
+      <PuppyMachineSheet className="shrink-0" />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background">
         <HermesChatPanel />
       </div>
