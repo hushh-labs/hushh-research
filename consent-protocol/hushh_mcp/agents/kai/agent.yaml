@@ -142,7 +142,6 @@ subagents:
       latency_p95_ms: 4000
       max_output_tokens: 2048
     rollout:
-      kill_switch: HUSHH_RIA_AGENT_DISABLED
       strategy: canary
       rollback: Disable RIA delegation and keep the Finance head active.
   - id: agent_investor
@@ -170,6 +169,5 @@ subagents:
       latency_p95_ms: 4000
       max_output_tokens: 2048
     rollout:
-      kill_switch: HUSHH_INVESTOR_AGENT_DISABLED
       strategy: canary
       rollback: Disable Investor delegation and keep the Finance head active.

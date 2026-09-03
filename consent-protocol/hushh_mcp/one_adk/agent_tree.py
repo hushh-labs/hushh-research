@@ -80,7 +80,6 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
-from hushh_mcp.runtime_settings import one_wallet_enabled
 from hushh_mcp.services.action_gateway import (
     AVAILABLE_ACTION_IDS_CAP,
     get_action_gateway_action,
@@ -1644,13 +1643,10 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
     ]
     if _CRM_PRODUCT_AVAILABLE:
         tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)
-    # Evaluated at roster-build time (not import) so tests and per-deploy env
-    # both see the live flag. Off by default: no Cards specialist in the tree.
-    if one_wallet_enabled():
-        tools.insert(
-            tools.index(ask_email_agent),
-            AgentTool(agent=_build_wallet_agent(model=specialist_model)),
-        )
+    tools.insert(
+        tools.index(ask_email_agent),
+        AgentTool(agent=_build_wallet_agent(model=specialist_model)),
+    )
     return tools
 
 

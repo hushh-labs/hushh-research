@@ -29,4 +29,3 @@ NEXT_PUBLIC_FIREBASE_VAPID_KEY	all	Web push token cannot be minted.
 NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY	all	Maps JS in the WKWebView (onboarding location picker, LiveMap). Missing = silent iframe fallback. This is the 2026-08-11 incident.
 NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY	ios-testflight,ios-appstore	Native Maps SDK for the "Your Map" immersive view.
 NEXT_PUBLIC_OBSERVABILITY_ENABLED	all	Without it a broken build reports nothing and the failure stays invisible.
-NEXT_PUBLIC_ONE_WALLET_ENABLED	web	Wallet tile, /one/wallet, and the chat card widgets are offered only when the web build carries the flag; a missing arg ships a build where the Wallet subagent exists on the backend but nothing on screen reaches it.

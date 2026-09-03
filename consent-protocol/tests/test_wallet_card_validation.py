@@ -89,29 +89,15 @@ def test_envelope_happy_path_with_bookkeeping_keys() -> None:
     )
 
 
-def test_store_domain_refuses_wallet_when_flag_off(monkeypatch) -> None:
-    """The write policy hook: flag off -> 403 before any persistence."""
+def test_store_domain_validates_the_wallet_envelope(monkeypatch) -> None:
+    """The Wallet ships unconditionally, so the envelope check is the whole hook.
+
+    There is no ONE_WALLET_ENABLED gate any more: a valid envelope passes and an
+    inconsistent one is refused, in every environment.
+    """
     from fastapi import HTTPException
 
     from api.routes import pkm_routes_shared
-
-    monkeypatch.delenv("ONE_WALLET_ENABLED", raising=False)
-
-    class _Req:
-        summary = {"card_count": 0, "cards": []}
-
-    with pytest.raises(HTTPException) as exc_info:
-        pkm_routes_shared._enforce_wallet_write_policy(_Req(), "wallet")
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail["code"] == "WALLET_DISABLED"
-
-
-def test_store_domain_validates_envelope_when_flag_on(monkeypatch) -> None:
-    from fastapi import HTTPException
-
-    from api.routes import pkm_routes_shared
-
-    monkeypatch.setenv("ONE_WALLET_ENABLED", "true")
 
     class _GoodReq:
         summary = {"card_count": 1, "cards": [_entry()]}
@@ -129,8 +115,6 @@ def test_store_domain_validates_envelope_when_flag_on(monkeypatch) -> None:
 
 def test_other_domains_bypass_the_hook(monkeypatch) -> None:
     from api.routes import pkm_routes_shared
-
-    monkeypatch.delenv("ONE_WALLET_ENABLED", raising=False)
 
     class _Req:
         summary = {"anything": True}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pathlib
 import re
 from pathlib import Path
 
@@ -119,3 +120,27 @@ def test_one_live_is_the_only_interactive_audio_backend() -> None:
     kai_routes = (ROOT / "api" / "routes" / "kai" / "__init__.py").read_text()
     assert "/agent/voice/stt" not in kai_routes
     assert "/agent/voice/tts" not in kai_routes
+
+
+def test_every_declared_kill_switch_is_actually_read_in_code() -> None:
+    """A kill switch nobody reads is worse than none.
+
+    It advertises a control an operator would reach for during an incident and find
+    inert. Three were declared and unread (CALENDAR_AGENT_DISABLED,
+    HUSHH_INVESTOR_AGENT_DISABLED, HUSHH_RIA_AGENT_DISABLED) before the field was made
+    optional on 2026-09-02; declare one only when the runtime honours it.
+    """
+    protocol_root = pathlib.Path(__file__).resolve().parents[1]
+    searchable: list[str] = []
+    for directory in ("hushh_mcp", "api"):
+        for path in (protocol_root / directory).rglob("*.py"):
+            searchable.append(path.read_text(encoding="utf-8"))
+    haystack = "\n".join(searchable)
+
+    unread: list[str] = []
+    for path in sorted((protocol_root / "hushh_mcp" / "agents").glob("*/agent.yaml")):
+        for match in re.finditer(r"^\s*kill_switch:\s*([A-Z0-9_]+)\s*$", path.read_text(), re.M):
+            switch = match.group(1)
+            if switch not in haystack:
+                unread.append(f"{path.parent.name}: {switch}")
+    assert unread == [], f"declared kill switches that no code reads: {unread}"

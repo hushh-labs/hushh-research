@@ -101,7 +101,15 @@ class PerformanceContract(StrictManifestModel):
 
 
 class RolloutContract(StrictManifestModel):
-    kill_switch: str
+    """How an agent is turned off.
+
+    ``kill_switch`` is optional because a declared switch that nothing reads is worse
+    than none: it advertises a control an operator would reach for in an incident and
+    find inert. Declare one only when the runtime actually honours it; the guard in
+    tests/test_agent_manifests.py refuses any name that no code reads.
+    """
+
+    kill_switch: str | None = None
     strategy: Literal["off", "internal", "canary", "general"] = "off"
     rollback: str
 
@@ -175,7 +183,6 @@ class AgentManifestV2(StrictManifestModel):
     performance: PerformanceContract = Field(default_factory=PerformanceContract)
     rollout: RolloutContract = Field(
         default_factory=lambda: RolloutContract(
-            kill_switch="HUSHH_AGENT_DISABLED",
             rollback="Disable the agent and restore the prior manifest.",
         )
     )

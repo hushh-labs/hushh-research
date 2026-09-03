@@ -17,7 +17,6 @@ import {
   type CardBrand,
   type CardValidationResult,
 } from "@/lib/wallet/card-validation";
-import { isWalletBuildEnabled } from "@/lib/wallet/wallet-availability";
 import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
@@ -78,7 +77,7 @@ function toSummary(cardId: string, value: unknown): WalletCardSummary | null {
 
 export class WalletService {
   static isEnabled(): boolean {
-    return isWalletBuildEnabled();
+    return true;
   }
 
   static validateCard(input: WalletCardInput): CardValidationResult {

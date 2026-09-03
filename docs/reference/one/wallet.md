@@ -45,8 +45,8 @@ flowchart TD
 | Specialist agent | `agent_cards` (`agents/cards/agent.yaml`, LlmAgent `cards`, `_build_cards_agent`) | `agent_wallet` (`agents/wallet/agent.yaml`, LlmAgent `wallet`, `_build_wallet_agent`) |
 | Route / screen | `/one/cards` (`ROUTES.ONE_CARDS`, screen `one_cards`, beacon `native-route-one-cards`) | `/one/wallet` (`ROUTES.ONE_WALLET`, screen `one_wallet`, beacon `native-route-one-wallet`) |
 | Gateway actions | `route.one_cards`, `cards.list` / `cards.add` / `cards.reveal` | `route.one_wallet` ("Open Wallet"), `wallet.list` / `wallet.add` / `wallet.reveal` |
-| Feature flags | `ONE_PAYMENT_CARDS_ENABLED`, `NEXT_PUBLIC_ONE_PAYMENT_CARDS_ENABLED` | `ONE_WALLET_ENABLED`, `NEXT_PUBLIC_ONE_WALLET_ENABLED` (deploy substitution `_ONE_WALLET_ENABLED`) |
-| Kill switch | `HUSHH_CARDS_AGENT_DISABLED` | `HUSHH_WALLET_AGENT_DISABLED` |
+| Feature flags | `ONE_PAYMENT_CARDS_ENABLED`, `NEXT_PUBLIC_ONE_PAYMENT_CARDS_ENABLED` | none: renamed to `ONE_WALLET_ENABLED` / `NEXT_PUBLIC_ONE_WALLET_ENABLED`, then removed on 2026-09-02 when the Wallet shipped unconditionally |
+| Kill switch | `HUSHH_CARDS_AGENT_DISABLED` | none: the renamed switch was declared in the manifest but never read, and the claim was removed |
 | Backend validation | `payment_card_validation.py` (`validate_payment_card_envelope`) | `wallet_card_validation.py` (`validate_wallet_card_envelope`) |
 | Frontend service | `lib/services/payment-cards-service.ts` (`PaymentCardsService`, `PAYMENT_CARDS_DOMAIN`) | `lib/services/wallet-service.ts` (`WalletService`, `WALLET_DOMAIN`) |
 | Frontend types | `PaymentCardSummary`, `PaymentCardSecrets`, `PaymentCardInput` | `WalletCardSummary`, `WalletCardSecrets`, `WalletCardInput` |
@@ -67,11 +67,11 @@ validate a card), and every identity-pass identifier listed above.
 
 - Domain contract and sharing policy: `consent-protocol/hushh_mcp/services/domain_contracts.py`
 - Scope policy and display metadata: `hushh_mcp/consent/pkm_scope_policy.py`, `hushh_mcp/consent/scope_helpers.py`
-- Agent manifest and roster insertion: `hushh_mcp/agents/wallet/agent.yaml`, `hushh_mcp/one_adk/agent_tree.py` (`one_wallet_enabled()` gate)
+- Agent manifest and roster insertion: `hushh_mcp/agents/wallet/agent.yaml`, `hushh_mcp/one_adk/agent_tree.py` (unconditional)
 - Store-domain guard: `api/routes/pkm_routes_shared.py` (`_enforce_wallet_write_policy`)
 - Route, tile, breadcrumb, screen: `app/one/wallet/page.tsx`, `lib/onboarding/one-capabilities.ts`, `lib/navigation/top-shell-breadcrumbs.ts`, `lib/voice/route-screen-derivation.ts`
 - Chat integration: `components/agent/agent-chat-workspace.tsx` (`wallet.list` / `wallet.add` / `wallet.reveal` branches, paste guard)
-- Deploy: `deploy/backend.cloudbuild.yaml`, `deploy/frontend.cloudbuild.yaml`, `hushh-webapp/Dockerfile`, `deploy-dev.yml` / `deploy-uat.yml` (`_ONE_WALLET_ENABLED=true`), production off
+- Deploy: nothing Wallet-specific. The feature carries no flag in any lane.
 
 A rename must also cover string literals passed as ids: `_load_product_agent_manifest("wallet")`
 and the LlmAgent `name="wallet"` were the two the first pass missed and they crashed boot.
