@@ -267,13 +267,25 @@ it needs no device signature.
 
 Three properties keep it safe. The payload is untrusted device input written to
 JSONB, so the service reduces it to a fixed allow-list of runtime scalars
-(machine identifier, configured model, busy flag, active session count, next
-cron run) and drops everything else rather than sanitizing it; the reduction
-runs again on read. The server stamps its own timestamp, so a device cannot
-backdate or forward-date liveness. Only rows with `status = 'active'` are
-updated, so a revoked device can never appear live again. Enforcement never
-consults these columns: trust remains decided by `status` and
-`is_trusted_device_active`.
+(machine identifier, configured model, agent version, busy flag, active session
+count, next cron run, and the machine's brand, processor, RAM total and used
+share, battery percentage, minutes remaining, charging and mains state) and
+drops everything else rather than sanitizing it, truncating text to 120
+characters and dropping out-of-range numbers; the reduction runs again on read.
+The server stamps its own timestamp, so a device cannot backdate or
+forward-date liveness. Only rows with `status = 'active'` are updated, so a
+revoked device can never appear live again. Enforcement never consults these
+columns: trust remains decided by `status` and `is_trusted_device_active`.
+
+The route itself does not validate the body with a typed model, on purpose. A
+bounded request model in front of the allow-list rejected the WHOLE beat with a
+422 when one value ran over (a 121-character model id did it), and a device
+whose beats are refused reads as gone in One while it is healthy. The route
+forwards the body and the service decides per field. It also reads both body
+shapes: Hermes builds from 2026-08-28 to 2026-09-03 posted the telemetry
+wrapped as `{"heartbeat": {...}}`, later builds post it flat, and top-level
+keys win over the wrapped block. The wrapper can be retired once every
+installed agent has updated.
 
 ### A login is not trust
 

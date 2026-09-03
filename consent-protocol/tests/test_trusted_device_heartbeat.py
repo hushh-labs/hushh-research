@@ -236,9 +236,7 @@ async def test_heartbeat_route_records_and_acknowledges(
     monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
     monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
 
-    payload = account.TrustedDeviceHeartbeatRequest(
-        machine_id="gw-studio", current_model="gemini-3.6-flash", busy=False
-    )
+    payload = dict(machine_id="gw-studio", current_model="gemini-3.6-flash", busy=False)
     result = await account.trusted_device_heartbeat(
         device_id=DEVICE_ID, payload=payload, firebase_uid="u1"
     )
@@ -251,12 +249,13 @@ async def test_heartbeat_route_records_and_acknowledges(
 async def test_heartbeat_route_forwards_machine_specs_and_power(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The request model must declare every field the service allow-lists.
+    """The route forwards the whole body; the SERVICE decides what is kept.
 
-    Pydantic drops undeclared fields at the route boundary, so before these
-    were declared a device posting its brand, processor, RAM and battery had
-    them silently discarded and the service never saw them. The devices page
-    could then never show the machine the agent runs on.
+    A typed request model used to sit in front of the service, and twice it
+    cost the owner a reading: first by dropping undeclared machine-spec
+    fields, then by rejecting the entire beat with a 422 whenever one value
+    was over its bound. The route now forwards every key and the allow-list
+    in _safe_heartbeat keeps, truncates or drops per field.
     """
     from api.routes import account
 
@@ -272,7 +271,7 @@ async def test_heartbeat_route_forwards_machine_specs_and_power(
     monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
     monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
 
-    payload = account.TrustedDeviceHeartbeatRequest.model_validate(
+    payload = dict(
         {
             "machine_id": "gw-studio",
             "current_model": "google/gemma-4-26b-a4b-qat",
@@ -302,5 +301,221 @@ async def test_heartbeat_route_forwards_machine_specs_and_power(
         assert key in snapshot, key
     assert snapshot["brand"] == "Apple"
     assert snapshot["ram_total_gb"] == 128
-    # Identifying fields are not declared, so they never reach the service.
-    assert "serial_number" not in snapshot
+    # The route forwards identifying fields too; the allow-list is what drops
+    # them, and it is the one place that decision is made.
+    assert "serial_number" not in _safe_heartbeat(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_route_never_rejects_a_beat_for_one_bad_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An over-long or out-of-range value costs that field, never the beat.
+
+    LM Studio model ids can exceed 120 characters. With a bounded request
+    model every heartbeat from such a machine was a 422, post_heartbeat on the
+    device swallowed it, and One showed a healthy machine as gone. The route
+    forwards the body; the service truncates the text and drops the number
+    and the beat still stamps last_heartbeat_at.
+    """
+    from api.routes import account
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    seen: list[dict[str, Any]] = []
+
+    class _Svc:
+        def record_heartbeat(self, **kwargs: Any) -> None:
+            seen.append(kwargs)
+
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+
+    long_model = "lmstudio-community/" + ("x" * 130)
+    result = await account.trusted_device_heartbeat(
+        device_id=DEVICE_ID,
+        payload={"current_model": long_model, "ram_total_gb": 99_999, "busy": True},
+        firebase_uid="u1",
+    )
+    assert result["recorded"] is True
+    safe = _safe_heartbeat(seen[0]["snapshot"])
+    assert safe["current_model"] == long_model[:120]
+    assert safe["busy"] is True
+    assert "ram_total_gb" not in safe
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_route_treats_a_non_object_body_as_an_empty_beat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routes import account
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    seen: list[dict[str, Any]] = []
+
+    class _Svc:
+        def record_heartbeat(self, **kwargs: Any) -> None:
+            seen.append(kwargs)
+
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+
+    for body in (None, "busy", 7, ["busy"], {"heartbeat": "not-an-object"}):
+        seen.clear()
+        result = await account.trusted_device_heartbeat(
+            device_id=DEVICE_ID, payload=body, firebase_uid="u1"
+        )
+        assert result["recorded"] is True, body
+        # The beat still lands (liveness), with nothing to say about the machine.
+        assert seen[0]["snapshot"] == {}, body
+
+
+# ---------------------------------------------------------------------------
+# Wrapped body: {"heartbeat": {...}}
+#
+# Hermes builds from 2026-08-28 (when the heartbeat first shipped) to
+# 2026-09-03 posted the telemetry wrapped under a "heartbeat" key. The typed
+# request model of the time dropped the wrapper at the route boundary and the
+# store wrote an empty snapshot (measured on UAT: last_heartbeat_at set,
+# heartbeat null). The route reads both shapes until every installed agent
+# has updated to the flat body.
+# ---------------------------------------------------------------------------
+
+
+def test_heartbeat_snapshot_unwraps_a_nested_only_body() -> None:
+    from api.routes import account
+
+    payload = dict(
+        {
+            "heartbeat": {
+                "machine_id": "gw-studio",
+                "current_model": "gemini-3.6-flash",
+                "busy": True,
+                "ram_used_pct": 41.7,
+            }
+        }
+    )
+    assert account._heartbeat_snapshot(payload) == {
+        "machine_id": "gw-studio",
+        "current_model": "gemini-3.6-flash",
+        "busy": True,
+        "ram_used_pct": 41.7,
+    }
+
+
+def test_heartbeat_snapshot_flat_wins_over_nested_for_the_same_key() -> None:
+    from api.routes import account
+
+    payload = dict(
+        {
+            "machine_id": "flat-wins",
+            "busy": False,
+            "heartbeat": {
+                "machine_id": "nested-loses",
+                "busy": True,
+                "current_model": "only-in-nested",
+            },
+        }
+    )
+    snapshot = account._heartbeat_snapshot(payload)
+    assert snapshot["machine_id"] == "flat-wins"
+    assert snapshot["busy"] is False
+    # A key present only in the nested block still comes through.
+    assert snapshot["current_model"] == "only-in-nested"
+    # The wrapper key itself never appears in the snapshot.
+    assert "heartbeat" not in snapshot
+
+
+def test_heartbeat_snapshot_does_not_recurse_into_a_doubly_nested_body() -> None:
+    from api.routes import account
+
+    payload = dict(
+        {"heartbeat": {"machine_id": "one-level", "heartbeat": {"machine_id": "two-levels"}}}
+    )
+    assert account._heartbeat_snapshot(payload) == {"machine_id": "one-level"}
+
+
+def test_heartbeat_snapshot_returns_empty_for_a_missing_body() -> None:
+    from api.routes import account
+
+    assert account._heartbeat_snapshot(None) == {}
+
+
+def test_a_nested_body_cannot_smuggle_a_key_past_the_allow_list() -> None:
+    # The wrapper is unwrapped at the route, then the service allow-list runs
+    # on the flattened result exactly as it does for a flat body. The route
+    # forwards unknown keys; _safe_heartbeat is the one place they are dropped.
+    from api.routes import account
+
+    payload = dict(
+        {
+            "heartbeat": {
+                "machine_id": "gw-studio",
+                "vault_key": "super-secret",
+                "home_path": "/Users/someone/.hermes",
+                "serial_number": "must-not-pass",
+            }
+        }
+    )
+    flattened = account._heartbeat_snapshot(payload)
+    safe = _safe_heartbeat({**flattened, "vault_key": "still-not-allowed"})
+    assert safe == {"machine_id": "gw-studio"}
+
+
+def test_heartbeat_snapshot_does_not_recurse_or_raise_on_a_deep_wrapper() -> None:
+    # A wrapper nested a thousand deep used to be validated at every level by
+    # a self-referential model and could turn into a 500 in the error
+    # renderer. Now it is one level of unwrapping and nothing else.
+    from api.routes import account
+
+    body: dict[str, Any] = {"machine_id": "leaf"}
+    for _ in range(1000):
+        body = {"heartbeat": body}
+    snapshot = account._heartbeat_snapshot(body)
+    assert "machine_id" not in snapshot
+    assert snapshot == {}
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_route_records_a_wrapped_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routes import account
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    seen: list[dict[str, Any]] = []
+
+    class _Svc:
+        def record_heartbeat(self, **kwargs: Any) -> None:
+            seen.append(kwargs)
+
+    monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+
+    payload = dict(
+        {
+            "heartbeat": {
+                "machine_id": "gw-studio",
+                "current_model": "google/gemma-4-26b-a4b-qat",
+                "brand": "Apple",
+                "battery_pct": 88,
+            }
+        }
+    )
+    result = await account.trusted_device_heartbeat(
+        device_id=DEVICE_ID, payload=payload, firebase_uid="u1"
+    )
+    assert result["recorded"] is True
+    snapshot = seen[0]["snapshot"]
+    # Before the wrapper was accepted this snapshot was {} and the store wrote
+    # heartbeat null with last_heartbeat_at set.
+    assert snapshot["machine_id"] == "gw-studio"
+    assert snapshot["current_model"] == "google/gemma-4-26b-a4b-qat"
+    assert snapshot["brand"] == "Apple"
+    assert snapshot["battery_pct"] == 88
+    assert "heartbeat" not in snapshot
