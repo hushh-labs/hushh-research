@@ -1,7 +1,3 @@
-import {
-  CardNetworkMark,
-  cardNetworkLabel,
-} from "@/components/wallet/card-network-mark";
 "use client";
 
 /**
@@ -18,6 +14,10 @@ import type {
   WalletCardSecrets,
   WalletCardSummary,
 } from "@/lib/services/wallet-service";
+import {
+  CardNetworkMark,
+  cardNetworkLabel,
+} from "@/components/wallet/card-network-mark";
 
 const AUTO_HIDE_SECONDS = 45;
 
