@@ -83,7 +83,11 @@ import {
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
-import { parseVoiceSubject } from "@/lib/voice/voice-action-card";
+import {
+  parseToolTraceCard,
+  parseVoiceSubject,
+  publishVoiceCard,
+} from "@/lib/voice/voice-action-card";
 import { classifySpokenConfirmation } from "@/lib/voice/spoken-confirmation";
 import {
   clearJourneyApproval,
@@ -668,6 +672,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         event.type === "transcript_final" ||
         event.type === "assistant_text" ||
         event.type === "client_directive" ||
+        event.type === "tool_trace" ||
         event.type === "handoff"
       ) {
         scheduleVoiceIdleTimer();
@@ -807,6 +812,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           turnId: event.turnId ?? null,
         });
         setVoiceStatus("thinking", "Understanding", eventOptions);
+        return;
+      }
+      if (event.type === "tool_trace") {
+        // Display-only: a read tool's answer, illustrated alongside the
+        // spoken readout. Nothing to execute, nothing to authorize -- unlike
+        // client_directive below, this never reaches the governed gateway.
+        const card = parseToolTraceCard(event.trace);
+        if (card) publishVoiceCard(card);
         return;
       }
       if (event.type === "client_directive") {

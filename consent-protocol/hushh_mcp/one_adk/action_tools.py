@@ -28,6 +28,7 @@ from typing import Any, Callable, Literal
 
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.consent.pii_sanitizer import mask_email
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
@@ -102,6 +103,7 @@ logger = logging.getLogger(__name__)
 # Session state keys shared with agent_tree/adk_live (duplicated string to
 # avoid a circular import; guarded by a test asserting equality).
 _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+_STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
@@ -1429,6 +1431,24 @@ async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dic
     return user_id, None
 
 
+def _publish_tool_trace(
+    tool_context: ToolContext, tool_name: str, *, kind: str, payload: dict[str, Any]
+) -> None:
+    """Park a read tool's display-safe result for the relay to forward to the
+    browser alongside the spoken answer, so the app can render a card in sync
+    with the readout (#6434).
+
+    Only ever park what is already safe to speak -- never the raw service
+    result. Optional: a read tool that returns nothing worth a visual (an
+    empty list, no data yet) should simply not call this, not call it with an
+    empty payload.
+    """
+    tool_context.state[f"{_STATE_PENDING_TOOL_TRACE}:{tool_name}"] = {
+        "kind": kind,
+        "payload": payload,
+    }
+
+
 async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
     """List the person's own Location circles: name, kind, and role in each.
 
@@ -1487,6 +1507,25 @@ async def list_pending_location_requests(tool_context: ToolContext) -> dict[str,
     )
 
 
+def _connections_trace_people(connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reduce a raw connections row list to the card-safe fields -- the same
+    name+masked-email shape disambiguation candidates already show over
+    voice, never the raw row (public key material, unmasked email, etc).
+    """
+    people = []
+    for row in connections:
+        email = row.get("email")
+        people.append(
+            {
+                "id": str(row.get("connectionId") or row.get("userId") or ""),
+                "name": str(row.get("displayName") or "").strip() or "Hussh member",
+                "detail": mask_email(str(email)) if email else None,
+                "photoUrl": row.get("photoUrl") or None,
+            }
+        )
+    return [p for p in people if p["id"]]
+
+
 async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
     """List the person's Connect connections."""
     user_id, blocked = await _read_tool_user_id(tool_context)
@@ -1494,11 +1533,21 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your connections",
         "connections",
         lambda: ConnectionsService().list_connections(user_id=user_id),
     )
+    if result.get("status") == "ok":
+        people = _connections_trace_people(result.get("connections") or [])
+        if people:
+            _publish_tool_trace(
+                tool_context,
+                "list_my_connections",
+                kind="connections_list",
+                payload={"people": people},
+            )
+    return result
 
 
 # Domains this tool will never read back over voice, even though they are
@@ -1570,6 +1619,16 @@ async def read_my_pkm_domain_summary(domain: str, tool_context: ToolContext) -> 
     if requested not in available:
         return {"status": "ok", "result": {"has_data": False, "domain": requested, "summary": {}}}
     summary = (index.domain_summaries or {}).get(requested) or {}
+    if summary:
+        # Only when there is something to show -- an empty summary dict would
+        # otherwise render as a blank card while the spoken answer already
+        # says "nothing on record yet".
+        _publish_tool_trace(
+            tool_context,
+            "read_my_pkm_domain_summary",
+            kind="pkm_domain_summary",
+            payload={"domain": requested, "label": label, "summary": dict(summary)},
+        )
     return {
         "status": "ok",
         "result": {"has_data": True, "domain": requested, "summary": dict(summary)},
