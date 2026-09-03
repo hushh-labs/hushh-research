@@ -39,6 +39,25 @@ if has_match '^hushh-webapp/(lib/voice/|components/agent/|scripts/voice/|__tests
   ran=1
 fi
 
+# Agent Chat is a two-agent window: One in the cloud and Puppy One on the
+# owner's own Mac. The invariants that matter are COMPOSITION properties (which
+# of One's controls survive the switch, whether a live voice session or an
+# in-flight turn does), and none of the eleven Puppy suites gated a pull
+# request before this lane existed, which is how a cloud model picker shipped
+# sitting over the on-device transcript. Kept separate from the voice-gateway
+# lane above: that one is the Kai action-gateway generator check, and folding
+# them together would hide which contract failed.
+if has_match '^hushh-webapp/(components/agent/|lib/hermes/|lib/services/puppy-one-service\.ts|lib/agent/agent-voice-settings\.ts|lib/morphy-ux/ui/segmented-control\.tsx|app/api/hermes/|app/one/puppy/|__tests__/agent/)'; then
+  run_check "agent surface" npm run verify:agent-surface
+  # And the same question asked of a real browser. JSDOM cannot report that a
+  # cloud model picker is SITTING on the on-device screen, or that the mode
+  # toggle slides sideways under the thumb that pressed it, which is exactly
+  # the shape the reported defect took. This spec needs no dev server: it
+  # compiles its fixture from the shipped source and loads it over file://.
+  run_check "agent surface layout" npm run test:agent-surface-layout
+  ran=1
+fi
+
 if has_match '^hushh-webapp/(lib/services/.*(cache|pkm|sync)|__tests__/services/.*(cache|pkm|stale-resource)|scripts/architecture/audit-cache-coherence\.mjs)'; then
   run_check "cache contract" npm run verify:cache
   ran=1

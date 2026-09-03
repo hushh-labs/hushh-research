@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { formatRelativeTime } from "@/lib/format/relative-time";
+import { isLocalHost } from "@/lib/hermes/local-host";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import {
   fetchPuppyJobs,
@@ -113,6 +114,17 @@ const LINK_POLL_MS = 300_000;
  */
 export const MACHINE_PANEL_SHEET_QUERY = "(max-width: 639.98px)";
 
+/**
+ * What a reader who is not at the serving machine is told instead.
+ *
+ * It states what is true and adds no remedy: opening this page ON the Mac does
+ * not help either, because the bridge is loopback on the SERVER, and the ways
+ * out (Trusted devices, `/hussh-one status`) belong to the chat panel directly
+ * below. One fact, one place.
+ */
+const OFF_MACHINE_READING =
+  "Live readings can only be taken on the machine Puppy One runs on.";
+
 /** Disk this full is the thing that stops an overnight job. */
 const DISK_WARNING_PCT = 90;
 
@@ -133,10 +145,16 @@ const TONE_CHIP: Record<Tone, string> = {
 /**
  * One reading of the machine, and the policy for when to take another.
  *
- * `live` is the sheet being open. Shut, this takes exactly one reading, on
- * mount, because the link banner has to be able to announce a dead session
- * without the owner opening anything and the gateway offers no cheaper
- * question than the whole reading. Open, it keeps that reading current.
+ * `live` is the sheet being open. Shut, this takes one reading on mount and
+ * one every five minutes (`LINK_POLL_MS`), because the link banner has to be
+ * able to announce a dead session without the owner opening anything and the
+ * gateway offers no cheaper question than the whole reading. Open, the
+ * 20-second cadence keeps that reading current, and it stops on close.
+ *
+ * `active` is the surface being on screen at all. A hidden surface reads
+ * nothing: that is what makes the workspace's mount-and-hide honest rather
+ * than a permanent poller, and it is why re-activating takes a reading
+ * immediately instead of showing a ten-minute-old green pill.
  *
  * Two links are read, from two authorities. The bridge's `payload.link` is the
  * device's own view of its session with One, readable only on the machine the
@@ -144,7 +162,7 @@ const TONE_CHIP: Record<Tone, string> = {
  * anywhere. On a deployed origin the bridge is a container and never the
  * owner's Mac, so the second is the only one a deployed viewer ever has.
  */
-function useMachineReading(live: boolean): {
+function useMachineReading(live: boolean, active: boolean): {
   payload: PuppyResources | null;
   readAt: number;
   link: PuppyLink | null;
@@ -188,18 +206,19 @@ function useMachineReading(live: boolean): {
   // this is one request every five minutes rather than the fifteen per minute
   // the always-on monitor used to make.
   useEffect(() => {
+    if (!active) return;
     void read();
     const timer = setInterval(() => void read(), LINK_POLL_MS);
     return () => clearInterval(timer);
-  }, [read]);
+  }, [active, read]);
 
   // Polling is what opening the sheet buys, and it stops when it closes.
   useEffect(() => {
-    if (!live) return;
+    if (!live || !active) return;
     void read();
     const timer = setInterval(() => void read(), POLL_MS);
     return () => clearInterval(timer);
-  }, [live, read]);
+  }, [active, live, read]);
 
   return { payload, readAt, link };
 }
@@ -216,7 +235,7 @@ function useMachineReading(live: boolean): {
  * says otherwise. That is the difference between a switch and a wish. A
  * refusal leaves the job exactly where it was and says so on the row.
  */
-function usePuppyScheduledWork(live: boolean): {
+function usePuppyScheduledWork(live: boolean, active: boolean): {
   payload: PuppyJobs | null;
   busyIds: ReadonlySet<string>;
   errors: Readonly<Record<string, string>>;
@@ -249,9 +268,9 @@ function usePuppyScheduledWork(live: boolean): {
   // while someone is looking at it, and the readings' own 20s poll already
   // re-renders this list often enough for "in 14 min" to stay honest.
   useEffect(() => {
-    if (!live) return;
+    if (!live || !active) return;
     void read();
-  }, [live, read]);
+  }, [active, live, read]);
 
   const onToggle = useCallback(
     (job: PuppyJob) => {
@@ -363,10 +382,53 @@ const PANEL_DESCRIPTION =
  * which mid-toggle would tear down the switch under the hand using it, and
  * lose the row's error with it.
  */
-export function PuppyMachineSheet({ className }: { className?: string }) {
+export function PuppyMachineSheet({
+  className,
+  active = true,
+}: {
+  className?: string;
+  /**
+   * Whether the surface this strip belongs to is on screen.
+   *
+   * The panel opens through a Radix portal attached to document.body, so a
+   * `hidden` class on an ancestor does nothing to it: without this, toggling
+   * back to One while the panel is open would leave the Puppy machine panel,
+   * its modal overlay and its focus trap floating over One's transcript under
+   * a header that says "One". It also stops a hidden strip polling.
+   */
+  active?: boolean;
+}) {
   const [open, setOpen] = useState(false);
-  const { payload, readAt, link } = useMachineReading(open);
-  const scheduled = usePuppyScheduledWork(open);
+  useEffect(() => {
+    if (!active) setOpen(false);
+  }, [active]);
+  const { payload, readAt, link } = useMachineReading(open, active);
+  const scheduled = usePuppyScheduledWork(open, active);
+  // The bridge's own message names a server env key. On a deployed origin the
+  // server is a Cloud Run container and never the reader's Mac, so that
+  // sentence is an instruction they cannot act on, about a machine they do not
+  // own. Computed HERE rather than inside the presentational component, which
+  // states that fetching and environment are the panel owner's contract, and
+  // passed down so BOTH probes (readings and jobs) answer the same reader.
+  const onMachine = isLocalHost();
+  // The control is offered only when the panel has something to say. Something
+  // is readable when the bridge answered with a live reading, or when One holds
+  // a heartbeat snapshot. `device.heartbeat` and not `device`: a trusted device
+  // that has never reported renders no snapshot at all, which is the normal
+  // state between `/hussh-one connect` and the first push, so gating on the
+  // device alone would leave exactly the empty panel this gate exists to stop.
+  const readable =
+    (payload?.configured === true && payload?.reachable === true) ||
+    Boolean(link?.device?.heartbeat);
+  // Latched, never unlatched: a transient "unavailable" link read must not
+  // yank the control out from under a thumb, and a control that appears once
+  // and stays is easier to trust than one that blinks. Starting false is
+  // correct -- on a deployed origin with no device it stays false forever,
+  // and on localhost it flips within one bridge read.
+  const [hasAnswer, setHasAnswer] = useState(false);
+  useEffect(() => {
+    if (readable) setHasAnswer(true);
+  }, [readable]);
   // This strip speaks for the DEVICE's own account of its session, which
   // knows things One cannot (an expired token on a still-trusted machine).
   // One's record of the device is the chat panel's to explain, directly under
@@ -403,6 +465,7 @@ export function PuppyMachineSheet({ className }: { className?: string }) {
       payload={payload}
       readAt={readAt}
       link={link}
+      onMachine={onMachine}
       className="rounded-none border-0"
       scheduled={
         <PuppyJobList
@@ -410,6 +473,7 @@ export function PuppyMachineSheet({ className }: { className?: string }) {
           busyIds={scheduled.busyIds}
           errors={scheduled.errors}
           onToggle={scheduled.onToggle}
+          onMachine={onMachine}
         />
       }
     />
@@ -418,6 +482,7 @@ export function PuppyMachineSheet({ className }: { className?: string }) {
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {notice ? <LinkNotice state={notice} /> : null}
+      {hasAnswer ? (
       <div className="flex justify-end">
         {asSheet ? (
           <Sheet open={open} onOpenChange={setOpen} modal>
@@ -457,6 +522,7 @@ export function PuppyMachineSheet({ className }: { className?: string }) {
           </Dialog>
         )}
       </div>
+      ) : null}
     </div>
   );
 }
@@ -535,10 +601,22 @@ export function PuppyResourceMonitor({
   payload,
   readAt = 0,
   link = null,
+  onMachine = true,
   className,
   scheduled,
 }: {
   payload: PuppyResources | null;
+  /**
+   * Whether the reader is sitting at the machine this page is served from.
+   *
+   * Passed in rather than read here, because this component is presentational
+   * and its tests drive it purely by payload. The two branches that describe a
+   * bridge with nothing to say are written from the SERVING machine's point of
+   * view, and off that machine "this machine" is the reader's phone, which has
+   * no relationship to the Mac Puppy One runs on. Defaults to true so the
+   * on-machine wording stays the component's own default.
+   */
+  onMachine?: boolean;
   /** Epoch ms of that read. 0 means "not stamped": no relative time is shown. */
   readAt?: number;
   /**
@@ -586,8 +664,14 @@ export function PuppyResourceMonitor({
     return (
       <Shell className={className}>
         <p className="px-4 py-3 text-xs text-muted-foreground">
-          {payload.message ||
-            "Set HERMES_API_SERVER_KEY to read the machine Puppy One runs on."}
+          {/* The whole branch text switches, not just `payload.message`: a
+              guard on the message alone would fall straight through to the
+              hardcoded env-key literal and leak it unchanged. And this branch
+              took NO reading, so it must not say one came from anywhere. */}
+          {onMachine
+            ? payload.message ||
+              "Set HERMES_API_SERVER_KEY to read the machine Puppy One runs on."
+            : OFF_MACHINE_READING}
         </p>
         <ReportedReading link={link} />
         {scheduled}
@@ -599,7 +683,13 @@ export function PuppyResourceMonitor({
     return (
       <Shell className={className}>
         <p className="px-4 py-3 text-xs text-muted-foreground">
-          Puppy One is not answering on this machine.
+          {/* "this machine" is true only where the server IS the Mac. Off it,
+              and on a flaky connection where `fetchPuppyResources` reports
+              unreachable, the reader would be told their own phone is at
+              fault. */}
+          {onMachine
+            ? "Puppy One is not answering on this machine."
+            : OFF_MACHINE_READING}
         </p>
         <ReportedReading link={link} />
         {scheduled}
@@ -1135,11 +1225,14 @@ function PuppyJobList({
   busyIds,
   errors,
   onToggle,
+  onMachine = true,
 }: {
   payload: PuppyJobs | null;
   busyIds: ReadonlySet<string>;
   errors: Readonly<Record<string, string>>;
   onToggle: (job: PuppyJob) => void;
+  /** See `PuppyResourceMonitor`. Defaults to the on-machine wording. */
+  onMachine?: boolean;
 }) {
   if (!payload) {
     return (
@@ -1151,6 +1244,12 @@ function PuppyJobList({
   }
 
   if (payload.configured === false) {
+    // Off the serving machine this probe has nothing of its own to add: the
+    // readings line above already said it once, and a second muted sentence
+    // saying near the same thing is the "panel of two sentences" failure in
+    // different words. The slot tolerates absence, so this leaves one honest
+    // line and no empty box.
+    if (!onMachine) return null;
     return (
       <p className="text-xs text-muted-foreground">
         {payload.message ||

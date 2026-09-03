@@ -282,7 +282,15 @@ export async function POST(request: NextRequest) {
     provider,
     model,
     reasoningEffort: effortInput || null,
-    onDevice: LOCAL_PROVIDERS.has(provider.toLowerCase()),
+    // No `onDevice` here on purpose. The pin call's only upstream request is
+    // `/api/model/set`, whose response carries no provider list, so this route
+    // could only answer from the hardcoded id set below -- and GET already
+    // prefers the gateway's own `entry.onDevice`. Two rules for one policy
+    // drift, and this was the half that could contradict the label the person
+    // had just read: a gateway-declared local provider whose slug is not one
+    // of the three names was shown as "on this machine" and then told, in the
+    // transcript, that it runs off it. The picker carries the row's own answer
+    // through to its caller instead.
     // Hermes writes config, which new sessions read. Saying "applied" here
     // would be wrong for the turn the user is in the middle of.
     appliesTo: "next-session",

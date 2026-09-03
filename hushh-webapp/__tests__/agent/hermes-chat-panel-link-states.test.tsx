@@ -76,7 +76,13 @@ function setHostname(hostname: string) {
   });
 }
 
-async function mount(value: PuppyLink, status: PuppyStatus = NOT_CONFIGURED) {
+async function mount(
+  // Null is the pre-read sentinel the shared store hands every surface before
+  // its first read lands. Every case here used to pass a real link, which is
+  // exactly why the first-load window shipped reading as a failed check.
+  value: PuppyLink | null,
+  status: PuppyStatus = NOT_CONFIGURED,
+) {
   mocks.fetchPuppyStatus.mockResolvedValue(status);
   mocks.link.current = value;
   const view = render(<HermesChatPanel />);
@@ -148,10 +154,25 @@ describe("HermesChatPanel when the bridge is not connected", () => {
       }),
     );
     const copy = await screen.findByText(/Puppy One on Kushal's Mac was last seen 2 hours ago/);
+    // The human action leads. The state being explained is precisely the one
+    // in which that machine is not available to type a slash command into, so
+    // waking it is said first and the command is the fallback. No promise that
+    // waking it works: quiet also covers a stopped gateway and a dead network.
     expect(copy).toHaveTextContent(
-      "Puppy One on Kushal's Mac was last seen 2 hours ago. It may be asleep or offline. On that machine, run /hussh-one status.",
+      "Puppy One on Kushal's Mac was last seen 2 hours ago. It answers only while that Mac is on and awake, so waking it is the first thing to try. If it stays quiet after that, run /hussh-one status on that machine.",
     );
+    expect(copy).not.toHaveTextContent(/comes back/);
     expect(screen.getByText("last seen 2 hours ago")).toBeInTheDocument();
+    // The only navigation this state can honestly offer, pinned the way the
+    // live and unlinked states already pin theirs.
+    expect(screen.getByRole("link", { name: "Trusted devices" })).toHaveAttribute(
+      "href",
+      DEVICES,
+    );
+    // The placeholder hedges to the same strength as the copy above it.
+    expect(
+      screen.getByPlaceholderText("Puppy One on Kushal's Mac is quiet right now"),
+    ).toBeDisabled();
   });
 
   it("quiet: says the machine has not reported when it never has", async () => {
@@ -168,10 +189,17 @@ describe("HermesChatPanel when the bridge is not connected", () => {
       /Puppy One on Kushal's Mac is trusted but has not reported yet/,
     );
     expect(copy).not.toHaveTextContent(/asleep or offline/);
+    // No wake instruction here: this device is not asleep, and saying so would
+    // be a guess dressed as a fact.
+    expect(copy).not.toHaveTextContent(/on and awake/);
     expect(screen.getByText("not connected")).toBeInTheDocument();
     expect(
       screen.getByPlaceholderText("Puppy One on Kushal's Mac has not reported yet"),
     ).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Trusted devices" })).toHaveAttribute(
+      "href",
+      DEVICES,
+    );
   });
 
   it("unlinked: points at the install source and the devices page", async () => {
@@ -201,7 +229,45 @@ describe("HermesChatPanel when the bridge is not connected", () => {
       // (sealed) device, and `reconnect` refuses to run on one.
       "Puppy One was unlinked from this account. On that machine, run /hussh-one connect.",
     );
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    // Unlinking can be done from another session or by someone else on the
+    // account, so this is news, and Trusted devices is the only page that says
+    // which device and when. Still no install anchor: that machine already has
+    // Puppy One on it.
+    expect(screen.getByRole("link", { name: "Trusted devices" })).toHaveAttribute(
+      "href",
+      DEVICES,
+    );
+    expect(
+      screen.queryByRole("link", { name: "Get Puppy One on GitHub" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("checking: says nothing about the machine before the first read lands", async () => {
+    // The link store answers null until its first read lands, and that read
+    // goes through a Firebase token plus a backend roundtrip while the bridge
+    // status returns instantly on a deployed origin. Null (never asked) and
+    // "unavailable" (asked, failed) used to render identically.
+    await mount(null);
+    expect(await screen.findByText("Checking Puppy One…")).toBeInTheDocument();
+    expect(screen.getByText("checking…")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Checking Puppy One…")).toBeDisabled();
+    // The two strings that belong to a FAILED read, and only to a failed read.
+    expect(
+      screen.queryByText("Couldn't check your Puppy One link right now."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("not connected")).not.toBeInTheDocument();
+  });
+
+  it("checking: holds that form even once the bridge has answered", async () => {
+    // Frame two: `status` lands well before the link, so a gate on `status`
+    // alone would leave the failure sentence painted for the whole link
+    // window. This is the case that gate would miss.
+    await mount(null, NOT_CONFIGURED);
+    await waitFor(() => expect(mocks.fetchPuppyStatus).toHaveBeenCalled());
+    expect(await screen.findByText("Checking Puppy One…")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Couldn't check your Puppy One link right now."),
+    ).not.toBeInTheDocument();
   });
 
   it("unavailable: admits the link could not be checked", async () => {

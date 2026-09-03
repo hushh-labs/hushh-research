@@ -394,7 +394,12 @@ describe("POST /api/hermes/models", () => {
     // Hermes writes config, which only new sessions read. Claiming it applied
     // now would leave the header naming a model that is not answering.
     expect(body.appliesTo).toBe("next-session");
-    expect(body.onDevice).toBe(true);
+    // And it asserts nothing about WHERE the model runs. This route cannot
+    // know: `/api/model/set` returns no provider list, so the only answer it
+    // could give is the hardcoded id set, which disagrees with the gateway's
+    // own `onDevice` for any provider slug outside it. The picker carries the
+    // row's own answer through to the transcript instead.
+    expect(body).not.toHaveProperty("onDevice");
   });
 
   it("passes an expensive-model warning through as a question", async () => {

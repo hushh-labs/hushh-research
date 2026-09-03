@@ -72,8 +72,13 @@ export default defineConfig({
       // real on-screen keyboard opens, which happens in the WKWebView the app
       // ships in. Its fixture builds its own shell, so the two known failures
       // above cannot reach it either.
+      // `agent-surface-model-authority.layout` is opted in because Agent Chat's
+      // header is a phone screen first, and the claim it measures -- which
+      // agent is answering -- is the one an owner reads on an iPhone. Its
+      // fixture builds its own document, so neither of the two known WebKit
+      // failures above can reach it.
       testMatch:
-        /(connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout)\.spec\.ts/,
+        /(agent-surface-model-authority\.layout|connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

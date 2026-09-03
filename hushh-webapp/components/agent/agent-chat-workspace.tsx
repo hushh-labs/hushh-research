@@ -5,6 +5,7 @@ import {
   FormEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -35,8 +36,6 @@ import {
   ThumbsUp,
   Trash2,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
@@ -83,10 +82,8 @@ import {
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
-import {
-  ChatMarkdownLink,
-  copyTextToClipboard,
-} from "@/components/agent/chat-markdown-link";
+import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
+import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
@@ -148,6 +145,7 @@ import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import {
   isAgentGeminiVoiceEnabled,
   requestAgentConversation,
+  requestAgentConversationStop,
 } from "@/lib/agent/agent-voice-settings";
 import {
   deleteAgentChatConversation,
@@ -781,94 +779,6 @@ function AgentWelcomePanel({
   );
 }
 
-function AgentMarkdown({ text }: { text: string }) {
-  return (
-    <div className="agent-markdown min-w-0 break-words">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          h1: ({ children }) => (
-            <h2 className="mb-2 mt-1 text-base font-semibold leading-6 text-foreground">
-              {children}
-            </h2>
-          ),
-          h2: ({ children }) => (
-            <h3 className="mb-2 mt-3 text-sm font-semibold leading-5 text-foreground">
-              {children}
-            </h3>
-          ),
-          h3: ({ children }) => (
-            <h4 className="mb-1.5 mt-3 text-sm font-semibold leading-5 text-foreground">
-              {children}
-            </h4>
-          ),
-          h4: ({ children }) => (
-            <h5 className="mb-1.5 mt-2 text-sm font-semibold leading-5 text-foreground">
-              {children}
-            </h5>
-          ),
-          p: ({ children }) => (
-            <p className="my-2 first:mt-0 last:mb-0">{children}</p>
-          ),
-          ul: ({ children }) => (
-            <ul className="my-2 ml-5 list-disc space-y-1">{children}</ul>
-          ),
-          ol: ({ children }) => (
-            <ol className="my-2 ml-5 list-decimal space-y-1">{children}</ol>
-          ),
-          li: ({ children }) => <li className="pl-1">{children}</li>,
-          a: ({ children, href }) => (
-            <ChatMarkdownLink href={href}>{children}</ChatMarkdownLink>
-          ),
-          code: ({ children, className }) => {
-            const inline = !className;
-            if (inline) {
-              return (
-                <code className="rounded border border-border/70 bg-muted px-1 py-0.5 font-mono text-[0.85em]">
-                  {children}
-                </code>
-              );
-            }
-            return (
-              <code className={cn("font-mono text-xs", className)}>
-                {children}
-              </code>
-            );
-          },
-          pre: ({ children }) => (
-            <pre className="my-3 overflow-x-auto rounded-md border border-border/70 bg-muted/60 p-3 leading-5">
-              {children}
-            </pre>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="my-3 border-l-2 border-primary/50 pl-3 text-muted-foreground">
-              {children}
-            </blockquote>
-          ),
-          table: ({ children }) => (
-            <div className="my-3 overflow-x-auto rounded-md border border-border/70">
-              <table className="min-w-full border-collapse text-left text-xs">
-                {children}
-              </table>
-            </div>
-          ),
-          th: ({ children }) => (
-            <th className="border-b border-border/70 bg-muted/60 px-3 py-2 font-semibold">
-              {children}
-            </th>
-          ),
-          td: ({ children }) => (
-            <td className="border-b border-border/50 px-3 py-2 align-top last:border-b-0">
-              {children}
-            </td>
-          ),
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
-}
 
 function useAnimatedAssistantText(targetText: string, active: boolean) {
   const [displayedText, setDisplayedText] = useState(active ? "" : targetText);
@@ -1343,6 +1253,33 @@ export function AgentChatWorkspace({
   // on the owner's machine.
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
+  // Puppy One is mounted on FIRST use and hidden thereafter, never unmounted.
+  // Unmounting it destroyed the whole on-device conversation and its Hermes
+  // session on every glance at One, which is exactly what the comment beside
+  // One's own transcript says must not happen to a turn in flight. Lazy,
+  // because a workspace that never opens Puppy must still cost the loopback
+  // gateway and the trusted-device list nothing.
+  const [puppyEverOpened, setPuppyEverOpened] = useState(false);
+  // One's transcript is hidden with display:none while Puppy is on screen, and
+  // a display:none element has no layout box, so the browser discards its
+  // scrollTop and it comes back at the top of a long history. Captured on
+  // scroll (before the state change, which a layout effect is too late for)
+  // and written back instantly (`scroll-smooth` on the same element would
+  // otherwise animate a long crawl down from the top).
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const oneScrollTopRef = useRef(0);
+  const enterPuppySurface = useCallback(() => {
+    // Unconditional, and not behind a `voiceActive` guard. It is a no-op when
+    // nothing is running, and it is the only shape that also covers the window
+    // where the microphone lease is held but the shared store still reads
+    // "idle": a session that came alive after the switch would be the cloud
+    // agent listening and speaking under a header that says "on your machine",
+    // with its mute and cancel controls inside the hidden composer.
+    requestAgentConversationStop();
+    setPuppyEverOpened(true);
+    setAgentSurface("puppy");
+  }, []);
+
   const [input, setInput] = useState("");
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
@@ -1743,11 +1680,46 @@ export function AgentChatWorkspace({
     voiceActive ||
     specialistBusy ||
     queuedPrompts.length > 0;
+  // Whether this person has more than one cloud model to choose between. The
+  // header reserves the picker's slot on this, and renders the control itself
+  // only in One: see the comment at the slot.
+  const canPickOneModel = Boolean(
+    modelPreference && modelPreference.choices.length > 1,
+  );
   const statusText = useMemo(() => {
-    // Every line below narrates One's turn. In Puppy One it would report on an
-    // agent the reader is not looking at, which is the same lie as merging the
-    // transcripts, told in the header instead.
-    if (isPuppySurface) return null;
+    // Every line below narrates One's turn, so in Puppy One a bare "Thinking"
+    // or "Streaming" would report on an agent the reader is not looking at:
+    // the same lie as merging the transcripts, told in the header instead.
+    //
+    // Silence is wrong too, though. One keeps streaming, keeps draining its
+    // queue and keeps waiting on a confirmation behind display:none, and none
+    // of that is visible from here. So the ambient and access states (still
+    // One's workspace, and unreadable as claims about the Puppy link) stay
+    // silent, and only One's own work in flight speaks -- always naming the
+    // agent, never with a bare verb.
+    if (isPuppySurface) {
+      if (
+        activeActionRun?.phase === "awaiting_confirmation" ||
+        pkmReviews.length > 0 ||
+        emailDraftOpen
+      ) {
+        // Blocked on the person, not working: its confirmation lives in the
+        // hidden transcript, so saying "working" would leave them waiting on
+        // something that can never finish by itself. The One segment of the
+        // toggle above is the way back.
+        return "One needs you";
+      }
+      if (
+        isStreaming ||
+        isChatLoading ||
+        isToolWorking ||
+        isPkmMemoryWorking ||
+        queuedPrompts.length > 0
+      ) {
+        return "One is still working";
+      }
+      return null;
+    }
     if (authLoading) return "Checking access";
     if (!user?.uid) return "Sign in required";
     if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh)
@@ -1776,8 +1748,10 @@ export function AgentChatWorkspace({
     isChatLoading,
     isLoadingHistory,
     isPkmMemoryWorking,
+    emailDraftOpen,
     isPuppySurface,
     isToolWorking,
+    pkmReviews.length,
     isStreaming,
     isVoiceConnecting,
     isVaultUnlocked,
@@ -1795,6 +1769,23 @@ export function AgentChatWorkspace({
       block: "end",
     });
   }, [emailDraftOpen, messages, pkmReviews, pendingSpecialistDirective]);
+
+  // Put One's transcript back where the reader left it after a look at Puppy.
+  // `useLayoutEffect` and not `useEffect`, so the correction lands in the same
+  // frame the element is re-displayed and no top-of-history flash is painted;
+  // `behavior: "instant"`, because `scroll-smooth` on this element applies to
+  // a scrollTop write too and would animate a long crawl down from the top.
+  // The browser clamps to scrollHeight, which is the right failure mode if the
+  // transcript shrank while Puppy was on screen.
+  useLayoutEffect(() => {
+    if (isPuppySurface) return;
+    const element = transcriptRef.current;
+    if (!element) return;
+    element.scrollTo({
+      top: oneScrollTopRef.current,
+      behavior: "instant" as ScrollBehavior,
+    });
+  }, [isPuppySurface]);
 
   useEffect(() => {
     const token = getVaultOwnerToken();
@@ -2130,6 +2121,15 @@ export function AgentChatWorkspace({
   useEffect(() => {
     if (!handoff || consumedHandoffIdRef.current === handoff.id) return;
     consumedHandoffIdRef.current = handoff.id;
+    // Every handoff is One speaking. Landing one behind the Puppy surface
+    // would run a cloud turn under a header that says "on your machine", which
+    // is the one thing this tier promises never happens -- and its confirmation
+    // card, its queued prompt and its vault dialog would all be invisible or
+    // over the wrong agent. Placed AFTER the dedupe guard on purpose, so a
+    // re-render carrying an already-consumed handoff cannot yank the surface
+    // away from someone who just toggled to Puppy. Setting "one" while already
+    // "one" is a React bail-out, so no dependency changes and no loop.
+    setAgentSurface("one");
     const timestamp = formatNow();
     const nextMessages: AgentMessage[] = [];
     const transcript = handoff.transcript?.trim();
@@ -4715,6 +4715,7 @@ export function AgentChatWorkspace({
       className={sidebarClassName}
       collapsed={collapsed}
       mode={mode}
+      surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
       onCreateNew={handleSidebarCreateNewChat}
@@ -4882,8 +4883,13 @@ export function AgentChatWorkspace({
                   {isPuppySurface ? "Puppy One" : "One"}
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
+                  {/* Not "On your machine": most accounts have no machine, and
+                      this line renders identically for them. What Puppy One is
+                      is said once, by the surface below, and only to the reader
+                      who has not connected one yet; the workspace header must
+                      not promise a Mac it cannot see. */}
                   {isPuppySurface
-                    ? "On your machine · separate conversation"
+                    ? "Separate conversation"
                     : "Your private agent"}
                 </p>
               </div>
@@ -4894,21 +4900,60 @@ export function AgentChatWorkspace({
                 The compact segmented control at header scale. The full-width
                 filter primitive was tried here first and stood ~44px tall
                 against 36px icon buttons, so the header stopped lining up.
-                This one is h-8 with an eased sliding transition, which is the
-                animation the toggle was always missing.
+                This one is h-8. It has NO sliding thumb: the active segment is
+                a per-button background that cross-fades, and a comment here
+                used to claim a slide the code never had. `SegmentedPill` is
+                the primitive that ships the translateX indicator, with its own
+                theme hooks and reduced-motion guard; the day this header wants
+                that animation it should move to that component rather than
+                grow a second implementation of it.
               */}
               <SegmentedControl
                 variant="compact"
                 size="sm"
+                ariaLabel="Agent"
                 value={agentSurface}
-                onValueChange={(next) => setAgentSurface(next as AgentChatSurface)}
+                onValueChange={(next) => {
+                  const surface = next as AgentChatSurface;
+                  if (surface === "puppy") {
+                    enterPuppySurface();
+                    return;
+                  }
+                  setAgentSurface(surface);
+                }}
                 options={[
-                  { value: "one", label: "One" },
-                  { value: "puppy", label: "Puppy" },
+                  {
+                    value: "one",
+                    label: "One",
+                    accessibleLabel: "One, your cloud agent",
+                  },
+                  {
+                    value: "puppy",
+                    label: "Puppy",
+                    accessibleLabel:
+                      "Puppy One, on your machine, with its own conversation",
+                  },
                 ]}
                 className="w-auto shrink-0"
               />
-              {modelPreference && modelPreference.choices.length > 1 ? (
+              {/* A fixed slot, present whenever this person HAS a picker,
+                  so switching surfaces cannot slide the toggle sideways under
+                  the thumb that just pressed it. This is the same jump the
+                  status slot below was widened to stop, and the picker is the
+                  higher-frequency control of the two: it also pops in after
+                  the async load on every One mount. An explicit width, because
+                  a spacer carrying only max-w collapses to zero; and no slot
+                  at all for someone with a single model, so the header does
+                  not reserve space for a control they never see. */}
+              {canPickOneModel && modelPreference ? (
+              <span className="flex w-[7.5rem] shrink-0 justify-end sm:w-[9.5rem]">
+              {/* One's model picker names the CLOUD model and writes One's
+                  preference. In Puppy One it would assert a Gemini is running
+                  on the owner's machine, and choosing an item would silently
+                  rewrite the other agent's model with no visible consequence
+                  on the screen being looked at. Gated, not merely hidden: the
+                  write must not stay reachable from the on-device surface. */}
+              {!isPuppySurface ? (
                 <Select
                   value={modelPreference.effective_model}
                   onValueChange={(nextModel) => {
@@ -4932,9 +4977,11 @@ export function AgentChatWorkspace({
                 >
                   <SelectTrigger
                     data-testid="agent-chat-model-picker"
-                    aria-label="Model"
+                    // Names the agent it configures, so it still says which
+                    // one when it is read out of context.
+                    aria-label="One's model"
                     title={`Running ${modelPreference.effective_model}`}
-                    className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                    className="h-8 w-auto max-w-full shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground"
                   >
                     {/* "3.8 Flash", not "Gemini 3.8 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
@@ -4956,6 +5003,8 @@ export function AgentChatWorkspace({
                     ))}
                   </SelectContent>
                 </Select>
+              ) : null}
+              </span>
               ) : null}
               {/* A fixed slot, always present. This used to mount and unmount
                   with the status, and because the cluster is shrink-0 the whole
@@ -4998,15 +5047,33 @@ export function AgentChatWorkspace({
             </div>
           </div>
 
-          {/* Puppy One brings its own transcript and its own composer. One's
-              transcript below is hidden rather than unmounted, so a cloud turn
-              already in flight is not destroyed by looking at the other agent;
-              `hidden` is display:none, so it leaves the tab order and the
-              accessibility tree while it is not the agent on screen. Nothing
-              is shared between the two: no message, no history row. */}
-          {isPuppySurface ? <PuppyOneSurface /> : null}
+          {/* Both transcripts are HIDDEN rather than unmounted, and the
+              symmetry is the point: `hidden` is display:none, so the surface
+              that is not on screen leaves the tab order and the accessibility
+              tree, while a turn already in flight (One's cloud stream, or a
+              local answer that can take tens of seconds) is not destroyed by a
+              glance at the other agent. Puppy is mounted lazily, so a
+              workspace that never opens it costs the loopback gateway and the
+              trusted-device list nothing, and `active` is what stops the
+              hidden one polling and what closes its portalled machine panel,
+              which a `hidden` ancestor cannot reach. Nothing is shared between
+              the two: no message, no history row. */}
+          {puppyEverOpened ? (
+            <PuppyOneSurface
+              active={isPuppySurface}
+              className={cn(!isPuppySurface && "hidden", !isPopover && "lg:px-8")}
+            />
+          ) : null}
 
           <div
+            ref={transcriptRef}
+            onScroll={(event) => {
+              // A display:none element fires no scroll events, so this only
+              // ever records One's own position; the guard is belt and braces.
+              if (!isPuppySurface) {
+                oneScrollTopRef.current = event.currentTarget.scrollTop;
+              }
+            }}
             className={cn(
               "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
               isPopover ? "pb-4" : "pb-6 lg:px-8",

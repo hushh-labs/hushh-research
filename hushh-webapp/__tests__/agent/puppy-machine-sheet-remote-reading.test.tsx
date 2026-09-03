@@ -40,6 +40,12 @@ import type {
  * the control speaks ONLY for the device's own report of its session; One's
  * record is the chat panel's to explain, directly under the strip, so the same
  * sentence and the same install link can never appear twice on one screen.
+ *
+ * Most cases here describe the bridge's payload, not the reader's origin:
+ * jsdom serves `http://localhost/`, so unless a case says otherwise these run
+ * as the developer sitting at the serving machine. The deployed reader has its
+ * own block at the foot of this file, because that is the reader who was being
+ * shown a server env-var instruction about a machine they do not own.
  */
 
 const UNREACHABLE: PuppyResources = { configured: true, reachable: false };
@@ -96,6 +102,15 @@ async function mount(payload: PuppyResources, value: PuppyLink) {
   return view;
 }
 
+const realLocation = window.location;
+
+function setHostname(hostname: string) {
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: { ...realLocation, hostname, origin: `https://${hostname}` },
+  });
+}
+
 async function open() {
   fireEvent.click(await screen.findByRole("button", { name: /this machine/i }));
   return screen.findByRole("dialog");
@@ -111,6 +126,10 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: realLocation,
+  });
 });
 
 describe("PuppyMachineSheet reading from One", () => {
@@ -168,7 +187,11 @@ describe("PuppyMachineSheet reading from One", () => {
     expect(within(sheet).queryByText("gemma-4-26b-a4b-qat")).not.toBeInTheDocument();
   });
 
-  it("renders nothing reported when the device has no snapshot", async () => {
+  it("offers no control at all when the device has no snapshot", async () => {
+    // A trusted device that has never reported is the normal state between
+    // `/hussh-one connect` and the first push. With an unreachable bridge
+    // there is no reading from either authority, so the panel would be one
+    // muted sentence: the control is not offered rather than opened onto that.
     await mount(
       UNREACHABLE,
       link({
@@ -183,8 +206,9 @@ describe("PuppyMachineSheet reading from One", () => {
         },
       }),
     );
-    const sheet = await open();
-    expect(within(sheet).queryByText(/As reported to Hussh One/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /this machine/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("leaves One's record to the chat panel: no install link, no banner on the strip", async () => {
@@ -256,12 +280,73 @@ describe("PuppyMachineSheet reading from One", () => {
     expect(screen.queryByText(/Hussh One/)).not.toBeInTheDocument();
   });
 
+  it("says nothing about a server env key to a deployed reader", async () => {
+    // The reader who actually hits this branch: a Cloud Run origin, where the
+    // bridge is a container and never their Mac. Both probes were printing an
+    // instruction to set a key on a server they do not own.
+    setHostname("uat.one.hushh.ai");
+    mocks.fetchPuppyJobs.mockResolvedValue({
+      configured: false,
+      reason: "not_configured",
+      message: "Set HERMES_API_SERVER_KEY to see Puppy One's scheduled work.",
+      jobs: [],
+    } satisfies PuppyJobs);
+    await mount(NOT_CONFIGURED, liveWithSnapshot());
+    const sheet = await open();
+
+    expect(within(sheet).queryByText(/HERMES_API_SERVER_KEY/)).not.toBeInTheDocument();
+    expect(
+      within(sheet).getByText(
+        "Live readings can only be taken on the machine Puppy One runs on.",
+      ),
+    ).toBeInTheDocument();
+    // Said once. The jobs probe has nothing of its own to add off-machine.
+    expect(
+      within(sheet).getAllByText(
+        "Live readings can only be taken on the machine Puppy One runs on.",
+      ),
+    ).toHaveLength(1);
+    expect(
+      within(sheet).queryByText("Puppy One did not answer about its scheduled work."),
+    ).not.toBeInTheDocument();
+    // What One heard from the machine still speaks, because that is the only
+    // reading this reader will ever get.
+    expect(within(sheet).getByText("gemma-4-26b-a4b-qat")).toBeInTheDocument();
+  });
+
+  it("does not claim the reader's own device is the one not answering", async () => {
+    setHostname("uat.one.hushh.ai");
+    await mount(UNREACHABLE, liveWithSnapshot());
+    const sheet = await open();
+    expect(
+      within(sheet).queryByText("Puppy One is not answering on this machine."),
+    ).not.toBeInTheDocument();
+    expect(
+      within(sheet).getByText(
+        "Live readings can only be taken on the machine Puppy One runs on.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the developer hint on the machine that serves the page", async () => {
+    // jsdom already serves localhost, but the assertion is explicit so the
+    // localhost half cannot quietly disappear with the deployed half.
+    setHostname("localhost");
+    await mount(NOT_CONFIGURED, liveWithSnapshot());
+    const sheet = await open();
+    expect(
+      within(sheet).getByText("Set HERMES_API_SERVER_KEY to read the machine."),
+    ).toBeInTheDocument();
+  });
+
   it("shows nothing from One while the bridge is still being read", async () => {
     // Until the bridge answers, One's reading would be a second account of
     // the machine that a live bridge is about to replace.
     mocks.fetchPuppyResources.mockReturnValue(new Promise(() => {}));
     mocks.link.current = liveWithSnapshot();
     render(<PuppyMachineSheet />);
+    // One's heartbeat alone justifies the control, so it is offered before the
+    // bridge has answered.
     fireEvent.click(await screen.findByRole("button", { name: /this machine/i }));
     const sheet = await screen.findByRole("dialog");
     expect(within(sheet).getByText("Reading this machine…")).toBeInTheDocument();

@@ -6,6 +6,16 @@
 export const AGENT_CONVERSATION_REQUEST_EVENT =
   "hushh:agent-conversation-request";
 export const AGENT_CONVERSATION_READY_EVENT = "hushh:agent-conversation-ready";
+/**
+ * An explicit STOP, not the toggle.
+ *
+ * `requestAgentConversation` asks the owner to toggle, which starts a session
+ * when none is running and no-ops during the window where the mic lease is
+ * held but the transport is not live yet. Neither is what a caller means when
+ * it needs a live One session to end, so the broker carries its own verb. The
+ * caller still owns no audio: this is the same window-event shape.
+ */
+export const AGENT_CONVERSATION_STOP_EVENT = "hushh:agent-conversation-stop";
 export const AGENT_CONVERSATION_OUTCOME_EVENT =
   "hushh:agent-conversation-outcome";
 
@@ -68,6 +78,19 @@ export function requestAgentConversation(
   }
   dispatchRequest(normalized);
   return "dispatched";
+}
+
+/**
+ * Ask the persistent Agent Bar to END One Live now.
+ *
+ * Unqueued and unconditional on purpose. It is a no-op when nothing is
+ * running, and being unconditional is the only shape that also covers the
+ * window between the microphone lease being acquired and the transport coming
+ * alive, where the shared voice store still reads "idle".
+ */
+export function requestAgentConversationStop(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AGENT_CONVERSATION_STOP_EVENT));
 }
 
 export function markAgentConversationOwnerReady(): () => void {

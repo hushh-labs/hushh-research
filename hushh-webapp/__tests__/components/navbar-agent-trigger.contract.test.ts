@@ -47,7 +47,10 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain('data-testid="one-agent-chat-open"');
     expect(agentBar).toContain('data-agent-action="chat"');
     expect(agentBar).toContain("onClick={openAgentChat}");
-    expect(agentBar).toContain("aria-label={`Chat with One. ${hint}`}");
+    // Not "Chat with One": the workspace this opens is a two-agent window
+    // (One and Puppy One) whose mode survives a minimise, so the control
+    // names the workspace rather than promising one of the two agents.
+    expect(agentBar).toContain("aria-label={`Open Agent Chat. ${hint}`}");
     expect(agentBar).toContain('data-testid="one-agent-chat-label"');
     expect(agentBar).not.toContain("openSearchAndChat");
     expect(agentBar).not.toContain("openKaiCommandBar");

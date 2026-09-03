@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   fetchPuppyResources: vi.fn(),
   fetchPuppyJobs: vi.fn(),
   setPuppyJobPaused: vi.fn(),
+  link: { current: null as unknown },
 }));
 
 vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
@@ -26,10 +27,11 @@ vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
 });
 
 // One's own record of the device is a separate authority, tested next door
-// in `puppy-machine-sheet-remote-reading.test.tsx`. Here it has nothing to
-// say, so every assertion in this file is about the device's own report.
+// in `puppy-machine-sheet-remote-reading.test.tsx`. Most cases here let it say
+// nothing, so their assertions are about the device's own report; the two that
+// need a device to justify the control set `mocks.link.current` themselves.
 vi.mock("@/lib/hermes/use-puppy-link", () => ({
-  usePuppyLink: () => null,
+  usePuppyLink: () => mocks.link.current,
 }));
 
 import {
@@ -39,6 +41,7 @@ import {
 import type {
   PuppyJob,
   PuppyJobs,
+  PuppyLink,
   PuppyResources,
 } from "@/lib/services/puppy-one-service";
 
@@ -51,8 +54,13 @@ import type {
  *     reading keeps saying "healthy" while a machine's login is gone, so the
  *     one fact that cannot be inferred from the rest is the one fact that
  *     cannot be put behind a tap.
- *  2. A shut panel is silent. Nothing repeats against the local gateway while
- *     nobody is looking at the answer.
+ *  2. Opening the panel is what buys the 20-second cadence, and closing it is
+ *     what ends it. One full reading is still re-taken every five minutes with
+ *     the panel shut, because promise 1 depends on it and the gateway offers
+ *     no cheaper question than the whole reading.
+ *  3. The control is offered only when the panel has something to say. An
+ *     account with no machine tapping "This machine" and getting two muted
+ *     sentences is the tap costing them the only question the screen invited.
  *
  * `__tests__/setup.ts` stubs `matchMedia` as permanently non-matching, which
  * is the desktop answer; the phone lane restubs it per test.
@@ -76,17 +84,42 @@ function setViewport(kind: "phone" | "desktop") {
   });
 }
 
-function mount(payload: PuppyResources) {
+/** A device One has actually heard from, which is what justifies the control. */
+function reportingDevice(): PuppyLink {
+  const now = Date.now();
+  return {
+    state: "live",
+    activeCount: 1,
+    checkedAt: now,
+    device: {
+      id: "dev-1",
+      name: "Kushal's Mac",
+      lastHeartbeatAt: now - 60_000,
+      lastSyncedAt: null,
+      heartbeat: { current_model: "gemma-4-26b-a4b-qat", busy: false },
+    },
+  };
+}
+
+function mount(payload: PuppyResources, value: PuppyLink | null = null) {
   mocks.fetchPuppyResources.mockResolvedValue(payload);
+  mocks.link.current = value;
   return render(<PuppyMachineSheet />);
 }
 
+/**
+ * Synchronous on purpose: several cases below run under `vi.useFakeTimers()`,
+ * and testing-library's `findBy*` cannot see vitest's fake clock, so its
+ * polling waits on a timer that never fires and hangs the whole file. Cases on
+ * real timers await `findByRole` directly instead.
+ */
 function trigger() {
   return screen.getByRole("button", { name: /this machine/i });
 }
 
 beforeEach(() => {
   setViewport("desktop");
+  mocks.link.current = null;
   mocks.fetchPuppyJobs.mockResolvedValue({
     configured: true,
     reachable: true,
@@ -118,7 +151,41 @@ describe("PuppyMachineSheet", () => {
     expect(screen.queryByText("41% used")).not.toBeInTheDocument();
 
     // One control, named for what it opens.
-    expect(trigger()).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /this machine/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not offer the control when neither authority can answer", async () => {
+    // A deployed viewer with no machine: the bridge is a container that will
+    // never answer, and One holds no snapshot. Behind the tap there would be
+    // one muted sentence and nothing else.
+    mount({ configured: false, reason: "not_configured", message: "x" });
+    await waitFor(() =>
+      expect(mocks.fetchPuppyResources).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      screen.queryByRole("button", { name: /this machine/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the control once it has appeared, through a transient unreadable link", async () => {
+    // A brief "unavailable" read must not yank the control out from under a
+    // thumb, so the answer latches and never unlatches.
+    const view = mount({ configured: true, reachable: false }, reportingDevice());
+    expect(
+      await screen.findByRole("button", { name: /this machine/i }),
+    ).toBeInTheDocument();
+    mocks.link.current = {
+      state: "unavailable",
+      device: null,
+      activeCount: 0,
+      checkedAt: Date.now(),
+    };
+    view.rerender(<PuppyMachineSheet />);
+    expect(
+      screen.getByRole("button", { name: /this machine/i }),
+    ).toBeInTheDocument();
   });
 
   it("opens the readings on the control, and puts them away again", async () => {
@@ -143,18 +210,23 @@ describe("PuppyMachineSheet", () => {
   });
 
   it("carries the calm states into the sheet unchanged", async () => {
-    const notConfigured = mount({
-      configured: false,
-      reason: "not_configured",
-      message: "Set HERMES_API_SERVER_KEY to read the machine.",
-    });
+    // Pointed at a device One has heard from, which is the state where those
+    // calm sentences are still the right answer AND the control is offered.
+    const notConfigured = mount(
+      {
+        configured: false,
+        reason: "not_configured",
+        message: "Set HERMES_API_SERVER_KEY to read the machine.",
+      },
+      reportingDevice(),
+    );
     fireEvent.click(await screen.findByRole("button", { name: /this machine/i }));
     expect(
       await screen.findByText("Set HERMES_API_SERVER_KEY to read the machine."),
     ).toBeInTheDocument();
     notConfigured.unmount();
 
-    mount({ configured: true, reachable: false });
+    mount({ configured: true, reachable: false }, reportingDevice());
     fireEvent.click(await screen.findByRole("button", { name: /this machine/i }));
     expect(
       await screen.findByText("Puppy One is not answering on this machine."),
@@ -281,7 +353,8 @@ describe("PuppyMachineSheet", () => {
       });
       expect(mocks.fetchPuppyResources).toHaveBeenCalledTimes(1);
 
-      // Three poll intervals with the sheet shut, and not one request.
+      // Three of the OPEN cadence's intervals with the panel shut, and not
+      // one request: that cadence is what opening buys.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
@@ -305,6 +378,19 @@ describe("PuppyMachineSheet", () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
       expect(mocks.fetchPuppyResources).toHaveBeenCalledTimes(3);
+
+      // But the link re-check survives, because being signed out of Hussh One
+      // is not opt-in: it is announced without anyone opening anything. Both
+      // halves of the contract in one walk, so a future change that drops the
+      // re-check, or that lets the fast cadence escape the open gate, fails.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300_000);
+      });
+      expect(mocks.fetchPuppyResources).toHaveBeenCalledTimes(4);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(mocks.fetchPuppyResources).toHaveBeenCalledTimes(4);
     } finally {
       vi.useRealTimers();
     }
@@ -316,7 +402,7 @@ describe("PuppyMachineSheet", () => {
       reachable: true,
     });
     const view = render(<PuppyMachineSheet />);
-    fireEvent.click(trigger());
+    fireEvent.click(await screen.findByRole("button", { name: /this machine/i }));
     await waitFor(() =>
       expect(mocks.fetchPuppyResources).toHaveBeenCalledTimes(2),
     );
@@ -445,7 +531,7 @@ describe("PuppyMachineSheet scheduled work", () => {
     // no such duty, so nobody asked the gateway anything about them.
     expect(mocks.fetchPuppyJobs).not.toHaveBeenCalled();
 
-    fireEvent.click(trigger());
+    fireEvent.click(await screen.findByRole("button", { name: /this machine/i }));
     await waitFor(() => expect(mocks.fetchPuppyJobs).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
