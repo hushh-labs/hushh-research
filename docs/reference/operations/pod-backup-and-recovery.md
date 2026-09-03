@@ -369,6 +369,23 @@ update.**
 
 Guard: `tests/test_pod_update_detection.py`, `__tests__/feed/agent-update-detection.test.ts`.
 
+**Two sweep defects seen on the first deploy of this (2026-09-03), both fixed in the follow-up:**
+
+- **An older hub revision moved a pod backwards.** During a rollout Cloud Run keeps the
+  previous hub revision's instances alive for a while, and each instance sweeps against
+  its own `HUSSH_ONE_POD_IMAGE`; revisions 00060 and 00061 alternately moved the founder's
+  pod forward and back (a ~90s PUT and a restart each time) until the old instances
+  drained. The upgrade now records `backend_metadata.imageSetByRevision` (the hub's
+  `K_REVISION`), and `set_by_newer_hub` makes an older revision skip any row a newer one
+  already wrote. Revision names are zero-padded and monotonic per service, so string
+  order is deploy order.
+- **The second worker's lease claim raised instead of yielding.** The lease value is
+  `<iso>|<target>` and the claim SQL cast the whole string to `timestamptz`; every
+  contested claim surfaced as `DatabaseExecutionError`. It now casts
+  `split_part(..., '|', 1)`.
+- The reconcile worker's failure line now carries `detail=` (the exception text, bounded),
+  because `error=ImageCopyError` alone said nothing about which grant or repo refused.
+
 ## Memory Bank on the person's own Vertex (2026-09-03)
 
 Founder decision: the pod's ADK memory is **Vertex AI Memory Bank in the person's

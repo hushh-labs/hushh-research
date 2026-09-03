@@ -407,10 +407,11 @@ class PersonalAgentReconcileWorker:
                 # Type only, never the message: the message can carry a cloud error
                 # body, a URL, or a token.
                 logger.warning(
-                    "[%s] upgrade failed hushh_id=%s error=%s",
+                    "[%s] upgrade failed hushh_id=%s error=%s detail=%s",
                     _LABEL,
                     pod.hushh_id or "<none>",
                     type(exc).__name__,
+                    " ".join(str(exc).split())[:240] or "<no detail>",
                 )
         if len(stale) > len(batch):
             logger.info(

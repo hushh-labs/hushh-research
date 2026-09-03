@@ -728,7 +728,7 @@ class PersonalAgentRegistryRepo:
               AND status = 'provisioned'
               AND (
                     backend_metadata->>'upgradeLease' IS NULL
-                    OR CAST(backend_metadata->>'upgradeLease' AS timestamptz)
+                    OR CAST(split_part(backend_metadata->>'upgradeLease', '|', 1) AS timestamptz)
                        < CAST(:stale_before AS timestamptz)
                   )
             RETURNING user_id

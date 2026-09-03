@@ -799,3 +799,67 @@ async def test_the_registry_lease_is_one_conditional_write(monkeypatch):
 
     _Result.data = []
     assert await repo.claim_image_upgrade(user_id="uid-1", target_image=SOURCE_NEW) is False
+
+
+# ---- an older hub never moves a pod backwards (2026-09-03) ---------------------------
+
+
+def test_a_row_set_by_a_newer_hub_revision_is_left_alone() -> None:
+    from hushh_mcp.services.personal_agent_provisioning_service import set_by_newer_hub
+
+    row = {"backend_metadata": {"imageSetByRevision": "consent-protocol-00061-9p2"}}
+    assert set_by_newer_hub(row, own_revision="consent-protocol-00060-lr6") is True
+    assert set_by_newer_hub(row, own_revision="consent-protocol-00061-9p2") is False
+    assert set_by_newer_hub(row, own_revision="consent-protocol-00062-abc") is False
+    # Unknown on either side means no claim; a different service means no ordering.
+    assert set_by_newer_hub(row, own_revision="") is False
+    assert (
+        set_by_newer_hub({"backend_metadata": {}}, own_revision="consent-protocol-00060-lr6")
+        is False
+    )
+    assert set_by_newer_hub(row, own_revision="other-service-00099-zzz") is False
+
+
+@pytest.mark.asyncio
+async def test_candidates_exclude_pods_a_newer_hub_already_moved(monkeypatch, service_env) -> None:
+    pas, _ = service_env
+    monkeypatch.setenv("K_REVISION", "consent-protocol-00060-lr6")
+    old = "gcr.io/p/consent-protocol-pod:dev-old"
+    registry = FakeRegistry({})
+    backend = FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    async def _rows(limit=200):
+        return [
+            {
+                "user_id": "u-newer",
+                "hushh_id": "ha1_newer",
+                "backend_metadata": {
+                    "source_image": old,
+                    "imageSetByRevision": "consent-protocol-00061-9p2",
+                },
+            },
+            {
+                "user_id": "u-plain",
+                "hushh_id": "ha1_plain",
+                "backend_metadata": {"source_image": old},
+            },
+        ]
+
+    monkeypatch.setattr(registry, "fetch_upgrade_candidates", _rows, raising=False)
+    out = await service.list_upgrade_candidates(
+        current_image="gcr.io/p/consent-protocol-pod:dev-new"
+    )
+    assert [row["hushh_id"] for row in out] == ["ha1_plain"]
+
+
+def test_the_lease_claim_parses_only_the_timestamp_half() -> None:
+    """The lease is `<iso>|<target>`; casting the whole string to timestamptz raised
+    DatabaseExecutionError for the SECOND worker every time (seen live 2026-09-03)."""
+    import inspect
+
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    src = inspect.getsource(PersonalAgentRegistryRepo.claim_image_upgrade)
+    assert "split_part(backend_metadata->>'upgradeLease', '|', 1)" in src
+    assert "CAST(backend_metadata->>'upgradeLease' AS timestamptz)" not in src

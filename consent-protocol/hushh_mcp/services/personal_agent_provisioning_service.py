@@ -304,6 +304,36 @@ def running_image(row: Optional[dict[str, Any]]) -> Optional[str]:
 UPGRADE_LEASE_FRESH_FOR_SECONDS = 600
 
 
+def hub_revision() -> str:
+    """This process's Cloud Run revision name (``consent-protocol-00061-9p2``), or ''."""
+    import os  # noqa: PLC0415
+
+    return (os.getenv("K_REVISION") or "").strip()
+
+
+def set_by_newer_hub(row: Optional[dict], *, own_revision: Optional[str] = None) -> bool:
+    """Did a NEWER hub revision than this one last set the pod's image?
+
+    During a rollout Cloud Run keeps the previous hub revision's instances alive for
+    a while, and every instance runs the reconcile sweep against ITS OWN
+    ``HUSSH_ONE_POD_IMAGE``. Seen live 2026-09-03: revision 00060 (target
+    ``dev-e53e0c6a0``) and 00061 (target ``dev-ec552dd3c``) alternately moved the
+    founder's pod forward and back, a ~90s PUT and a restart each time, until the
+    old instances drained. The image a pod runs must only ever move forward, so
+    the upgrade records which hub revision set it and an older revision refuses to
+    touch a row a newer one already wrote. Revision names are zero-padded and
+    monotonic within a service, so string order is deploy order.
+    """
+    own = (own_revision if own_revision is not None else hub_revision()).strip()
+    metadata = (row or {}).get("backend_metadata")
+    theirs = str((metadata or {}).get("imageSetByRevision") or "").strip()
+    if not own or not theirs:
+        return False
+    if own.rsplit("-", 2)[0] != theirs.rsplit("-", 2)[0]:
+        return False  # a different service; no ordering to speak of
+    return theirs > own
+
+
 def _lease_is_fresh(value: Any) -> bool:
     """``upgradeLease`` is ``<iso timestamp>|<target image>``; only the timestamp
     decides freshness. Anything unparseable is treated as absent, never as a lock."""
@@ -1051,6 +1081,10 @@ class PersonalAgentProvisioningService:
                 and int(marker.get("attempts") or 0) >= UPGRADE_ATTEMPTS_PER_IMAGE
             ):
                 continue
+            if set_by_newer_hub(row):
+                # A newer hub already moved this pod; this process is the previous
+                # revision draining out, and its target is the past.
+                continue
             if _lease_is_fresh(((row or {}).get("backend_metadata") or {}).get("upgradeLease")):
                 continue
             out.append(row)
@@ -1111,6 +1145,18 @@ class PersonalAgentProvisioningService:
             raise PersonalAgentUpgradeUnsupportedError(
                 f"backend {getattr(backend, 'backend_id', '?')!r} cannot upgrade a pod in place"
             )
+        if set_by_newer_hub(row):
+            logger.info(
+                "personal_agent.upgrade_skipped hushh_id=%s reason=set_by_newer_hub", hushh_id
+            )
+            return {
+                "hushhId": hushh_id,
+                "status": "provisioned",
+                "upgraded": False,
+                "skipped": "set_by_newer_hub",
+                "image": running_image(row),
+                "previousImage": running_image(row),
+            }
         # Single-flight across hub workers: the lease is one conditional write on
         # the row, and losing it means another worker is already moving this pod.
         claim = getattr(self._registry, "claim_image_upgrade", None)
@@ -1181,6 +1227,9 @@ class PersonalAgentProvisioningService:
         new_meta = {**old_meta, **(handle.backend_metadata or {})}
         new_meta.pop("upgrade", None)
         changed = bool(new_meta.get("upgraded", True))
+        # Who set it, so a draining older hub revision refuses to move it back.
+        if hub_revision():
+            new_meta["imageSetByRevision"] = hub_revision()
         await self._registry.record_image_upgrade(
             user_id=user_id,
             backend_metadata=new_meta,
