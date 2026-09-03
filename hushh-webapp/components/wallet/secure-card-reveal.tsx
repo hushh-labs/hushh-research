@@ -70,7 +70,7 @@ export function SecureCardReveal({ summary, secrets, onDismiss, onHide }: Secure
   if (hidden) {
     return (
       <div
-        className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground"
+        className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-[var(--motion-duration-sm)] motion-safe:ease-[var(--motion-ease-decelerate)]"
         data-testid="secure-card-reveal-hidden"
       >
         Hidden again.
@@ -85,7 +85,7 @@ export function SecureCardReveal({ summary, secrets, onDismiss, onHide }: Secure
 
   return (
     <div
-      className="flex max-w-md flex-col gap-2 rounded-xl border border-border bg-card p-4"
+      className="flex max-w-md flex-col gap-2 rounded-xl border border-border bg-card p-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-[var(--motion-duration-md)] motion-safe:ease-[var(--motion-ease-decelerate)]"
       data-testid="secure-card-reveal"
     >
       <div className="flex items-center justify-between text-sm text-muted-foreground">
