@@ -1346,9 +1346,31 @@ export function AgentChatWorkspace({
   // presence chip does, so this adds no new polling -- the hook already exists and is
   // already mounted elsewhere; Agent Chat simply had no way to know a pod was there,
   // which is why every turn went to the shared hub even for someone whose pod was live.
-  const { hushhId: podHushhId, state: podState, health: podHealth } =
-    useAgentDeploymentFollow();
+  const {
+    hushhId: podHushhId,
+    state: podState,
+    health: podHealth,
+    resolved: podResolved,
+  } = useAgentDeploymentFollow();
   const podAddress = { hushhId: podHushhId, state: podState as string | null };
+  // A live reader for the router. The turn closure captures the values as they
+  // were when it was created; a first turn fired before the status read lands
+  // would therefore route on `null` forever. This lets the router re-read the
+  // latest values while it briefly waits, instead of assuming the person has no
+  // agent and sending their message to the shared hub.
+  const podAddressRef = useRef({
+    hushhId: podHushhId,
+    state: podState as string | null,
+    resolved: podResolved,
+  });
+  useEffect(() => {
+    podAddressRef.current = {
+      hushhId: podHushhId,
+      state: podState as string | null,
+      resolved: podResolved,
+    };
+  }, [podHushhId, podState, podResolved]);
+  const readPodAddress = useCallback(() => podAddressRef.current, []);
   // Warm the person's own pod the moment they reach for it -- composer focus, surface
   // mount, app resume -- so the ~11s cold start runs while they type instead of eating
   // their first turn. `health` (not just `state`) is what tells asleep from serving, so
@@ -3549,6 +3571,8 @@ export function AgentChatWorkspace({
         // that difference belongs in one place rather than at each call site.
         podHushhId: podAddress.hushhId,
         podState: podAddress.state,
+        podResolved,
+        readPodAddress,
         userId,
         message: text,
         conversationId: conversationIdRef.current,
@@ -3816,6 +3840,8 @@ export function AgentChatWorkspace({
         // that difference belongs in one place rather than at each call site.
         podHushhId: podAddress.hushhId,
         podState: podAddress.state,
+        podResolved,
+        readPodAddress,
         userId,
         // A delegate turn carries its result in `message`: the pod cell forwards
         // only message + credentials, so the human-readable outcome has to ride

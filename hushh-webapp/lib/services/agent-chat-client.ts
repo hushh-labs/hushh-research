@@ -560,6 +560,32 @@ export async function deleteAgentChatConversation(input: {
  */
 export type TurnCell = "hub" | "pod";
 
+/** How long a turn waits for the pod address before the hub answers instead.
+ *
+ * Short enough that a person with no agent never notices, long enough to cover a
+ * status read that is merely in flight (measured on dev: ~330ms). */
+export const POD_VERDICT_WAIT_MS = 1_500;
+
+async function waitForPodVerdict(input: {
+  podResolved?: boolean;
+  podHushhId?: string | null;
+  podState?: string | null;
+  readPodAddress?: () => { hushhId: string | null; state: string | null; resolved: boolean };
+}): Promise<void> {
+  const read = input.readPodAddress;
+  if (!read) return; // the caller cannot re-read; answer with what we have
+  const deadline = Date.now() + POD_VERDICT_WAIT_MS;
+  while (Date.now() < deadline) {
+    const latest = read();
+    if (latest.resolved) {
+      input.podHushhId = latest.hushhId;
+      input.podState = latest.state;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 export type AgentTurnResult = {
   conversationId: string | null;
   model: string | null;
@@ -608,9 +634,23 @@ export async function runAgentChatTurn(input: {
   handlers?: AgentChatStreamHandlers;
   /** The person's pod address, when they have one. Absent means "no pod": use the hub. */
   podHushhId?: string | null;
+  /** Whether the pod status has been read at least once. `false` means unknown. */
+  podResolved?: boolean;
+  /** Re-read the caller's latest pod address; supplied by the surface that polls. */
+  readPodAddress?: () => { hushhId: string | null; state: string | null; resolved: boolean };
   /** Their pod's lifecycle state. Only `active` is answerable. */
   podState?: string | null;
 }): Promise<AgentTurnResult> {
+  // WAIT rather than assume. `podState === null` is "we have not looked yet" AND
+  // "this person has no agent"; treating it as the second sent a fast typer's
+  // opening message to the shared hub while their own pod sat idle, and nothing on
+  // screen said so. `podResolved` distinguishes them: until the status endpoint has
+  // answered once, hold the turn briefly instead of routing it away from the pod.
+  // Bounded, because a person with no agent must still be able to talk: past the
+  // ceiling the hub answers, which is the correct destination for them.
+  if (input.podResolved === false) {
+    await waitForPodVerdict(input);
+  }
   const podIsAnswerable = Boolean(input.podHushhId) && input.podState === "active";
   if (!podIsAnswerable) {
     const streamed = await streamAgentChat(input);

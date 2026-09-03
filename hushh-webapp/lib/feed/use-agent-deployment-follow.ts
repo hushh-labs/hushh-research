@@ -115,10 +115,22 @@ export function useAgentDeploymentFollow(options?: {
   // would say nothing at all about where their agent lives, which is exactly
   // what it did before the hosted tier existed.
   deploymentTarget: string | null;
+  /** Whether the status endpoint has returned a verdict at least once.
+   *
+   * `state === null` is ambiguous on its own -- it is both "we have not looked
+   * yet" and "this person has no agent" -- and the chat router read the first as
+   * the second, so a fast typer's opening message went to the shared hub while
+   * their own pod sat idle. With this, a caller can wait for the answer instead
+   * of assuming one. */
+  resolved: boolean;
 } {
   const enabled = options?.enabled ?? true;
   const userId = options?.userId ?? null;
   const [state, setState] = useState<AgentDeploymentState | null>(null);
+  // Has the status endpoint answered even once? `state === null` cannot say: it is
+  // both "we have not looked yet" and "this person has no agent", and the chat
+  // router treated the first as the second and sent their turn to the shared hub.
+  const [resolved, setResolved] = useState(false);
   const [following, setFollowing] = useState(false);
   // The pod's address. Every surface that talks to a pod -- the relay, the turn,
   // pod info -- is keyed on this, and it was being discarded by a client type that
@@ -155,6 +167,9 @@ export function useAgentDeploymentFollow(options?: {
         next = VALID.includes(raw) ? raw : null;
         consecutiveFailuresRef.current = 0;
         if (!cancelled) {
+          // The endpoint answered. From here `state === null` means "no agent",
+          // not "not looked yet", and the chat router may act on it.
+          setResolved(true);
           // Set outside the transition branch below: these are properties of the
           // agent, not of a state CHANGE. A pod that is already `active` when the
           // page loads never transitions, and keying its address off a transition
@@ -190,6 +205,8 @@ export function useAgentDeploymentFollow(options?: {
           if (!cancelled) {
             setHushhId(null);
             setHealth(null);
+            // A persistent failure is a verdict too: stop holding the router.
+            setResolved(true);
           }
           if (consecutiveFailuresRef.current === FAILURES_BEFORE_WARNING) {
             console.warn(
@@ -302,7 +319,7 @@ export function useAgentDeploymentFollow(options?: {
     // a fresh deadline and its own background-task card.
   }, [enabled, userId]);
 
-  return { state, following, hushhId, health, cloud, deploymentTarget };
+  return { state, following, hushhId, health, cloud, deploymentTarget, resolved };
 }
 
 export { DEPLOYMENT_POLL_INTERVAL_MS };
