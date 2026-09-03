@@ -1054,6 +1054,21 @@
       "trust_boundary": "Model identifier only, validated against the server-side catalog on write; carries no user information and grants no access.",
       "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
       "expected_row_growth": "one row per person who chooses a model"
+    },
+    {
+      "id": "one_agent_message_feedback",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_agent_message_feedback"
+      ],
+      "primary_access_path": "message feedback service, written from the Agent One chat thumbs control via /api/one/agent-chat/feedback and read for response-quality reporting",
+      "retention_policy": "Retain one row per rated assistant turn while the conversation exists.",
+      "deletion_behavior": "Cascade-delete with the ADK session on conversation deletion and with the actor profile on account deletion; clearing a rating deletes the row.",
+      "trust_boundary": "Rating and message reference only; never message content, prompt or model output, so no vault key and no decrypt path are involved.",
+      "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
+      "expected_row_growth": "at most one row per assistant turn a person chooses to rate"
     }
   ]
 }

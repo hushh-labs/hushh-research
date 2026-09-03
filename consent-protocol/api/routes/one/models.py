@@ -19,7 +19,7 @@ from hushh_mcp.services.model_preference_service import (
     set_preference,
 )
 
-router = APIRouter(prefix="/models", tags=["one-models"])
+router = APIRouter(prefix="/api/one/models", tags=["one-models"])
 
 
 class ModelPreferenceRequest(BaseModel):

@@ -40,6 +40,13 @@ import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 import { EmailDraftCard } from "@/components/agent/email-draft-card";
 import {
   EmailDeliveryHistoryCard,
@@ -58,6 +65,14 @@ import {
   type WalletCardSecrets,
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
+import {
+  CardNetworkMark,
+  cardNetworkLabel,
+} from "@/components/wallet/card-network-mark";
+import {
+  ModelPreferenceService,
+  type ModelPreference,
+} from "@/lib/services/model-preference-service";
 import {
   SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
@@ -144,6 +159,8 @@ import {
   type AgentChatToolEvent,
   type SpecialistDirectiveEvent,
   type AgentSource,
+  getAgentChatFeedback,
+  setAgentChatFeedback,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
@@ -278,6 +295,7 @@ type AgentPkmActivity = {
  */
 type AgentWalletWidget =
   | { id: string; kind: "add" }
+  | { id: string; kind: "list"; summaries: WalletCardSummary[] }
   | {
       id: string;
       kind: "reveal";
@@ -960,6 +978,8 @@ function AgentBubble({
   onPendingConsentApprove,
   onPendingConsentDeny,
   onPendingConsentDetails,
+  rating = null,
+  onRate,
 }: {
   message: AgentMessage;
   userAvatarUrl?: string | null;
@@ -977,10 +997,15 @@ function AgentBubble({
     item: SpecialistPendingConsentRequestItem,
   ) => Promise<void> | void;
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
+  rating?: "up" | "down" | null;
+  onRate?: (rating: "up" | "down" | null) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [liked, setLiked] = useState(false);
-  const [disliked, setDisliked] = useState(false);
+  // The rating is owned by the workspace so it survives a reload; the bubble
+  // only reflects it. It used to be local state that died with the tab, which
+  // meant nobody could ever read what people thought of an answer.
+  const liked = rating === "up";
+  const disliked = rating === "down";
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
@@ -1122,11 +1147,7 @@ function AgentBubble({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const nextLiked = !liked;
-                  setLiked(nextLiked);
-                  if (nextLiked) setDisliked(false);
-                }}
+                onClick={() => onRate?.(liked ? null : "up")}
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   liked
@@ -1141,11 +1162,7 @@ function AgentBubble({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const nextDisliked = !disliked;
-                  setDisliked(nextDisliked);
-                  if (nextDisliked) setLiked(false);
-                }}
+                onClick={() => onRate?.(disliked ? null : "down")}
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   disliked
@@ -1327,8 +1344,10 @@ export function AgentChatWorkspace({
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
   const [input, setInput] = useState("");
+  // Which model runs this person's agent. The catalog is served, so a new
+  // generation appears here without a client release.
+  const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const [composerLong, setComposerLong] = useState(false);
   const [composerPurpose, setComposerPurpose] = useState<"memory" | "chat" | null>(null);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
@@ -1336,6 +1355,11 @@ export function AgentChatWorkspace({
   >(null);
   const [editingQueuedPromptText, setEditingQueuedPromptText] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
+  // Ratings for this conversation, keyed by message id. Durable, so a reload
+  // and a conversation switch both keep what the person said about an answer.
+  const [messageRatings, setMessageRatings] = useState<
+    Record<string, "up" | "down">
+  >({});
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
@@ -1773,6 +1797,42 @@ export function AgentChatWorkspace({
   }, [emailDraftOpen, messages, pkmReviews, pendingSpecialistDirective]);
 
   useEffect(() => {
+    const token = getVaultOwnerToken();
+    if (!conversationId || !token) {
+      setMessageRatings({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const ratings = await getAgentChatFeedback({
+        conversationId,
+        vaultOwnerToken: token,
+      });
+      if (!cancelled) setMessageRatings(ratings);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, getVaultOwnerToken]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const preference = await ModelPreferenceService.get(await user.getIdToken());
+        if (!cancelled) setModelPreference(preference);
+      } catch {
+        // A picker that cannot load is hidden, never a blocking error: the turn
+        // still runs on whatever the backend resolves.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
     const textarea = composerTextareaRef.current;
     if (!textarea || voiceActive) return;
     textarea.style.height = "0px";
@@ -1780,7 +1840,6 @@ export function AgentChatWorkspace({
     // `scrollHeight` includes soft-wrapped text, which is the visual behavior
     // people notice. Reveal the larger editor after roughly four rendered rows.
     const long = input.trim().length > 0 && nextHeight > 96;
-    setComposerLong(long);
     if (!long) setComposerExpanded(false);
     // The expanded writing surface owns its fixed, spacious height. The compact
     // pill grows only to its CSS ceiling and then scrolls internally.
@@ -2560,6 +2619,75 @@ export function AgentChatWorkspace({
     [],
   );
 
+  /**
+   * Reveal one card from the chat list widget. Decryption happens here, on the
+   * owner's device, and the secrets go straight into a reveal widget: they are
+   * never written into a message, model context, history, or telemetry.
+   */
+  const handleWalletWidgetReveal = useCallback(
+    async (listWidgetId: string, summary: WalletCardSummary) => {
+      const token = getVaultOwnerToken();
+      if (!user?.uid || !vaultKey || !token) {
+        setVaultDialogOpen(true);
+        return;
+      }
+      try {
+        const full = await WalletService.getCard({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken: token,
+          cardId: summary.cardId,
+        });
+        if (!full) return;
+        setWalletWidgets((current) => [
+          ...current,
+          {
+            id: `${listWidgetId}-reveal-${summary.cardId}`,
+            kind: "reveal",
+            summary: full.summary,
+            secrets: full.secrets,
+          },
+        ]);
+      } catch {
+        // A failed decrypt must not surface card material in an error path.
+        setVaultDialogOpen(true);
+      }
+    },
+    [getVaultOwnerToken, user?.uid, vaultKey],
+  );
+
+  /**
+   * Record what the owner thought of one answer. Optimistic, because a rating
+   * is a gesture and must feel instant; a failed write restores exactly what
+   * was showing rather than leaving a rating the server never received.
+   */
+  const handleRateMessage = useCallback(
+    (messageId: string, rating: "up" | "down" | null) => {
+      const token = getVaultOwnerToken();
+      if (!conversationId || !token) return;
+      const previous = messageRatings;
+      setMessageRatings((current) => {
+        const next = { ...current };
+        if (rating === null) delete next[messageId];
+        else next[messageId] = rating;
+        return next;
+      });
+      void (async () => {
+        try {
+          await setAgentChatFeedback({
+            conversationId,
+            messageId,
+            rating,
+            vaultOwnerToken: token,
+          });
+        } catch {
+          setMessageRatings(previous);
+        }
+      })();
+    },
+    [conversationId, getVaultOwnerToken, messageRatings],
+  );
+
   const handleSavePkmReview = useCallback(
     (reviewId: string) => {
       if (savingPkmReviewIdsRef.current.has(reviewId)) return;
@@ -3125,18 +3253,21 @@ export function AgentChatWorkspace({
             await WalletService.listCardSummaries(cardsContext);
           const described = WalletService.describeSummaries(summaries);
           // Metadata only (nickname, brand, last4, expiry, region): safe to
-          // show in the conversation and to hand back to the model.
-          appendMessage({
-            id: `msg-${Date.now()}-cards-list`,
-            role: "assistant",
-            text:
-              summaries.length === 0
-                ? "No cards are stored yet."
-                : `Your cards:\n${described}`,
-            timestamp: formatNow(),
-            status: "done",
-            renderAsPlainAssistantMessage: true,
-          });
+          // show and to hand back to the model. This renders as a widget rather
+          // than a second assistant message: the model already speaks the answer
+          // from resultSummary, so appending the same text produced two blocks
+          // with two copy/thumbs rails for one question. The widget also carries
+          // a Reveal control per card, which plain text could not.
+          if (summaries.length > 0) {
+            setWalletWidgets((current) => [
+              ...current,
+              {
+                id: `${debugTurnId}-card-list-${current.length}`,
+                kind: "list",
+                summaries,
+              },
+            ]);
+          }
           return {
             status: "succeeded",
             actionId: toolEvent.actionId,
@@ -4759,47 +4890,86 @@ export function AgentChatWorkspace({
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              <div
-                role="group"
-                aria-label="Agent"
-                className="flex items-center gap-0.5 rounded-full bg-foreground/[0.045] p-0.5"
-              >
-                {(
-                  [
-                    { id: "one", label: "One" },
-                    { id: "puppy", label: "Puppy" },
-                  ] as const
-                ).map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setAgentSurface(option.id)}
-                    aria-pressed={agentSurface === option.id}
-                    className={cn(
-                      "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
-                      agentSurface === option.id
-                        ? "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    title={
-                      option.id === "puppy"
-                        ? "Puppy One, on your machine. Its own conversation."
-                        : "One, your cloud agent."
-                    }
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              {statusText ? (
-                <span
-                  className="hidden text-xs font-medium text-muted-foreground sm:inline-flex"
-                  role="status"
-                  aria-live="polite"
+              {/*
+                The compact segmented control at header scale. The full-width
+                filter primitive was tried here first and stood ~44px tall
+                against 36px icon buttons, so the header stopped lining up.
+                This one is h-8 with an eased sliding transition, which is the
+                animation the toggle was always missing.
+              */}
+              <SegmentedControl
+                variant="compact"
+                size="sm"
+                value={agentSurface}
+                onValueChange={(next) => setAgentSurface(next as AgentChatSurface)}
+                options={[
+                  { value: "one", label: "One" },
+                  { value: "puppy", label: "Puppy" },
+                ]}
+                className="w-auto shrink-0"
+              />
+              {modelPreference && modelPreference.choices.length > 1 ? (
+                <Select
+                  value={modelPreference.effective_model}
+                  onValueChange={(nextModel) => {
+                    const previous = modelPreference;
+                    // Optimistic: the picker must not stall the header while the
+                    // write lands. A failure restores exactly what was showing.
+                    setModelPreference({ ...previous, effective_model: nextModel });
+                    void (async () => {
+                      try {
+                        if (!user) return;
+                        const saved = await ModelPreferenceService.set(
+                          await user.getIdToken(),
+                          nextModel,
+                        );
+                        setModelPreference(saved);
+                      } catch {
+                        setModelPreference(previous);
+                      }
+                    })();
+                  }}
                 >
-                  {statusText}
-                </span>
+                  <SelectTrigger
+                    data-testid="agent-chat-model-picker"
+                    aria-label="Model"
+                    title={`Running ${modelPreference.effective_model}`}
+                    className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                  >
+                    {/* "3.8 Flash", not "Gemini 3.8 Flash": every option is a
+                        Gemini, so the shared word is the one thing a narrow
+                        header cannot afford. The full label stays in the menu
+                        and in the tooltip. */}
+                    <span className="truncate">
+                      {(
+                        modelPreference.choices.find(
+                          (choice) => choice.model_id === modelPreference.effective_model,
+                        )?.label ?? modelPreference.effective_model
+                      ).replace(/^Gemini\s+/i, "")}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    {modelPreference.choices.map((choice) => (
+                      <SelectItem key={choice.model_id} value={choice.model_id}>
+                        {choice.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : null}
+              {/* A fixed slot, always present. This used to mount and unmount
+                  with the status, and because the cluster is shrink-0 the whole
+                  right side, One/Puppy toggle included, jumped sideways every
+                  time One started or stopped thinking. The width is reserved so
+                  nothing moves, and the text truncates instead of pushing. */}
+              <span
+                className="hidden w-28 shrink-0 truncate text-right text-xs font-medium text-muted-foreground sm:inline-block"
+                role="status"
+                aria-live="polite"
+                title={statusText || undefined}
+              >
+                {statusText}
+              </span>
               {isPopover ? (
                 <ShellActionSurface
                   variant="icon"
@@ -4883,6 +5053,8 @@ export function AgentChatWorkspace({
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       retryDisabled={isChatLoading || isStreaming}
+                      rating={messageRatings[message.id] ?? null}
+                      onRate={(next) => handleRateMessage(message.id, next)}
                       onRetry={
                         message.id === latestRetryableAssistantId
                           ? () => handleRetryAssistantResponse(message.id)
@@ -4988,7 +5160,49 @@ export function AgentChatWorkspace({
               ))}
 
               {walletWidgets.map((widget) =>
-                widget.kind === "add" ? (
+                widget.kind === "list" ? (
+                  <div
+                    key={widget.id}
+                    data-testid="agent-chat-wallet-list"
+                    className="rounded-2xl border border-border/60 bg-card/60 p-3"
+                  >
+                    <p className="px-1 pb-2 text-xs text-muted-foreground">
+                      Your cards. Revealing one decrypts it on this device only.
+                    </p>
+                    <ul className="flex flex-col gap-1">
+                      {widget.summaries.map((summary) => (
+                        <li
+                          key={summary.cardId}
+                          className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 hover:bg-foreground/[0.04]"
+                        >
+                          <span className="flex min-w-0 items-center gap-3">
+                            <CardNetworkMark brand={summary.brand} />
+                            <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">
+                              {summary.nickname || cardNetworkLabel(summary.brand)}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {cardNetworkLabel(summary.brand)} ····{summary.last4} ·{" "}
+                              {String(summary.expiryMonth).padStart(2, "0")}/{summary.expiryYear} ·{" "}
+                              {summary.issuingRegion}
+                            </span>
+                            </span>
+                          </span>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="shrink-0"
+                            data-testid={`agent-chat-wallet-reveal-${summary.last4}`}
+                            onClick={() => void handleWalletWidgetReveal(widget.id, summary)}
+                          >
+                            Reveal
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : widget.kind === "add" ? (
                   <SecureCardAddForm
                     key={widget.id}
                     compact
@@ -5855,9 +6069,9 @@ export function AgentChatWorkspace({
                   {!composerExpanded ? (
                     <div
                       data-testid="agent-chat-composer"
-                      className="flex min-h-16 items-end gap-2 rounded-[24px] bg-foreground/[0.045] px-3 py-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045] transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]"
+                      className="flex min-h-16 items-center gap-2 rounded-[24px] bg-foreground/[0.045] px-3 py-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045] transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]"
                     >
-                      <div className="relative min-w-0 flex-1 self-stretch">
+                      <div className="relative min-w-0 flex-1">
                         <textarea
                           ref={composerTextareaRef}
                           data-testid="agent-chat-composer-textarea"
@@ -5885,24 +6099,26 @@ export function AgentChatWorkspace({
                           }
                           placeholder="Message One..."
                           rows={1}
-                          className="min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
+                          className="block min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
                         />
-                        {composerLong ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            data-testid="agent-chat-composer-expand"
-                            className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
-                            aria-label="Expand message editor"
-                            title="Expand"
-                            onClick={() => setComposerExpanded(true)}
-                          >
-                            <Maximize2 className="h-4 w-4" />
-                          </Button>
-                        ) : null}
+                        {/* Always top-right. It used to appear only once the
+                            message grew past a threshold, so the control the
+                            owner reaches for arrived late and moved the moment
+                            it did. */}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          data-testid="agent-chat-composer-expand"
+                          className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
+                          aria-label="Expand message editor"
+                          title="Expand"
+                          onClick={() => setComposerExpanded(true)}
+                        >
+                          <Maximize2 className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <div className="flex shrink-0 self-end items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-2">
                         {composerActionRail}
                       </div>
                     </div>

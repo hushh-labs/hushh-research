@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-import { resolveHermesBridgeConfig } from "@/lib/hermes/bridge-config";
+import { isSameOriginRequest, resolveHermesBridgeConfig } from "@/lib/hermes/bridge-config";
 
 /**
  * The Puppy One model picker, proxied to the local Hermes api_server.
@@ -34,6 +34,30 @@ const LOCAL_PROVIDERS = new Set(["lmstudio", "lm-studio", "lm_studio", "ollama"]
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
+/** The build a model file is. The gateway sends nothing else. */
+export type ModelVariant = "MLX" | "GGUF";
+
+/**
+ * Read the variant as "MLX", "GGUF", or unknown.
+ *
+ * The gateway documents null as "not known", which is NOT an error state: the
+ * row simply shows no chip. Anything unrecognised is read the same way, on
+ * purpose. A variant chip is a claim about how the model executes, and echoing
+ * an uninterpreted string would put a guess in front of the owner wearing the
+ * same styling as a fact.
+ */
+function readVariant(value: unknown): ModelVariant | null {
+  if (typeof value !== "string") return null;
+  const upper = value.trim().toUpperCase();
+  return upper === "MLX" || upper === "GGUF" ? upper : null;
+}
+
+/** A present, non-blank string, or null. Absence is carried, never defaulted. */
+function readText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return value.trim() || null;
+}
+
 function notConfigured() {
   return Response.json(
     {
@@ -45,6 +69,21 @@ function notConfigured() {
   );
 }
 
+/**
+ * List what the owner can actually pick.
+ *
+ * This reads /api/hussh-one/models, which already guarantees the three things
+ * the old /api/model/options did not: only AUTHENTICATED providers appear,
+ * model ids are deduplicated within a provider, and a provider with no models
+ * is omitted entirely. That is why five dead rows (Nous Portal, Fireworks,
+ * OpenRouter, NovitaAI, OpenAI) used to sit above the models that exist.
+ *
+ * None of those rules are re-implemented here. Two filters for one policy
+ * drift apart, and the copy of the rule that lives further from the model host
+ * is the one that goes stale. This handler normalises shapes and nothing else:
+ * every field except a model `id` is optional, and an absent one is carried as
+ * null rather than filled in, because "unknown" and "none" are different facts.
+ */
 export async function GET(request: NextRequest) {
   const config = resolveHermesBridgeConfig();
   if (!config) return notConfigured();
@@ -59,8 +98,11 @@ export async function GET(request: NextRequest) {
   }
   let upstream: Response;
   try {
+    // `refresh` is forwarded as a hint, not a requirement. The contract for
+    // this endpoint does not promise the parameter, and a gateway that ignores
+    // it returns the same cached truth: a staler list, never a wrong one.
     upstream = await fetch(
-      `${config.baseUrl}/api/model/options?include_unconfigured=false${refresh ? "&refresh=true" : ""}`,
+      `${config.baseUrl}/api/hussh-one/models${refresh ? "?refresh=true" : ""}`,
       {
         headers: { Authorization: `Bearer ${config.apiKey}` },
         signal: AbortSignal.timeout(20_000),
@@ -80,80 +122,91 @@ export async function GET(request: NextRequest) {
   }
 
   const payload = (await upstream.json().catch(() => ({}))) as {
-    providers?: Array<{
-      id?: unknown;
-      slug?: unknown;
-      name?: unknown;
-      models?: unknown;
-      capabilities?: unknown;
-      is_current?: unknown;
-      authenticated?: unknown;
-    }>;
-    model?: unknown;
-    provider?: unknown;
+    providers?: unknown;
+    current?: unknown;
   };
 
-  // Hermes identifies a provider by `slug` and lists its models as plain
-  // strings, with per-model capabilities in a sibling map keyed by model id.
-  // An older shape used `id` and `{id}` objects. Read both: a picker that
-  // renders every provider and model as "" is the one surface that lies
-  // about the runtime, and it is exactly what the old mapping produced.
   const providers = (Array.isArray(payload.providers) ? payload.providers : [])
-    .map((entry) => {
-      const id = String(entry?.slug ?? entry?.id ?? "");
-      const capabilities =
-        entry?.capabilities && typeof entry.capabilities === "object"
-          ? (entry.capabilities as Record<string, Record<string, unknown> | undefined>)
+    .map((rawProvider) => {
+      const entry =
+        rawProvider && typeof rawProvider === "object"
+          ? (rawProvider as Record<string, unknown>)
           : {};
-      const models = Array.isArray(entry?.models)
-        ? (entry.models as Array<unknown>)
-            .map((model) => {
-              const modelId =
-                typeof model === "string"
-                  ? model
-                  : String((model as Record<string, unknown>)?.id ?? "");
-              const inline =
-                typeof model === "object" && model !== null
-                  ? (model as Record<string, unknown>)
-                  : {};
-              return {
-                id: modelId,
-                supportsReasoning: Boolean(
-                  (inline.capabilities as Record<string, unknown> | undefined)
-                    ?.reasoning ??
-                    inline.supports_reasoning ??
-                    capabilities[modelId]?.reasoning,
-                ),
-              };
-            })
-            .filter((model) => model.id)
-        : [];
+      const id = String(entry.id ?? "").trim();
+      const models = (Array.isArray(entry.models) ? entry.models : [])
+        .map((rawModel) => {
+          const model =
+            rawModel && typeof rawModel === "object"
+              ? (rawModel as Record<string, unknown>)
+              : {};
+          return {
+            // A bare string was the older wire shape for a model. Reading it
+            // costs one branch and is the exact drift that once rendered every
+            // row as "": the picker is the one surface that must not lie about
+            // what is answering.
+            id:
+              typeof rawModel === "string"
+                ? rawModel.trim()
+                : String(model.id ?? "").trim(),
+            variant: readVariant(model.variant),
+            quantization: readText(model.quantization),
+            // Left as an open string. An unrecognised state degrades to "not
+            // shown" downstream rather than being mapped onto a known one.
+            state: readText(model.state),
+            supportsReasoning: Boolean(model.supportsReasoning),
+          };
+        })
+        // A model with no id cannot be pinned, so it is not offered. This is a
+        // shape guard, not the gateway's authentication or dedupe policy.
+        .filter((model) => model.id);
       return {
         id,
-        name: String(entry?.name ?? id),
-        // Marked, not filtered. A picker that silently drops the cloud
-        // providers cannot explain why they are missing; one that shows them
-        // as off-machine tells the truth about what the choice costs.
-        onDevice: LOCAL_PROVIDERS.has(id.toLowerCase()),
-        isCurrent: Boolean(entry?.is_current),
+        name: String(entry.name ?? id),
+        // The gateway's own answer wins; the local list is only the fallback
+        // for a payload that omitted the field. This label is the promise that
+        // the words stay on this machine, so it is never inferred from
+        // anything softer than the provider id.
+        onDevice:
+          typeof entry.onDevice === "boolean"
+            ? entry.onDevice
+            : LOCAL_PROVIDERS.has(id.toLowerCase()),
+        isCurrent: Boolean(entry.isCurrent),
         models,
       };
     })
     .filter((provider) => provider.id);
 
-  return Response.json({
-    configured: true,
-    reachable: true,
+  const current =
+    payload.current && typeof payload.current === "object"
+      ? (payload.current as Record<string, unknown>)
+      : {};
+
+  const body = {
     providers,
     current: {
-      model: String(payload.model ?? ""),
-      provider: String(payload.provider ?? ""),
+      model: String(current.model ?? ""),
+      provider: String(current.provider ?? ""),
     },
     reasoningEfforts: REASONING_EFFORTS,
-  });
+  };
+
+  // The envelope flags are written LAST on purpose. `configured` and
+  // `reachable` describe THIS bridge, not the gateway, so nothing derived from
+  // the payload can overwrite our own answer about it.
+  return Response.json({ ...body, configured: true, reachable: true });
 }
 
 export async function POST(request: NextRequest) {
+  if (!isSameOriginRequest(request)) {
+    // Pinning a model changes which model answers on the owner's machine, and
+    // this route adds the loopback key server-side. Without this check a page
+    // the owner merely visits could repoint their agent off-device.
+    return Response.json(
+      { ok: false, error: "Cross-site requests cannot change the model." },
+      { status: 403 },
+    );
+  }
+
   const config = resolveHermesBridgeConfig();
   if (!config) return notConfigured();
 

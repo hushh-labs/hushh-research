@@ -3870,6 +3870,20 @@ body:has([data-testid="one-location-onboarding"])
     @apply border-border outline-ring/50;
   }
 
+  /* Text selection follows the active theme. Without this the browser paints its
+     own default (an orange-red on this platform), which is the one piece of the
+     interface the design system never reached. Accent-tinted rather than solid so
+     long passages stay readable while selected. */
+  ::selection {
+    background-color: color-mix(in oklab, var(--app-accent) 28%, transparent);
+    color: inherit;
+  }
+
+  ::-moz-selection {
+    background-color: color-mix(in oklab, var(--app-accent) 28%, transparent);
+    color: inherit;
+  }
+
   h1,
   h2,
   h3,

@@ -225,10 +225,17 @@ The mode is deliberately not persisted. It resets to One every time the
 workspace mounts, so a toggle left on yesterday can never make a cloud answer
 look like it was generated on the owner's machine.
 
-The workspace also shows the resource monitor above the Puppy transcript, and
-the monitor leads with the link banner: a machine can be enrolled, healthy and
-still signed out of Hussh One, and that is the state the owner most needs to be
-told about because nothing else on the machine reveals it.
+The machine's readings are on demand. Above the Puppy transcript, on both
+`/one/puppy` and the workspace mode, sits one quiet control, "This machine",
+that opens them in a sheet; nothing is polled while that sheet is shut, so a
+screen nobody is reading costs the local gateway nothing.
+
+The link banner is the exception, and it is inline and unconditional: a machine
+can be enrolled, healthy and still signed out of Hussh One, every other reading
+keeps saying "healthy" while that is true, and an owner with no reason to open
+anything is exactly the owner who needs to be told. So a `link.session` that is
+neither `ok` nor `not_connected` is shown on the page itself, and it is shown
+there only — the sheet does not repeat it.
 
 ## Status and toggles, audited 2026-09-02
 
@@ -239,7 +246,7 @@ in the fork at
 
 | Surface | Source of truth | State after the audit |
 | --- | --- | --- |
-| `/one/puppy` header dot and model name | `GET /api/hermes/status` reading the gateway's `/health/detailed` on loopback | Repaired. The gateway did not name its model in that payload and the route read a field that never existed, so a connected agent showed no model. The gateway now reports `model` and `provider` there and the route reads every shape. |
+| `/one/puppy` header dot and model name | Two authorities, in order. `GET /api/hermes/status` (the gateway's `/health/detailed` on loopback) when the bridge is connected; otherwise `trusted_devices.last_heartbeat_at` through `fetchPuppyLink`, One's own record of the device | Repaired twice. First, the gateway did not name its model in that payload and the route read a field that never existed, so a connected agent showed no model; the gateway now reports `model` and `provider` there and the route reads every shape. Second, on a deployed origin the loopback is a Cloud Run container and never the owner's Mac, so the dot said "not connected" to every deployed viewer; it now turns green with the device name when One has a fresh heartbeat, and says "last seen …" when it has a stale one. The bridge keeps the pill whenever it is connected. |
 | Model picker | `GET /api/hermes/models` reading the gateway's `/api/model/options` | Repaired. The gateway names a provider by `slug` and lists models as strings with a capabilities map; the route mapped `id` and `{id}` objects, so every provider and model rendered as an empty string. |
 | Model pin | `POST /api/hermes/models` to the gateway's `/api/model/set` | Repaired. That route existed only in the Hermes dashboard, never in the loopback API server, so every pin from One answered "could not change the model". The API server now serves it with the same expensive-model confirmation and next-session semantics. |
 | `on-device` / `any model` pill | Browser state, sent per turn as the provider pin | Now remembered per browser. It reset to on-device on every reload while the header kept the last choice. |
@@ -249,6 +256,58 @@ in the fork at
 | On-device gate | `hussh_one.on_device_only` in the Hermes config, read by the auxiliary client and the egress audit | On for the founder's machine; readable only on the device (`hermes_cli.hussh_one_egress_audit`, the health index). Not exposed to One. |
 | Vault while the screen is locked | `hussh_one.vault.lock_with_workstation`, default off | On-device config only. The always-on agent keeps its vault while the console is locked unless the owner opts in. |
 | Daily jobs, harness, learning loop | Versioned in the Hermes fork (its scripts/hussh-one-cron directory, not this repo); graded by `hermes puppy jobs`; ledger at `~/.hermes/evolution-ledger.jsonl` | On-device only. Nothing ships the health index, the doctor state, the ledger or the job audit off the machine. |
+
+## What a person sees when Puppy One is not here
+
+The bridge under `/api/hermes/*` reaches a gateway over loopback ON THE SERVER
+(`lib/hermes/bridge-config.ts` refuses any other host). On
+`uat.one.hushh.ai` and `one.hushh.ai` that loopback is the Cloud Run
+container, never the person's Mac, so the bridge is "not connected" for every
+deployed viewer, permanently, and it used to say so with a developer's hint
+about a server env key.
+
+The link now has two authorities, and each answers a different question. The
+backend heartbeat (`trusted_devices.last_heartbeat_at` and `heartbeat`, read
+through `fetchPuppyLink` in `lib/services/puppy-one-service.ts`) is the source
+of truth for **whether the person's machine is connected to their account**,
+for every viewer on every origin. The loopback bridge is the source of truth
+for **chat and controls only**: the composer, the model picker and the
+on-device pill stay gated on it, because those need a gateway the server can
+actually reach. The two never contradict each other on one surface, because
+a connected bridge keeps the header pill and the machine sheet's live reading,
+and the heartbeat speaks only when the bridge has nothing to say.
+
+`derivePuppyLink` is pure and uses the same `HEARTBEAT_FRESH_MS` window the
+devices page uses for "Active now", so the two surfaces cannot disagree about
+one machine.
+
+| State | Source of truth | What is shown | The way out |
+| --- | --- | --- | --- |
+| Local bridge connected | `GET /api/hermes/status` on loopback | Green pill with the model name, the composer, the model picker, the on-device pill, the live machine reading in the sheet | Nothing to do |
+| Live | An active trusted device with a heartbeat inside `HEARTBEAT_FRESH_MS` | Green pill "connected · {device}". Empty state: "Puppy One is connected to your account on {device} · {model} · seen {relative}. Chat here works from that machine." with a Trusted devices link; the composer placeholder says "Chat with Puppy One from {device}". The sheet shows the heartbeat snapshot under "As reported to Hussh One {relative}" (the configured model, busy and sessions, brand and processor, memory, battery). | Use the machine, or open Trusted devices |
+| Quiet | An active device exists, none has reported inside the window | Muted pill "last seen {relative}". Empty state: "Puppy One on {device} was last seen {relative}. It may be asleep or offline. On that machine, run /hussh-one status." A device that has never reported is "trusted but has not reported yet", with no claim that it is offline. | On that machine, `/hussh-one status` |
+| Unlinked | No trusted device rows at all | Muted pill "not connected". Empty state: "Puppy One isn't connected to your account yet. Install it on your Mac, then run /hussh-one connect." with the [Get Puppy One on GitHub](https://github.com/hushh-labs/hussh-one-hermes) anchor and the Trusted devices link; composer placeholder "Connect Puppy One to start". | Install from GitHub, then `/hussh-one connect` |
+| Revoked | Only revoked rows remain | Muted pill "not connected". Empty state: "Puppy One was unlinked from this account. On that machine, run /hussh-one connect." (`connect`, not `reconnect`: a revoked device is sealed and the agent's own remedy is a fresh connect; `reconnect` repairs an expired login on a still-trusted machine and refuses to run otherwise.) | On that machine, `/hussh-one connect` |
+| Unavailable | The device list could not be read (signed out, backend down, malformed payload) | Muted pill "not connected". Empty state: "Couldn't check your Puppy One link right now." A brief backend hiccup never reads as a broken machine. | Reload; nothing about the device is implied |
+| Developer hint | The bridge's own `message` ("Set HERMES_API_SERVER_KEY …") | Rendered ONLY when `window.location.hostname` is `localhost` or `127.0.0.1` (`lib/hermes/local-host.ts`), and then only as a second muted line under the state copy above | Set the key in the webapp's server env, same value as `API_SERVER_KEY` in `~/.hermes/.env` |
+
+One fact, one place. The strip above the chat speaks only for the DEVICE's
+own account of its session (`link.session` from the bridge), which knows
+about an expired token on a still-trusted machine, something One cannot see.
+One's record of the device is explained once, in the chat panel's empty state,
+with the way out; the strip never repeats it, so the same sentence and the same
+install link cannot appear twice on one screen. Both surfaces read One's record
+from one store with one poll (`subscribePuppyLink`, a read a minute against a
+ten-minute keepalive), so the pill and the sheet change in the same moment.
+
+Two things the link deliberately does not know. On a lane whose enrollment
+kill switch is off (`HUSSH_TRUSTED_DEVICE_ENABLED`, hard "false" on dev) the
+device list still answers, so "unlinked" shows the install copy even though
+`/hussh-one connect` would be refused there; the flag is a lane decision, not
+something the page should guess at. And the model in every copy is the one the
+device has CONFIGURED, as it reported it, not proof that it is loaded: nothing
+on the device fires a heartbeat on a model change, so a new pin reaches One on
+the next push (unlock, or the ten-minute keepalive).
 
 Two surfaces remain dangling and are recorded rather than hidden:
 `/one/profile/preferences/device` (breadcrumb "On-device first") has no panel

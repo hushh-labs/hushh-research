@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 196,
+  "expected_migration_version": 197,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_pkm_domain_summary",
@@ -663,6 +663,15 @@
       "payload_tag",
       "payload_algorithm",
       "revision",
+      "created_at",
+      "updated_at"
+    ],
+    "one_agent_message_feedback": [
+      "user_id",
+      "app_name",
+      "conversation_ref",
+      "message_ref",
+      "rating",
       "created_at",
       "updated_at"
     ],

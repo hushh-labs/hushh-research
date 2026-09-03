@@ -156,12 +156,20 @@
       "file": "app/api/hermes/chat/stream/route.ts"
     },
     {
+      "template": "/api/hermes/jobs",
+      "file": "app/api/hermes/jobs/route.ts"
+    },
+    {
       "template": "/api/hermes/models",
       "file": "app/api/hermes/models/route.ts"
     },
     {
       "template": "/api/hermes/resources",
       "file": "app/api/hermes/resources/route.ts"
+    },
+    {
+      "template": "/api/hermes/sessions",
+      "file": "app/api/hermes/sessions/route.ts"
     },
     {
       "template": "/api/hermes/status",
@@ -9460,5 +9468,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "bc43cbf120406979f67f622711b0a408f81ddb4f5682c9dd8f531e39237afcec"
+  "content_sha256": "e950dbb56729e1da6bd2f2c943549f793a1fc3e4c596ebe72ad83a5c6a14d3b2"
 }

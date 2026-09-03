@@ -49,6 +49,7 @@ for finance-specialist runtime references, and keep future-only One plans under
 
 - [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current One Voice runtime: ADK `Runner.run_live` over the model's declared transport (Gemini Developer API for the canonical live model; Vertex for the rollback), One's root agent tree (google_search, open_screen, AgentTool Finance/RIA, specialist turn tools), the browser wire protocol, relay ticket auth, and the consent/directive boundary.
 - [one-goal-framework.md](./one-goal-framework.md): governed goal planning and running across Gemini Live voice, Agent Chat, typed search, command bar, and UI action buttons.
+- [card-network-brand-inventory.md](./card-network-brand-inventory.md): where every card network mark comes from, the two rendering tiers, and the rules for adding official artwork.
 - [wallet.md](./wallet.md): the Wallet (formerly Cards): reserved `wallet` PKM domain, `agent_wallet`, `/one/wallet`, chat widgets, scopes, flags, and the complete Cards-to-Wallet naming map (the Wallet Profile identity pass is a different feature).
 - [one-agent-hierarchy.md](./one-agent-hierarchy.md): current One-led app agent hierarchy, A2A/specialist registry, consent authority cascade, and Codex subagent boundary.
 - [gemini-runtime-configuration.md](./gemini-runtime-configuration.md): Connections-owned managed Gemini and Google AI Studio BYOK boundary for typed turns and live voice.

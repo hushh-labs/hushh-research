@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { HttpAgent } from "@ag-ui/client";
 import { Laptop, Loader2, Send } from "lucide-react";
 
@@ -9,7 +10,16 @@ import {
   PuppyModelPicker,
   type ModelSelection,
 } from "@/components/agent/puppy-model-picker";
-import { fetchPuppyStatus, type PuppyStatus } from "@/lib/services/puppy-one-service";
+import { formatRelativeTime } from "@/lib/format/relative-time";
+import { isLocalHost } from "@/lib/hermes/local-host";
+import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
+import { ROUTES } from "@/lib/navigation/routes";
+import {
+  PUPPY_ONE_INSTALL_URL,
+  fetchPuppyStatus,
+  type PuppyLink,
+  type PuppyStatus,
+} from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
 
 /** Per-viewer browser preference for the on-device pill ("1" or "0"). */
@@ -68,6 +78,13 @@ export function HermesChatPanel({ className }: { className?: string }) {
   const [error, setError] = useState("");
   const sessionRef = useRef<string>("");
   const endRef = useRef<HTMLDivElement | null>(null);
+
+  // One's record of the machine comes from the shared store, so this panel
+  // and the strip above it change in the same moment. Deliberately NOT tied
+  // to the bridge read: the loopback gateway answers in under a second and
+  // the backend list can take a minute when One is slow, and awaiting both
+  // together held a connected agent hostage to a hung backend.
+  const link = usePuppyLink();
 
   const loadStatus = useCallback(async () => {
     // Through the service layer, not a raw fetch: not-running is an ordinary
@@ -178,6 +195,11 @@ export function HermesChatPanel({ className }: { className?: string }) {
   }
 
   const connected = status?.connected === true;
+  // The bridge, when it is connected, is the stronger claim and keeps the
+  // pill. Otherwise the pill says what One knows about the owner's machine.
+  const pill = connected
+    ? { live: true, label: status?.model ?? "connected" }
+    : describeLinkPill(link);
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
@@ -186,7 +208,7 @@ export function HermesChatPanel({ className }: { className?: string }) {
         <span
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5",
-            connected
+            pill.live
               ? "bg-[rgba(52,199,89,0.12)] text-[#34C759]"
               : "bg-muted text-muted-foreground",
           )}
@@ -194,10 +216,10 @@ export function HermesChatPanel({ className }: { className?: string }) {
           <span
             className={cn(
               "size-1.5 rounded-full",
-              connected ? "bg-current" : "bg-muted-foreground/60",
+              pill.live ? "bg-current" : "bg-muted-foreground/60",
             )}
           />
-          {connected ? (status?.model ?? "connected") : "not connected"}
+          {pill.label}
         </span>
         {connected ? (
           <PuppyModelPicker onApplied={applyModel} className="ml-auto" />
@@ -226,9 +248,7 @@ export function HermesChatPanel({ className }: { className?: string }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {!connected && status ? (
-          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-            {status.message || "Puppy One is not answering on this machine."}
-          </p>
+          <PuppyLinkEmptyState link={link} status={status} />
         ) : null}
         {connected && turns.length === 0 ? (
           <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -277,9 +297,7 @@ export function HermesChatPanel({ className }: { className?: string }) {
           }}
           disabled={!connected || sending}
           rows={1}
-          placeholder={
-            connected ? "Ask Puppy One…" : "Puppy One is not connected"
-          }
+          placeholder={connected ? "Ask Puppy One…" : composerPlaceholder(link)}
           className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-border/70 bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-60"
         />
         <Button
@@ -294,4 +312,173 @@ export function HermesChatPanel({ className }: { className?: string }) {
       </div>
     </div>
   );
+}
+
+/**
+ * What the disabled composer says when the bridge is not the one answering.
+ *
+ * It must agree with the pill and the empty state above it. The old fixed
+ * "Puppy One is not connected" sat under a green "connected · {device}" pill,
+ * which is the one contradiction this surface exists to avoid.
+ */
+function composerPlaceholder(link: PuppyLink | null): string {
+  if (link?.state === "live" && link.device) {
+    return `Chat with Puppy One from ${link.device.name}`;
+  }
+  if (link?.state === "quiet" && link.device) {
+    return link.device.lastHeartbeatAt === null
+      ? `Puppy One on ${link.device.name} has not reported yet`
+      : "Puppy One is asleep or offline";
+  }
+  if (link?.state === "unlinked" || link?.state === "revoked") {
+    return "Connect Puppy One to start";
+  }
+  return "Puppy One is not connected";
+}
+
+/** "seen 3 minutes ago", or null when the device has never reported. */
+function seenRelative(link: PuppyLink): string | null {
+  const at = link.device?.lastHeartbeatAt ?? null;
+  if (at === null) return null;
+  return formatRelativeTime(at, Date.now()) || null;
+}
+
+/**
+ * The header pill when the bridge is not the one answering.
+ *
+ * Green means "a machine is reporting to One right now" and nothing weaker:
+ * a quiet device and an unknown link share the muted form, so the colour
+ * that promises a live agent is never spent on a guess.
+ */
+function describeLinkPill(link: PuppyLink | null): {
+  live: boolean;
+  label: string;
+} {
+  if (link?.state === "live" && link.device) {
+    return { live: true, label: `connected · ${link.device.name}` };
+  }
+  if (link?.state === "quiet") {
+    const seen = seenRelative(link);
+    if (seen) return { live: false, label: `last seen ${seen}` };
+  }
+  return { live: false, label: "not connected" };
+}
+
+/**
+ * What a person sees when the bridge on THIS server is not connected.
+ *
+ * Driven by One's own record of the owner's machine, because that is the fact
+ * the person came for. The bridge's own message is a developer's hint about
+ * a server-side env key, and it is meaningless on a deployed origin, where the
+ * server is a container and not anyone's Mac: it renders only on localhost,
+ * and then only as a second line under the real state.
+ */
+function PuppyLinkEmptyState({
+  link,
+  status,
+}: {
+  link: PuppyLink | null;
+  status: PuppyStatus;
+}) {
+  const developerHint = isLocalHost() ? status.message?.trim() || null : null;
+  return (
+    <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+      <PuppyLinkCopy link={link} />
+      {developerHint ? (
+        <p className="mt-3 text-[11px] text-muted-foreground/80">
+          {developerHint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function PuppyLinkCopy({ link }: { link: PuppyLink | null }) {
+  const trustedDevices = (
+    <Link
+      href={ROUTES.PROFILE_SECURITY_DEVICES}
+      className="underline underline-offset-2 hover:text-foreground"
+    >
+      Trusted devices
+    </Link>
+  );
+
+  if (link?.state === "live" && link.device) {
+    const model = link.device.heartbeat?.current_model?.trim();
+    const seen = seenRelative(link);
+    return (
+      <>
+        <p>
+          {/* The model is the one the machine has CONFIGURED, as it reported
+              it. "running" would claim it is loaded, which One cannot see. */}
+          Puppy One is connected to your account on {link.device.name}
+          {model ? ` · ${model}` : ""}
+          {seen ? ` · seen ${seen}` : ""}. Chat here works from that machine.
+        </p>
+        <p className="mt-2">{trustedDevices}</p>
+      </>
+    );
+  }
+
+  if (link?.state === "quiet" && link.device) {
+    const seen = seenRelative(link);
+    // A device that has NEVER reported is not asleep: it is trusted and
+    // either older than the heartbeat or between connecting and its first
+    // push. Saying "offline" about it would be a guess dressed as a fact.
+    return (
+      <p>
+        {seen ? (
+          <>
+            Puppy One on {link.device.name} was last seen {seen}. It may be
+            asleep or offline.
+          </>
+        ) : (
+          <>
+            Puppy One on {link.device.name} is trusted but has not reported
+            yet.
+          </>
+        )}{" "}
+        On that machine, run{" "}
+        <code className="font-mono text-[0.85em]">/hussh-one status</code>.
+      </p>
+    );
+  }
+
+  if (link?.state === "unlinked") {
+    return (
+      <>
+        <p>
+          Puppy One isn&apos;t connected to your account yet. Install it on
+          your Mac, then run{" "}
+          <code className="font-mono text-[0.85em]">/hussh-one connect</code>.
+        </p>
+        <p className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1">
+          <a
+            href={PUPPY_ONE_INSTALL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Get Puppy One on GitHub
+          </a>
+          {trustedDevices}
+        </p>
+      </>
+    );
+  }
+
+  if (link?.state === "revoked") {
+    return (
+      <p>
+        {/* `connect`, not `reconnect`: a revoked device is sealed, and the
+            agent's own remedy for that state is a fresh connect. `reconnect`
+            is the repair for an expired login on a still-trusted machine,
+            and refuses to run on a device that is not connected. */}
+        Puppy One was unlinked from this account. On that machine, run{" "}
+        <code className="font-mono text-[0.85em]">/hussh-one connect</code>.
+      </p>
+    );
+  }
+
+  return <p>Couldn&apos;t check your Puppy One link right now.</p>;
 }

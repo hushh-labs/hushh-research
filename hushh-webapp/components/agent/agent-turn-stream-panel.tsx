@@ -132,9 +132,10 @@ export function AgentTurnStreamPanel({
     [streamEvents]
   );
   const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
-  // Provider reasoning is deliberately not rendered. Consumer activity is
-  // limited to sanitized tool, memory, and specialist lifecycle facts.
-  void thinkingText;
+  // Provider reasoning is rendered again (founder directive 2026-09-02): the
+  // owner asked to see the agent think. It stays inside the activity panel,
+  // below the sanitized tool/memory/specialist lifecycle facts, so it is
+  // available without competing with the answer.
 
   return (
     <AppStreamPanel
@@ -145,6 +146,14 @@ export function AgentTurnStreamPanel({
       structuredContent={
         structuredExperience ? (
           <AgentStructuredExperienceView experience={structuredExperience} />
+        ) : null
+      }
+      thinkingTitle="One is thinking"
+      thinkingContent={
+        thinkingText && thinkingText.trim() ? (
+          <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+            {thinkingText.trim()}
+          </p>
         ) : null
       }
       responsePendingLabel="One is preparing your response."
