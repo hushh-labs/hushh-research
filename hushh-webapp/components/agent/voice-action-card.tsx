@@ -273,16 +273,42 @@ export function VoiceActionCard() {
             ))}
           </ul>
         ) : (
-          <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5">
-            {data.summary.fields.map((field) => (
-              <div key={field.label} className="contents">
-                <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                <dd className="truncate text-right text-sm font-medium text-foreground">
-                  {field.value}
-                </dd>
+          <>
+            {data.summary.fields.length > 0 ? (
+              <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5">
+                {data.summary.fields.map((field) => (
+                  <div key={field.label} className="contents">
+                    <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                    <dd className="truncate text-right text-sm font-medium text-foreground">
+                      {field.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {data.summary.breakdowns.map((breakdown, index) => (
+              <div
+                key={breakdown.label}
+                className={
+                  index === 0 && data.summary.fields.length === 0
+                    ? ""
+                    : "mt-2 border-t border-border/40 pt-2"
+                }
+              >
+                <p className="pb-1 text-xs text-muted-foreground">{breakdown.label}</p>
+                <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5">
+                  {breakdown.items.map((item) => (
+                    <div key={item.label} className="contents">
+                      <dt className="text-xs text-muted-foreground">{item.label}</dt>
+                      <dd className="truncate text-right text-sm font-medium text-foreground">
+                        {item.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
             ))}
-          </dl>
+          </>
         )}
       </div>
     );
