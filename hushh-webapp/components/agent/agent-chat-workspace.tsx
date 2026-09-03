@@ -40,7 +40,13 @@ import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 import { EmailDraftCard } from "@/components/agent/email-draft-card";
 import {
   EmailDeliveryHistoryCard,
@@ -4885,35 +4891,27 @@ export function AgentChatWorkspace({
 
             <div className="flex shrink-0 items-center gap-2">
               {/*
-                The app's own segmented control, not a hand-rolled pair of
-                pills. The first version animated `transition-colors` only, so
-                switching agents snapped where every other tab strip in the app
-                eases: this primitive transitions background, border, shadow and
-                colour together over 150ms, and carries the tablist semantics
-                (aria-selected, roving tabIndex) that a pair of buttons does not.
+                The compact segmented control at header scale. The full-width
+                filter primitive was tried here first and stood ~44px tall
+                against 36px icon buttons, so the header stopped lining up.
+                This one is h-8 with an eased sliding transition, which is the
+                animation the toggle was always missing.
               */}
-              <SegmentedTabs
-                ariaLabel="Agent"
+              <SegmentedControl
+                variant="compact"
+                size="sm"
                 value={agentSurface}
                 onValueChange={(next) => setAgentSurface(next as AgentChatSurface)}
                 options={[
-                  { value: "one", label: "One", accessibleLabel: "One, your cloud agent" },
-                  {
-                    value: "puppy",
-                    label: "Puppy",
-                    accessibleLabel: "Puppy One, on your machine, with its own conversation",
-                  },
+                  { value: "one", label: "One" },
+                  { value: "puppy", label: "Puppy" },
                 ]}
-                className="w-auto min-h-9 shrink-0"
+                className="w-auto shrink-0"
               />
               {modelPreference && modelPreference.choices.length > 1 ? (
-                <select
-                  data-testid="agent-chat-model-picker"
-                  aria-label="Model"
-                  title={`Running ${modelPreference.effective_model}`}
+                <Select
                   value={modelPreference.effective_model}
-                  onChange={(event) => {
-                    const nextModel = event.target.value;
+                  onValueChange={(nextModel) => {
                     const previous = modelPreference;
                     // Optimistic: the picker must not stall the header while the
                     // write lands. A failure restores exactly what was showing.
@@ -4931,14 +4929,33 @@ export function AgentChatWorkspace({
                       }
                     })();
                   }}
-                  className="hidden h-7 max-w-[9.5rem] shrink-0 truncate rounded-full bg-foreground/[0.045] px-2 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:text-foreground sm:block"
                 >
-                  {modelPreference.choices.map((choice) => (
-                    <option key={choice.model_id} value={choice.model_id}>
-                      {choice.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    data-testid="agent-chat-model-picker"
+                    aria-label="Model"
+                    title={`Running ${modelPreference.effective_model}`}
+                    className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                  >
+                    {/* "3.8 Flash", not "Gemini 3.8 Flash": every option is a
+                        Gemini, so the shared word is the one thing a narrow
+                        header cannot afford. The full label stays in the menu
+                        and in the tooltip. */}
+                    <span className="truncate">
+                      {(
+                        modelPreference.choices.find(
+                          (choice) => choice.model_id === modelPreference.effective_model,
+                        )?.label ?? modelPreference.effective_model
+                      ).replace(/^Gemini\s+/i, "")}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    {modelPreference.choices.map((choice) => (
+                      <SelectItem key={choice.model_id} value={choice.model_id}>
+                        {choice.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : null}
               {/* A fixed slot, always present. This used to mount and unmount
                   with the status, and because the cluster is shrink-0 the whole
