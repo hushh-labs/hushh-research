@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   VOICE_DISAMBIGUATION_DATA_KEY,
   clearVoiceCard,
+  parseToolTraceCard,
   parseVoiceCard,
   parseVoiceConfirm,
   publishVoiceCard,
@@ -224,5 +225,73 @@ describe("parseVoiceCard", () => {
   it("tags each shape so the card knows which to render", () => {
     expect(parseVoiceCard(payload())?.kind).toBe("choice");
     expect(parseVoiceCard(undefined)).toBeNull();
+  });
+});
+
+describe("parseToolTraceCard", () => {
+  it("turns a connections_list trace into a list-shaped data card", () => {
+    const card = parseToolTraceCard({
+      kind: "connections_list",
+      payload: {
+        people: [
+          { id: "cx1", name: "Sarah Chen", detail: "s***n@example.com", photoUrl: "https://x/y.jpg" },
+          { id: "cx2", name: "Alex Kim" },
+        ],
+      },
+    });
+    expect(card).toEqual({
+      kind: "data",
+      heading: "Your connections",
+      shape: "list",
+      list: {
+        items: [
+          { id: "cx1", name: "Sarah Chen", detail: "s***n@example.com", photoUrl: "https://x/y.jpg" },
+          { id: "cx2", name: "Alex Kim", detail: null, photoUrl: null },
+        ],
+      },
+    });
+  });
+
+  it("drops a connections_list trace with no usable rows", () => {
+    expect(
+      parseToolTraceCard({ kind: "connections_list", payload: { people: [] } }),
+    ).toBeNull();
+    expect(
+      parseToolTraceCard({ kind: "connections_list", payload: { people: [{ name: "No id" }] } }),
+    ).toBeNull();
+  });
+
+  it("turns a pkm_domain_summary trace into a summary-shaped data card", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: {
+        domain: "financial",
+        label: "Financial",
+        summary: { holdings_count: 12, portfolio_value_bucket: "100k-250k", empty_field: "" },
+      },
+    });
+    expect(card).toEqual({
+      kind: "data",
+      heading: "Financial",
+      shape: "summary",
+      summary: {
+        fields: [
+          { label: "Holdings Count", value: "12" },
+          { label: "Portfolio Value Bucket", value: "100k-250k" },
+        ],
+      },
+    });
+  });
+
+  it("drops a pkm_domain_summary trace with nothing worth showing", () => {
+    expect(
+      parseToolTraceCard({ kind: "pkm_domain_summary", payload: { summary: {} } }),
+    ).toBeNull();
+  });
+
+  it("ignores an unknown trace kind and a missing trace", () => {
+    expect(parseToolTraceCard({ kind: "something_new", payload: {} })).toBeNull();
+    expect(parseToolTraceCard(null)).toBeNull();
+    expect(parseToolTraceCard(undefined)).toBeNull();
   });
 });

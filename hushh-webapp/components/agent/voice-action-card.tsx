@@ -1,14 +1,16 @@
 "use client";
 
-import { User } from "lucide-react";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { User, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   clearVoiceCard,
   readVoiceCard,
   subscribeToVoiceCard,
+  type VoiceCardRequest,
   type VoiceDisambiguationCandidate,
 } from "@/lib/voice/voice-action-card";
 
@@ -63,6 +65,7 @@ function SubjectRow({
 export function VoiceActionCard() {
   const card = useSyncExternalStore(subscribeToVoiceCard, readVoiceCard, () => null);
   const disambiguation = card?.kind === "choice" ? card : null;
+  const data = card?.kind === "data" ? card : null;
   const [runningId, setRunningId] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -72,6 +75,38 @@ export function VoiceActionCard() {
   useEffect(() => {
     if (card) snapKaiBottomChromeVisible();
   }, [card]);
+
+  // A `data` card illustrates a spoken readout, so its lifetime should track
+  // the readout, not linger after or vanish before it. There is no explicit
+  // "TTS finished" event to key off -- voiceStatus leaving "speaking" is the
+  // same signal `tts_playing` is already derived from elsewhere in the app
+  // (see AppRuntimeState.voice.tts_playing). Cleared only once speech has
+  // actually been observed for THIS card, so a trace that arrives before
+  // audio starts (the normal case: the tool call resolves before the model
+  // speaks the answer) is not cleared on the "thinking" status that precedes
+  // it.
+  const voiceStatus = useAgentVoiceState((s) => s.status);
+  const dataCardRef = useRef<VoiceCardRequest | null>(null);
+  const hasSpokenRef = useRef(false);
+  useEffect(() => {
+    if (!data) {
+      dataCardRef.current = null;
+      hasSpokenRef.current = false;
+      return;
+    }
+    if (card !== dataCardRef.current) {
+      dataCardRef.current = card;
+      hasSpokenRef.current = voiceStatus === "speaking";
+      return;
+    }
+    if (voiceStatus === "speaking") {
+      hasSpokenRef.current = true;
+      return;
+    }
+    if (hasSpokenRef.current) {
+      clearVoiceCard();
+    }
+  }, [card, data, voiceStatus]);
 
   const choose = useCallback(
     async (candidate: VoiceDisambiguationCandidate) => {
@@ -197,6 +232,58 @@ export function VoiceActionCard() {
             {busy ? "Working…" : confirm.confirmLabel}
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (data) {
+    return (
+      <div
+        className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
+        data-testid="voice-data-card"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-start justify-between gap-3 pb-2">
+          <p className="text-[13px] font-medium text-muted-foreground">{data.heading}</p>
+          <button
+            type="button"
+            onClick={() => clearVoiceCard()}
+            aria-label="Dismiss"
+            className="-m-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.08]"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {data.shape === "list" ? (
+          <ul className="flex flex-col">
+            {data.list.items.map((item, index) => (
+              <li
+                key={item.id}
+                className={
+                  index > 0
+                    ? "flex items-center gap-3 border-t border-border/40 py-2.5"
+                    : "flex items-center gap-3 py-2.5"
+                }
+                data-testid="voice-data-card-row"
+              >
+                <SubjectRow name={item.name} detail={item.detail} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5">
+            {data.summary.fields.map((field) => (
+              <div key={field.label} className="contents">
+                <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                <dd className="truncate text-right text-sm font-medium text-foreground">
+                  {field.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
       </div>
     );
   }

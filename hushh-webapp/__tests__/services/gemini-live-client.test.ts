@@ -188,6 +188,49 @@ describe("GeminiLiveClient per-utterance activity signal", () => {
   });
 });
 
+describe("GeminiLiveClient tool trace", () => {
+  it("emits a tool_trace event for a read tool's parked display data", async () => {
+    const onEvent = vi.fn();
+    const transport = new GeminiLiveClient({ onEvent });
+    const connection = transport as unknown as {
+      handleSocketMessage: (data: unknown) => Promise<void>;
+    };
+
+    await connection.handleSocketMessage(
+      JSON.stringify({
+        toolTrace: {
+          kind: "connections_list",
+          payload: { people: [{ id: "cx1", name: "Sarah Chen" }] },
+        },
+      }),
+    );
+
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "tool_trace",
+        trace: {
+          kind: "connections_list",
+          payload: { people: [{ id: "cx1", name: "Sarah Chen" }] },
+        },
+      }),
+    );
+  });
+
+  it("ignores a toolTrace frame with no kind", async () => {
+    const onEvent = vi.fn();
+    const transport = new GeminiLiveClient({ onEvent });
+    const connection = transport as unknown as {
+      handleSocketMessage: (data: unknown) => Promise<void>;
+    };
+
+    await connection.handleSocketMessage(JSON.stringify({ toolTrace: { payload: {} } }));
+
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "tool_trace" }),
+    );
+  });
+});
+
 describe("GeminiLiveClient session resumption", () => {
   it("stores an incoming resumption handle and hands it off in the closed event", async () => {
     const onEvent = vi.fn();
