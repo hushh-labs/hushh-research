@@ -1,3 +1,7 @@
+import {
+  CardNetworkMark,
+  cardNetworkLabel,
+} from "@/components/wallet/card-network-mark";
 "use client";
 
 /**
@@ -89,8 +93,12 @@ export function SecureCardReveal({ summary, secrets, onDismiss, onHide }: Secure
       data-testid="secure-card-reveal"
     >
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
-          {summary.nickname || summary.brand} · {summary.brand} · {summary.issuingRegion}
+        <span className="flex min-w-0 items-center gap-2">
+          <CardNetworkMark brand={summary.brand} />
+          <span className="truncate">
+            {summary.nickname || cardNetworkLabel(summary.brand)} ·{" "}
+            {cardNetworkLabel(summary.brand)} · {summary.issuingRegion}
+          </span>
         </span>
         <span>hides in {secondsLeft}s</span>
       </div>

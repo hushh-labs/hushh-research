@@ -60,6 +60,10 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import {
+  CardNetworkMark,
+  cardNetworkLabel,
+} from "@/components/wallet/card-network-mark";
+import {
   ModelPreferenceService,
   type ModelPreference,
 } from "@/lib/services/model-preference-service";
@@ -5095,14 +5099,17 @@ export function AgentChatWorkspace({
                           key={summary.cardId}
                           className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 hover:bg-foreground/[0.04]"
                         >
-                          <span className="min-w-0">
+                          <span className="flex min-w-0 items-center gap-3">
+                            <CardNetworkMark brand={summary.brand} />
+                            <span className="min-w-0">
                             <span className="block truncate text-sm font-medium">
-                              {summary.nickname || summary.brand}
+                              {summary.nickname || cardNetworkLabel(summary.brand)}
                             </span>
                             <span className="block truncate text-xs text-muted-foreground">
-                              {summary.brand} ····{summary.last4} ·{" "}
+                              {cardNetworkLabel(summary.brand)} ····{summary.last4} ·{" "}
                               {String(summary.expiryMonth).padStart(2, "0")}/{summary.expiryYear} ·{" "}
                               {summary.issuingRegion}
+                            </span>
                             </span>
                           </span>
                           <Button

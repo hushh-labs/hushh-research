@@ -16,6 +16,10 @@ import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import { Input } from "@/components/ui/input";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import {
+  CardNetworkMark,
+  cardNetworkLabel,
+} from "@/components/wallet/card-network-mark";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -245,13 +249,16 @@ export function WalletWorkspace() {
               key={card.cardId}
               className="flex items-center justify-between rounded-xl border border-border bg-card p-4"
             >
-              <div>
-                <p className="font-medium">{card.nickname || card.brand}</p>
+              <div className="flex min-w-0 items-center gap-3">
+                <CardNetworkMark brand={card.brand} />
+                <div className="min-w-0">
+                <p className="font-medium">{card.nickname || cardNetworkLabel(card.brand)}</p>
                 <p className="text-sm text-muted-foreground">
-                  {card.brand} ····{card.last4} ·{" "}
+                  {cardNetworkLabel(card.brand)} ····{card.last4} ·{" "}
                   {String(card.expiryMonth).padStart(2, "0")}/
                   {String(card.expiryYear).slice(-2)} · {card.issuingRegion}
                 </p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Button

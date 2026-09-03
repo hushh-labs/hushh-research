@@ -207,7 +207,10 @@ It checks that:
 `HUSSH_GEMINI_TEXT_MODEL` (backend, `_HUSSH_GEMINI_TEXT_MODEL` substitution) moves
 every text agent to one Gemini generation at once: agent manifests say
 `gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
-generation proven in every lane (`FLEET_TEXT_MODEL_DEFAULT`, 3.7 Flash today). A
+default generation (`FLEET_TEXT_MODEL_DEFAULT`, **3.8 Flash** since 2026-09-02).
+Production pins `gemini-3.7-flash` explicitly in `deploy-production.yml`, because its
+Vertex allowed-models policy still refuses 3.8 (verified live: 400 on `hushh-pda`,
+3.7 succeeds). Remove that pin once an org-policy admin admits 3.8 there. A
 lane may flip it only after its project's `constraints/vertexai.allowedModels`
 policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
 2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
