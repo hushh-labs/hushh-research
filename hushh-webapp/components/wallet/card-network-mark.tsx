@@ -1,32 +1,44 @@
 /**
- * A network mark for a detected card brand.
+ * The network mark for a detected card brand.
  *
- * These are Hushh's own marks, not the networks'. Visa, Mastercard, American
- * Express, Discover, RuPay, JCB, UnionPay, Mir, Elo, Diners Club and Verve are
- * registered trademarks of their owners, and each network licenses its artwork
- * under its own brand guidelines. Copying those files into this repository
- * would ship someone else's trademark without a licence, so instead each brand
- * gets an original rounded tile carrying its short name in the colour the
- * network is recognised by. A person reading their own wallet identifies the
- * card instantly, and nothing here claims to be, or reproduces, an official
- * logo.
+ * Two tiers, deliberately. When a network's official artwork is present in
+ * `public/brand/cards/`, it is rendered unmodified in a transparent cell, the
+ * same handling the runtime provider marks follow
+ * (docs/reference/one/runtime-provider-brand-inventory.md). Until an asset is
+ * recorded in `CARD_MARK_ASSETS`, the brand falls back to a plain lettermark
+ * tile that is Hussh's own and claims to be nobody's logo.
  *
- * If the networks' licensed assets are ever obtained, this component is the one
- * place to swap them in: every surface renders the card's brand through it.
+ * The asset map is the only thing that changes when artwork arrives: drop the
+ * file into `public/brand/cards/`, add one line here, record the source in
+ * docs/reference/one/card-network-brand-inventory.md. No other file moves.
+ *
+ * Visa, Mastercard, American Express, Discover, RuPay, JCB, UnionPay, Mir, Elo,
+ * Diners Club and Verve are trademarks of their owners. Showing a network's
+ * mark against a card the owner actually holds is identification, not
+ * endorsement, which is why the geometry must never be altered or recoloured.
  */
+
+import Image from "next/image";
 
 import { cn } from "@/lib/utils";
 import type { CardBrand } from "@/lib/wallet/card-validation";
 
 type NetworkStyle = {
-  /** What a person calls the network, short enough for a tile. */
+  /** Short enough for a lettermark tile. */
   short: string;
-  /** The full name, for assistive technology. */
+  /** The full name, for prose and assistive technology. */
   label: string;
-  /** Recognition colour. A brand's colour is not its trademark. */
+  /** Recognition colour for the fallback tile only. A colour is not a mark. */
   background: string;
   foreground: string;
 };
+
+/**
+ * Official artwork, once recorded. Empty entries fall back to the lettermark.
+ * Every entry here must have a matching row in the card network brand
+ * inventory naming where the file came from.
+ */
+const CARD_MARK_ASSETS: Partial<Record<CardBrand, string>> = {};
 
 const NETWORKS: Readonly<Record<CardBrand, NetworkStyle>> = {
   visa: { short: "VISA", label: "Visa", background: "#1a1f71", foreground: "#ffffff" },
@@ -68,14 +80,19 @@ const NETWORKS: Readonly<Record<CardBrand, NetworkStyle>> = {
   other: { short: "CARD", label: "Card", background: "#6b7280", foreground: "#ffffff" },
 };
 
-function styleFor(brand: string | null | undefined): NetworkStyle {
+function normalizeBrand(brand: string | null | undefined): CardBrand {
   const key = String(brand || "").trim().toLowerCase() as CardBrand;
-  return NETWORKS[key] ?? NETWORKS.other;
+  return key in NETWORKS ? key : "other";
 }
 
 /** The full name of a network, for prose and assistive technology. */
 export function cardNetworkLabel(brand: string | null | undefined): string {
-  return styleFor(brand).label;
+  return NETWORKS[normalizeBrand(brand)].label;
+}
+
+/** True when this brand renders the network's own artwork rather than a lettermark. */
+export function hasOfficialCardMark(brand: string | null | undefined): boolean {
+  return Boolean(CARD_MARK_ASSETS[normalizeBrand(brand)]);
 }
 
 export function CardNetworkMark({
@@ -85,13 +102,40 @@ export function CardNetworkMark({
   brand: string | null | undefined;
   className?: string;
 }) {
-  const network = styleFor(brand);
+  const key = normalizeBrand(brand);
+  const network = NETWORKS[key];
+  const asset = CARD_MARK_ASSETS[key];
+
+  if (asset) {
+    // Official artwork: transparent cell, unmodified geometry, no tint.
+    return (
+      <span
+        role="img"
+        aria-label={network.label}
+        title={network.label}
+        data-testid={`card-network-mark-${key}`}
+        className={cn(
+          "inline-flex h-7 w-11 shrink-0 items-center justify-center",
+          className,
+        )}
+      >
+        <Image
+          src={asset}
+          alt=""
+          width={44}
+          height={28}
+          className="h-auto w-full object-contain"
+        />
+      </span>
+    );
+  }
+
   return (
     <span
       role="img"
       aria-label={network.label}
       title={network.label}
-      data-testid={`card-network-mark-${String(brand || "other").toLowerCase()}`}
+      data-testid={`card-network-mark-${key}`}
       className={cn(
         "inline-grid h-7 w-11 shrink-0 place-items-center rounded-md text-[9px] font-bold tracking-wide tabular-nums",
         className,

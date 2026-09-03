@@ -153,6 +153,8 @@ import {
   type AgentChatToolEvent,
   type SpecialistDirectiveEvent,
   type AgentSource,
+  getAgentChatFeedback,
+  setAgentChatFeedback,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
@@ -970,6 +972,8 @@ function AgentBubble({
   onPendingConsentApprove,
   onPendingConsentDeny,
   onPendingConsentDetails,
+  rating = null,
+  onRate,
 }: {
   message: AgentMessage;
   userAvatarUrl?: string | null;
@@ -987,10 +991,15 @@ function AgentBubble({
     item: SpecialistPendingConsentRequestItem,
   ) => Promise<void> | void;
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
+  rating?: "up" | "down" | null;
+  onRate?: (rating: "up" | "down" | null) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [liked, setLiked] = useState(false);
-  const [disliked, setDisliked] = useState(false);
+  // The rating is owned by the workspace so it survives a reload; the bubble
+  // only reflects it. It used to be local state that died with the tab, which
+  // meant nobody could ever read what people thought of an answer.
+  const liked = rating === "up";
+  const disliked = rating === "down";
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
@@ -1132,11 +1141,7 @@ function AgentBubble({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const nextLiked = !liked;
-                  setLiked(nextLiked);
-                  if (nextLiked) setDisliked(false);
-                }}
+                onClick={() => onRate?.(liked ? null : "up")}
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   liked
@@ -1151,11 +1156,7 @@ function AgentBubble({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const nextDisliked = !disliked;
-                  setDisliked(nextDisliked);
-                  if (nextDisliked) setLiked(false);
-                }}
+                onClick={() => onRate?.(disliked ? null : "down")}
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   disliked
@@ -1348,6 +1349,11 @@ export function AgentChatWorkspace({
   >(null);
   const [editingQueuedPromptText, setEditingQueuedPromptText] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
+  // Ratings for this conversation, keyed by message id. Durable, so a reload
+  // and a conversation switch both keep what the person said about an answer.
+  const [messageRatings, setMessageRatings] = useState<
+    Record<string, "up" | "down">
+  >({});
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
@@ -1783,6 +1789,25 @@ export function AgentChatWorkspace({
       block: "end",
     });
   }, [emailDraftOpen, messages, pkmReviews, pendingSpecialistDirective]);
+
+  useEffect(() => {
+    const token = getVaultOwnerToken();
+    if (!conversationId || !token) {
+      setMessageRatings({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const ratings = await getAgentChatFeedback({
+        conversationId,
+        vaultOwnerToken: token,
+      });
+      if (!cancelled) setMessageRatings(ratings);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, getVaultOwnerToken]);
 
   useEffect(() => {
     if (!user) return;
@@ -2623,6 +2648,38 @@ export function AgentChatWorkspace({
       }
     },
     [getVaultOwnerToken, user?.uid, vaultKey],
+  );
+
+  /**
+   * Record what the owner thought of one answer. Optimistic, because a rating
+   * is a gesture and must feel instant; a failed write restores exactly what
+   * was showing rather than leaving a rating the server never received.
+   */
+  const handleRateMessage = useCallback(
+    (messageId: string, rating: "up" | "down" | null) => {
+      const token = getVaultOwnerToken();
+      if (!conversationId || !token) return;
+      const previous = messageRatings;
+      setMessageRatings((current) => {
+        const next = { ...current };
+        if (rating === null) delete next[messageId];
+        else next[messageId] = rating;
+        return next;
+      });
+      void (async () => {
+        try {
+          await setAgentChatFeedback({
+            conversationId,
+            messageId,
+            rating,
+            vaultOwnerToken: token,
+          });
+        } catch {
+          setMessageRatings(previous);
+        }
+      })();
+    },
+    [conversationId, getVaultOwnerToken, messageRatings],
   );
 
   const handleSavePkmReview = useCallback(
@@ -4979,6 +5036,8 @@ export function AgentChatWorkspace({
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       retryDisabled={isChatLoading || isStreaming}
+                      rating={messageRatings[message.id] ?? null}
+                      onRate={(next) => handleRateMessage(message.id, next)}
                       onRetry={
                         message.id === latestRetryableAssistantId
                           ? () => handleRetryAssistantResponse(message.id)

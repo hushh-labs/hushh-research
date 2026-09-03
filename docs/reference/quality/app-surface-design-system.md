@@ -144,6 +144,42 @@ Rules:
 9. Preserve required compliance, consent, security, and destructive-action warnings, but write them as short user-facing decisions.
 10. Every shared component should render concise copy by default so route screens do not solve clarity with local typography overrides.
 
+## Shell and navigation ownership
+
+The standard navigation is four layers, not one component. Every signed-in
+surface uses all four, and a surface that skips one is the reason a back button
+goes missing.
+
+| Layer | What owns it | Where |
+| --- | --- | --- |
+| Persistent chrome | `AppTopShell` / `AppBottomShell`, mounted once above the route Suspense boundary | `hushh-webapp/app/providers.tsx` |
+| Route mode (`standard`, `flow`, `redirect`, `hidden`, plus `persistentChrome`) | The route layout contract | `hushh-webapp/lib/navigation/app-route-layout.contract.json` |
+| Container and width | `AppPageShell` with its header and content regions, or `FullscreenFlowShell` for a `flow` | `hushh-webapp/components/app-ui/` |
+| Trail, back target, title | `resolveTopShellBreadcrumb`, then `resolveTopShellBackAction`, then `PageHeader` | `hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts` |
+
+The law, which holds for every signed-in route:
+
+1. A screen has exactly **one** back control, **one** breadcrumb and **one**
+   title, and the breadcrumb's last crumb **is** that title.
+2. **The back control is derived from the breadcrumb, not from the page.** A
+   `standard` route with no breadcrumb entry gets no back button and no native
+   left-edge back gesture, on web and on device. Declaring the breadcrumb is
+   therefore not decoration; it is how the route becomes navigable.
+3. A `standard` route declares a breadcrumb, or carries an explicit
+   `exemptionReason` in the route layout contract saying why it does not.
+4. The top bar owns back. A route-local back button is reserved for a surface
+   that genuinely sits outside the shared shell, and never appears alongside the
+   shell's own.
+5. A `flow` renders through `FullscreenFlowShell` and draws no back control of
+   its own. Never hand-roll a full-height wrapper to clear the header; the top
+   shell is the single authority for header clearance.
+6. `shellVerification` in the route layout contract must name the file that
+   really renders the primitives. When a shell moves into a client component,
+   the declaration moves with it.
+
+`PkmSettingsShell` is not a second shell. It is a composition of exactly these
+primitives, and surfaces that use it are conformant.
+
 ## Shell Contract
 
 1. The top shell is the single authority for header clearance.

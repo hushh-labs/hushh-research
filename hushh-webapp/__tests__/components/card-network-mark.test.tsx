@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import {
   CardNetworkMark,
   cardNetworkLabel,
+  hasOfficialCardMark,
 } from "@/components/wallet/card-network-mark";
 
 describe("CardNetworkMark", () => {
@@ -28,5 +29,16 @@ describe("CardNetworkMark", () => {
     // The tile is Hushh's own mark, so it must not claim to be the network's
     // artwork: no <img> to a vendor asset, just a labelled element.
     expect(mark.tagName.toLowerCase()).toBe("span");
+  });
+
+  it("falls back to a lettermark until official artwork is recorded", () => {
+    // The two tiers exist so a network's own mark can drop in without a code
+    // change. Until CARD_MARK_ASSETS carries an entry, nothing here claims to
+    // be the network's logo.
+    expect(hasOfficialCardMark("visa")).toBe(false);
+    render(<CardNetworkMark brand="visa" />);
+    const mark = screen.getByRole("img", { name: "Visa" });
+    expect(mark).toBeInTheDocument();
+    expect(mark.querySelector("img")).toBeNull();
   });
 });
