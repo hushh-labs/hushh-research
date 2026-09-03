@@ -7,7 +7,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
-import { PuppyResourceMonitor } from "@/components/agent/puppy-resource-monitor";
+import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
 
 /**
  * Puppy One: the agent running on the owner's own machine.
@@ -31,12 +31,14 @@ export default function PuppyOnePage() {
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
-        {/* The claim first, then the conversation that rests on it: the reader
-            should be able to see WHERE an answer is generated before reading
-            one. Spaced with a margin rather than a flex gap on purpose -- this
-            region is content-height, and making it a flex column would let the
-            chat panel's flex-1 basis collapse to nothing. */}
-        <PuppyResourceMonitor className="mb-4" />
+        {/* The readings are one tap away rather than always on: the owner asks
+            for them. A broken link to Hussh One is the exception and stays on
+            this strip unasked, because nothing else on the page can tell the
+            owner that One has stopped seeing the machine. Spaced with a margin
+            rather than a flex gap on purpose -- this region is content-height,
+            and making it a flex column would let the chat panel's flex-1 basis
+            collapse to nothing. */}
+        <PuppyMachineSheet className="mb-3" />
         <HermesChatPanel />
       </AppPageContentRegion>
     </AppPageShell>

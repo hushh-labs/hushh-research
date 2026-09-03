@@ -179,6 +179,15 @@ The access manager is the One-owned `/one/consent` workspace. Legacy
 `/consents` links redirect there while preserving transient query state such as
 the selected review tab and request identifier.
 
+## Shell and navigation
+
+The standard navigation is four layers and one law, defined once in
+`docs/reference/quality/app-surface-design-system.md` under *Shell and navigation
+ownership*. The part route authors get wrong most often: **the back control is
+derived from the breadcrumb**, so a `standard` route with no breadcrumb entry has
+no back button and no native edge-back gesture. Declare the breadcrumb, or declare
+an `exemptionReason` in the route layout contract.
+
 ## Route Contract Cascade
 
 Every added, removed, or renamed app route must update the route contract cascade in one change:

@@ -225,10 +225,17 @@ The mode is deliberately not persisted. It resets to One every time the
 workspace mounts, so a toggle left on yesterday can never make a cloud answer
 look like it was generated on the owner's machine.
 
-The workspace also shows the resource monitor above the Puppy transcript, and
-the monitor leads with the link banner: a machine can be enrolled, healthy and
-still signed out of Hussh One, and that is the state the owner most needs to be
-told about because nothing else on the machine reveals it.
+The machine's readings are on demand. Above the Puppy transcript, on both
+`/one/puppy` and the workspace mode, sits one quiet control, "This machine",
+that opens them in a sheet; nothing is polled while that sheet is shut, so a
+screen nobody is reading costs the local gateway nothing.
+
+The link banner is the exception, and it is inline and unconditional: a machine
+can be enrolled, healthy and still signed out of Hussh One, every other reading
+keeps saying "healthy" while that is true, and an owner with no reason to open
+anything is exactly the owner who needs to be told. So a `link.session` that is
+neither `ok` nor `not_connected` is shown on the page itself, and it is shown
+there only — the sheet does not repeat it.
 
 ## Status and toggles, audited 2026-09-02
 

@@ -1487,7 +1487,9 @@ def _publish_list_trace(
     """
     if not items:
         return
-    _publish_tool_trace(tool_context, tool_name, kind=kind, payload={"heading": heading, "items": items})
+    _publish_tool_trace(
+        tool_context, tool_name, kind=kind, payload={"heading": heading, "items": items}
+    )
 
 
 async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
@@ -1516,7 +1518,11 @@ async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
             result.get("circles") or [], id_key="id", name_key="name", detail_fn=_circle_detail
         )
         _publish_list_trace(
-            tool_context, "list_my_location_circles", kind="circles_list", heading="Your circles", items=items
+            tool_context,
+            "list_my_location_circles",
+            kind="circles_list",
+            heading="Your circles",
+            items=items,
         )
     return result
 
@@ -1645,7 +1651,11 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
     if result.get("status") == "ok":
         people = _connections_trace_people(result.get("connections") or [])
         _publish_list_trace(
-            tool_context, "list_my_connections", kind="people_list", heading="Your connections", items=people
+            tool_context,
+            "list_my_connections",
+            kind="people_list",
+            heading="Your connections",
+            items=people,
         )
     return result
 
@@ -2253,13 +2263,21 @@ async def list_pending_connection_requests(
         # ConnectionsService.list_requests) -- name only, same as any other
         # row a service genuinely has nothing more to say about.
         items = _trace_list_rows(
-            result.get("requests") or [], id_key="counterpartUserId", name_key="counterpartDisplayName"
+            result.get("requests") or [],
+            id_key="counterpartUserId",
+            name_key="counterpartDisplayName",
         )
         heading = (
-            "Requests you've sent" if direction == "outgoing" else "Connection requests waiting on you"
+            "Requests you've sent"
+            if direction == "outgoing"
+            else "Connection requests waiting on you"
         )
         _publish_list_trace(
-            tool_context, "list_pending_connection_requests", kind="people_list", heading=heading, items=items
+            tool_context,
+            "list_pending_connection_requests",
+            kind="people_list",
+            heading=heading,
+            items=items,
         )
     return result
 

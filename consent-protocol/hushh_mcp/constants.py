@@ -376,7 +376,7 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # policy admits the new id. Pins that name a different family (the memory chain
 # on 3.1 pro preview, the reducer on 3.1 flash lite, the Live head) are
 # deliberate and stay explicit in their manifests.
-FLEET_TEXT_MODEL_DEFAULT = "gemini-3.7-flash"
+FLEET_TEXT_MODEL_DEFAULT = "gemini-3.8-flash"
 
 
 def fleet_text_model_from_env(environ: "Mapping[str, str] | None" = None) -> str:

@@ -20,9 +20,30 @@ export interface PuppyStatus {
   busy?: boolean;
 }
 
+/** The build a model file is. `null` means the gateway does not know. */
+export type PuppyModelVariant = "MLX" | "GGUF";
+
+/**
+ * One pickable model.
+ *
+ * Only `id` is guaranteed. The gateway omits a field it cannot answer for, and
+ * an omission is information: "unknown" and "none" are different facts about a
+ * model, so nothing here carries a default and every surface renders an absent
+ * field as nothing at all rather than as a placeholder or a guess.
+ */
 export interface PuppyModel {
   id: string;
-  supportsReasoning: boolean;
+  /** "MLX" or "GGUF". Null/absent means unknown, which is not an error. */
+  variant?: PuppyModelVariant | null;
+  /** As the model host words it: "4bit", "Q4_K_M". */
+  quantization?: string | null;
+  /**
+   * "loaded" | "not-loaded" | something this build has not seen. Read as an
+   * open string so an unfamiliar value degrades to "not shown" instead of
+   * being mapped onto the nearest state we do recognise.
+   */
+  state?: string | null;
+  supportsReasoning?: boolean;
 }
 
 export interface PuppyProvider {
@@ -30,6 +51,13 @@ export interface PuppyProvider {
   name: string;
   /** False means answering here sends the turn off this machine. */
   onDevice: boolean;
+  /** The provider the running agent is answering from. */
+  isCurrent?: boolean;
+  /**
+   * Already filtered to authenticated providers and deduplicated by the
+   * gateway, which is the only place that knows which credentials are live.
+   * Surfaces render this list; they do not re-derive it.
+   */
   models: PuppyModel[];
 }
 

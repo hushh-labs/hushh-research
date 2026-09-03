@@ -1,8 +1,22 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AlertTriangle, Cloud, Cpu, Loader2 } from "lucide-react";
 
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import {
   fetchPuppyResources,
   type PuppyResidentModel,
@@ -12,14 +26,22 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * The machine Puppy One runs on, read live.
+ * The machine Puppy One runs on, read live -- ON DEMAND.
  *
- * A broken link to Hussh One comes FIRST, above all of it. Enrolment outlives
- * login, so a machine whose session died stays trusted and keeps answering
- * locally while One has not seen it for weeks. Every reading below it would
- * still say "healthy", which is exactly why that one fact cannot wait its turn.
+ * The readings are the owner's to ask for, not a permanent fixture above the
+ * conversation: `PuppyMachineSheet` is a quiet control that opens them in a
+ * sheet, and nothing repeats while that sheet is shut.
  *
- * Then four questions, in the order an owner asks them:
+ * ONE reading refuses to wait for a tap. A broken link to Hussh One stays
+ * inline, always, above the control. Enrolment outlives login, so a machine
+ * whose session died stays trusted and keeps answering locally while One has
+ * not seen it for weeks -- and every OTHER reading still says "healthy" while
+ * that is true. It is not a statistic; it is the only place the owner learns
+ * the machine is signed out. Hiding it behind a tap would hide it from the one
+ * person who has no reason to tap.
+ *
+ * The statistics behind the control answer four questions, in the order an
+ * owner asks them:
  *
  *   1. Is this answer generated here? The whole product claim. It is NOT one
  *      bit: a local provider with the on-device gate off still sends auxiliary
@@ -40,8 +62,23 @@ import { cn } from "@/lib/utils";
  * the key.
  */
 
-/** Slow enough to be free, fast enough that a model load shows up. */
+/**
+ * Slow enough to be free, fast enough that a model load shows up WHILE THE
+ * OWNER IS LOOKING. It never runs against a shut sheet: a repeating request to
+ * the local gateway that nobody can see is work the machine did for nothing.
+ */
 const POLL_MS = 20_000;
+
+/**
+ * How often the link is re-checked with nothing open.
+ *
+ * The statistics are opt-in; being signed out of Hussh One is not, and the
+ * banner is the only place the owner would learn it while every local surface
+ * still reads healthy. Five minutes is slow enough to cost nothing and far
+ * short of never, which is what checking only on mount means for a page that
+ * stays open.
+ */
+const LINK_POLL_MS = 300_000;
 
 /** Disk this full is the thing that stops an overnight job. */
 const DISK_WARNING_PCT = 90;
@@ -60,29 +97,193 @@ const TONE_CHIP: Record<Tone, string> = {
     "bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]",
 };
 
-export function PuppyResourceMonitor({ className }: { className?: string }) {
+/**
+ * One reading of the machine, and the policy for when to take another.
+ *
+ * `live` is the sheet being open. Shut, this takes exactly one reading, on
+ * mount, because the link banner has to be able to announce a dead session
+ * without the owner opening anything and the gateway offers no cheaper
+ * question than the whole reading. Open, it keeps that reading current.
+ */
+function useMachineReading(live: boolean): {
+  payload: PuppyResources | null;
+  readAt: number;
+} {
   const [payload, setPayload] = useState<PuppyResources | null>(null);
   // Epoch ms of the last successful read, used only when the gateway did not
   // stamp the payload. Preferring the gateway's own clock keeps "in 14 min"
   // free of skew between this browser and the machine.
   const [readAt, setReadAt] = useState(0);
+  const mounted = useRef(true);
 
   useEffect(() => {
-    let active = true;
-    const read = async () => {
-      const next = await fetchPuppyResources();
-      if (!active) return;
-      setPayload(next);
-      setReadAt(Date.now());
-    };
-    void read();
-    const timer = setInterval(() => void read(), POLL_MS);
+    mounted.current = true;
     return () => {
-      active = false;
-      clearInterval(timer);
+      mounted.current = false;
     };
   }, []);
 
+  const read = useCallback(async () => {
+    const next = await fetchPuppyResources();
+    // An in-flight read outlives the component it was started for. Dropping it
+    // on the floor is the point: `fetchPuppyResources` never rejects, so this
+    // is the only guard there is.
+    if (!mounted.current) return;
+    setPayload(next);
+    setReadAt(Date.now());
+  }, []);
+
+  // The link check runs whether or not anything is open, and keeps running.
+  //
+  // The statistics are opt-in; being signed out of Hussh One is not. A session
+  // can expire while the owner is sitting on this page, and the banner is the
+  // only place they would learn it, because everything else on the machine
+  // still looks healthy. Checking once per mount would mean noticing on the
+  // next reload, which for a page left open is never.
+  //
+  // Slow on purpose: a link state does not change on a 20-second timescale, so
+  // this is one request every five minutes rather than the fifteen per minute
+  // the always-on monitor used to make.
+  useEffect(() => {
+    void read();
+    const timer = setInterval(() => void read(), LINK_POLL_MS);
+    return () => clearInterval(timer);
+  }, [read]);
+
+  // Polling is what opening the sheet buys, and it stops when it closes.
+  useEffect(() => {
+    if (!live) return;
+    void read();
+    const timer = setInterval(() => void read(), POLL_MS);
+    return () => clearInterval(timer);
+  }, [live, read]);
+
+  return { payload, readAt };
+}
+
+/**
+ * The owner's way in: one quiet control, plus the one reading that refuses to
+ * hide behind it.
+ *
+ * The control names what it opens rather than what it is made of. "This
+ * machine" is the thing the owner is asking about; "Metrics" or "Debug" would
+ * be this code describing itself.
+ */
+export function PuppyMachineSheet({ className }: { className?: string }) {
+  const [open, setOpen] = useState(false);
+  const { payload, readAt } = useMachineReading(open);
+  const linkState = describeLink(payload?.link);
+  // "ok" resolves to `healthy` and "not_connected" to null, so what is left is
+  // exactly the set the owner cannot be left to discover by tapping.
+  const notice = linkState && linkState.kind !== "healthy" ? linkState : null;
+
+  return (
+    <div className={cn("flex flex-col gap-2", className)}>
+      {notice ? <LinkNotice state={notice} /> : null}
+      <div className="flex justify-end">
+        <Sheet open={open} onOpenChange={setOpen} modal>
+          <SheetTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Cpu className="size-3.5" aria-hidden />
+              This machine
+            </button>
+          </SheetTrigger>
+          <SheetContent
+            side="bottom"
+            className="gap-0 p-0 sm:mx-auto sm:max-w-md"
+          >
+            <SheetHeader className="px-4 pb-2 pr-12 pt-3 text-left">
+              <SheetTitle className="text-base">This machine</SheetTitle>
+              <SheetDescription>
+                What Puppy One is running on, read while this is open.
+              </SheetDescription>
+            </SheetHeader>
+            {/* No padding of its own: every section inside already carries
+                `px-4`, which is the header's gutter too. */}
+            <div className="pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+              {/* The sheet is already the boundary. A second bordered card
+                  inside it would be a box drawn around a box. */}
+              <PuppyResourceMonitor
+                payload={payload}
+                readAt={readAt}
+                className="rounded-none border-0"
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The link to Hussh One, said out loud on the page itself.
+ *
+ * Rendered HERE and nowhere else. The sheet does not repeat it: one fact in
+ * two places at once is how a reader learns to stop reading either.
+ */
+function LinkNotice({
+  state,
+}: {
+  state: Extract<LinkState, { kind: "alert" } | { kind: "quiet" }>;
+}) {
+  if (state.kind === "quiet") {
+    return (
+      <p className="text-[11px] text-muted-foreground">{state.message}</p>
+    );
+  }
+  return (
+    <div
+      role="status"
+      className={cn(
+        "rounded-lg border-l-2 px-3 py-2",
+        state.tone === "danger"
+          ? "border-l-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)]"
+          : "border-l-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)]",
+      )}
+    >
+      <p
+        className={cn(
+          "flex items-start gap-2 text-xs font-medium",
+          state.tone === "danger"
+            ? "text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]"
+            : "text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]",
+        )}
+      >
+        <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+        <span>{state.message}</span>
+      </p>
+      {state.remedy ? (
+        // Verbatim from the payload. The device owns the fix; a command
+        // written here would go stale the moment the CLI renames it.
+        <p className="mt-1.5 pl-[1.375rem]">
+          <code className="rounded bg-foreground/[0.06] px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+            {state.remedy}
+          </code>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The statistics themselves, given a reading. Presentational on purpose: one
+ * owner takes the reading (`useMachineReading`), so opening this in a second
+ * place cannot double the requests against the local gateway.
+ */
+export function PuppyResourceMonitor({
+  payload,
+  readAt = 0,
+  className,
+}: {
+  payload: PuppyResources | null;
+  /** Epoch ms of that read. 0 means "not stamped": no relative time is shown. */
+  readAt?: number;
+  className?: string;
+}) {
   if (!payload) {
     return (
       <Shell className={className}>
@@ -152,14 +353,14 @@ export function PuppyResourceMonitor({ className }: { className?: string }) {
     battery !== undefined;
   const hasJobs =
     jobsEnabled !== null || nextJobName !== null || completed !== null;
-  // A healthy link with nothing to name it by renders no line, so it does not
-  // count as something to show. Otherwise a payload carrying only that would
+  // Only the healthy footnote lives in here; a broken link is said inline by
+  // `LinkNotice`, outside this sheet. A healthy link with nothing to name it by
+  // renders no line either, so a payload carrying only that would otherwise
   // leave an empty bordered box on screen.
-  const hasLinkLine =
-    linkState !== null &&
-    (linkState.kind !== "healthy" || Boolean(linkState.message));
+  const healthyLinkLine =
+    linkState?.kind === "healthy" ? linkState.message : null;
   const nothingReadable =
-    !hasLinkLine && !agent && !models && !hasHeadroom && !hasJobs;
+    !healthyLinkLine && !agent && !models && !hasHeadroom && !hasJobs;
 
   if (nothingReadable) {
     return (
@@ -173,45 +374,6 @@ export function PuppyResourceMonitor({ className }: { className?: string }) {
 
   return (
     <Shell className={className}>
-      {/* 0. Can Hussh One still see this machine? Above everything, because
-             every reading below it reads "healthy" while this one is broken. */}
-      {linkState?.kind === "alert" ? (
-        <div
-          className={cn(
-            "border-l-2 px-4 py-3",
-            linkState.tone === "danger"
-              ? "border-l-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)]"
-              : "border-l-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)]",
-          )}
-        >
-          <p
-            className={cn(
-              "flex items-start gap-2 text-xs font-medium",
-              linkState.tone === "danger"
-                ? "text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]"
-                : "text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]",
-            )}
-          >
-            <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
-            <span>{linkState.message}</span>
-          </p>
-          {linkState.remedy ? (
-            // Verbatim from the payload. The device owns the fix; a command
-            // written here would go stale the moment the CLI renames it.
-            <p className="mt-1.5 pl-[1.375rem]">
-              <code className="rounded bg-foreground/[0.06] px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-                {linkState.remedy}
-              </code>
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-      {linkState?.kind === "quiet" ? (
-        <p className="px-4 py-2 text-[11px] text-muted-foreground">
-          {linkState.message}
-        </p>
-      ) : null}
-
       {/* 1. Is the answer generated here? */}
       {agent ? (
         <div className="flex items-start gap-3 px-4 py-3">
@@ -396,11 +558,12 @@ export function PuppyResourceMonitor({ className }: { className?: string }) {
         </Section>
       ) : null}
 
-      {/* A healthy link needs no card. It is a footnote, and it earns a line
-          only when the payload actually named the account or environment. */}
-      {linkState?.kind === "healthy" && linkState.message ? (
+      {/* A healthy link needs no card and no banner. It is a footnote, and it
+          earns a line only when the payload actually named the account or
+          environment. Nothing is wrong, so it waits to be asked for. */}
+      {healthyLinkLine ? (
         <p className="truncate px-4 py-2 text-[11px] text-muted-foreground">
-          {linkState.message}
+          {healthyLinkLine}
         </p>
       ) : null}
     </Shell>

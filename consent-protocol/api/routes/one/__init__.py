@@ -7,6 +7,7 @@ from .a2a import well_known_router as a2a_well_known_router
 from .adk_live import router as adk_live_router
 from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
+from .agent_feedback import router as agent_feedback_router
 from .calendar import router as calendar_router
 from .connections import router as connections_router
 from .email import router as email_router
@@ -43,6 +44,7 @@ router.include_router(gmail_delivery_router)
 router.include_router(gmail_information_requests_router)
 router.include_router(feed_router)
 router.include_router(models_router)
+router.include_router(agent_feedback_router)
 router.include_router(location_router)
 router.include_router(location_chat_router)
 router.include_router(information_chat_router)

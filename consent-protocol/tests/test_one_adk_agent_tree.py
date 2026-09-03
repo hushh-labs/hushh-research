@@ -3891,7 +3891,9 @@ class TestBackendDirectConnectionReadTools:
         assert requests_mock.call_args.kwargs == {"user_id": "user_1", "direction": "outgoing"}
 
     @pytest.mark.asyncio
-    async def test_list_pending_connection_requests_parks_a_trace_with_a_direction_matched_heading(self):
+    async def test_list_pending_connection_requests_parks_a_trace_with_a_direction_matched_heading(
+        self,
+    ):
         state = self._authorized_state()
         row = [{"counterpartUserId": "u5", "counterpartDisplayName": "Priya"}]
 
