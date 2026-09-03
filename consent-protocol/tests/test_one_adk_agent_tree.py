@@ -26,6 +26,7 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_CONSENT_TOKEN,
     _STATE_GOAL_RUN,
     _STATE_PENDING_DIRECTIVE,
+    _STATE_PENDING_TOOL_TRACE,
     _STATE_SCREEN,
     _STATE_USER_ID,
     BACKEND_DIRECT_ACTION_IDS,
@@ -55,6 +56,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_IDENTITY_INSTRUCTION,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
+    STATE_PENDING_TOOL_TRACE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     _intro_navigable,
@@ -922,6 +924,7 @@ class TestGmailEmailDraftDirective:
 class TestRunAppAction:
     def test_state_keys_stay_in_sync_with_agent_tree(self):
         assert _STATE_PENDING_DIRECTIVE == _tree.STATE_PENDING_DIRECTIVE
+        assert _STATE_PENDING_TOOL_TRACE == STATE_PENDING_TOOL_TRACE
         assert _STATE_SCREEN == _tree.STATE_SCREEN
         assert _STATE_USER_ID == STATE_USER_ID
         assert _STATE_CONSENT_TOKEN == STATE_CONSENT_TOKEN
@@ -3585,6 +3588,54 @@ class TestBackendDirectConnectionReadTools:
         assert list_mock.call_args.kwargs == {"user_id": "user_1"}
 
     @pytest.mark.asyncio
+    async def test_list_my_connections_parks_a_card_safe_trace_for_the_relay(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {
+                        "connectionId": "cx1",
+                        "displayName": "Sarah Chen",
+                        "email": "sarah.chen@example.com",
+                        "photoUrl": "https://example.com/sarah.jpg",
+                        # public key material a card must never see.
+                        "publicPersonRef": "11111111-1111-4111-8111-111111111111",
+                    },
+                    {"connectionId": "cx2", "displayName": "Alex Kim"},
+                ],
+            ),
+        ):
+            await list_my_connections(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_connections"]
+        assert trace["kind"] == "connections_list"
+        people = trace["payload"]["people"]
+        assert people == [
+            {
+                "id": "cx1",
+                "name": "Sarah Chen",
+                "detail": "s***n@example.com",
+                "photoUrl": "https://example.com/sarah.jpg",
+            },
+            {"id": "cx2", "name": "Alex Kim", "detail": None, "photoUrl": None},
+        ]
+        assert "publicPersonRef" not in str(trace)
+
+    @pytest.mark.asyncio
+    async def test_list_my_connections_publishes_no_trace_when_there_is_nothing_to_show(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(ConnectionsService, "list_connections", autospec=True, return_value=[]),
+        ):
+            result = await list_my_connections(_tool_context(state))
+        assert result["status"] == "ok"
+        assert f"{_STATE_PENDING_TOOL_TRACE}:list_my_connections" not in state
+
+    @pytest.mark.asyncio
     async def test_discovers_exact_opaque_scopes_for_one_connected_person(self):
         state = self._authorized_state()
         profile = {
@@ -3772,6 +3823,15 @@ class TestReadMyPkmDomainSummary:
                 "summary": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"},
             },
         }
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary"]
+        assert trace == {
+            "kind": "pkm_domain_summary",
+            "payload": {
+                "domain": "financial",
+                "label": "Financial",
+                "summary": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"},
+            },
+        }
 
     @pytest.mark.asyncio
     async def test_reports_no_data_rather_than_erroring_for_a_domain_with_none_yet(self):
@@ -3783,6 +3843,18 @@ class TestReadMyPkmDomainSummary:
             "status": "ok",
             "result": {"has_data": False, "domain": "financial", "summary": {}},
         }
+        # Nothing worth a card -- the spoken answer already says there's
+        # nothing on record, so no trace should be parked for the relay.
+        assert f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary" not in state
+
+    @pytest.mark.asyncio
+    async def test_publishes_no_trace_when_the_domain_exists_but_the_summary_is_empty(self):
+        state = self._authorized_state()
+        index = _FakePkmIndex(available_domains=["financial"], domain_summaries={"financial": {}})
+        with self._auth_patch(), self._pkm_patch(index):
+            result = await read_my_pkm_domain_summary("financial", _tool_context(state))
+        assert result["result"]["has_data"] is True
+        assert f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary" not in state
 
     @pytest.mark.asyncio
     async def test_normalizes_case_and_whitespace_on_the_spoken_domain(self):

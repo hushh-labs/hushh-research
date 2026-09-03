@@ -133,6 +133,11 @@ STATE_PKM_CONTEXT = "hussh:pkm_context"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
 STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+# Pending read-tool result trace -- display-safe data a read tool wants shown
+# as a card alongside its spoken answer (see #6434). Same park-and-forward
+# shape as STATE_PENDING_DIRECTIVE, kept as its own prefix since a trace is
+# never executed and never settles -- it is just forwarded and rendered.
+STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
 
 _CRM_PRODUCT_AVAILABLE = crm_product_available()
 
