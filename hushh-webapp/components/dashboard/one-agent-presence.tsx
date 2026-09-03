@@ -103,6 +103,7 @@ export function OneAgentPresence() {
     cloud,
     hushhId,
     deploymentTarget,
+    update,
   } = useAgentDeploymentFollow();
   const state: AgentState | null = toAgentState(followed);
   // Warm the pod from the home surface too, on mount and on app resume, so a returning
@@ -145,20 +146,34 @@ export function OneAgentPresence() {
   const asleep =
     state === "active" && livePresence !== "awake" && isAgentAsleep(health);
   const waking = state === "active" && (isWaking || livePresence === "waking");
+  // A software update in flight. The previous build keeps serving throughout, so
+  // this is "still yours, being refreshed", not a warning.
+  const updating = state === "active" && update.inProgress;
   const label = notAnswering
     ? "Not responding"
-    : waking
-      ? "Waking"
-      : asleep
-        ? "Asleep"
-        : copy.badge;
+    : updating
+      ? "Updating"
+      : waking
+        ? "Waking"
+        : asleep
+          ? "Asleep"
+          : copy.badge;
   const dotClass = notAnswering
     ? "bg-amber-500"
-    : waking
-      ? "bg-amber-400 animate-pulse"
-      : asleep
-        ? "bg-emerald-500/50"
-        : copy.dotClass;
+    : updating
+      ? "bg-sky-500 animate-pulse"
+      : waking
+        ? "bg-amber-400 animate-pulse"
+        : asleep
+          ? "bg-emerald-500/50"
+          : copy.dotClass;
+  const updateNote = updating
+    ? "A newer build is being installed; it keeps answering meanwhile."
+    : update.failed
+      ? `The last update did not finish${update.error ? `: ${update.error}` : ""}.`
+      : update.available === true
+        ? `An update is available (${update.target ?? "newer build"}); it installs on its own.`
+        : null;
   // Where it lives, kept as a tooltip rather than two more lines on the screen.
   const whereItLives = cloud
     ? `In your project ${cloud.project}${cloud.region ? ` (${cloud.region})` : ""}${
@@ -207,7 +222,7 @@ export function OneAgentPresence() {
   return (
     <section
       aria-label="Your Agent One"
-      title={whereItLives}
+      title={updateNote ? [whereItLives, updateNote].filter(Boolean).join(" · ") : whereItLives}
       data-testid="one-agent-presence"
       className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-1"
     >

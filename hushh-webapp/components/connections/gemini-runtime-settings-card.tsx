@@ -642,7 +642,7 @@ export function GeminiRuntimeSettingsCard({
           title={ownCloudProject ? "Use your pod's AI" : "Use Hussh's AI"}
           description={
             ownCloudProject
-              ? `Vertex AI in your own project ${ownCloudProject}, on your pod's own identity. No key needed; billed to you.`
+              ? `Vertex AI in your own project ${ownCloudProject}, on your pod's own identity. No key needed; billed to you. Typed turns run on your pod; voice still runs on Hussh's hub for now.`
               : "No key needed. Runs on your hussh pod's key."
           }
           // The default we want people to take. Until it is chosen the row says

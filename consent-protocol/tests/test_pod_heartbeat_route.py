@@ -32,7 +32,8 @@ class _FakeRegistry:
         self._status = status
         self.heartbeats: list[str] = []
 
-    async def record_heartbeat(self, *, hushh_id: str):
+    async def record_heartbeat(self, *, hushh_id: str, observed=None):
+        self.observed = observed
         # The ROW, not a bool: the update already returns it, and a pod's first beat
         # is when the hub finishes provisioning -- which needs the status.
         self.heartbeats.append(hushh_id)

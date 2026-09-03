@@ -119,6 +119,10 @@ FEED_EVENT_CAPPED = "personal_agent_provisioning_capped"
 # registry row, HusshID and A2A address survive; the agent re-provisions on the
 # owner's next activity (see personal_agent_reconcile_worker).
 FEED_EVENT_REAPED = "personal_agent_reaped"
+#: An image update reached this person's pod. Emitted only when the revision
+#: actually moved (`upgrade_noop` writes nothing): the feed is the software-update
+#: notice the founder asked for, and a notice about nothing is noise.
+FEED_EVENT_UPDATED = "personal_agent_updated"
 
 _FEED_EVENT_TYPES = frozenset(
     {
@@ -129,6 +133,7 @@ _FEED_EVENT_TYPES = frozenset(
         FEED_EVENT_FAILED,
         FEED_EVENT_CAPPED,
         FEED_EVENT_REAPED,
+        FEED_EVENT_UPDATED,
     }
 )
 
@@ -1122,6 +1127,16 @@ class PersonalAgentProvisioningService:
         old_meta = dict(row.get("backend_metadata") or {})
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)
+        # Narrated as its own stage so the status stream can say "Updating your
+        # agent" instead of a spinner. The previous revision serves throughout.
+        await pod_lifecycle_append(
+            user_id,
+            stage="updating",
+            registry_status="provisioned",
+            event="started",
+            hushh_id=hushh_id,
+            reason=f"{previous or '-'} -> {current_image}",
+        )
         try:
             handle = await upgrade(spec)
         except Exception as exc:
@@ -1185,6 +1200,10 @@ class PersonalAgentProvisioningService:
             handle.external_agent_id or "<none>",
             changed,
         )
+        if changed:
+            await record_provisioning_feed_event_safe(
+                user_id=user_id, event_type=FEED_EVENT_UPDATED
+            )
         return {
             "hushhId": hushh_id,
             "status": "provisioned",

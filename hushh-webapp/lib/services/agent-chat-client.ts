@@ -628,6 +628,8 @@ export async function runAgentChatTurn(input: {
   runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
   runtimeVertexProject?: string | null;
   runtimeVertexLocation?: string | null;
+  /** The visible transcript, oldest first; a pod turn is stateless without it. */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
   delegateAgentId?: string | null;
   delegateResult?: Record<string, unknown>;
   signal?: AbortSignal;
@@ -672,6 +674,7 @@ export async function runAgentChatTurn(input: {
       // The owner's own consented projection, decrypted on their device. This is what
       // makes a pod turn grounded WITHOUT the pod holding PKM or reaching a database.
       pkmContext: input.pkmContext,
+      history: input.history,
       signal: input.signal,
     });
 

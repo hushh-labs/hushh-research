@@ -97,13 +97,29 @@ export type FollowDecision = {
  * reintroduce exactly the mid-visit churn the existing no-refresh comment
  * exists to prevent.
  */
+/** Slower than the deployment cadence: an update takes about two minutes. */
+export const UPDATE_POLL_INTERVAL_MS = 15_000;
+
 export function decideFollow(options: {
   state: string | null | undefined;
   previousState: string | null | undefined;
   elapsedMs: number;
+  /** A software update is available or in flight on an otherwise settled pod. */
+  updateMoving?: boolean;
 }): FollowDecision {
-  const { state, previousState, elapsedMs } = options;
+  const { state, previousState, elapsedMs, updateMoving = false } = options;
   const changed = Boolean(state) && state !== previousState;
+
+  if (state === "active" && updateMoving) {
+    // The pod is live and its build is moving. Keep reading, slowly, so the
+    // chip and the card follow the update to "current" without a reload.
+    return {
+      follow: true,
+      intervalMs: UPDATE_POLL_INTERVAL_MS,
+      refresh: changed,
+      reason: "update_moving",
+    };
+  }
 
   if (isDeploymentTerminal(state)) {
     // Refresh once on arrival so the final row lands, then stop.

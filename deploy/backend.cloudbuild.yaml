@@ -89,6 +89,7 @@ steps:
           --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol-pod:buildcache,mode=max \
           --tag gcr.io/$PROJECT_ID/consent-protocol-pod:latest \
           --tag gcr.io/$PROJECT_ID/consent-protocol-pod:${_IMAGE_TAG} \
+          --build-arg POD_IMAGE_TAG=${_IMAGE_TAG} \
           --file consent-protocol/Dockerfile.pod \
           --push \
           consent-protocol

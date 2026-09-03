@@ -471,7 +471,12 @@ async def test_upgrade_pod_rewrites_only_the_image_facts(service_env):
     spec = backend.specs[0]
     assert spec.hushh_id == HUSHH_ID and spec.billing_space_id == "sp_1"
     assert spec.pod_pubkey == "pubkey-b64"
-    assert [n["event"] for n in narrative] == ["upgraded"]
+    # The update is narrated as its own stage first, so the status stream can say
+    # "Updating your agent" while the previous revision keeps serving.
+    assert [(n["stage"], n["event"]) for n in narrative] == [
+        ("updating", "started"),
+        ("authority_live", "upgraded"),
+    ]
     assert narrative[0]["registry_status"] == "provisioned"
 
 
@@ -490,7 +495,10 @@ async def test_upgrade_pod_records_a_bounded_failure_marker_and_reraises(service
     assert marker["failedImage"] == SOURCE_NEW and marker["attempts"] == 1
     assert registry.rows["uid-1"]["backend_metadata"]["image_digest"] == OLD, "still the truth"
     assert registry.rows["uid-1"]["status"] == "provisioned"
-    assert [n["event"] for n in narrative] == ["upgrade_failed"]
+    assert [(n["stage"], n["event"]) for n in narrative] == [
+        ("updating", "started"),
+        ("authority_live", "upgrade_failed"),
+    ]
 
     with pytest.raises(PodBootFailedError):
         await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)

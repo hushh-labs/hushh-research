@@ -242,6 +242,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: "It is set up and ready whenever you are.",
         href: ROUTES.AGENT,
       };
+    case "personal_agent_updated":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent was updated",
+        description: "It is running the newest build, in your own private space.",
+        href: ROUTES.AGENT,
+      };
     case "personal_agent_failed": {
       // The backend only ever writes a closed vocabulary of user-safe reason
       // codes here — never an exception message — so an unknown code falls back

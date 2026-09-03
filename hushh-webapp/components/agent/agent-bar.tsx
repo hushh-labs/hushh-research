@@ -15,7 +15,13 @@ import React, {
   useState,
   type CSSProperties,
   type MouseEvent,
+  useSyncExternalStore,
 } from "react";
+import {
+  readVoiceCell,
+  subscribeVoiceCell,
+  voiceCellLabel,
+} from "@/lib/voice/voice-cell";
 import { usePathname, useRouter } from "next/navigation";
 import { AudioLines, MessageCircle, Monitor, Moon, Sun, X } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -365,6 +371,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const voiceMessage = useAgentVoiceState((s) => s.message);
   const voiceLevel = useAgentVoiceState((s) => s.level);
   const setVoiceStatus = useAgentVoiceState((s) => s.setStatus);
+  // Where the voice session is held, from the relay-session mint. Today that is
+  // always the hub; a person whose typed turns run on their pod deserves to see
+  // that voice does not, instead of assuming "always my pod" covers it. Subscribed
+  // up here with the other hooks: this component has conditional early returns
+  // further down, and a hook after one of them changes the hook count between
+  // renders (the "Rendered more hooks" crash that blanked /one on 2026-09-03).
+  const voiceCell = useSyncExternalStore(subscribeVoiceCell, readVoiceCell, readVoiceCell);
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
@@ -2210,8 +2223,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // VoiceErrorCard, which shows it in full. This pill is a compact status
   // strip with real estate for maybe half a sentence -- long enough to
   // truncate any real reason into an ellipsis that told nobody what to do.
+  const voiceCellNote = conversationActive ? voiceCellLabel(voiceCell.cell) : null;
   const voiceStatusLabel =
-    activeActionRun?.message ?? getAgentVoiceStatusLabel(voiceStatus);
+    activeActionRun?.message ??
+    (voiceCellNote
+      ? `${getAgentVoiceStatusLabel(voiceStatus)} · ${voiceCellNote}`
+      : getAgentVoiceStatusLabel(voiceStatus));
   const nativeVoiceMode = !conversationActive
     ? "idle"
     : voiceStatus === "connecting"

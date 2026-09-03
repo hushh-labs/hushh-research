@@ -58,6 +58,99 @@ const VALID: readonly string[] = [
  * Every call is wrapped: this is a progress indicator, and a progress indicator
  * that can break the thing it reports on is worse than no indicator at all.
  */
+/**
+ * The software-update half of the status, as the app reads it.
+ *
+ * `available: null` means the hub could not say (no lane target, nothing
+ * recorded) and is different from `false`, which is a positive "current".
+ */
+export type AgentUpdateStatus = {
+  available: boolean | null;
+  inProgress: boolean;
+  failed: boolean;
+  error: string | null;
+  running: string | null;
+  target: string | null;
+};
+
+export const NO_UPDATE: AgentUpdateStatus = {
+  available: null,
+  inProgress: false,
+  failed: false,
+  error: null,
+  running: null,
+  target: null,
+};
+
+export function readUpdateStatus(
+  res:
+    | {
+        runningImage?: string | null;
+        targetImage?: string | null;
+        updateAvailable?: boolean;
+        updateInProgress?: boolean;
+        updateFailed?: boolean;
+        updateError?: string | null;
+      }
+    | null
+    | undefined,
+): AgentUpdateStatus {
+  return {
+    available: typeof res?.updateAvailable === "boolean" ? res.updateAvailable : null,
+    inProgress: res?.updateInProgress === true,
+    failed: res?.updateFailed === true,
+    error: res?.updateError ? String(res.updateError) : null,
+    running: res?.runningImage ? String(res.runningImage) : null,
+    target: res?.targetImage ? String(res.targetImage) : null,
+  };
+}
+
+export function updateTaskId(userId: string): string {
+  return `${deploymentTaskId(userId)}:update`;
+}
+
+/**
+ * The update as a background task on the same "Private agent" rail: started when
+ * the hub reports it in flight, completed or failed when it stops. Silent while
+ * nothing is moving, so a current pod files no card at all.
+ */
+function reportUpdateTask(
+  userId: string | null,
+  update: AgentUpdateStatus,
+  wasInProgress: boolean,
+): void {
+  if (!userId) return;
+  const taskId = updateTaskId(userId);
+  const target = update.target ? ` (${update.target})` : "";
+  try {
+    if (update.inProgress) {
+      AppBackgroundTaskService.startTask({
+        userId,
+        taskId,
+        kind: DEPLOYMENT_TASK_KIND,
+        title: "Updating your private agent",
+        description: `A newer build is being installed${target}. Your agent keeps answering meanwhile.`,
+        routeHref: "/one/feed",
+        visibility: "passive",
+        groupLabel: "Private agent",
+      });
+      return;
+    }
+    if (!wasInProgress) return;
+    if (update.failed) {
+      AppBackgroundTaskService.failTask(
+        taskId,
+        "Update did not finish",
+        update.error ?? "Your agent is still running its previous build.",
+      );
+      return;
+    }
+    AppBackgroundTaskService.completeTask(taskId, "Your private agent is up to date.");
+  } catch {
+    // A progress indicator must never break the thing it reports on.
+  }
+}
+
 function reportBackgroundTask(
   userId: string | null,
   state: AgentDeploymentState,
@@ -123,6 +216,8 @@ export function useAgentDeploymentFollow(options?: {
    * their own pod sat idle. With this, a caller can wait for the answer instead
    * of assuming one. */
   resolved: boolean;
+  /** The software-update half of the status; `NO_UPDATE` until the endpoint answers. */
+  update: AgentUpdateStatus;
 } {
   const enabled = options?.enabled ?? true;
   const userId = options?.userId ?? null;
@@ -147,6 +242,11 @@ export function useAgentDeploymentFollow(options?: {
     credentialMode: string | null;
   } | null>(null);
   const [deploymentTarget, setDeploymentTarget] = useState<string | null>(null);
+  const [update, setUpdate] = useState<AgentUpdateStatus>(NO_UPDATE);
+  const updateInProgressRef = useRef(false);
+  // An update in flight keeps the poll alive past the terminal state, so the
+  // chip can go available -> updating -> current without a reload.
+  const updateMovingRef = useRef(false);
   // Refs, not state: these drive the loop and must not themselves re-trigger it.
   const previousRef = useRef<string | null>(null);
   const startedAtRef = useRef<number>(Date.now());
@@ -188,6 +288,11 @@ export function useAgentDeploymentFollow(options?: {
           setDeploymentTarget(
             res?.deploymentTarget ? String(res.deploymentTarget) : null,
           );
+          const nextUpdate = readUpdateStatus(res);
+          setUpdate(nextUpdate);
+          reportUpdateTask(userId, nextUpdate, updateInProgressRef.current);
+          updateInProgressRef.current = nextUpdate.inProgress;
+          updateMovingRef.current = nextUpdate.inProgress || nextUpdate.available === true;
         }
       } catch (error) {
         consecutiveFailuresRef.current += 1;
@@ -226,6 +331,7 @@ export function useAgentDeploymentFollow(options?: {
         state: next,
         previousState: previousRef.current,
         elapsedMs: Date.now() - startedAtRef.current,
+        updateMoving: updateMovingRef.current,
       });
 
       if (next && next !== previousRef.current) {
@@ -319,7 +425,7 @@ export function useAgentDeploymentFollow(options?: {
     // a fresh deadline and its own background-task card.
   }, [enabled, userId]);
 
-  return { state, following, hushhId, health, cloud, deploymentTarget, resolved };
+  return { state, following, hushhId, health, cloud, deploymentTarget, resolved, update };
 }
 
 export { DEPLOYMENT_POLL_INTERVAL_MS };

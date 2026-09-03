@@ -445,7 +445,19 @@ def resolve_pod_memory_service() -> Optional[Any]:
         return None
     try:
         pod_key = resolve_pod_memory_key()
-        return build_pod_memory_service(hushh_id=hushh_id, pod_key=pod_key, log=_resolve_log())
+        # Memory Bank on the person's own Vertex, when this pod has one ready. None
+        # until the engine is known, so a turn before it exists (or after it failed)
+        # recalls from the sealed log and says so in its logs.
+        from hushh_mcp.services.pod_memory_bank import (  # noqa: PLC0415
+            resolve_memory_bank_service,
+        )
+
+        return build_pod_memory_service(
+            hushh_id=hushh_id,
+            pod_key=pod_key,
+            log=_resolve_log(),
+            bank=resolve_memory_bank_service(),
+        )
     except Exception:  # noqa: BLE001 -- fail-safe: never block pod startup on memory
         logger.exception("pod_memory.build_failed hushh_id=%s", hushh_id)
         return None
@@ -470,8 +482,16 @@ def _resolve_log() -> Optional[Any]:
     return getattr(storage, "_log", None)
 
 
-def build_pod_memory_service(*, hushh_id: str, pod_key: bytes, log: Any = None) -> Any:
+def build_pod_memory_service(
+    *, hushh_id: str, pod_key: bytes, log: Any = None, bank: Any = None
+) -> Any:
     """Construct the ADK-facing memory service for THIS pod.
+
+    ``bank`` is an optional second ``BaseMemoryService`` -- Vertex AI Memory Bank in
+    the person's own project (founder decision 2026-09-03). With it, every turn is
+    written to BOTH the sealed log and the bank, and recall asks the bank first and
+    falls back to the log. The log stays the record of record; the bank is retrieval
+    quality. A bank failure is logged and never fails a turn.
 
     Imports ADK lazily so the module stays importable (and unit-testable) in environments
     without ADK, matching how the KMS resolver defers ``google-cloud-kms``.
@@ -504,6 +524,7 @@ def build_pod_memory_service(*, hushh_id: str, pod_key: bytes, log: Any = None) 
             self.store = store
             self.hushh_id = hushh_id
             self.log = log
+            self.bank = bank
             self._hydrated = log is None
 
         async def _ensure_hydrated(self) -> None:
@@ -550,9 +571,38 @@ def build_pod_memory_service(*, hushh_id: str, pod_key: bytes, log: Any = None) 
                 rec = store.add(text=text, author=getattr(event, "author", None))
                 if rec is not None and self.log is not None:
                     await self.log.append(_MEMORY_RECORD_KIND, rec.as_payload(pod_key))
+            if self.bank is not None:
+                try:
+                    await self.bank.add_session_to_memory(session)
+                except Exception as exc:  # noqa: BLE001 - the sealed log already has it
+                    logger.warning(
+                        "pod_memory_bank.add_failed hushh_id=%s reason=%s",
+                        self.hushh_id,
+                        f"{type(exc).__name__}: {str(exc)[:120]}",
+                    )
 
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
             await self._ensure_hydrated()
+            if self.bank is not None:
+                try:
+                    banked = await self.bank.search_memory(
+                        app_name=app_name, user_id=user_id, query=query
+                    )
+                    memories = list(getattr(banked, "memories", None) or [])
+                    if memories:
+                        logger.info(
+                            "pod_memory.recall hushh_id=%s backend=memory_bank query_chars=%d hits=%d",
+                            self.hushh_id,
+                            len(query or ""),
+                            len(memories),
+                        )
+                        return banked
+                except Exception as exc:  # noqa: BLE001 - fall back to the sealed log
+                    logger.warning(
+                        "pod_memory_bank.search_failed hushh_id=%s reason=%s",
+                        self.hushh_id,
+                        f"{type(exc).__name__}: {str(exc)[:120]}",
+                    )
             # user_id carries the pod owner; a mismatch is an isolation breach, not a miss.
             hits = store.search(
                 hushh_id=self.hushh_id if user_id in ("", self.hushh_id) else user_id, query=query

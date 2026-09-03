@@ -11,6 +11,7 @@ registry.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -22,7 +23,9 @@ from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.compute_backend import resolve_compute_backend
 from hushh_mcp.services.personal_agent_provisioning_service import (
+    UPGRADE_ATTEMPTS_PER_IMAGE,
     PersonalAgentProvisioningService,
+    _lease_is_fresh,
 )
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
@@ -218,6 +221,85 @@ def _warn_if_handshake_is_overdue(row: Optional[dict], status: str) -> None:
     )
 
 
+def _image_tag(reference: object) -> Optional[str]:
+    """The comparable tag of an image reference; a bare tag is returned as itself."""
+    text = str(reference or "").strip()
+    if not text:
+        return None
+    tail = text.rsplit("/", 1)[-1].split("@", 1)[0]
+    if ":" not in tail:
+        return None if "/" in text else tail
+    return tail.split(":", 1)[1] or None
+
+
+def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = None) -> dict:
+    """What the pod runs, what the hub wants, and whether the two differ.
+
+    The founder's rule for an upgrade is "a software update when the person opens
+    the app", and a software update starts with knowing the installed version. The
+    row already carries it, so this is zero new I/O on a status read.
+
+    Tri-state like ``hostReady``: a field is ABSENT when its evidence is absent,
+    never coerced to False. No lane target (a hub that does not build pods) means
+    no `targetImage` and no `updateAvailable`; a row with nothing recorded means no
+    `runningImage`. ``updateAvailable: false`` is a positive statement that the pod
+    is current, and only made when both sides are known.
+
+    Tag equality, not digest equality: the person's copy is a digest in their own
+    registry while the hub's target is a tag, so the honest comparison is the tag
+    the image was built from (the target is already a build SHA, `dev-<sha>`).
+
+    The running tag is the pod's OWN report (``backend_metadata.observed.imageTag``,
+    posted on its heartbeat) when there is one, and the deployed record
+    (``source_image``) when there is not. They live under separate keys so a pod
+    whose process runs older code than its row claims is visible as drift rather
+    than papered over; drift is logged loudly and the pod's word wins, because it
+    is the only signal that says what is running rather than what was deployed.
+    """
+    metadata = (row or {}).get("backend_metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    observed = metadata.get("observed")
+    observed_tag = _image_tag(observed.get("imageTag")) if isinstance(observed, dict) else None
+    deployed_tag = _image_tag(metadata.get("source_image"))
+    running = observed_tag or deployed_tag
+    if observed_tag and deployed_tag and observed_tag != deployed_tag:
+        logger.warning(
+            "personal_agent.image_drift hushh_id=%s observed=%s deployed=%s",
+            (row or {}).get("hushh_id"),
+            observed_tag,
+            deployed_tag,
+        )
+    target = _image_tag(
+        target_image if target_image is not None else os.getenv("HUSSH_ONE_POD_IMAGE")
+    )
+    out: dict = {}
+    if running:
+        out["runningImage"] = running
+    if target:
+        out["targetImage"] = target
+    # The lease is the in-flight signal: it is taken before the copy starts and
+    # cleared when the outcome is recorded, so "fresh lease" is "being updated now".
+    if _lease_is_fresh(metadata.get("upgradeLease")):
+        out["updateInProgress"] = True
+    if not (running and target):
+        return out
+    out["updateAvailable"] = running != target
+    marker = metadata.get("upgrade")
+    if (
+        isinstance(marker, dict)
+        and _image_tag(marker.get("failedImage")) == target
+        and int(marker.get("attempts") or 0) >= UPGRADE_ATTEMPTS_PER_IMAGE
+    ):
+        # Three failures on this image: the sweep has stopped trying, and a person
+        # whose agent silently never updates deserves the one line that says why.
+        out["updateFailed"] = True
+        last_error = str(marker.get("lastError") or "").strip()
+        if last_error:
+            out["updateError"] = last_error[:200]
+    return out
+
+
 async def resolve_personal_agent_status(
     *,
     user_id: str,
@@ -346,6 +428,11 @@ async def resolve_personal_agent_status(
     metadata = (row or {}).get("backend_metadata")
     if isinstance(metadata, dict) and metadata.get("ready") is not None:
         result["hostReady"] = bool(metadata.get("ready"))
+
+    # The installed-version half of "an upgrade is a software update at login".
+    # Only meaningful once there is a serving pod to be behind.
+    if result.get("state") == "active":
+        result.update(describe_pod_update(row))
 
     # A `reason` field belongs here too -- `reserved` covers both "your identity is
     # held, nothing is building yet" and "we are at capacity, your place is queued",

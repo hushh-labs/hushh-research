@@ -120,4 +120,22 @@ describe("agent chat routes to the person's own pod", () => {
     expect(runPodTurn).toHaveBeenCalledTimes(1);
     expect(result.cell).toBe("pod");
   });
+
+  it("seeds the pod with the visible transcript, because a pod holds no session", async () => {
+    // The relay, the route and the runner all accepted `history`; this client was the
+    // only caller and never sent it, so every pod turn started from nothing.
+    const { runAgentChatTurn } = await import("@/lib/services/agent-chat-client");
+    const history = [
+      { role: "user" as const, content: "my dog is called Biscuit" },
+      { role: "assistant" as const, content: "Noted: Biscuit." },
+    ];
+    await runAgentChatTurn({
+      message: "what is my dog called?",
+      podHushhId: "ha1_theirs",
+      podState: "active",
+      podResolved: true,
+      history,
+    } as never);
+    expect(runPodTurn.mock.calls[0][0].history).toEqual(history);
+  });
 });

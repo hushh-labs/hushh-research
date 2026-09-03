@@ -21,6 +21,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Stage 2: production runtime
 FROM python:3.13-slim
+# The build tag, baked in so the running process can say which build it is
+# without asking anyone (`/pod/info` and the heartbeat report it). Empty when
+# built outside Cloud Build; the pod then reports nothing rather than a guess.
+ARG POD_IMAGE_TAG=""
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
     && rm -rf /var/lib/apt/lists/*
@@ -28,7 +32,8 @@ COPY --from=builder /usr/local /usr/local
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH=/usr/local/bin:$PATH \
-    HUSSH_POD_MODE=1
+    HUSSH_POD_MODE=1 \
+    HUSSH_POD_IMAGE_TAG=${POD_IMAGE_TAG}
 COPY . .
 RUN python -m compileall -q .
 # Non-root, least-privilege (FedRAMP CM-6 / SC-2).

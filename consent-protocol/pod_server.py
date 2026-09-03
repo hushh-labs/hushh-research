@@ -28,12 +28,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 # A pod is a pod: assert pod-mode BEFORE importing app code that may read it.
 os.environ.setdefault("HUSSH_POD_MODE", "1")
 
-from fastapi import FastAPI, Request  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
@@ -199,6 +199,7 @@ def pod_info() -> dict:
     # the one question an operator probing a silent pod needs answered with one
     # authenticated GET (a BYOC pod once served for days with memory silently
     # broken and nothing observable saying so).
+    from hushh_mcp.services.pod_memory_bank import memory_bank_status, pod_memory_backend
     from hushh_mcp.services.pod_memory_service import resolve_pod_memory_service
 
     return {
@@ -210,7 +211,124 @@ def pod_info() -> dict:
         "mounts": _mounted_paths(),
         "storageBackend": (os.getenv("POD_STORAGE_BACKEND") or "null").strip() or "null",
         "memoryEnabled": resolve_pod_memory_service() is not None,
+        "memoryBackend": pod_memory_backend(),
+        **memory_bank_status(),
+        **_self_report(),
     }
+
+
+_MODEL_NAME_MAX = 96
+
+
+def _model_name_ok(name: str) -> bool:
+    return 0 < len(name) <= _MODEL_NAME_MAX and all(c.isalnum() or c in ".-_" for c in name)
+
+
+def probe_model_reachability(
+    model: str, *, location: str = "", session: Any = None, token: Optional[str] = None
+) -> dict:
+    """Can THIS pod, as itself, reach ``model`` on its own project's Vertex?
+
+    Verified 2026-09-03 that no other identity can answer this: the bootstrap account
+    holds no Vertex role, and the hub cannot mint as the pod. So the receipt Pillar 6
+    needs before voice moves here -- "the person's own project can reach the live
+    model" -- has to be produced by the pod. ``countTokens`` is free and answers
+    existence; a bidi-only live model answers with a typed error that still proves
+    it exists (a 404 is the one answer that says it does not).
+    """
+    import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+    project = (os.getenv("GOOGLE_CLOUD_PROJECT") or "").strip()
+    location = (location or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1").strip()
+    if not project:
+        return {"model": model, "location": location, "reachable": None, "detail": "no project"}
+    host = (
+        "aiplatform.googleapis.com"
+        if location == "global"
+        else f"{location}-aiplatform.googleapis.com"
+    )
+    url = (
+        f"https://{host}/v1/projects/{project}/locations/{location}"
+        f"/publishers/google/models/{model}:countTokens"
+    )
+    if token is None:
+        import google.auth  # noqa: PLC0415
+        from google.auth.transport.requests import Request  # noqa: PLC0415
+
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        credentials.refresh(Request())
+        token = str(credentials.token)
+    http = session or requests.Session()
+    try:
+        response = http.post(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            json={"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+            timeout=20,
+        )
+    except Exception as exc:  # noqa: BLE001 - a probe reports, never raises
+        return {
+            "model": model,
+            "location": location,
+            "reachable": None,
+            "detail": type(exc).__name__,
+        }
+    status = int(getattr(response, "status_code", 0) or 0)
+    try:
+        body = response.json() or {}
+    except Exception:  # noqa: BLE001
+        body = {}
+    message = str((body.get("error") or {}).get("message") or "")[:160]
+    # 200: exists and this identity may use it. 400 "not supported": exists (bidi-only).
+    # 404: the model is not offered to this project here. 403: the role is missing.
+    reachable = status == 200 or (status == 400 and "not supported" in message.lower())
+    return {
+        "model": model,
+        "location": location,
+        "project": project,
+        "status": status,
+        "reachable": reachable,
+        "detail": message or (f"totalTokens={body.get('totalTokens')}" if status == 200 else ""),
+    }
+
+
+@app.get("/pod/diagnostics/model", tags=["pod"])
+async def pod_model_diagnostic(model: str, location: str = "") -> dict:
+    """Owner-relayed, read-only: whether this pod can reach a model on its own Vertex."""
+    if not pod_mode():
+        raise HTTPException(status_code=404, detail="not a pod")
+    model = (model or "").strip()
+    location = (location or "").strip()
+    if not _model_name_ok(model) or (location and not _model_name_ok(location)):
+        raise HTTPException(status_code=400, detail="invalid model or location")
+    return await asyncio.to_thread(probe_model_reachability, model, location=location)
+
+
+def _self_report() -> dict:
+    """What this process is: the image tag baked at build and the Cloud Run revision.
+
+    The hub's registry row says what was DEPLOYED; only the running process can say
+    what is RUNNING, and the two have disagreed in production (a pod five commits
+    behind a row that looked current). Absent when unknown, never a placeholder, so
+    a missing bake shows as a missing field rather than a fake version.
+    """
+    report: dict = {}
+    image_tag = (os.getenv("HUSSH_POD_IMAGE_TAG") or "").strip()
+    if image_tag:
+        report["imageTag"] = image_tag[:128]
+    revision = (os.getenv("K_REVISION") or "").strip()
+    if revision:
+        report["revision"] = revision[:128]
+    # The Memory Bank engine this pod created for itself, once known: the hub cannot
+    # reach it and needs the id on the row for the day the account is deleted.
+    from hushh_mcp.services.pod_memory_bank import memory_bank_status  # noqa: PLC0415
+
+    engine = memory_bank_status().get("memoryBankEngine")
+    if engine:
+        report["memoryBankEngine"] = engine
+    return report
 
 
 @app.get("/pod/public-key", tags=["pod"])
@@ -290,6 +408,9 @@ async def _pod_startup() -> None:
     logger.info("pod.identity durable=%s", keypair_is_durable)
 
     _start_heartbeat_loop()
+    # Memory Bank, off the boot path. Creating the engine is a slow LRO in the
+    # person's project; until it resolves, turns recall from the sealed log.
+    asyncio.get_running_loop().create_task(_ensure_memory_bank_task())
 
 
 # -- heartbeat ---------------------------------------------------------------
@@ -302,10 +423,31 @@ async def _pod_startup() -> None:
 # an idle economy pod simply stops beating, which is the truth about it.
 
 
+async def _ensure_memory_bank_task() -> None:
+    """Find or create this pod's Memory Bank engine under its own identity. Never raises."""
+    try:
+        from hushh_mcp.services.pod_memory_bank import ensure_memory_bank  # noqa: PLC0415
+        from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
+
+        log = None
+        try:
+            log = _resolve_log()
+        except Exception:  # noqa: BLE001 - no durable store means no record, not no bank
+            logger.info("pod_memory_bank.no_durable_store")
+        await ensure_memory_bank(store=getattr(log, "_store", None))
+    except Exception:  # noqa: BLE001
+        logger.warning("pod_memory_bank.ensure_failed", exc_info=True)
+
+
 async def _heartbeat_once(client: Any) -> bool:
     """Send one beat. Returns whether the hub recorded it. Never raises."""
     try:
-        response = await asyncio.to_thread(client.post, "/api/one/pod/heartbeat")
+        # The beat carries the pod's self-report of WHICH build it runs. That is the
+        # one self-report the hub accepts: unlike a health claim it is checkable
+        # against the row, and it is what lets an update be detected honestly.
+        response = await asyncio.to_thread(
+            client.post, "/api/one/pod/heartbeat", json=_self_report()
+        )
     except PodHubUnavailable as exc:
         logger.info("pod.heartbeat_unavailable %s", type(exc).__name__)
         return False

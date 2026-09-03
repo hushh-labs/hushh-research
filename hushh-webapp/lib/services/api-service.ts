@@ -21,6 +21,7 @@
  */
 
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import { recordVoiceCell } from "@/lib/voice/voice-cell";
 import {
   HushhVault,
   HushhAuth,
@@ -3011,6 +3012,11 @@ export class ApiService {
     expires_at: number;
     model: string;
     tier: string;
+    // Which cell will hold this voice session. Today always "hub" (voice predates
+    // the pod and has not been taught about it); the reason says why, so the
+    // product can say so rather than imply the pod covers voice.
+    cell?: "hub" | "pod";
+    cell_reason?: string | null;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch("/api/one/adk/relay-session", {
@@ -3684,6 +3690,14 @@ export class ApiService {
     cloudRegion?: string | null;
     deploymentTarget?: string | null;
     credentialMode?: string | null;
+    // The software-update half. Tri-state like `hostReady`: each field is absent
+    // when its evidence is absent (no lane target, nothing recorded), never false.
+    runningImage?: string | null;
+    targetImage?: string | null;
+    updateAvailable?: boolean;
+    updateInProgress?: boolean;
+    updateFailed?: boolean;
+    updateError?: string | null;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
@@ -3709,6 +3723,11 @@ export class ApiService {
     vertexProject?: string | null;
     vertexLocation?: string | null;
     pkmContext?: string | null;
+    // The visible transcript, oldest first. A pod holds no durable session (its
+    // session service is in-memory by design), so without this every pod turn
+    // started from nothing: the relay, the route and the runner all accepted
+    // `history` and this, the only caller, never sent it.
+    history?: Array<{ role: "user" | "assistant"; content: string }> | null;
     signal?: AbortSignal;
   }): Promise<{
     hushhId: string;
@@ -3741,6 +3760,7 @@ export class ApiService {
             input.runtimeCredentialTransport || undefined,
           vertexProject: input.vertexProject || undefined,
           vertexLocation: input.vertexLocation || undefined,
+          history: input.history?.length ? input.history : undefined,
           // The owner's consented turn projection, decrypted here from their own
           // unlocked vault — the same value this client already sends to the hub on
           // every Agent Chat turn. Sending it is what makes a pod turn grounded
@@ -3794,6 +3814,10 @@ export class ApiService {
     const wsBase = base.replace(/^http/i, "ws");
     const url = new URL(`${wsBase}/api/one/adk/live`);
     const relaySession = await this.createOneAdkRelaySession(data);
+    recordVoiceCell({
+      cell: relaySession.cell === "pod" ? "pod" : relaySession.cell === "hub" ? "hub" : null,
+      reason: relaySession.cell_reason ?? null,
+    });
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);
     return url.toString();
   }

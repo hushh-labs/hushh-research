@@ -431,11 +431,23 @@ class _InitialGreetingGate:
         return True
 
 
+#: Voice predates the pod and has never been taught about it: this module builds a
+#: hub-side Runner and holds the Live socket itself, and the pod mounts no live route.
+#: So every voice session, including a person whose typed turns run on their own pod,
+#: is held by the hub. The product says so rather than implying the pod covers voice;
+#: the label goes away when Pillar 6 moves the session (see the north star).
+VOICE_CELL_HUB_REASON = (
+    "Voice runs on the shared hub for now; your pod does not hold a voice session yet."
+)
+
+
 class OneAdkRelaySessionResponse(BaseModel):
     relay_ticket: str = Field(..., max_length=4096)
     expires_at: int = Field(..., ge=0)
     model: str = Field(default="adk", max_length=128)
     tier: str = Field(..., max_length=16)
+    cell: Literal["hub", "pod"] = Field(default="hub")
+    cell_reason: Optional[str] = Field(default=None, max_length=200)
 
 
 @router.post("/relay-session", response_model=OneAdkRelaySessionResponse)
@@ -457,6 +469,8 @@ async def create_one_adk_relay_session(
         relay_ticket=ticket,
         expires_at=expires_at,
         tier="full" if uid else "intro",
+        cell="hub",
+        cell_reason=VOICE_CELL_HUB_REASON,
     )
 
 

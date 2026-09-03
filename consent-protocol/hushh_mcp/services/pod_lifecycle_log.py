@@ -64,6 +64,11 @@ STAGE_PROGRESS: dict[str, int] = {
     "pod_booted": 88,
     "key_published": 94,
     "authority_live": 100,
+    # An image update on a live pod. Below `authority_live` so the stream reads it
+    # as "still yours, being refreshed", and the outcome (`upgraded`, `upgrade_noop`,
+    # `upgrade_failed`) is written under `authority_live` because the previous
+    # revision keeps serving throughout: the pod never stops being live.
+    "updating": 97,
 }
 
 #: The registry statuses that end a journey. `terminal` on the row lets a reader

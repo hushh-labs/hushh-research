@@ -328,3 +328,83 @@ resolves the mutable source tag again:
 
 Guard: `consent-protocol/tests/test_pod_image_upgrade_path.py`, the ledger item
 `pod-image-has-a-supported-upgrade-path`.
+
+## Detecting an update, honestly (2026-09-03)
+
+The founder's rule is that an upgrade is *a software update when the person opens the
+app*. A software update starts with knowing the installed version, and until 2026-09-03
+nothing on the login path could say one: the status carried no version, and the pod
+image carried no build identity at all.
+
+**The pod says what it runs, the hub says what it wants, and the difference is the
+update.**
+
+- `Dockerfile.pod` bakes `POD_IMAGE_TAG` (Cloud Build passes `--build-arg
+  POD_IMAGE_TAG=${_IMAGE_TAG}`) into `HUSSH_POD_IMAGE_TAG`. `/pod/info` reports it as
+  `imageTag` with the Cloud Run `revision`; a pod built outside Cloud Build reports
+  nothing rather than a guess.
+- The heartbeat now carries that self-report (`imageTag`, `revision`, and the
+  `memoryBankEngine` below). It is the one self-report the hub accepts: a health claim
+  is unfalsifiable, an image tag is checkable against the row. It lands under
+  `backend_metadata.observed`, a key of its own, never on the deployed record
+  (`source_image` / `image_digest`), so "what I deployed" and "what the pod says it is"
+  can disagree and the disagreement is logged as `personal_agent.image_drift` instead of
+  papered over. Bodyless beats from older pods stay valid.
+- `GET /api/one/personal-agent/status` compares them on read, zero new I/O:
+  `runningImage`, `targetImage`, `updateAvailable`, `updateInProgress` (the upgrade
+  lease is fresh), `updateFailed` + `updateError` (three failures on this image). Tri-state
+  like `hostReady`: a field is **absent** when its evidence is absent (no lane target,
+  nothing recorded), never coerced to `false`. Tag equality, not digest equality: the
+  person's copy is a digest in their own registry and the hub's target is a tag.
+- The update is narrated as its own lifecycle stage, `updating` (progress 97, below
+  `authority_live`), before the outcome (`upgraded` / `upgrade_noop` / `upgrade_failed`)
+  is written under `authority_live`; the previous revision keeps serving throughout.
+  A feed event `personal_agent_updated` is written only when the revision actually
+  moved.
+- In the app: the presence chip reads **Updating** while the lease is fresh, its
+  tooltip names an available update or the last failure, the "Private agent" rail
+  carries an *Updating your private agent* card, and the status poll keeps going (every
+  15s) while an update is available or in flight so the chip goes available -> updating
+  -> current without a reload (`decideFollow(updateMoving)`).
+
+Guard: `tests/test_pod_update_detection.py`, `__tests__/feed/agent-update-detection.test.ts`.
+
+## Memory Bank on the person's own Vertex (2026-09-03)
+
+Founder decision: the pod's ADK memory is **Vertex AI Memory Bank in the person's
+project**. Until now recall was keyed word-overlap over the sealed commit log; Memory
+Bank is the first non-lexical retrieval in the system.
+
+- **The pod creates its own engine.** Verified live in a BYOC project: the bootstrap
+  account holds no Vertex role (`aiplatform.reasoningEngines.list` denied) and the hub
+  cannot mint as the pod (`iam_bootstrap_can_run_as_pod` is actAs, not tokenCreator).
+  The pod's service account already holds `roles/aiplatform.user`, so
+  `pod_memory_bank.ensure_memory_bank` finds-or-creates a Memory-Bank-only Agent Engine
+  named `one-pod-memory-<hushh_id>` at the pod's own region (Agent Engine is regional;
+  `POD_MEMORY_BANK_LOCATION`, rendered by `UserGcpBackend`), off the boot path, and
+  records the id once in the pod's own object store (`memory_bank.json`).
+- **Composite, log underneath.** `build_pod_memory_service(bank=...)` writes every turn to
+  the sealed log **and** the bank; `search_memory` asks the bank first and falls back to
+  the log. `load_memory` stays bound and observable (`pod_memory.recall
+  backend=memory_bank|commit_log`); `preload_memory` stays off. A bank failure is logged
+  and never fails a turn.
+- **Visible.** `/pod/info` reports `memoryBackend`, `memoryBankEngine`, `memoryBankError`;
+  the heartbeat carries the engine id to the row.
+- **Not yet: erasure.** The bootstrap token cannot delete the engine, so account deletion
+  leaves it behind (Pillar 1). The fix is a pod-side erase step before deprovision.
+- Rendered for BYOC pods only (`POD_MEMORY_BACKEND=memory_bank`); managed pods stay on the
+  commit log.
+
+Guard: `tests/test_pod_memory_bank.py`.
+
+## Only the pod can vouch for its model (2026-09-03)
+
+The receipt Pillar 6 needs before voice moves to the pod, "the person's own project can
+reach `gemini-live-2.5-flash-native-audio`", cannot be produced by any hub-side identity
+(see above). `GET /pod/diagnostics/model?model=...&location=...` runs a free
+`countTokens` as the pod itself; the owner reaches it through the same door as
+`/pod/info`: `GET /api/one/u/{hushh_id}/diagnostics/model?model=...`. A bidi-only live
+model answers with a typed "not supported" that still proves it exists; a 404 is the one
+answer that says it does not; a 403 names the missing role.
+
+Guard: `tests/test_pod_model_diagnostic.py`.

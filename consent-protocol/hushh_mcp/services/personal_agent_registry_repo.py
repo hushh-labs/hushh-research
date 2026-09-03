@@ -14,6 +14,7 @@ never the raw phone number and never a private key.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -211,8 +212,18 @@ class PersonalAgentRegistryRepo:
 
     # -- liveness (migration 905) ---------------------------------------------
 
-    async def record_heartbeat(self, *, hushh_id: str) -> Optional[dict]:
+    async def record_heartbeat(
+        self, *, hushh_id: str, observed: Optional[dict] = None
+    ) -> Optional[dict]:
         """A pod said it is alive. Returns the matched row, or None.
+
+        ``observed`` is the pod's self-report of WHICH build it runs (``imageTag``,
+        ``revision``), written under ``backend_metadata.observed`` -- a key of its
+        own, separate from ``source_image`` / ``image_digest`` which record what the
+        hub DEPLOYED. The two are kept apart on purpose so they can disagree, and
+        the disagreement (a pod running older code than its row claims) is visible
+        instead of overwritten. Written only when it changed, so a steady pod's
+        every-60s beat stays one UPDATE.
 
         Keyed by ``hushh_id`` because that is the only identity a pod knows about
         itself -- it holds no user id, by design, so the heartbeat cannot be written
@@ -262,7 +273,31 @@ class PersonalAgentRegistryRepo:
             .execute()
         )
         rows = list(response.data or [])
-        return rows[0] if rows else None
+        row = rows[0] if rows else None
+        if row is not None and observed:
+            current = (row.get("backend_metadata") or {}).get("observed")
+            if current != observed:
+                self._db().execute_raw(
+                    """
+                    UPDATE personal_agent_registry
+                    SET backend_metadata = jsonb_set(
+                            coalesce(backend_metadata, '{}'::jsonb),
+                            '{observed}',
+                            CAST(:observed AS jsonb),
+                            true
+                        )
+                    WHERE hushh_id = :hushh_id
+                    """,
+                    {"hushh_id": normalized, "observed": json.dumps(observed)},
+                )
+                row = {
+                    **row,
+                    "backend_metadata": {
+                        **(row.get("backend_metadata") or {}),
+                        "observed": observed,
+                    },
+                }
+        return row
 
     async def set_health_state(
         self,

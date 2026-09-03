@@ -280,6 +280,32 @@ assertions:
       kind: pytest
       target: tests/test_byoc_substrate_teardown_is_loud.py
 
+  - id: an-update-is-visible-at-login
+    requirement: Lifecycle
+    statement: "The app can see that a newer agent build exists, is installing, or failed, from the pod's own report of what it runs."
+    falsifiable: true
+    # The founder's rule: an upgrade is a software update when the person opens the
+    # app. That starts with the installed version, which nothing exposed before.
+    check:
+      kind: pytest
+      target: tests/test_pod_update_detection.py
+
+  - id: pod-memory-is-the-persons-own-memory-bank
+    requirement: Learning loop
+    statement: "A BYOC pod's memory is Vertex AI Memory Bank in the person's project, created by the pod itself, with the sealed log underneath."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_memory_bank.py
+
+  - id: only-the-pod-can-vouch-for-its-model
+    requirement: Economics
+    statement: "The owner can ask their own pod whether their project reaches a model; no hub identity can answer for it."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_model_diagnostic.py
+
   - id: no-pod-is-billing-right-now
     requirement: Economics
     statement: "No pod left over from a drill or proof is still costing money on dev."

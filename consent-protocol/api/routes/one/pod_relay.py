@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -223,6 +223,69 @@ async def relay_pod_info(
     if status == 503:
         raise HTTPException(status_code=503, detail="pod unreachable")
     return {"hushhId": hushh_id, "podStatus": status, "pod": body}
+
+
+async def relay_pod_model_diagnostic(
+    *,
+    hushh_id: str,
+    user_id: str,
+    model: str,
+    location: str = "",
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    session: Any = None,
+) -> dict:
+    """Owner-authorized proxy to a pod's read-only model reachability check.
+
+    The same door as ``relay_pod_info`` -- same ownership proof, same audit, same
+    address resolution -- so a person can ask their own pod "can you reach this
+    model?" and nobody else can. It exists because that question can only be
+    answered by the pod's own identity (see ``pod_server.probe_model_reachability``).
+    """
+    from urllib.parse import urlencode  # noqa: PLC0415
+
+    _require_enabled()
+    model = (model or "").strip()
+    location = (location or "").strip()
+    if not model or len(model) > 96:
+        raise HTTPException(status_code=400, detail="model is required")
+    repo = registry or PersonalAgentRegistryRepo()
+    auditor = audit or PodAccessAuditService(registry=repo)
+    try:
+        await auditor.authorize_owner_read(
+            user_id=user_id,
+            agent_id=PERSONAL_AGENT_ID,
+            scope=ConsentScope.PKM_READ.value,
+            hushh_id=hushh_id,
+            request_id=f"relay-diag-model:{hushh_id}",
+        )
+    except PodAccessDenied as exc:
+        logger.info("pod_relay.denied reason=%s", str(exc))
+        raise HTTPException(status_code=403, detail="not authorized for this pod") from exc
+    except PersonalAgentDisabledError as exc:
+        raise HTTPException(status_code=404, detail="personal agent is not available") from exc
+    row = await repo.get(user_id)
+    url = _pod_url(row or {})
+    if url is None:
+        raise HTTPException(status_code=409, detail="pod is not reachable yet")
+    query = urlencode({"model": model, **({"location": location} if location else {})})
+    status, body = await _proxy_get(url, f"/pod/diagnostics/model?{query}", session=session)
+    if status == 503:
+        raise HTTPException(status_code=503, detail="pod unreachable")
+    return {"hushhId": hushh_id, "podStatus": status, "diagnostic": body}
+
+
+@router.get("/{hushh_id}/diagnostics/model")
+async def relay_pod_model_diagnostic_route(
+    hushh_id: str = Path(..., min_length=1, max_length=128),
+    model: str = Query(..., min_length=1, max_length=96),
+    location: str = Query(default="", max_length=64),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """The private relay: can the person's own pod reach a model on their own Vertex?"""
+    return await relay_pod_model_diagnostic(
+        hushh_id=hushh_id, user_id=user_id, model=model, location=location
+    )
 
 
 @router.get("/{hushh_id}/info")

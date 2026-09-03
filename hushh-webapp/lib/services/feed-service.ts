@@ -26,6 +26,7 @@ export const PERSONAL_AGENT_EVENT_TYPES = [
   "personal_agent_failed",
   "personal_agent_provisioning_capped",
   "personal_agent_reaped",
+  "personal_agent_updated",
 ] as const;
 
 export type PersonalAgentEventType = (typeof PERSONAL_AGENT_EVENT_TYPES)[number];

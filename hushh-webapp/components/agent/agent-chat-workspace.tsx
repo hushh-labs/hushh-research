@@ -146,6 +146,7 @@ import {
   type AgentChatToolEvent,
   type SpecialistDirectiveEvent,
   type AgentSource,
+  type TurnCell,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
@@ -199,6 +200,30 @@ import type {
   EmailDeliveryError,
   EmailDraft,
 } from "@/lib/services/email-delivery-service";
+
+/**
+ * The transcript a pod turn is seeded with. A pod holds no durable session by
+ * design (its session service is in-memory), so without this every pod turn
+ * started from nothing while the hub kept its thread. Bounded, oldest dropped
+ * first; the message being sent is not in it (the pod appends that itself).
+ */
+const POD_HISTORY_MAX_MESSAGES = 20;
+
+function transcriptForPod(
+  messages: ReadonlyArray<AgentMessage>,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return messages
+    .filter(
+      (message) =>
+        !message.ephemeral &&
+        message.kind !== "selection" &&
+        message.status !== "streaming" &&
+        message.status !== "error" &&
+        message.text.trim().length > 0,
+    )
+    .slice(-POD_HISTORY_MAX_MESSAGES)
+    .map((message) => ({ role: message.role, content: message.text }));
+}
 
 type AgentMessage = {
   id: string;
@@ -1421,6 +1446,14 @@ export function AgentChatWorkspace({
   }, [podHushhId, getVaultOwnerToken, router]);
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
+  // Read at send time by the turn callbacks, which must not re-bind per message.
+  const messagesRef = useRef<AgentMessage[]>(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  // Which cell answered the last turn. Rendered, because "always my pod" is only
+  // a claim the product can keep by saying when the hub answered instead.
+  const [lastTurnCell, setLastTurnCell] = useState<TurnCell | null>(null);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(null);
   const consumeHandoff = useOneConversationSession((state) => state.consumeHandoff);
   const consumedHandoffIdRef = useRef<string | null>(null);
@@ -3578,6 +3611,7 @@ export function AgentChatWorkspace({
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        history: transcriptForPod(messagesRef.current),
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
@@ -3721,6 +3755,7 @@ export function AgentChatWorkspace({
         return;
       }
       flushAssistantDelta();
+      setLastTurnCell(streamResult.cell);
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
       }
@@ -3938,6 +3973,7 @@ export function AgentChatWorkspace({
         return;
       }
       flushAssistantDelta();
+      setLastTurnCell(streamResult.cell);
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
       }
@@ -4971,6 +5007,19 @@ export function AgentChatWorkspace({
                   </button>
                 ))}
               </div>
+              {lastTurnCell ? (
+                <span
+                  className="hidden text-[11px] text-muted-foreground/80 sm:inline-flex"
+                  data-testid="agent-turn-cell"
+                  title={
+                    lastTurnCell === "pod"
+                      ? "This answer came from your own private agent."
+                      : "This answer came from the shared Hussh hub, not your pod."
+                  }
+                >
+                  {lastTurnCell === "pod" ? "Your pod" : "Hussh hub"}
+                </span>
+              ) : null}
               {statusText ? (
                 <span
                   className="hidden text-xs font-medium text-muted-foreground sm:inline-flex"

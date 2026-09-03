@@ -16,11 +16,19 @@ a verified pod gets 401 and writes nothing.
 
 What a heartbeat is allowed to assert
 -------------------------------------
-Only that the pod bearing this HusshID is running. The body is ignored entirely --
-there is deliberately no self-reported "status": "healthy" field to trust, because a
-pod sick enough to lie about its health is exactly the pod whose self-report is
-worthless. The fact recorded is the arrival of the beat itself, which the pod cannot
-fake by being broken.
+Only that the pod bearing this HusshID is running -- plus, since 2026-09-03, WHICH
+build it runs. There is deliberately no self-reported "status": "healthy" field to
+trust, because a pod sick enough to lie about its health is exactly the pod whose
+self-report is worthless. The fact recorded is the arrival of the beat itself, which
+the pod cannot fake by being broken.
+
+That argument does not extend to the image tag, and the difference is why the body
+is read at all now: a health claim is unfalsifiable, an image tag is checkable
+against the registry row. So the beat may carry ``imageTag`` / ``revision`` (bounded
+strings, everything else ignored), recorded under ``backend_metadata.observed`` and
+never on the deployed record -- see ``describe_pod_update``. It is the only signal
+that says what is RUNNING rather than what was DEPLOYED, which is what makes an
+update detectable honestly.
 
 The HusshID comes from the verified header, never from the body, so a pod cannot
 report a heartbeat on behalf of another user's agent by asking to.
@@ -91,7 +99,7 @@ async def record_pod_heartbeat(
         raise HTTPException(status_code=401, detail="pod identity required")
 
     repo = registry or PersonalAgentRegistryRepo()
-    row = await repo.record_heartbeat(hushh_id=hushh_id)
+    row = await repo.record_heartbeat(hushh_id=hushh_id, observed=await _read_self_report(request))
     if not row:
         # A pod is running and reporting for a HusshID the registry does not have.
         # That is an ORPHAN: billable compute nobody's row points at, which is
@@ -102,6 +110,31 @@ async def record_pod_heartbeat(
         raise HTTPException(status_code=404, detail="no registry row for this pod")
 
     return {"recorded": True, "status": await _finish_provisioning(row, collector=collector)}
+
+
+_SELF_REPORT_FIELDS = ("imageTag", "revision", "memoryBankEngine")
+_SELF_REPORT_MAX_LEN = 128
+
+
+async def _read_self_report(request: Request) -> Optional[dict]:
+    """The pod's build self-report, or None. Never raises, never trusts shape.
+
+    Bodyless beats (every pod built before the tag was baked) stay valid; a body
+    that is not a JSON object is treated as absent, not as an error, because a
+    liveness report must not fail on the optional part.
+    """
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001 - empty or non-JSON body is the common case
+        return None
+    if not isinstance(payload, dict):
+        return None
+    report = {
+        key: str(payload[key]).strip()[:_SELF_REPORT_MAX_LEN]
+        for key in _SELF_REPORT_FIELDS
+        if isinstance(payload.get(key), str) and payload[key].strip()
+    }
+    return report or None
 
 
 async def _finish_provisioning(row: dict, *, collector: Any = None) -> str:

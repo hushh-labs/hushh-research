@@ -384,6 +384,12 @@ class UserGcpBackend:
                 {"name": "POD_STORAGE_GCS_BUCKET", "value": f"one-pod-{slug}-blobs"},
                 {"name": "POD_STORAGE_GCS_PREFIX", "value": f"pods/{spec.hushh_id}"},
                 {"name": "POD_AGENT_MEMORY_ENABLED", "value": "true"},
+                # Memory Bank on the person's own Vertex (founder decision 2026-09-03).
+                # The pod creates its engine itself, under its own identity, at its
+                # own region: Agent Engine is regional, unlike the model location
+                # below. See pod_memory_bank.py for why the pod and not the bootstrap.
+                {"name": "POD_MEMORY_BACKEND", "value": "memory_bank"},
+                {"name": "POD_MEMORY_BANK_LOCATION", "value": region},
                 # Vertex resolves against the USER's project, always. This pod runs as
                 # the user's own service account in the user's own project, so its
                 # native ADC is theirs -- which is precisely why a BYO GCP person does
