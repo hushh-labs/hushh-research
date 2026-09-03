@@ -2401,7 +2401,7 @@
       "route_pattern": "/one/kai/news",
       "page_file": "app/one/kai/news/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.kai.news",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2431,8 +2431,10 @@
       },
       "canonical_screen": "kai_market_news",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "route.kai_news"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
@@ -2616,7 +2618,7 @@
       "route_pattern": "/one/kai/portfolio/allocation",
       "page_file": "app/one/kai/portfolio/allocation/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.kai.portfolio.allocation",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2646,8 +2648,10 @@
       },
       "canonical_screen": "kai_portfolio_allocation",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "route.kai_portfolio_allocation"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
@@ -2659,7 +2663,7 @@
       "route_pattern": "/one/kai/portfolio/holdings",
       "page_file": "app/one/kai/portfolio/holdings/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.kai.portfolio.holdings",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2689,8 +2693,10 @@
       },
       "canonical_screen": "kai_portfolio_holdings",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "route.kai_portfolio_holdings"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
@@ -2702,7 +2708,7 @@
       "route_pattern": "/one/kai/portfolio/performance",
       "page_file": "app/one/kai/portfolio/performance/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.kai.portfolio.performance",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2732,8 +2738,10 @@
       },
       "canonical_screen": "kai_portfolio_performance",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "route.kai_portfolio_performance"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
@@ -2745,7 +2753,7 @@
       "route_pattern": "/one/kai/portfolio/sources",
       "page_file": "app/one/kai/portfolio/sources/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.kai.portfolio.sources",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2775,8 +2783,10 @@
       },
       "canonical_screen": "kai_portfolio_sources",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "route.kai_portfolio_sources"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
