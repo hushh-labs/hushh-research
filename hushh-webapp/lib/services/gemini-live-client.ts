@@ -816,6 +816,24 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       return;
     }
 
+    const toolTrace = readRecord(message.toolTrace);
+    const toolTraceKind = readString(toolTrace?.kind);
+    if (toolTrace && toolTraceKind) {
+      const eventOptions = this.nextEventOptions();
+      this.handlers.onEvent?.({
+        type: "tool_trace",
+        provider: this.provider,
+        trace: {
+          kind: toolTraceKind,
+          payload: readRecord(toolTrace.payload) || undefined,
+        },
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+      return;
+    }
+
     const serverContent = message.serverContent as
       | {
           modelTurn?: { parts?: Array<Record<string, unknown>> };

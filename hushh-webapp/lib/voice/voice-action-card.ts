@@ -110,9 +110,42 @@ export type VoiceConfirm = {
   confirmLabel: string;
 };
 
+/**
+ * A read tool's answer, illustrated rather than only spoken -- "your
+ * connections" as a list of people, a PKM domain summary as figures. Unlike
+ * `choice`/`confirm`, nothing here is stuck: it does not block a decision and
+ * has no button of its own. It is shown in sync with the readout and cleared
+ * once One stops speaking (see the auto-clear effect in voice-action-card.tsx)
+ * or replaced by whatever card comes next.
+ *
+ * Two shapes because a list of people and a sheet of figures do not share a
+ * layout -- forcing them into one would mean either a list that cannot show a
+ * number or a stat sheet that cannot show a row per person.
+ */
+export type VoiceDataListItem = {
+  id: string;
+  name: string;
+  detail?: string | null;
+  photoUrl?: string | null;
+};
+
+export type VoiceDataSummaryField = {
+  label: string;
+  value: string;
+};
+
+export type VoiceDataCard = {
+  /** One short line above the card, naming what this illustrates. */
+  heading: string;
+} & (
+  | { shape: "list"; list: { items: VoiceDataListItem[] } }
+  | { shape: "summary"; summary: { fields: VoiceDataSummaryField[] } }
+);
+
 export type VoiceCardRequest =
   | ({ kind: "choice" } & VoiceDisambiguation)
-  | ({ kind: "confirm" } & VoiceConfirm);
+  | ({ kind: "confirm" } & VoiceConfirm)
+  | ({ kind: "data" } & VoiceDataCard);
 
 /** The keys a handler result carries each shape under. */
 export const VOICE_DISAMBIGUATION_DATA_KEY = "disambiguation";
@@ -280,4 +313,93 @@ export function parseVoiceDisambiguation(
     prompt: String(value.prompt ?? "").trim() || "Which one did you mean?",
     candidates,
   };
+}
+
+/** How many summary trailing wins is worth showing before a card stops being a glance. */
+const MAX_SUMMARY_FIELDS = 8;
+
+/** "portfolio_value_bucket" -> "Portfolio Value Bucket". */
+function humanizeFieldLabel(key: string): string {
+  const spaced = key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim();
+  if (!spaced) return key;
+  return spaced.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function summaryFieldsFrom(summary: Record<string, unknown>): VoiceDataSummaryField[] {
+  const fields: VoiceDataSummaryField[] = [];
+  for (const [key, raw] of Object.entries(summary)) {
+    if (fields.length >= MAX_SUMMARY_FIELDS) break;
+    if (raw === null || raw === undefined || raw === "") continue;
+    const value =
+      typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean"
+        ? String(raw)
+        : Array.isArray(raw)
+          ? raw.map((item) => String(item)).join(", ")
+          : null;
+    if (value === null) continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    fields.push({ label: humanizeFieldLabel(key), value: trimmed });
+  }
+  return fields;
+}
+
+/**
+ * Turn a relay `toolTrace` envelope into a card, or nothing if there is
+ * genuinely nothing worth showing. Validated the same way the disambiguation
+ * and confirm parsers are: a malformed or empty payload must render no card
+ * rather than a blank one.
+ */
+export function parseToolTraceCard(
+  trace: { kind?: string; payload?: Record<string, unknown> } | null | undefined,
+): VoiceCardRequest | null {
+  if (!trace) return null;
+  const kind = String(trace.kind ?? "").trim();
+  if (!kind) return null;
+  const payload =
+    trace.payload && typeof trace.payload === "object" ? trace.payload : {};
+
+  if (kind === "connections_list") {
+    const rawItems = Array.isArray(payload.people) ? payload.people : [];
+    const items: VoiceDataListItem[] = rawItems
+      .filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item && typeof item === "object"),
+      )
+      .map((item) => ({
+        id: String(item.id ?? "").trim(),
+        name: String(item.name ?? "").trim() || "Hussh member",
+        detail: item.detail ? String(item.detail).trim() : null,
+        photoUrl: item.photoUrl ? String(item.photoUrl).trim() : null,
+      }))
+      .filter((item) => item.id.length > 0);
+    if (items.length === 0) return null;
+    return {
+      kind: "data",
+      heading: "Your connections",
+      shape: "list",
+      list: { items },
+    };
+  }
+
+  if (kind === "pkm_domain_summary") {
+    const rawSummary =
+      payload.summary && typeof payload.summary === "object"
+        ? (payload.summary as Record<string, unknown>)
+        : {};
+    const fields = summaryFieldsFrom(rawSummary);
+    if (fields.length === 0) return null;
+    const heading = String(payload.label ?? "").trim() || "Your info";
+    return {
+      kind: "data",
+      heading,
+      shape: "summary",
+      summary: { fields },
+    };
+  }
+
+  return null;
 }

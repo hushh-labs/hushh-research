@@ -90,6 +90,23 @@ export type OneVoiceSessionEvent =
       sessionId?: string | null;
       sourceId?: string | null;
       sourceSeq?: number | null;
+    }
+  | {
+      /**
+       * A read tool's display-safe result, forwarded alongside the spoken
+       * answer so the app can render a card in sync with the readout
+       * (#6434). Never executed, never settled -- unlike client_directive,
+       * this is pure display data.
+       */
+      type: "tool_trace";
+      provider: OneVoiceProvider;
+      trace: {
+        kind: string;
+        payload?: Record<string, unknown>;
+      };
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
     };
 
 export type OneVoiceTransportHandlers = {
