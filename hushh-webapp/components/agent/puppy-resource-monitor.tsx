@@ -3,12 +3,21 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { AlertTriangle, Cloud, Cpu, Loader2 } from "lucide-react";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Sheet,
   SheetContent,
@@ -17,8 +26,13 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import {
+  fetchPuppyJobs,
   fetchPuppyResources,
+  setPuppyJobPaused,
+  type PuppyJob,
+  type PuppyJobs,
   type PuppyResidentModel,
   type PuppyResourceLink,
   type PuppyResources,
@@ -30,7 +44,13 @@ import { cn } from "@/lib/utils";
  *
  * The readings are the owner's to ask for, not a permanent fixture above the
  * conversation: `PuppyMachineSheet` is a quiet control that opens them in a
- * sheet, and nothing repeats while that sheet is shut.
+ * panel, and nothing repeats while that panel is shut.
+ *
+ * The panel follows the viewport rather than the phone. Under 640px it is the
+ * app's bottom sheet, where a thumb already is. At 640px and up it is the
+ * centred dialog, because a bottom sheet on a desktop slides a strip across
+ * the foot of a large window to show a small amount of text -- see
+ * `PuppyMachineSheet` for why a dialog and not an anchored popover.
  *
  * ONE reading refuses to wait for a tap. A broken link to Hussh One stays
  * inline, always, above the control. Enrolment outlives login, so a machine
@@ -79,6 +99,16 @@ const POLL_MS = 20_000;
  * stays open.
  */
 const LINK_POLL_MS = 300_000;
+
+/**
+ * Under this width the panel is a bottom sheet; at it and above, a dialog.
+ *
+ * 639.98px rather than 640px so the sheet and `sm:` hand over at exactly the
+ * same place: a device landing on 639.6px must not get the sheet's geometry
+ * and the dialog's breakpoint at once. Exported so a test can answer this one
+ * query without having to guess the number.
+ */
+export const MACHINE_PANEL_SHEET_QUERY = "(max-width: 639.98px)";
 
 /** Disk this full is the thing that stops an overnight job. */
 const DISK_WARNING_PCT = 90;
@@ -162,58 +192,251 @@ function useMachineReading(live: boolean): {
 }
 
 /**
+ * The scheduled jobs, and the switch that turns one off.
+ *
+ * Read ONLY when the panel is open, and never on a timer. Unlike the readings
+ * there is no fact in here that has to reach the owner unasked, so a shut
+ * panel costs the local gateway nothing at all.
+ *
+ * A toggle is single-flight PER JOB and the switch never moves on its own
+ * authority: the row keeps rendering the gateway's `paused` until a re-read
+ * says otherwise. That is the difference between a switch and a wish. A
+ * refusal leaves the job exactly where it was and says so on the row.
+ */
+function usePuppyScheduledWork(live: boolean): {
+  payload: PuppyJobs | null;
+  busyIds: ReadonlySet<string>;
+  errors: Readonly<Record<string, string>>;
+  onToggle: (job: PuppyJob) => void;
+} {
+  const [payload, setPayload] = useState<PuppyJobs | null>(null);
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const mounted = useRef(true);
+  // The render-visible set lags a microtask behind; the guard cannot. Two taps
+  // in the same tick would both read the old state and both fire.
+  const inFlight = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const read = useCallback(async () => {
+    const next = await fetchPuppyJobs();
+    if (!mounted.current) return;
+    setPayload(next);
+  }, []);
+
+  // Opening is the whole trigger. No interval: a schedule does not change
+  // while someone is looking at it, and the readings' own 20s poll already
+  // re-renders this list often enough for "in 14 min" to stay honest.
+  useEffect(() => {
+    if (!live) return;
+    void read();
+  }, [live, read]);
+
+  const onToggle = useCallback(
+    (job: PuppyJob) => {
+      if (inFlight.current.has(job.id)) return;
+      inFlight.current = new Set(inFlight.current).add(job.id);
+      setBusyIds(inFlight.current);
+      setErrors((current) => {
+        if (!(job.id in current)) return current;
+        const next = { ...current };
+        delete next[job.id];
+        return next;
+      });
+
+      void (async () => {
+        const result = await setPuppyJobPaused({
+          id: job.id,
+          paused: !job.paused,
+        });
+        if (mounted.current) {
+          if (result.ok) {
+            // Re-read rather than trusting the local guess. The gateway may
+            // have done something other than what was asked -- a job that was
+            // deleted underneath us, a resume that a broken schedule refused
+            // -- and the list is the only place that knows.
+            await read();
+          } else {
+            setErrors((current) => ({
+              ...current,
+              [job.id]:
+                result.error || "Puppy One could not change that job.",
+            }));
+          }
+        }
+        const remaining = new Set(inFlight.current);
+        remaining.delete(job.id);
+        inFlight.current = remaining;
+        if (!mounted.current) return;
+        setBusyIds(remaining);
+      })();
+    },
+    [read],
+  );
+
+  return { payload, busyIds, errors, onToggle };
+}
+
+function panelPresentationSupported(): boolean {
+  return (
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+  );
+}
+
+function subscribeToPanelPresentation(onChange: () => void): () => void {
+  if (!panelPresentationSupported()) return () => {};
+  const query = window.matchMedia(MACHINE_PANEL_SHEET_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+/**
+ * True when this viewport wants the bottom sheet.
+ *
+ * A subscription rather than a one-shot read, so a window dragged across the
+ * boundary is answered instead of being remembered wrongly until the next
+ * reload. The server snapshot is `false`, the desktop answer, which costs
+ * nothing: neither container mounts its content until the owner asks.
+ */
+function useSheetPresentation(): boolean {
+  return useSyncExternalStore(
+    subscribeToPanelPresentation,
+    () =>
+      panelPresentationSupported() &&
+      window.matchMedia(MACHINE_PANEL_SHEET_QUERY).matches,
+    () => false,
+  );
+}
+
+const PANEL_TITLE = "This machine";
+const PANEL_DESCRIPTION =
+  "What Puppy One is running on, and the work it has scheduled.";
+
+/**
  * The owner's way in: one quiet control, plus the one reading that refuses to
  * hide behind it.
  *
  * The control names what it opens rather than what it is made of. "This
  * machine" is the thing the owner is asking about; "Metrics" or "Debug" would
  * be this code describing itself.
+ *
+ * A bottom sheet is the phone's answer, not the desktop's, so the container
+ * follows the viewport:
+ *
+ *   under 640px  the app's bottom sheet, dragged and dismissed like every
+ *                other sheet here, and where the thumb already is.
+ *   640px and up the centred dialog, which is what this repo already reaches
+ *                for when the same surface has to be both -- see
+ *                `save-location-modal.tsx`. Not an anchored popover: this
+ *                panel is a readings card plus a switchable list of eleven
+ *                jobs, which is a task and not a menu, and the popover
+ *                primitive here is 288px wide with no title, no close
+ *                affordance and no focus trap to lend it.
+ *
+ * ONE panel is built, and exactly one container mounts it. Two mounted copies
+ * would be two lists of switches over one machine, and the toggle in the
+ * hidden one would still be reachable by a screen reader.
+ *
+ * The presentation is frozen for the lifetime of an opening. Swapping Sheet
+ * for Dialog swaps the parent element, so React remounts everything inside --
+ * which mid-toggle would tear down the switch under the hand using it, and
+ * lose the row's error with it.
  */
 export function PuppyMachineSheet({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const { payload, readAt } = useMachineReading(open);
+  const scheduled = usePuppyScheduledWork(open);
   const linkState = describeLink(payload?.link);
   // "ok" resolves to `healthy` and "not_connected" to null, so what is left is
   // exactly the set the owner cannot be left to discover by tapping.
   const notice = linkState && linkState.kind !== "healthy" ? linkState : null;
 
+  // Re-synced only while the panel is shut, so it always OPENS in the right
+  // container and then stops following. Nothing is on screen to flash while
+  // it catches up: neither container mounts its content until the owner asks.
+  const livePresentation = useSheetPresentation();
+  const [asSheet, setAsSheet] = useState(livePresentation);
+  useEffect(() => {
+    if (!open) setAsSheet(livePresentation);
+  }, [livePresentation, open]);
+
+  const trigger = (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Cpu className="size-3.5" aria-hidden />
+      {PANEL_TITLE}
+    </button>
+  );
+
+  // The container is already the boundary. A second bordered card inside it
+  // would be a box drawn around a box.
+  const panel = (
+    <PuppyResourceMonitor
+      payload={payload}
+      readAt={readAt}
+      className="rounded-none border-0"
+      scheduled={
+        <PuppyJobList
+          payload={scheduled.payload}
+          busyIds={scheduled.busyIds}
+          errors={scheduled.errors}
+          onToggle={scheduled.onToggle}
+        />
+      }
+    />
+  );
+
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {notice ? <LinkNotice state={notice} /> : null}
       <div className="flex justify-end">
-        <Sheet open={open} onOpenChange={setOpen} modal>
-          <SheetTrigger asChild>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        {asSheet ? (
+          <Sheet open={open} onOpenChange={setOpen} modal>
+            <SheetTrigger asChild>{trigger}</SheetTrigger>
+            <SheetContent side="bottom" className="gap-0 p-0">
+              <SheetHeader className="px-4 pb-2 pr-12 pt-3 text-left">
+                <SheetTitle className="text-base">{PANEL_TITLE}</SheetTitle>
+                <SheetDescription>{PANEL_DESCRIPTION}</SheetDescription>
+              </SheetHeader>
+              {/* No padding of its own: every section inside already carries
+                  `px-4`, which is the header's gutter too. */}
+              <div className="pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+                {panel}
+              </div>
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <Dialog open={open} onOpenChange={setOpen} modal>
+            <DialogTrigger asChild>{trigger}</DialogTrigger>
+            <DialogContent
+              className="gap-0 p-0 sm:max-w-md"
+              // `DialogContent` already renders the one accessible
+              // description this dialog is allowed to have; a second
+              // `DialogDescription` would collide with it on the same id. So
+              // the line below is the SAME sentence, drawn for the eye only,
+              // and hidden from the reader that has already been told it.
+              srDescription={PANEL_DESCRIPTION}
             >
-              <Cpu className="size-3.5" aria-hidden />
-              This machine
-            </button>
-          </SheetTrigger>
-          <SheetContent
-            side="bottom"
-            className="gap-0 p-0 sm:mx-auto sm:max-w-md"
-          >
-            <SheetHeader className="px-4 pb-2 pr-12 pt-3 text-left">
-              <SheetTitle className="text-base">This machine</SheetTitle>
-              <SheetDescription>
-                What Puppy One is running on, read while this is open.
-              </SheetDescription>
-            </SheetHeader>
-            {/* No padding of its own: every section inside already carries
-                `px-4`, which is the header's gutter too. */}
-            <div className="pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-              {/* The sheet is already the boundary. A second bordered card
-                  inside it would be a box drawn around a box. */}
-              <PuppyResourceMonitor
-                payload={payload}
-                readAt={readAt}
-                className="rounded-none border-0"
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
+              <DialogHeader className="px-4 pb-2 pr-12 pt-3 text-left">
+                <DialogTitle className="text-base">{PANEL_TITLE}</DialogTitle>
+                <p className="text-sm text-muted-foreground" aria-hidden>
+                  {PANEL_DESCRIPTION}
+                </p>
+              </DialogHeader>
+              <div className="pb-4">{panel}</div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </div>
   );
@@ -278,12 +501,27 @@ export function PuppyResourceMonitor({
   payload,
   readAt = 0,
   className,
+  scheduled,
 }: {
   payload: PuppyResources | null;
   /** Epoch ms of that read. 0 means "not stamped": no relative time is shown. */
   readAt?: number;
   className?: string;
+  /**
+   * The job list, rendered under the "Scheduled work" summary.
+   *
+   * A slot rather than a fetch, so this component stays presentational: who
+   * reads the jobs, and when, is the panel owner's contract -- the same rule
+   * that keeps the machine reading out of here.
+   */
+  scheduled?: ReactNode;
 }) {
+  // The readings and the scheduled work are SEPARATE probes, so a state that
+  // stops one must not silently remove the other. These early returns used to
+  // drop the `scheduled` slot with them, which meant the switches disappeared
+  // in exactly the states an owner is most likely to be looking for them: while
+  // the readings are still loading, or when the readings call failed. The jobs
+  // section carries its own calm states and can speak for itself.
   if (!payload) {
     return (
       <Shell className={className}>
@@ -291,6 +529,7 @@ export function PuppyResourceMonitor({
           <Loader2 className="size-3.5 animate-spin" aria-hidden />
           Reading this machine…
         </p>
+        {scheduled}
       </Shell>
     );
   }
@@ -302,6 +541,7 @@ export function PuppyResourceMonitor({
           {payload.message ||
             "Set HERMES_API_SERVER_KEY to read the machine Puppy One runs on."}
         </p>
+        {scheduled}
       </Shell>
     );
   }
@@ -312,6 +552,7 @@ export function PuppyResourceMonitor({
         <p className="px-4 py-3 text-xs text-muted-foreground">
           Puppy One is not answering on this machine.
         </p>
+        {scheduled}
       </Shell>
     );
   }
@@ -351,8 +592,15 @@ export function PuppyResourceMonitor({
     diskFreeGb !== null ||
     diskUsedPct !== null ||
     battery !== undefined;
-  const hasJobs =
-    jobsEnabled !== null || nextJobName !== null || completed !== null;
+  const hasJobsSummary =
+    jobsEnabled !== null ||
+    nextJobName !== null ||
+    completed !== null ||
+    failed !== null;
+  // The section also earns its place when the readings said nothing about
+  // jobs but the list has something to say -- including "nothing is
+  // scheduled", which is an answer and not an empty box.
+  const hasJobs = hasJobsSummary || Boolean(scheduled);
   // Only the healthy footnote lives in here; a broken link is said inline by
   // `LinkNotice`, outside this sheet. A healthy link with nothing to name it by
   // renders no line either, so a payload carrying only that would otherwise
@@ -516,45 +764,59 @@ export function PuppyResourceMonitor({
       {/* 4. Is the work landing? */}
       {hasJobs ? (
         <Section label="Scheduled work">
-          <div className="flex flex-col gap-1 text-xs">
-            {jobsEnabled !== null ? (
-              <p className="tabular-nums">
-                <span className="font-medium">{jobsEnabled} scheduled</span>
-                {jobsDisabled !== null && jobsDisabled > 0 ? (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · {jobsDisabled} off
-                  </span>
-                ) : null}
-              </p>
-            ) : null}
-            {nextJobName ? (
-              <p className="truncate text-muted-foreground">
-                Next: {nextJobName}
-                {nextJobIn ? (
-                  <span className="tabular-nums"> {nextJobIn}</span>
-                ) : null}
-              </p>
-            ) : null}
-            {completed !== null || failed !== null ? (
-              <p className="tabular-nums text-muted-foreground">
-                Last 24h:
-                {completed !== null ? ` ${completed} completed` : ""}
-                {completed !== null && failed !== null ? " ·" : ""}
-                {failed !== null ? (
-                  <span
-                    className={cn(
-                      failed > 0 &&
-                        "text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]",
-                    )}
-                  >
-                    {" "}
-                    {failed} failed
-                  </span>
-                ) : null}
-              </p>
-            ) : null}
-          </div>
+          {/* The headline over the list: the counts, the soonest job, and the
+              only fact the list itself cannot carry -- how the last day of
+              runs actually went. */}
+          {hasJobsSummary ? (
+            <div className="flex flex-col gap-1 text-xs">
+              {jobsEnabled !== null ? (
+                <p className="tabular-nums">
+                  <span className="font-medium">{jobsEnabled} scheduled</span>
+                  {jobsDisabled !== null && jobsDisabled > 0 ? (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {jobsDisabled} off
+                    </span>
+                  ) : null}
+                </p>
+              ) : null}
+              {nextJobName ? (
+                <p className="truncate text-muted-foreground">
+                  Next: {nextJobName}
+                  {nextJobIn ? (
+                    <span className="tabular-nums"> {nextJobIn}</span>
+                  ) : null}
+                </p>
+              ) : null}
+              {completed !== null || failed !== null ? (
+                <p className="tabular-nums text-muted-foreground">
+                  Last 24h:
+                  {completed !== null ? ` ${completed} completed` : ""}
+                  {completed !== null && failed !== null ? " ·" : ""}
+                  {failed !== null ? (
+                    <span
+                      className={cn(
+                        failed > 0 &&
+                          "text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]",
+                      )}
+                    >
+                      {" "}
+                      {failed} failed
+                    </span>
+                  ) : null}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {scheduled ? (
+            <div
+              className={cn(
+                hasJobsSummary && "mt-2.5 border-t border-border/60 pt-2.5",
+              )}
+            >
+              {scheduled}
+            </div>
+          ) : null}
         </Section>
       ) : null}
 
@@ -678,6 +940,210 @@ function ResidentRow({ model }: { model: PuppyResidentModel }) {
   );
 }
 
+/**
+ * Every job on this machine, and its switch.
+ *
+ * Three states are not the list being broken and none of them is an empty
+ * box: no key set, a machine that did not answer, and a machine with nothing
+ * scheduled are each one sentence.
+ */
+function PuppyJobList({
+  payload,
+  busyIds,
+  errors,
+  onToggle,
+}: {
+  payload: PuppyJobs | null;
+  busyIds: ReadonlySet<string>;
+  errors: Readonly<Record<string, string>>;
+  onToggle: (job: PuppyJob) => void;
+}) {
+  if (!payload) {
+    return (
+      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+        Reading the scheduled work…
+      </p>
+    );
+  }
+
+  if (payload.configured === false) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {payload.message ||
+          "Set HERMES_API_SERVER_KEY to see Puppy One's scheduled work."}
+      </p>
+    );
+  }
+
+  if (payload.reachable === false) {
+    // Worded apart from the readings' own "not answering" line: they are
+    // separate probes, and only one of them may have failed.
+    return (
+      <p className="text-xs text-muted-foreground">
+        Puppy One did not answer about its scheduled work.
+      </p>
+    );
+  }
+
+  if (payload.jobs.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Nothing is scheduled on this machine.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="flex flex-col gap-1">
+      {payload.jobs.map((job) => (
+        <JobRow
+          key={job.id}
+          job={job}
+          pending={busyIds.has(job.id)}
+          error={errors[job.id] ?? null}
+          onToggle={onToggle}
+        />
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * One job.
+ *
+ * Three forms, and each carries its state in shape as well as colour so it
+ * survives a greyscale screen:
+ *
+ *   running   no stripe, full-strength name.
+ *   paused    a plain grey stripe, a dimmed name, and the WORD "Paused". It
+ *             is a deliberate off, not a fault, and it must never wear the
+ *             colour that means something went wrong.
+ *   failing   a red stripe and a labelled chip with a warning glyph, saying
+ *             how many runs in a row went wrong. A paused job that last
+ *             failed keeps the paused form and still shows the chip: both
+ *             facts are true and neither is allowed to hide the other.
+ *
+ * The switch renders the GATEWAY's `paused`, never a local guess, so it
+ * cannot appear to have flipped before the machine agreed. While a request is
+ * in flight the row is busy and the switch refuses a second one.
+ */
+function JobRow({
+  job,
+  pending,
+  error,
+  onToggle,
+}: {
+  job: PuppyJob;
+  pending: boolean;
+  error: string | null;
+  onToggle: (job: PuppyJob) => void;
+}) {
+  const nameId = useId();
+  // A job is failing when its LAST run failed, or when it has a streak. A
+  // lingering `lastError` from a run that has since recovered is history, not
+  // a state: treating any non-empty error as failure marked healthy jobs red
+  // and suppressed their true "last run ok" line, so the row disagreed with
+  // itself. The error text is still shown below when there is one.
+  const statusWord = nonEmpty(job.lastStatus)?.toLowerCase();
+  const failing =
+    job.failureStreak > 0 || statusWord === "error" || statusWord === "failed";
+
+  const detail: string[] = [];
+  const schedule = describeSchedule(job.schedule);
+  if (schedule) detail.push(schedule);
+  if (job.paused) {
+    detail.push("Paused");
+  } else {
+    const next = describeNextRun(job.nextRunAt);
+    if (next) detail.push(next);
+  }
+  const lastStatus = nonEmpty(job.lastStatus);
+  if (!failing && lastStatus) detail.push(`last run ${lastStatus}`);
+
+  return (
+    <li
+      className={cn(
+        "rounded-lg border-l-2 px-2.5 py-2",
+        job.paused
+          ? "border-l-border bg-muted/30"
+          : failing
+            ? "border-l-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)]"
+            : "border-l-transparent bg-muted/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p
+            id={nameId}
+            className={cn(
+              "truncate text-xs font-medium",
+              job.paused && "text-muted-foreground",
+            )}
+          >
+            {job.name}
+          </p>
+          {detail.length > 0 ? (
+            <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+              {detail.join(" · ")}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {pending ? (
+            <Loader2
+              className="size-3 animate-spin text-muted-foreground"
+              aria-hidden
+            />
+          ) : null}
+          <Switch
+            size="sm"
+            checked={!job.paused}
+            disabled={pending}
+            aria-busy={pending || undefined}
+            aria-labelledby={nameId}
+            onCheckedChange={() => onToggle(job)}
+          />
+        </div>
+      </div>
+
+      {failing ? (
+        <span
+          className={cn(
+            "mt-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+            TONE_CHIP.danger,
+          )}
+        >
+          <AlertTriangle className="size-3" aria-hidden />
+          {describeFailure(job.failureStreak)}
+        </span>
+      ) : null}
+
+      {/* Verbatim from the machine. A rewritten error is a different error. */}
+      {nonEmpty(job.lastError) ? (
+        <p className="mt-1 break-words text-[10px] text-muted-foreground">
+          {job.lastError}
+        </p>
+      ) : null}
+
+      {/* The refusal, said on the row it belongs to. The switch above still
+          shows what the job is actually doing.
+
+          `alert` rather than `status`: this node is INSERTED in answer to
+          something the owner just did, and an inserted alert is the case
+          screen readers actually announce. */}
+      {error ? (
+        <p
+          role="alert"
+          className="mt-1 text-[10px] font-medium text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]"
+        >
+          {error}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
 type LinkState =
   | { kind: "alert"; tone: "warning" | "danger"; message: string; remedy?: string }
   | { kind: "quiet"; message: string }
@@ -789,6 +1255,136 @@ function formatGb(value: number): string {
 
 function formatPct(value: number): string {
   return `${Math.round(value)}%`;
+}
+
+const WEEKDAYS = [
+  "Sundays",
+  "Mondays",
+  "Tuesdays",
+  "Wednesdays",
+  "Thursdays",
+  "Fridays",
+  "Saturdays",
+];
+
+/**
+ * A schedule, in the words someone would use out loud.
+ *
+ * "10 3 * * *" is a machine's sentence, not a person's, and an owner deciding
+ * whether to switch a job off should not have to parse cron in their head.
+ *
+ * Translated ONLY for the shapes that translate exactly. Anything else --
+ * step lists, ranges, named weekdays, the gateway's own "every 30m" -- is
+ * printed verbatim, because a schedule described wrongly is worse than one
+ * left in its own notation: it is the sentence the owner would act on.
+ *
+ * 24-hour time on purpose. It is unambiguous, it needs no locale, and it
+ * sorts the way the numbers already read.
+ */
+function describeSchedule(expression: string | null): string | null {
+  const raw = nonEmpty(expression);
+  if (!raw) return null;
+
+  const fields = raw.split(/\s+/);
+  if (fields.length !== 5) return raw;
+  // The defaults are unreachable -- the length is already five -- and exist
+  // only so each field is a string rather than `string | undefined`.
+  const [minute = "", hour = "", dayOfMonth = "", month = "", dayOfWeek = ""] =
+    fields;
+  if (month !== "*") return raw;
+
+  const everyMinutes = stepValue(minute);
+  if (
+    everyMinutes !== null &&
+    hour === "*" &&
+    dayOfMonth === "*" &&
+    dayOfWeek === "*"
+  ) {
+    return `Every ${everyMinutes} min`;
+  }
+
+  const minuteAt = cronNumber(minute, 0, 59);
+  if (minuteAt === null) return raw;
+
+  const everyHours = stepValue(hour);
+  if (everyHours !== null && dayOfMonth === "*" && dayOfWeek === "*") {
+    return `Every ${everyHours} h at :${pad(minuteAt)}`;
+  }
+
+  if (hour === "*" && dayOfMonth === "*" && dayOfWeek === "*") {
+    return `Hourly at :${pad(minuteAt)}`;
+  }
+
+  const hourAt = cronNumber(hour, 0, 23);
+  if (hourAt === null) return raw;
+  const at = `${pad(hourAt)}:${pad(minuteAt)}`;
+
+  if (dayOfMonth === "*" && dayOfWeek === "*") return `Daily at ${at}`;
+
+  if (dayOfMonth === "*") {
+    const weekday = cronNumber(dayOfWeek, 0, 7);
+    if (weekday === null) return raw;
+    // Cron accepts both 0 and 7 for Sunday.
+    const named = WEEKDAYS[weekday % 7];
+    if (!named) return raw;
+    return `${named} at ${at}`;
+  }
+
+  if (dayOfWeek === "*") {
+    const day = cronNumber(dayOfMonth, 1, 31);
+    if (day === null) return raw;
+    return `Monthly on the ${ordinal(day)} at ${at}`;
+  }
+
+  return raw;
+}
+
+/** A cron step field, star-slash-15, read as 15. Null for anything else. */
+function stepValue(field: string): number | null {
+  const match = /^\*\/(\d{1,2})$/.exec(field);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/** A single plain integer in range. Lists, ranges and names return null. */
+function cronNumber(field: string, min: number, max: number): number | null {
+  if (!/^\d{1,2}$/.test(field)) return null;
+  const value = Number(field);
+  return value >= min && value <= max ? value : null;
+}
+
+function pad(value: number): string {
+  return value < 10 ? `0${value}` : String(value);
+}
+
+function ordinal(value: number): string {
+  const tens = value % 100;
+  if (tens >= 11 && tens <= 13) return `${value}th`;
+  const ones = value % 10;
+  if (ones === 1) return `${value}st`;
+  if (ones === 2) return `${value}nd`;
+  if (ones === 3) return `${value}rd`;
+  return `${value}th`;
+}
+
+/**
+ * "next in 14 min", or "due now".
+ *
+ * Measured against the browser's clock rather than a stamp on the payload,
+ * because this route does not carry one -- and it is the same machine: the
+ * gateway is reached over loopback from the server this page came from.
+ */
+function describeNextRun(iso: string | null): string | null {
+  const at = nonEmpty(iso);
+  if (!at) return null;
+  const relative = relativeTime(Date.now(), at);
+  if (!relative) return null;
+  return relative.startsWith("in ") ? `next ${relative}` : relative;
+}
+
+function describeFailure(streak: number): string {
+  return streak > 1 ? `Failed ${streak} runs in a row` : "Last run failed";
 }
 
 /** "in 14 min". Returns null for a timestamp that cannot be read. */

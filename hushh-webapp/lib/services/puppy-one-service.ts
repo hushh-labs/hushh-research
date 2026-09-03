@@ -182,10 +182,56 @@ export interface PuppyResources {
   jobs?: PuppyResourceJobs;
 }
 
+/**
+ * One scheduled job, as `/api/hermes/jobs` hands it over.
+ *
+ * camelCase, unlike the readings above, because this route does NOT pass the
+ * gateway's row through: it maps field by field and drops the job's prompt,
+ * its credentials and its working directory before the payload ever leaves the
+ * server. The shape is the route's own, so it is named here in the same words
+ * the route uses.
+ *
+ * `null` means "the gateway did not say", never zero and never "no". A job
+ * with no `schedule` is not a job that never runs; it is a job whose schedule
+ * this build could not read, and it renders as nothing rather than as a guess.
+ */
+export interface PuppyJob {
+  id: string;
+  name: string;
+  /** "10 3 * * *", "every 30m", or whatever the scheduler calls it. */
+  schedule: string | null;
+  /** The scheduler's own word for off. Deliberate, not an error. */
+  paused: boolean;
+  /** ISO with offset, e.g. "2026-09-03T03:10:00-07:00". */
+  nextRunAt: string | null;
+  /** "ok" | "error" | anything a later gateway invents. Read as an open string. */
+  lastStatus: string | null;
+  lastError: string | null;
+  failureStreak: number;
+}
+
+export interface PuppyJobs {
+  configured: boolean;
+  reachable?: boolean;
+  reason?: string;
+  message?: string;
+  jobs: PuppyJob[];
+}
+
+export interface PuppyJobChange {
+  ok: boolean;
+  id?: string;
+  action?: string;
+  job?: PuppyJob | null;
+  error?: string;
+}
+
 const STATUS_TIMEOUT_MS = 10_000;
 const OPTIONS_TIMEOUT_MS = 25_000;
 const ASSIGN_TIMEOUT_MS = 35_000;
 const RESOURCES_TIMEOUT_MS = 20_000;
+const JOBS_TIMEOUT_MS = 15_000;
+const JOB_CHANGE_TIMEOUT_MS = 20_000;
 
 /** Read Puppy One's status. Never throws: not-running is an ordinary state. */
 export async function fetchPuppyStatus(): Promise<PuppyStatus> {
@@ -217,6 +263,67 @@ export async function fetchPuppyResources(): Promise<PuppyResources> {
     return (await response.json()) as PuppyResources;
   } catch {
     return { configured: true, reachable: false };
+  }
+}
+
+/**
+ * Read the work Puppy One does on a schedule. Never throws, for the same
+ * reason the readings do not: a machine with no agent answering is ordinary.
+ *
+ * `jobs` is always an array. A caller rendering a list must not have to decide
+ * what an absent array means, and the two states that are NOT "no jobs" --
+ * not configured, and not answering -- are carried by their own fields.
+ */
+export async function fetchPuppyJobs(): Promise<PuppyJobs> {
+  try {
+    const response = await fetch("/api/hermes/jobs", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(JOBS_TIMEOUT_MS),
+    });
+    if (!response.ok) return { configured: true, reachable: false, jobs: [] };
+    const payload = (await response.json()) as PuppyJobs;
+    return {
+      ...payload,
+      jobs: Array.isArray(payload?.jobs) ? payload.jobs : [],
+    };
+  } catch {
+    return { configured: true, reachable: false, jobs: [] };
+  }
+}
+
+/**
+ * Pause or resume one job.
+ *
+ * Resolves rather than throws for every outcome: an unreachable gateway is an
+ * ordinary state, and the caller has to be able to leave the switch showing
+ * the job's REAL state when the machine refuses. The returned `job` is the
+ * gateway's own row for it; callers still re-read the list afterwards rather
+ * than trusting a single row to be the whole truth.
+ */
+export async function setPuppyJobPaused(input: {
+  id: string;
+  paused: boolean;
+}): Promise<PuppyJobChange> {
+  try {
+    const response = await fetch("/api/hermes/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: input.id,
+        action: input.paused ? "pause" : "resume",
+      }),
+      signal: AbortSignal.timeout(JOB_CHANGE_TIMEOUT_MS),
+    });
+    const payload = (await response
+      .json()
+      .catch(() => ({}))) as PuppyJobChange;
+    if (payload?.ok === true) return payload;
+    return {
+      ok: false,
+      error: payload?.error || "Puppy One could not change that job.",
+    };
+  } catch {
+    return { ok: false, error: "Puppy One is not answering on this machine." };
   }
 }
 

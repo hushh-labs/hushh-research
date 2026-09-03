@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-import { resolveHermesBridgeConfig } from "@/lib/hermes/bridge-config";
+import { isSameOriginRequest, resolveHermesBridgeConfig } from "@/lib/hermes/bridge-config";
 
 /**
  * The Puppy One model picker, proxied to the local Hermes api_server.
@@ -197,6 +197,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!isSameOriginRequest(request)) {
+    // Pinning a model changes which model answers on the owner's machine, and
+    // this route adds the loopback key server-side. Without this check a page
+    // the owner merely visits could repoint their agent off-device.
+    return Response.json(
+      { ok: false, error: "Cross-site requests cannot change the model." },
+      { status: 403 },
+    );
+  }
+
   const config = resolveHermesBridgeConfig();
   if (!config) return notConfigured();
 
