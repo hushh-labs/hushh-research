@@ -229,11 +229,12 @@ describe("parseVoiceCard", () => {
 });
 
 describe("parseToolTraceCard", () => {
-  it("turns a connections_list trace into a list-shaped data card", () => {
+  it("turns a people_list trace into a list-shaped data card", () => {
     const card = parseToolTraceCard({
-      kind: "connections_list",
+      kind: "people_list",
       payload: {
-        people: [
+        heading: "Your connections",
+        items: [
           { id: "cx1", name: "Sarah Chen", detail: "s***n@example.com", photoUrl: "https://x/y.jpg" },
           { id: "cx2", name: "Alex Kim" },
         ],
@@ -252,13 +253,26 @@ describe("parseToolTraceCard", () => {
     });
   });
 
-  it("drops a connections_list trace with no usable rows", () => {
+  it("falls back to a generic heading when the payload omits one", () => {
+    const peopleCard = parseToolTraceCard({
+      kind: "people_list",
+      payload: { items: [{ id: "cx1", name: "Sarah Chen" }] },
+    });
+    expect(peopleCard?.heading).toBe("People");
+
+    const circlesCard = parseToolTraceCard({
+      kind: "circles_list",
+      payload: { items: [{ id: "c1", name: "Family" }] },
+    });
+    expect(circlesCard?.heading).toBe("Your circles");
+  });
+
+  it("drops a people_list or circles_list trace with no usable rows", () => {
+    expect(parseToolTraceCard({ kind: "people_list", payload: { items: [] } })).toBeNull();
     expect(
-      parseToolTraceCard({ kind: "connections_list", payload: { people: [] } }),
+      parseToolTraceCard({ kind: "people_list", payload: { items: [{ name: "No id" }] } }),
     ).toBeNull();
-    expect(
-      parseToolTraceCard({ kind: "connections_list", payload: { people: [{ name: "No id" }] } }),
-    ).toBeNull();
+    expect(parseToolTraceCard({ kind: "circles_list", payload: { items: [] } })).toBeNull();
   });
 
   it("turns a pkm_domain_summary trace into a summary-shaped data card", () => {
