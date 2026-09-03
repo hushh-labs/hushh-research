@@ -95,6 +95,9 @@ function SetupStageChecklist({
   );
 }
 
+/** How long "Checking your cloud..." may stay on screen before the form shows. */
+export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
+
 export function ByocCloudSetupPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -139,6 +142,22 @@ export function ByocCloudSetupPage() {
   // choice flashed for a beat before the "connected" state replaced it
   // (founder-hit, 2026-09-02). Failed polls give up into the form, never hang.
   const [checked, setChecked] = useState(false);
+  const [checkTimedOut, setCheckTimedOut] = useState(false);
+
+  // "Checking your cloud..." must END. It is a truthful sentence for a few
+  // seconds and a dead end after that: on 2026-09-02 a returning person's
+  // session refresh stalled, the status call never left the browser, and this
+  // line stayed on screen with nothing to click. Past the ceiling the naming
+  // form shows (always a truthful fallback) with a note, and anything already
+  // set up is still kept server-side.
+  useEffect(() => {
+    if (!user?.uid || checked) return;
+    const ceiling = setTimeout(() => {
+      setCheckTimedOut(true);
+      setChecked(true);
+    }, CLOUD_CHECK_TIMEOUT_MS);
+    return () => clearTimeout(ceiling);
+  }, [user?.uid, checked]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -358,6 +377,16 @@ export function ByocCloudSetupPage() {
           description="Your own Google Cloud project, or hosted by hussh. Either way it is your agent, and you can move it later."
           accent="neutral"
         />
+        {checkTimedOut && !authorized ? (
+          <p
+            className="text-sm text-[var(--app-text-secondary)]"
+            data-testid="byoc-cloud-check-timed-out"
+            aria-live="polite"
+          >
+            We couldn&rsquo;t confirm your cloud just now. You can continue; anything
+            already set up is kept.
+          </p>
+        ) : null}
       </AppPageHeaderRegion>
       <AppPageContentRegion className="space-y-6">
         {job && job.status === "running" && !job.stale ? (
