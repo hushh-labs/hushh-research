@@ -86,4 +86,23 @@ describe("Universal Link / App Link claim", () => {
     expect(resolveDeepLinkPath("not a url")).toBeNull();
     expect(resolveDeepLinkPath("")).toBeNull();
   });
+
+  it("delegates handle_all_urls, not only login credentials", () => {
+    // Android's domain verifier refuses an autoVerify filter unless the site
+    // delegates handle_all_urls. With only get_login_creds the filter shipped
+    // and could never verify, and an unverified domain fails silently: the link
+    // just goes to the browser.
+    const assetlinks = read("app/.well-known/assetlinks.json/route.ts");
+    expect(assetlinks).toContain("delegate_permission/common.handle_all_urls");
+    expect(assetlinks).toContain("delegate_permission/common.get_login_creds");
+  });
+
+  it("sends Plaid the minted https redirect, never the native app scheme", () => {
+    // window.location.href is app://localhost/... once the Universal Link claim
+    // works, and Plaid matches receivedRedirectUri against what the token was
+    // minted with, so the native return would fail a second time.
+    const page = read("app/one/kai/plaid/oauth/return/page.tsx");
+    expect(page).toContain("resume.redirect_uri");
+    expect(page).not.toContain("receivedRedirectUri: window.location.href");
+  });
 });

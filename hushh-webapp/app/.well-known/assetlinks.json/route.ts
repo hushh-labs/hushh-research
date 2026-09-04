@@ -55,7 +55,18 @@ export async function GET() {
   return NextResponse.json(
     [
       {
-        relation: ["delegate_permission/common.get_login_creds"],
+        // Two relations, both load-bearing and independent.
+        //
+        // get_login_creds delegates passkey/password credentials.
+        // handle_all_urls is what Android's domain verifier requires before it
+        // will honour an android:autoVerify https intent filter. Without it the
+        // filter in AndroidManifest.xml can never verify, and every OAuth
+        // return opens the browser instead of the app, silently: an
+        // unverified domain produces no error, the link simply goes elsewhere.
+        relation: [
+          "delegate_permission/common.get_login_creds",
+          "delegate_permission/common.handle_all_urls",
+        ],
         target: {
           namespace: "android_app",
           package_name: packageName,
