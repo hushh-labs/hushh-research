@@ -8,7 +8,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from google.genai import types as genai_types
@@ -1073,4 +1073,103 @@ async def byoc_setup_status(
         errorMessage=row.get("error_message"),
         stale=jobs.is_stale(row),
         updatedAt=str(row.get("updated_at") or "") or None,
+    )
+
+
+class ByocAuthorizationInstructionsResponse(BaseModel):
+    projectId: str
+    bootstrapServiceAccount: str
+    hushhCaller: str
+    #: The complete list of what this grant lets hushh do, and what it never receives.
+    disclosure: dict[str, Any]
+    #: A self-contained script with this person's values already in it.
+    script: str
+    scriptFilename: str
+    revokeCommand: str
+    authorized: bool
+
+
+@router.get("/byoc/authorize/instructions", response_model=ByocAuthorizationInstructionsResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def byoc_authorization_instructions(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> ByocAuthorizationInstructionsResponse:
+    """What a person is being asked to grant, and the script that grants it.
+
+    THE DEAD END THIS REPLACES
+
+    When one-click OAuth is unavailable or refused, the setup page told the person to
+    run `bash deploy/iam/authorize_byoc_project.sh` -- a path that exists only in this
+    repository. There was no route, no download and no inline body anywhere, so the
+    journey stopped on an instruction nobody outside the team could follow, at exactly
+    the step that decides whether their agent gets built in their own cloud.
+
+    Serving that file would not have fixed it either: `deploy/` sits at the repo root
+    and the backend image's build context is `consent-protocol`, so the file is not in
+    the image. It is rendered from BOOTSTRAP_ROLES and REQUIRED_SERVICES instead, which
+    also means the script cannot name a role the applier does not bind.
+
+    THE DISCLOSURE SHIPS WITH IT, NOT AFTER IT
+
+    `authorization_request` was written for precisely this moment -- "here is every role,
+    here is what hushh never receives, here is how to take it back" -- and had no caller,
+    so a person was shown a shell command and no account of what it does. Returning both
+    together is the same rule `/byoc/project/plan` already follows: the larger permission
+    is read NEXT TO what it buys, never discovered afterwards.
+
+    Read-only. This route grants nothing and creates nothing; the person runs the script
+    themselves, in a project only they administer.
+    """
+    from hushh_mcp.services.user_gcp_bootstrap import (
+        authorization_request,
+        render_authorization_script,
+    )
+
+    cloud = await resolve_user_cloud(firebase_uid)
+    project = ((cloud.project if cloud else None) or "").strip()
+    if not project:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NO_CLOUD_NAMED",
+                "message": "Name your Google Cloud project first; this page is what you run in it.",
+            },
+        )
+
+    bootstrap_sa = ((cloud.bootstrap_sa if cloud else None) or "").strip() or (
+        f"one-bootstrap@{project}.iam.gserviceaccount.com"
+    )
+    hushh_caller = _hushh_caller_identity()
+    if not hushh_caller:
+        # Without it the script would carry an empty HUSHH_CALLER and bind a grant to
+        # nobody, which reads as success and authorizes nothing. Refusing is the honest
+        # answer; a person cannot fix this from their side.
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "CALLER_IDENTITY_UNSET",
+                "message": "This deployment has no consent-plane identity configured yet.",
+            },
+        )
+
+    return ByocAuthorizationInstructionsResponse(
+        projectId=project,
+        bootstrapServiceAccount=bootstrap_sa,
+        hushhCaller=hushh_caller,
+        disclosure=authorization_request(
+            project=project, bootstrap_sa=bootstrap_sa, consent_plane_sa=hushh_caller
+        ),
+        script=render_authorization_script(
+            project=project, bootstrap_sa=bootstrap_sa, hushh_caller=hushh_caller
+        ),
+        scriptFilename=f"authorize-hussh-{project}.sh",
+        revokeCommand=(
+            "gcloud iam service-accounts remove-iam-policy-binding "
+            f'"{bootstrap_sa}" --project="{project}" '
+            "--role=roles/iam.serviceAccountTokenCreator "
+            f'--member="serviceAccount:{hushh_caller}"'
+        ),
+        # Proven, never asserted -- the same rule the save route follows.
+        authorized=bool(cloud and cloud.authorized),
     )

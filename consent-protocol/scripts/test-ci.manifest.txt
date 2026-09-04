@@ -344,3 +344,4 @@ tests/test_pod_hub_specialist_read.py
 tests/test_pod_memory_bank.py
 tests/test_pod_model_diagnostic.py
 tests/test_pod_update_detection.py
+tests/test_byoc_authorization_instructions_route.py

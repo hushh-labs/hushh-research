@@ -1306,8 +1306,152 @@ def authorization_request(
     }
 
 
+def render_authorization_script(
+    *, project: str, bootstrap_sa: str, hushh_caller: str, bootstrap_sa_id: str = "one-bootstrap"
+) -> str:
+    """The script a person runs in their own cloud, GENERATED from what the applier binds.
+
+    There is a checked-in copy at `deploy/iam/authorize_byoc_project.sh`, and the UI used
+    to tell people to run it by that path -- a path that exists only in this repository.
+    Whenever the one-click OAuth route was unavailable or refused, the journey dead-ended
+    on an instruction nobody outside the team could follow.
+
+    SERVING THAT FILE WOULD NOT HAVE WORKED EITHER
+
+    `deploy/` is at the REPO ROOT and the backend image's build context is
+    `consent-protocol` (deploy/backend.cloudbuild.yaml stages `contracts` in precisely
+    because of this). So the file is not in the image, and reading it at runtime would
+    have 500'd in production while passing every local test -- the same "resolve a path
+    that does not exist in the image" failure that comment warns about.
+
+    So it is rendered from BOOTSTRAP_ROLES and REQUIRED_SERVICES instead. That removes
+    the hand-kept mirror as a category: the script cannot list a role the applier does
+    not bind, because it is the same tuple.
+
+    NOT a curl-pipe-bash one-liner, deliberately. This product's whole claim is that a
+    person can see what happens in their own cloud; asking them to execute something
+    unread would contradict the thing being asked for. It is written to be read first.
+    """
+    roles = "\n".join(f'  "{role}"  # {why}' for role, why in BOOTSTRAP_ROLES)
+    services = "\n".join(f'  "{svc}"' for svc in REQUIRED_SERVICES)
+    return f"""#!/usr/bin/env bash
+# Authorize hussh to build your private agent pod INSIDE YOUR OWN GCP PROJECT.
+#
+# You run this. hussh does not, and cannot -- every command below acts on a project
+# only you administer. Read it before you run it; that is the point of handing it to
+# you as a script rather than a button.
+#
+# WHAT YOU ARE GRANTING
+#
+# One permission -- roles/iam.serviceAccountTokenCreator -- held by ONE named hussh
+# identity, on ONE service account in your project. That lets hussh ask Google for a
+# token that acts as that account and expires in 900 seconds. It is minted fresh every
+# time; hussh stores nothing between windows.
+#
+# WHAT THIS DELIBERATELY DOES NOT DO
+#
+# It never creates a service-account key, and you should never send hussh one. A key is
+# a bearer credential with no expiry: whoever holds it is you, until somebody remembers
+# to revoke it. This design exists to avoid that.
+#
+# HOW TO TAKE IT BACK
+#
+#   gcloud iam service-accounts remove-iam-policy-binding \\
+#     "{bootstrap_sa}" \\
+#     --project="{project}" \\
+#     --role=roles/iam.serviceAccountTokenCreator \\
+#     --member="serviceAccount:{hushh_caller}"
+#
+# That ends FUTURE access. Be precise about the window: a token already minted lives out
+# its remaining 900 seconds, because Google does not revoke issued access tokens. So the
+# honest guarantee is "no new authority, and at most 15 more minutes of the old".
+
+set -euo pipefail
+
+PROJECT_ID="{project}"
+HUSHH_CALLER="{hushh_caller}"
+BOOTSTRAP_SA="{bootstrap_sa}"
+
+command -v gcloud >/dev/null 2>&1 || {{ echo "gcloud is required." >&2; exit 1; }}
+gcloud projects describe "$PROJECT_ID" >/dev/null
+
+# Read this list honestly: these are ADMIN-class roles. During each 900-second window the
+# borrowed identity could read your bucket's objects (storage.admin) and your secret
+# payloads (secretmanager.admin).
+#
+# What protects you is not the role list. It is two things: hussh holds no standing
+# credential, so between windows there is nothing to use; and your pod mints and wraps its
+# OWN data-encryption key, which this account deliberately cannot decrypt -- so the
+# bucket's contents are ciphertext hussh cannot read even while holding storage.admin.
+readonly -a BOOTSTRAP_ROLES=(
+{roles}
+)
+
+readonly -a REQUIRED_SERVICES=(
+{services}
+)
+
+echo "Authorizing hussh to build a pod in $PROJECT_ID"
+echo "  bootstrap account : $BOOTSTRAP_SA"
+echo "  hussh caller      : $HUSHH_CALLER"
+
+# 1. The account hussh acts AS. It lives in your project and you can delete it.
+if ! gcloud iam service-accounts describe "$BOOTSTRAP_SA" --project="$PROJECT_ID" >/dev/null 2>&1; then
+  gcloud iam service-accounts create "{bootstrap_sa_id}" \\
+    --project="$PROJECT_ID" \\
+    --display-name="hussh Agent One bootstrap" \\
+    --description="Creates this project's private agent pod. Held by you; hussh only borrows it, 900 seconds at a time."
+fi
+
+# 2. The APIs. Enabling one is idempotent and changes nothing else.
+gcloud services enable "${{REQUIRED_SERVICES[@]}}" --project="$PROJECT_ID"
+
+# 3. What the bootstrap account may do, inside your project only.
+for role in "${{BOOTSTRAP_ROLES[@]}}"; do
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \\
+    --role="$role" --member="serviceAccount:$BOOTSTRAP_SA" \\
+    --condition=None --quiet --format=none
+done
+
+# 4. THE grant. One permission, one hussh identity, one account. The revoke command at
+#    the top of this file undoes exactly this line.
+gcloud iam service-accounts add-iam-policy-binding "$BOOTSTRAP_SA" \\
+  --project="$PROJECT_ID" \\
+  --role="roles/iam.serviceAccountTokenCreator" \\
+  --member="serviceAccount:$HUSHH_CALLER" \\
+  --quiet --format=none
+
+# 5. Read it back. Asking gcloud to bind a role is not evidence the role is bound, and a
+#    half-authorized project fails several steps into provisioning with an error that
+#    names none of this.
+if ! gcloud iam service-accounts get-iam-policy "$BOOTSTRAP_SA" \\
+  --project="$PROJECT_ID" --format=json | grep -q "serviceAccount:$HUSHH_CALLER"; then
+  echo "The token-creator grant did not land. hussh still cannot act." >&2
+  exit 1
+fi
+
+# 6. No key exists. Asserted rather than assumed, because somebody creating one "just to
+#    make it work" is the failure this whole file argues against.
+key_count="$(gcloud iam service-accounts keys list --iam-account="$BOOTSTRAP_SA" \\
+  --project="$PROJECT_ID" --managed-by=user --format='value(name)' | wc -l | tr -d ' ')"
+if [[ "$key_count" != "0" ]]; then
+  echo "WARNING: $key_count user-managed key(s) exist on $BOOTSTRAP_SA." >&2
+  echo "hussh does not need one and will never ask for one. Delete them." >&2
+  exit 1
+fi
+
+echo
+echo "Done. $PROJECT_ID is authorized."
+echo "  ${{#REQUIRED_SERVICES[@]}} APIs enabled, ${{#BOOTSTRAP_ROLES[@]}} roles bound, 1 token-creator grant"
+echo "  0 service-account keys exist, which is the point"
+echo
+echo "Go back to hussh and confirm your project. Revoke any time with the command at the top."
+"""
+
+
 __all__ = [
     "BOOTSTRAP_ROLES",
+    "render_authorization_script",
     "BootstrapError",
     "LivenessVerdict",
     "UserGcpBootstrap",
