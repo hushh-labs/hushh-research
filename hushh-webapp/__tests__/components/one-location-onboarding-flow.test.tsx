@@ -291,6 +291,45 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     ).toBeEnabled();
   });
 
+  it("explains a complete contact check with no eligible matches", async () => {
+    await renderReady({
+      contactsStepAvailable: true,
+      onSyncOnboardingContacts: vi.fn().mockResolvedValue({
+        status: "none",
+        partial: false,
+      }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+    expect(
+      await screen.findByText("No eligible contacts matched."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Existing connections may still appear/),
+    ).toBeTruthy();
+    expect(screen.getByText(/circle code above/)).toBeTruthy();
+  });
+
+  it("does not present a partial contact check as the whole directory", async () => {
+    await renderReady({
+      contactsStepAvailable: true,
+      onSyncOnboardingContacts: vi.fn().mockResolvedValue({
+        status: "none",
+        partial: true,
+      }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+    expect(
+      await screen.findByText("No eligible contacts matched."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Only part of your contact list was checked/),
+    ).toBeTruthy();
+  });
+
   it("shows contact denial recovery without blocking Finish", async () => {
     const onOpenContactSettings = vi.fn();
     await renderReady({

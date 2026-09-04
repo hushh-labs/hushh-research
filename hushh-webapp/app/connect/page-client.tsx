@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { isNative } from "@/lib/capacitor/platform";
@@ -3391,6 +3392,9 @@ export default function ConnectPageClient() {
       <ContactSyncResultsSheet
         {...contactSync.resultsSheetProps}
         onRequestConnection={requestConnectionFromContactMatch}
+      />
+      <ContactDiscoverabilityConsentDialog
+        {...contactSync.discoverabilityConsentDialogProps}
       />
 
       {showLimitBanner && (

@@ -62,6 +62,10 @@ import {
 } from "@/lib/contacts/google-people-source";
 import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-availability";
 import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
+import {
+  useContactDiscoverabilityConsent,
+  type ContactDiscoverabilityConsentDialogProps,
+} from "@/lib/contacts/use-contact-discoverability-consent";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { trackEvent } from "@/lib/observability/client";
 import type { RouteId } from "@/lib/observability/route-map";
@@ -291,6 +295,7 @@ export type UseContactSync = {
   invite: () => Promise<void>;
   requestConnection: (addresseeUserId: string) => Promise<void>;
   resultsSheetProps: ContactSyncResultsSheetProps;
+  discoverabilityConsentDialogProps: ContactDiscoverabilityConsentDialogProps;
 };
 
 export function useContactSync(options: UseContactSyncOptions): UseContactSync {
@@ -329,6 +334,15 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
   useLayoutEffect(() => {
     optionsRef.current = options;
   }, [options]);
+
+  const {
+    requestContactCheck,
+    dialogProps: discoverabilityConsentDialogProps,
+  } = useContactDiscoverabilityConsent({
+    userId: options.userId,
+    getIdToken: options.getIdToken,
+    actionLabel: "Sync contacts",
+  });
 
   /**
    * The re-entrancy guard, and it has to be a ref rather than `syncing`.
@@ -569,6 +583,11 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       toast.error(message);
       return;
     }
+    // This synchronous gate runs before GIS or either contact picker. A first
+    // decision consumes this tap and asks for a second explicit tap after the
+    // preference is saved; only an already-recorded decision may continue and
+    // retain browser transient activation.
+    if (!requestContactCheck()) return;
     if (inFlightRef.current) return;
     inFlightRef.current = true;
 
@@ -753,7 +772,13 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       inFlightRef.current = false;
       markSyncing(false);
     }
-  }, [googleFallback, invite, markSyncing, signal]);
+  }, [
+    googleFallback,
+    invite,
+    markSyncing,
+    requestContactCheck,
+    signal,
+  ]);
 
   useEffect(() => {
     syncRef.current = sync;
@@ -830,6 +855,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     openContactSettings: openContactSettingsAndWatch,
     invite,
     requestConnection,
+    discoverabilityConsentDialogProps,
     resultsSheetProps: {
       open: resultsOpen,
       onOpenChange: setResultsOpen,
