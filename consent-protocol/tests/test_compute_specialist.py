@@ -134,3 +134,79 @@ def test_rejects_an_empty_or_nonsense_target():
 
 def test_target_matching_is_case_and_space_insensitive():
     assert explain_placement_decision("  CLOUD ", "x")["target"] == "cloud"
+
+
+# ---------------------------------------------------------------------------
+# Registered is not the same as attributed
+# ---------------------------------------------------------------------------
+
+
+def _roster_specialist_tool_names() -> set[str]:
+    """The `ask_*_agent` functions One is handed, read off the roster's source.
+
+    Read statically rather than by calling `_one_roster_tools()`, which builds
+    real Vertex-backed models and needs credentials no unit test should require.
+    Derived rather than hand-listed, so a specialist added tomorrow is covered
+    by these tests on the day it is added.
+    """
+    import ast
+    from pathlib import Path
+
+    from hushh_mcp.one_adk import agent_tree
+
+    tree = ast.parse(Path(agent_tree.__file__).read_text(encoding="utf-8"))
+    fn = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_one_roster_tools"
+    )
+    returned = next(
+        node.value
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.List)
+    )
+    names = {e.id for e in returned.elts if isinstance(e, ast.Name)}
+    found = {n for n in names if n.startswith("ask_") and n.endswith("_agent")}
+    assert found, "read no specialists off the roster — the parse has drifted"
+    return found
+
+
+def test_compute_is_in_the_roster_one_is_actually_handed():
+    """Not merely that the function exists — that it is in the tool list.
+
+    `ask_compute_agent` being importable and callable proves nothing about
+    whether One can reach it; the roster is what One is built with.
+    """
+    assert "ask_compute_agent" in _roster_specialist_tool_names()
+
+
+def test_every_roster_specialist_can_be_attributed_to_the_person():
+    """A specialist One consults must show up as a source in Agent Chat.
+
+    `agent_compute` was registered in the roster and in the availability
+    labels, and missed in `_SPECIALIST_TOOL_SOURCES` — so One could consult
+    Compute and the person would see an answer with nothing saying where it
+    came from. Two tables that have to agree, and only one was updated.
+    """
+    from hushh_mcp.one_adk.text_runtime import _SPECIALIST_TOOL_SOURCES
+
+    missing = _roster_specialist_tool_names() - set(_SPECIALIST_TOOL_SOURCES)
+    assert not missing, f"roster specialists with no source attribution: {sorted(missing)}"
+
+
+def test_every_roster_specialist_has_a_human_label():
+    """Attribution needs a name to show, and availability needs one to refuse with.
+
+    Scoped to the `ask_*_agent` specialists, which is what
+    `resolve_specialist_availability` covers. `finance`/`agent_kai` and
+    `google_search`/`web` are in the source table without availability labels;
+    that predates this specialist and is left alone rather than "fixed" by
+    inventing labels for another workstream's agents.
+    """
+    from hushh_mcp.one_adk.specialist_availability import _SPECIALIST_LABELS
+    from hushh_mcp.one_adk.text_runtime import _SPECIALIST_TOOL_SOURCES
+
+    for tool_name in sorted(_roster_specialist_tool_names()):
+        agent_id, label = _SPECIALIST_TOOL_SOURCES[tool_name]
+        assert agent_id in _SPECIALIST_LABELS, f"{tool_name} -> {agent_id} has no label"
+        assert label, tool_name

@@ -200,6 +200,7 @@ _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "ask_location_agent": ("agent_location", "Location"),
     "ask_connected_systems_agent": ("agent_connected_systems", "Connected Systems"),
     "ask_consent_agent": ("agent_nav", "Consent Center"),
+    "ask_compute_agent": ("agent_compute", "Compute"),
     "finance": ("agent_kai", "Finance"),
     "google_search": ("web", "Web search"),
 }
