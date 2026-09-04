@@ -157,9 +157,19 @@ async def require_firebase_auth(
         # found no running loop, and silently skipped every warmup.
         async def background_sync(uid: str) -> None:
             try:
-                ActorIdentityService().schedule_sync_from_firebase(uid, force=False)
+                # Starlette awaits async background callbacks after the response.
+                # Await the real sync here as well: delegating again through
+                # create_task detached the write from the request lifecycle, so
+                # Cloud Run could freeze the instance before it reached Postgres.
+                await ActorIdentityService().sync_from_firebase_if_due(uid, force=False)
             except Exception as identity_error:
-                logger.debug("Actor identity warmup skipped for %s: %s", uid, identity_error)
+                # Database/Firebase exception text can contain a phone number.
+                # Keep this best-effort path observable without logging user
+                # identifiers or provider/database error details.
+                logger.debug(
+                    "Actor identity warmup skipped error=%s",
+                    type(identity_error).__name__,
+                )
 
         background_tasks.add_task(background_sync, firebase_uid)
 

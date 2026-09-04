@@ -83,6 +83,7 @@ const {
   mockSearchParamsGet,
   mockSearchParams,
   mockCopyToClipboard,
+  mockRequestContactCheck,
 } = vi.hoisted(() => ({
   mockUseRequireAuth: vi.fn(),
   mockUseVault: vi.fn(),
@@ -144,6 +145,7 @@ const {
     toString: () => "",
   },
   mockCopyToClipboard: vi.fn(),
+  mockRequestContactCheck: vi.fn(() => true),
 }));
 
 mockSearchParams.get = mockSearchParamsGet;
@@ -160,6 +162,24 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: mockUseRequireAuth,
+}));
+
+vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
+  useContactDiscoverabilityConsent: () => ({
+    requestContactCheck: mockRequestContactCheck,
+    preference: { status: "decided", enabled: false, ruleVersion: 1 },
+    dialogProps: {
+      open: false,
+      ready: false,
+      loading: false,
+      savingChoice: null,
+      error: null,
+      actionLabel: "Find contacts",
+      onOpenChange: vi.fn(),
+      onChoose: vi.fn(),
+      onRetry: vi.fn(),
+    },
+  }),
 }));
 
 // CapabilityExploreCard (rendered on the location tab) reads useAuth from the
@@ -996,6 +1016,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   beforeEach(async () => {
+    mockRequestContactCheck.mockReturnValue(true);
     vi.clearAllMocks();
     // The shared store, holding a fix measured now — what a session with a
     // live movement watch looks like, and the precondition for the publisher.
@@ -5748,6 +5769,23 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("gates the Location hub before opening a contact source", async () => {
+    mockRequestContactCheck.mockReturnValue(false);
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    openDropdownMenu(
+      await screen.findByRole("button", { name: /Add or manage people/i }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
+
+    expect(mockRequestContactCheck).toHaveBeenCalledTimes(1);
+    expect(mockRequestGoogleContactsToken).not.toHaveBeenCalled();
+    expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
+  });
+
   it("syncs mobile contact matches without showing phone digits", async () => {
     mockUseRequireAuth.mockReturnValue({
       loading: false,
@@ -6483,7 +6521,27 @@ describe("OneLocationAgentPage", () => {
     }
   });
 
+  it("gates Location onboarding before Google or device contact access", async () => {
+    mockGoogleAvailability = () => "connectable";
+    mockRequestContactCheck.mockReturnValue(false);
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+
+    const contactsPanel = await openReadyContactsPanel();
+    const checkContacts = within(contactsPanel).getByRole("button", {
+      name: "Check my contacts",
+    });
+    fireEvent.click(checkContacts);
+
+    expect(mockRequestContactCheck).toHaveBeenCalledTimes(1);
+    expect(mockRequestGoogleContactsToken).not.toHaveBeenCalled();
+    expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
+    expect(checkContacts).toBeEnabled();
+  });
+
   it("omits the contact disclosure when no contact source is available", async () => {
+    // jsdom is that browser, and so is every desktop Chrome and Safari. The
+    // step used to render here as an apology over an empty panel.
     render(<OneLocationAgentPage />);
     await leaveLocationFeatureStep();
 

@@ -1322,11 +1322,12 @@ function ContactsScreen({
           {state.kind === "none" ? (
             <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
               <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
-                {state.partial
-                  ? "None of the contacts you shared are on One yet."
-                  : "None of your contacts are on One yet."}
+                No eligible contacts matched.
               </p>
               <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+                {state.partial
+                  ? "Only part of your contact list was checked. "
+                  : "New matches require a verified phone and contact matching enabled. Existing connections may still appear. "}
                 Use the circle code above to invite anyone you want here.
               </p>
             </div>
