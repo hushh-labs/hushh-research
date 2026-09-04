@@ -1194,7 +1194,7 @@ export function ConsentCenterView({
           <SectionHeader
             eyebrow="Self activity"
             title="Your own vault activity stays separate"
-            description="Self-issued vault sessions and Kai operations stay out of the external consent ledger, but you can still see a short summary here."
+            description="Your own vault sessions and Kai's work stay out of the shared consent record, but you can still see a short summary here."
             icon={Activity}
           />
           <div className="grid gap-3 px-5 pb-5 md:grid-cols-3">
@@ -1257,7 +1257,7 @@ export function ConsentCenterView({
                 ? "Outgoing requests and invite handshakes that still need investor action."
                 : "Requests that still need an investor decision before information access can proceed."
               : surfaceView === "active"
-                ? "Access that is currently live under the consent ledger."
+                ? "Access you've approved that is currently active."
                 : "Historical approvals, denials, revokes, and expired access records."
           }
         />

@@ -78,6 +78,10 @@ Then re‑grade the whole arc against the rubric and hand the founder the taste 
 | 0 (baseline) | — | **B−** | Soul disconnected; home inert; plumbing leaks |
 | 1 | Wire the soul (consent moment) | **B** (consent moment C→B+) | Killed the `window.confirm` stub; elevated the dialog to human copy + first-class "Not now"; removed `user_push_tokens`/VAPID/"Scope code"/"Action"/"KYC" from user surfaces. Verified: tsc 0 errors, ESLint clean, 36 tests green, no gateway drift. |
 | 2 | Greet the human | **held — founder taste call** | Built a light greeting, then backed it out: the team deliberately removed a greeting hero (test‑encoded). Surfaced as a decision for Manish rather than overriding it. No code shipped. |
+| 6 | Enforce the voice (done early — it protects iteration 1) | **B+** | Added `verify:user-vocabulary` gate (wired into `verify:design-system`) so internal vocabulary can never reach a consumer screen again. Proved the gate fails on a real violation, then passes clean. It immediately caught a missed leak: "consent ledger" on the Consent Center → humanized. Product names ("vault", "Personal Knowledge Model") deliberately excluded — that's a founder naming call, not a linter's. |
+| 4 | The in‑between (error moment) | **B+** | Added `app/error.tsx`: every route now recovers in One's voice (calm, non‑blaming, Try again / Go home, support reference) instead of Next's default error screen. Pinned by 4 regression tests, including "never leaks the raw error message to the person". |
+
+**Verified after iterations 4 + 6:** full suite **2063 passed / 0 failed** (baseline was 2059), `tsc --noEmit` 0 errors, ESLint clean, `verify:design-system` chain green.
 
 ### Iteration 1 — what shipped (verified)
 
