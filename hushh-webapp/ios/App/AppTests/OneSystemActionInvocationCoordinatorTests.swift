@@ -114,6 +114,65 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.completion(id: invocation.id)?.outcome, "succeeded")
     }
 
+    func testVaultProgressIsObservableWithoutConsumingThePendingAction() async throws {
+        let invocation = try XCTUnwrap(
+            coordinator.enqueue(actionID: .shareLocation)
+        )
+
+        XCTAssertTrue(
+            coordinator.reportProgress(id: invocation.id, state: .waitingForVault)
+        )
+        XCTAssertEqual(
+            coordinator.progress(id: invocation.id),
+            OneSystemActionProgress(
+                id: invocation.id,
+                state: .waitingForVault,
+                updatedAt: now
+            )
+        )
+        XCTAssertEqual(coordinator.pending(), invocation)
+        let result = await coordinator.waitForCompletionOrProgress(
+            id: invocation.id,
+            timeout: 0.1
+        )
+        XCTAssertEqual(
+            result,
+            .progress(
+                OneSystemActionProgress(
+                    id: invocation.id,
+                    state: .waitingForVault,
+                    updatedAt: now
+                )
+            )
+        )
+    }
+
+    func testClaimClearsVaultProgressBeforeExecution() throws {
+        let invocation = try XCTUnwrap(
+            coordinator.enqueue(actionID: .resumeLocation)
+        )
+        XCTAssertTrue(
+            coordinator.reportProgress(id: invocation.id, state: .waitingForVault)
+        )
+
+        XCTAssertTrue(coordinator.claim(id: invocation.id))
+        XCTAssertNil(coordinator.progress(id: invocation.id))
+    }
+
+    func testVaultProgressRejectsReadOnlyAndUnknownRequests() throws {
+        let invocation = try XCTUnwrap(
+            coordinator.enqueue(actionID: .openLocationSettings)
+        )
+
+        XCTAssertFalse(
+            coordinator.reportProgress(id: invocation.id, state: .waitingForVault)
+        )
+        XCTAssertFalse(
+            coordinator.reportProgress(id: "another-request", state: .waitingForVault)
+        )
+        XCTAssertNil(coordinator.progress(id: invocation.id))
+    }
+
     func testCancellationClearsPendingClaimedCompletionAndEntityIndex() throws {
         let invocation = try XCTUnwrap(coordinator.enqueue(actionID: .openLocation))
         XCTAssertTrue(coordinator.claim(id: invocation.id))
@@ -183,6 +242,11 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         XCTAssertFalse(OneSystemActionID.openLocation.requiresVault)
         XCTAssertTrue(OneSystemActionID.resumeLocation.requiresVault)
         XCTAssertFalse(OneSystemActionID.openSMSContacts.requiresVault)
+        XCTAssertEqual(OneSystemActionID.vaultRequiredActionIDs.count, 7)
+        XCTAssertTrue(OneSystemActionID.pauseLocation.requiresVault)
+        XCTAssertFalse(OneSystemActionID.pauseLocation.requiresSystemConfirmation)
+        XCTAssertTrue(OneSystemActionID.resumeLocation.requiresSystemConfirmation)
+        XCTAssertEqual(OneSystemActionID.systemConfirmationRequiredActionIDs.count, 6)
     }
 
     @available(iOS 16.0, *)

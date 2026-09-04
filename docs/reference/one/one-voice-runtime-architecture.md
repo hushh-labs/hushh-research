@@ -70,10 +70,21 @@ the active route/runtime, vault access when the action mutates protected
 information, and the sole Agent Bar executor. Native confirmation is required
 before every generated `confirm_required` mutation. The browser then applies
 the generated guard inventory and reports the browser-observed settlement.
-Signed-locked users may open read-only Location destinations, but mutations
-wait for normal vault restoration. A missing account routes through Login and
-returns to the preserved route without asking the person to repeat the Siri
-request.
+Signed-locked users may open read-only Location destinations. Protected
+mutations wait for normal vault restoration. When the browser observes this
+exact gate, it reports only the request id and `waiting_for_vault` state to the
+native coordinator. Siri then says, “Agent One's Vault is locked. I've opened
+the app for you. Unlock your Vault, and I'll continue your request.” Reporting
+that progress does not claim the action: it remains pending and runs once after
+unlock, subject to the original five-minute expiry.
+
+`location.pause_updates` is the deliberate exception:
+its canonical Siri metadata declares `location.open_settings` as a review-only
+fallback. The handoff claims the pending pause once, opens that review surface,
+completes the original request as blocked, and tells the person to unlock and
+ask again. It never replays the pause after unlock. A missing account routes
+through Login and returns to the preserved route without asking the person to
+repeat the Siri request.
 
 All currently exposed Location intents foreground HUSSH. This is deliberate:
 the canonical executor, current vault authority, encrypted location publish,
@@ -84,7 +95,10 @@ only after that same executor is available behind a shared non-UI port with
 identical guards and settlement.
 
 The authoritative Location contract currently contains 50 generated actions.
-The Siri surface exposes the following useful, bounded subset:
+Seventeen are Siri-exposed as either `direct` or `review_ui`. The sole
+`conversation_only` action is `location.chat.turn`; it is reached only through
+the explicit conversation intent. The Siri surface exposes this useful,
+bounded Location subset:
 
 | App Intent behavior | Generated action id | System confirmation | Vault |
 | --- | --- | --- | --- |
@@ -106,9 +120,9 @@ The Siri surface exposes the following useful, bounded subset:
 | Create a named Circle | `location.create_circle` | Yes | Yes |
 | Rename a resolved Circle | `location.rename_circle` | Yes | Yes |
 
-The other 33 contract actions remain available through the existing One Voice
-and visible Location experience, but are not direct Siri intents in this
-release:
+The other 33 Location contract actions default to `unsupported` for Siri and
+remain available through the existing One Voice and visible Location
+experience:
 
 - Nine redundant composer/deep-link actions (`open_people`, `open_links`,
   `open_share`, `open_ask`, `open_invite`, `open_create_circle`,
@@ -138,13 +152,23 @@ Check-In, SOS review, and emergency SMS contacts). Its `OpenIntent` tells Siri
 that “Location Agent” is content inside Agent One rather than a separate app.
 
 Apple limits an app to ten zero-setup App Shortcuts. The provider deliberately
-publishes eight focused shortcuts: share, ask, stop, location on/off, create
-Circle, Check-In, open a structured Location destination, and Talk to Agent One.
+publishes nine focused shortcuts: share, request, stop/pause, location on/off,
+create Circle, rename Circle, Check-In, open a structured Location destination,
+and Talk to Agent One.
 Mutation intents keep Apple's parameter follow-ups and native confirmation,
 then hand the exact generated action to the existing browser executor. The
 other App Intents remain discoverable in the Shortcuts app. Android and web
 deliberately report this Apple system surface as unsupported/no pending
 invocation.
+
+The deterministic shortcuts advertise typed `Ask Agent One to…`, `Tell Agent
+One to…`, and `Talk to Agent One and…` phrase families. The conversation
+shortcut advertises only `Talk to Agent One` and `Start a conversation with
+Agent One`; it does not advertise bare `Ask Agent One`. There is no free-form
+command slot, keyword router, or model classifier. Direct intents can create
+only `execute_one_action`, while the conversation intent can create only
+`start_one_voice`. Unsupported or incomplete requests remain with Siri for
+system clarification and cannot fall through to the internal voice surface.
 
 ### Route orchestration index
 

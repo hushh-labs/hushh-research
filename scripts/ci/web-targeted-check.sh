@@ -68,7 +68,7 @@ if has_match '^hushh-webapp/(app/|components/app-ui/|lib/(navigation|routes|surf
   ran=1
 fi
 
-if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
+if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|lib/capacitor/one-system-action-invocation\.ts|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
   run_check "Capacitor static parity" npm run verify:capacitor:static
   # Signature parity across the three flows. Static parity checks the route
   # inventory; this checks that a plugin method declared in TypeScript is
