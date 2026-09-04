@@ -977,5 +977,9 @@ async def test_the_cooldown_is_judged_on_the_row_as_it_is_after_the_lease(
     monkeypatch.setattr(registry, "claim_image_upgrade", _claim, raising=False)
     result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
     assert result["skipped"] == "cooldown"
-    assert backend.calls == [] if hasattr(backend, "calls") else True
+    # Was `backend.calls == [] if hasattr(backend, "calls") else True`. The fake has
+    # `.specs` and never `.calls`, so the guard for the whole cooldown feature parsed
+    # as `assert True` and could not fail. The line above carries the skip reason; this
+    # is the one that proves the backend was genuinely never touched.
+    assert backend.specs == []
     assert registry.rows["uid-1"]["backend_metadata"]["upgrade"]["attempts"] == 1
