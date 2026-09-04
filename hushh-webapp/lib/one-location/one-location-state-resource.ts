@@ -80,7 +80,22 @@ export const OneLocationStateResource = {
     const ownerGrants = current.ownerGrants.map((row) => {
       if (row.id !== grant.id) return row;
       matched = true;
-      return { ...row, ...grant };
+      return {
+        ...row,
+        ...grant,
+        // Duration PATCHes return the grant table row, not the identity joins
+        // used by list_state. `_grant_payload` therefore includes these keys
+        // as null. Null is "not projected by this response" here, not an
+        // instruction to erase the name/photo already on screen.
+        ownerDisplayName: grant.ownerDisplayName ?? row.ownerDisplayName,
+        ownerPhotoUrl: grant.ownerPhotoUrl ?? row.ownerPhotoUrl,
+        ownerMaskedPhone: grant.ownerMaskedPhone ?? row.ownerMaskedPhone,
+        recipientDisplayName:
+          grant.recipientDisplayName ?? row.recipientDisplayName,
+        recipientPhotoUrl: grant.recipientPhotoUrl ?? row.recipientPhotoUrl,
+        recipientMaskedPhone:
+          grant.recipientMaskedPhone ?? row.recipientMaskedPhone,
+      };
     });
     if (!matched) return false;
 

@@ -10,6 +10,11 @@ export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy =
   "allow_direct" | "confirm_required" | "manual_only";
 export type KaiActionActivationPolicy = "none" | "trusted_activation_required";
+export type KaiActionSiriMode =
+  | "direct"
+  | "review_ui"
+  | "conversation_only"
+  | "unsupported";
 export type KaiActionSpeakerPersona = "one" | "kai" | "nav" | "kyc";
 export type KaiActionDelegateAgentId =
   | "one"
@@ -181,6 +186,9 @@ export type KaiActionDefinition = {
   risk_level: KaiActionRiskLevel;
   execution_policy: KaiActionExecutionPolicy;
   activation_policy: KaiActionActivationPolicy;
+  siri_mode: KaiActionSiriMode;
+  siri_requires_vault: boolean;
+  siri_vault_locked_fallback_action_id: string | null;
   execution_target: KaiActionExecutionTarget;
   control_ids: string[];
   state_exposure: string[];
@@ -539,6 +547,10 @@ function validateAction(value: unknown): KaiActionDefinition | null {
   const riskLevel = cleanString(value.risk_level);
   const executionPolicy = cleanString(value.execution_policy);
   const activationPolicy = cleanString(value.activation_policy) || "none";
+  const siriMode = cleanString(value.siri_mode) || "unsupported";
+  const siriVaultLockedFallbackActionId = cleanString(
+    value.siri_vault_locked_fallback_action_id,
+  );
   if (
     !actionId ||
     !surfaceId ||
@@ -552,6 +564,27 @@ function validateAction(value: unknown): KaiActionDefinition | null {
   if (
     activationPolicy !== "none" &&
     activationPolicy !== "trusted_activation_required"
+  ) {
+    return null;
+  }
+  if (
+    siriMode !== "direct" &&
+    siriMode !== "review_ui" &&
+    siriMode !== "conversation_only" &&
+    siriMode !== "unsupported"
+  ) {
+    return null;
+  }
+  if (
+    value.siri_requires_vault !== undefined &&
+    typeof value.siri_requires_vault !== "boolean"
+  ) {
+    return null;
+  }
+  if (
+    value.siri_vault_locked_fallback_action_id !== undefined &&
+    value.siri_vault_locked_fallback_action_id !== null &&
+    !siriVaultLockedFallbackActionId
   ) {
     return null;
   }
@@ -592,6 +625,10 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     risk_level: riskLevel as KaiActionRiskLevel,
     execution_policy: executionPolicy as KaiActionExecutionPolicy,
     activation_policy: activationPolicy as KaiActionActivationPolicy,
+    siri_mode: siriMode as KaiActionSiriMode,
+    siri_requires_vault: value.siri_requires_vault === true,
+    siri_vault_locked_fallback_action_id:
+      siriVaultLockedFallbackActionId,
     execution_target: executionTarget,
     control_ids: isStringArray(value.control_ids) ? value.control_ids : [],
     state_exposure: isStringArray(value.state_exposure)

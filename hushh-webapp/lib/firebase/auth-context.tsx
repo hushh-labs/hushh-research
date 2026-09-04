@@ -102,6 +102,8 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   phoneNumber: string | null;
+  /** Resolves only after the verified backend phone lookup has settled. */
+  resolveVerifiedPhoneNumber: () => Promise<string | null>;
   // Derived state
   isAuthenticated: boolean;
   userId: string | null;
@@ -162,6 +164,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const router = useRouter();
   const userRef = useRef<User | null>(null);
+  const phoneNumberRef = useRef<string | null>(null);
+  const verifiedPhoneResolutionRef = useRef<{
+    userId: string;
+    promise: Promise<string | null>;
+  } | null>(null);
   const authRecoveryInFlightRef = useRef(false);
   const signOutPromiseRef = useRef<Promise<void> | null>(null);
   const postAuthSettlementEpochRef = useRef(0);
@@ -173,10 +180,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const nativeRestoreEpochRef = useRef(new NativeAuthRestoreEpoch());
 
   const applyAuthUser = useCallback((nextUser: User | null) => {
+    const nextPhoneNumber = nextUser?.phoneNumber ?? null;
     userRef.current = nextUser;
+    phoneNumberRef.current = nextPhoneNumber;
     setUser(nextUser);
     setUserId(nextUser?.uid ?? null);
-    setPhoneNumber(nextUser?.phoneNumber ?? null);
+    setPhoneNumber(nextPhoneNumber);
     // Binds the cross-surface analytics identity (a salted digest, never the
     // UID) so web, iOS and Android resolve to one user in GA4. Deliberately
     // not awaited: analytics identity must never sit on the auth critical path.
@@ -203,29 +212,76 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
+  const resolveVerifiedPhoneNumber = useCallback(async (): Promise<
+    string | null
+  > => {
+    const currentUser = userRef.current;
+    if (!currentUser?.uid) return null;
+
+    const existingPhone = String(
+      phoneNumberRef.current ?? currentUser.phoneNumber ?? "",
+    ).trim();
+    if (existingPhone) return existingPhone;
+
+    const cachedIdentity = AccountIdentityService.peekCachedIdentity(
+      currentUser.uid,
+    );
+    const cachedPhone = cachedIdentity?.isStale
+      ? null
+      : verifiedBackendPhoneNumber(cachedIdentity?.data);
+    if (cachedPhone) {
+      phoneNumberRef.current = cachedPhone;
+      setPhoneNumber(cachedPhone);
+      return cachedPhone;
+    }
+
+    const inFlight = verifiedPhoneResolutionRef.current;
+    if (inFlight?.userId === currentUser.uid) {
+      return inFlight.promise;
+    }
+
+    const promise = (async () => {
+      // A non-forced read can legally return a fresh but phone-incomplete
+      // shadow. Contact normalization needs an authoritative region, so this
+      // missing-phone path must consult Firebase even when that cache is fresh.
+      const identity = await AccountIdentityService.refreshCurrentUserIdentity(
+        currentUser,
+        { force: true },
+      );
+      if (userRef.current?.uid !== currentUser.uid) return null;
+
+      const backendPhone = verifiedBackendPhoneNumber(identity);
+      if (backendPhone) {
+        phoneNumberRef.current = backendPhone;
+        setPhoneNumber(backendPhone);
+      }
+      return backendPhone;
+    })();
+    verifiedPhoneResolutionRef.current = {
+      userId: currentUser.uid,
+      promise,
+    };
+    try {
+      return await promise;
+    } finally {
+      if (verifiedPhoneResolutionRef.current?.promise === promise) {
+        verifiedPhoneResolutionRef.current = null;
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!user || phoneNumber) {
       return;
     }
 
-    let cancelled = false;
-
-    const hydrateBackendPhone = async () => {
-      const identity = await AccountIdentityService.refreshCurrentUserIdentity(user, {
-        force: false,
-      });
-      if (cancelled) return;
-      const backendPhone = verifiedBackendPhoneNumber(identity);
-      if (backendPhone) {
-        setPhoneNumber(backendPhone);
-      }
+    const hydrateBackendPhone = () => {
+      void resolveVerifiedPhoneNumber().catch(() => undefined);
     };
 
     if (!isGmailStartupRoute()) {
-      void hydrateBackendPhone();
-      return () => {
-        cancelled = true;
-      };
+      hydrateBackendPhone();
+      return;
     }
 
     const cancelIdle = runWhenBrowserIsIdle(() => {
@@ -233,10 +289,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
 
     return () => {
-      cancelled = true;
       cancelIdle();
     };
-  }, [phoneNumber, user]);
+  }, [phoneNumber, resolveVerifiedPhoneNumber, user]);
 
   const refreshUser = useCallback(async (): Promise<User | null> => {
     if (Capacitor.isNativePlatform()) {
@@ -811,6 +866,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     user,
     loading,
     phoneNumber,
+    resolveVerifiedPhoneNumber,
     // Derived
     // Unified Auth State: Authenticated = Identity Verified.
     isAuthenticated: !!user,

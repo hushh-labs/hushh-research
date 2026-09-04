@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getPendingInvocation: vi.fn(),
   claimInvocation: vi.fn(),
   completeInvocation: vi.fn(),
+  reportProgress: vi.fn(),
   addAvailabilityListener: vi.fn(),
   removeAvailabilityListener: vi.fn(),
 }));
@@ -44,6 +45,7 @@ vi.mock("@/lib/capacitor/one-system-action-invocation", async (importOriginal) =
       getPendingInvocation: mocks.getPendingInvocation,
       claimInvocation: mocks.claimInvocation,
       completeInvocation: mocks.completeInvocation,
+      reportProgress: mocks.reportProgress,
       addAvailabilityListener: mocks.addAvailabilityListener,
     },
   };
@@ -88,10 +90,12 @@ describe("SiriOneActionHandoff lifecycle", () => {
     mocks.getPendingInvocation.mockReset();
     mocks.claimInvocation.mockReset();
     mocks.completeInvocation.mockReset();
+    mocks.reportProgress.mockReset();
     mocks.addAvailabilityListener.mockReset();
     mocks.removeAvailabilityListener.mockReset();
     mocks.claimInvocation.mockResolvedValue({ claimed: true });
     mocks.completeInvocation.mockResolvedValue(undefined);
+    mocks.reportProgress.mockResolvedValue(true);
     mocks.addAvailabilityListener.mockResolvedValue({
       remove: mocks.removeAvailabilityListener,
     });
@@ -177,6 +181,12 @@ describe("SiriOneActionHandoff lifecycle", () => {
 
     const view = render(<SiriOneActionHandoff />);
     await waitFor(() => expect(mocks.getPendingInvocation).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mocks.reportProgress).toHaveBeenCalledWith({
+        id: mutation.id,
+        state: "waiting_for_vault",
+      }),
+    );
     expect(mocks.claimInvocation).not.toHaveBeenCalled();
 
     mocks.runtime.tier = "signed_unlocked";
@@ -197,6 +207,52 @@ describe("SiriOneActionHandoff lifecycle", () => {
     mocks.getPendingInvocation.mockResolvedValue(navigation);
     render(<SiriOneActionHandoff />);
     await waitFor(() => expect(executor).toHaveBeenCalledWith(navigation));
+  });
+
+  it("claims locked-vault pause once, opens settings, and cannot replay after unlock", async () => {
+    const pending = invocation({
+      id: "locked-pause",
+      actionId: "location.pause_updates",
+      slots: {},
+      requiresVault: true,
+      confirmedBySystem: false,
+    });
+    mocks.runtime.tier = "signed_locked";
+    mocks.getPendingInvocation.mockResolvedValue(pending);
+
+    const view = render(<SiriOneActionHandoff />);
+
+    await waitFor(() =>
+      expect(executor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: pending.id,
+          actionId: "location.open_settings",
+          slots: {},
+          requiresVault: false,
+          confirmedBySystem: false,
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.completeInvocation).toHaveBeenCalledWith({
+        id: pending.id,
+        outcome: "blocked",
+        summary:
+          "Agent One's Vault is locked. I opened Location Settings for you. Unlock your Vault, then ask me again to pause location sharing.",
+      }),
+    );
+    expect(mocks.claimInvocation).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(executor.mock.calls[0]?.[0].actionId).not.toBe(
+      "location.pause_updates",
+    );
+
+    mocks.runtime.tier = "signed_unlocked";
+    view.rerender(<SiriOneActionHandoff />);
+    await act(async () => Promise.resolve());
+
+    expect(mocks.claimInvocation).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledTimes(1);
   });
 
   it("expires a cold-launch request without claiming or executing it", async () => {

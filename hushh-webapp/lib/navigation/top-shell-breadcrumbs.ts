@@ -23,6 +23,7 @@ import {
   isNearbyPrivateReturnToken,
   NEARBY_PRIVATE_RETURN_TOKEN_PARAM,
 } from "@/lib/one-location/nearby-private-navigation";
+import { readPreviousTabHref } from "@/lib/navigation/tab-switch-history";
 
 export type TopShellBreadcrumbItem = {
   label: string;
@@ -101,6 +102,26 @@ export function resolveSmsContactsBackAction(
   source: string | null | undefined,
 ): "sos" | "settings" {
   return source === "sos" ? "sos" : "settings";
+}
+
+/**
+ * Where Back goes for a tab that shares its declared parent with its
+ * siblings -- RIA's Picks/Clients/Profile all climb to Profile, so that
+ * hierarchy alone cannot tell "switched from a sibling tab" apart from "no
+ * prior tab at all" (#6286). Prefers the recorded sibling tab; falls back to
+ * `fallbackHref` (the section's own root) for a fresh arrival, or when the
+ * only thing recorded is the same route already being viewed.
+ */
+function resolveTabSiblingBackHref(
+  tabSetId: string,
+  pathname: string,
+  fallbackHref: string,
+): string {
+  const previousTabHref = readPreviousTabHref(tabSetId);
+  const retracesToAnotherTab =
+    previousTabHref !== null &&
+    normalizeBreadcrumbPathname(previousTabHref) !== pathname;
+  return retracesToAnotherTab ? (previousTabHref as string) : fallbackHref;
 }
 
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
@@ -491,7 +512,13 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // RIA subtabs (level 3): back returns to the RIA home (level 2).
+  // RIA subtabs (level 3): back returns to the RIA home (level 2) by default
+  // -- but every one of these tabs shares that same declared parent, so a
+  // person who switched Profile -> Picks and pressed Back landed on Profile
+  // even though Picks itself is where they had just come from (#6286). When
+  // the tab bar recorded an actual prior tab, retrace to THAT instead; a
+  // fresh arrival (deep link, cold start) has nothing recorded and keeps the
+  // Profile fallback.
   const riaSubroutes: Array<[string, string]> = [
     [ROUTES.RIA_PICKS, "Picks"],
     [ROUTES.RIA_WORKSPACE, "Workspace"],
@@ -501,7 +528,11 @@ function resolveTopShellBreadcrumbInner(
   for (const [route, label] of riaSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {
       return {
-        backHref: ROUTES.RIA_PROFILE,
+        backHref: resolveTabSiblingBackHref(
+          "ria",
+          pathname,
+          ROUTES.RIA_PROFILE,
+        ),
         width: "content",
         align: "center",
         items: [
@@ -634,8 +665,15 @@ function resolveTopShellBreadcrumbInner(
   }
 
   if (pathname === ROUTES.RIA_CLIENTS) {
+    // Same tab-switch gap as riaSubroutes above -- Clients is a sibling tab
+    // of Picks/Profile, not beneath them, so Back should undo a switch from
+    // one of those rather than always landing on Profile.
     return {
-      backHref: ROUTES.RIA_PROFILE,
+      backHref: resolveTabSiblingBackHref(
+        "ria",
+        pathname,
+        ROUTES.RIA_PROFILE,
+      ),
       width: "profile",
       align: "center",
       items: [{ label: "RIA", href: ROUTES.RIA_PROFILE }, { label: "Clients" }],

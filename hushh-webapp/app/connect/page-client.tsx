@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { isNative } from "@/lib/capacitor/platform";
@@ -484,7 +485,7 @@ async function resolveConnectionForVoice({
 }
 
 export default function ConnectPageClient() {
-  const { user } = useRequireAuth();
+  const { user, phoneNumber, resolveVerifiedPhoneNumber } = useRequireAuth();
   const router = useRouter();
 
   const searchParams = useSearchParams();
@@ -841,7 +842,10 @@ export default function ConnectPageClient() {
     // popup open for a signed-out visitor. This restores the predicate the
     // Location page used.
     getIdToken: user ? getIdToken : null,
-    accountPhoneNumber: user?.phoneNumber,
+    // AuthContext hydrates the verified backend phone independently for
+    // native/UAT verification paths where Firebase User.phoneNumber is empty.
+    accountPhoneNumber: phoneNumber ?? user?.phoneNumber,
+    resolveVerifiedAccountPhoneNumber: resolveVerifiedPhoneNumber,
     userId: user?.uid,
     // Awaited, and its boolean dropped: the hook only needs to know the
     // refresh finished before it announces the outcome, so the toast never
@@ -3388,6 +3392,9 @@ export default function ConnectPageClient() {
       <ContactSyncResultsSheet
         {...contactSync.resultsSheetProps}
         onRequestConnection={requestConnectionFromContactMatch}
+      />
+      <ContactDiscoverabilityConsentDialog
+        {...contactSync.discoverabilityConsentDialogProps}
       />
 
       {showLimitBanner && (

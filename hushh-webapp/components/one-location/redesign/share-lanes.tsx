@@ -52,7 +52,7 @@ export function ShareLaneRow({
   /** Omitted when there is nothing this side may do about the share. */
   onStop?: () => void;
   stopping?: boolean;
-  onChangeEndTime?: () => void;
+  onChangeEndTime?: (trigger: HTMLButtonElement) => void;
   formatEndsAt?: (value: string) => string;
   /**
    * Whose share this is, in the only way that changes the words.
@@ -98,7 +98,7 @@ export function ShareLaneRow({
           <button
             type="button"
             className="inline-flex min-h-11 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
-            onClick={onChangeEndTime}
+            onClick={(event) => onChangeEndTime(event.currentTarget)}
             disabled={stopping}
             aria-label={`Change end time for ${counterpartName}`}
           >
@@ -157,7 +157,7 @@ export function PersonShareLanes({
   counterpartName: string;
   onStopGrant?: (grantId: string) => void;
   revokingGrantId?: string | null;
-  onChangeEndTime?: (grantId: string) => void;
+  onChangeEndTime?: (grantId: string, trigger: HTMLButtonElement) => void;
   formatEndsAt?: (value: string) => string;
   /** See {@link ShareLaneRow}. Defaults to the owner's "stop". */
   action?: "stop" | "remove";
@@ -173,8 +173,10 @@ export function PersonShareLanes({
           action={action}
           onStop={onStopGrant ? () => onStopGrant(grant.id) : undefined}
           onChangeEndTime={
-            action !== "remove" && !isSmsTriggeredGrant(grant) && onChangeEndTime
-              ? () => onChangeEndTime(grant.id)
+            action !== "remove" &&
+            !isSmsTriggeredGrant(grant) &&
+            onChangeEndTime
+              ? (trigger) => onChangeEndTime(grant.id, trigger)
               : undefined
           }
           stopping={revokingGrantId === grant.id}

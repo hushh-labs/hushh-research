@@ -1,11 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   navigateTopShellBack,
   resolveTopShellBackAction,
 } from "@/lib/navigation/top-shell-back";
+import {
+  clearTabSwitchHistory,
+  recordTabSelection,
+} from "@/lib/navigation/tab-switch-history";
 
 describe("top shell back action", () => {
+  beforeEach(() => {
+    clearTabSwitchHistory();
+  });
+
   it("uses the authored route parent instead of browser history", () => {
     expect(resolveTopShellBackAction({ pathname: "/ria/onboarding" })).toEqual({
       href: "/one",
@@ -104,5 +112,82 @@ describe("top shell back action", () => {
     expect(
       resolveTopShellBackAction({ pathname: "/one/location/map" }),
     ).toMatchObject({ href: "/one/location", transitionMode: "full" });
+  });
+
+  describe("Location tab siblings (same gap as RIA, #6286)", () => {
+    // Now/People/Links are one route with a ?view= query, not a hierarchy,
+    // so every one of them reads as the section root -- back tried to LEAVE
+    // Location instead of undoing a tab switch. Same fix, applied here too.
+
+    it("retraces People to Links when that is the recorded prior tab", () => {
+      recordTabSelection("location", "/one/location?view=links");
+      recordTabSelection("location", "/one/location?view=people");
+
+      expect(
+        resolveTopShellBackAction({
+          pathname: "/one/location",
+          searchParams: new URLSearchParams("view=people"),
+        }),
+      ).toMatchObject({
+        href: "/one/location?view=links",
+        mode: "replace",
+        transitionMode: "contextual",
+      });
+    });
+
+    it("retraces to the bare Now tab, not a ?view=now href", () => {
+      // The registry's own href for Now is bare /one/location, matching
+      // what TopShellTabs records -- a retrace target of "/one/location"
+      // must not be treated as a miss just because it carries no query.
+      recordTabSelection("location", "/one/location");
+      recordTabSelection("location", "/one/location?view=people");
+
+      expect(
+        resolveTopShellBackAction({
+          pathname: "/one/location",
+          searchParams: new URLSearchParams("view=people"),
+        }),
+      ).toMatchObject({ href: "/one/location", mode: "replace" });
+    });
+
+    it("falls through to leaving the section with no recorded prior tab", () => {
+      // A fresh arrival on People (deep link, cold start) has nothing to
+      // undo, so back keeps its original section-leaving behavior.
+      const action = resolveTopShellBackAction({
+        pathname: "/one/location",
+        searchParams: new URLSearchParams("view=people"),
+      });
+      expect(action).not.toBeNull();
+      expect(action?.href).not.toBe("/one/location?view=people");
+    });
+
+    it("does not retrace to itself when the only record is the current tab", () => {
+      recordTabSelection("location", "/one/location?view=people");
+      recordTabSelection("location", "/one/location?view=people");
+
+      const action = resolveTopShellBackAction({
+        pathname: "/one/location",
+        searchParams: new URLSearchParams("view=people"),
+      });
+      expect(action?.href).not.toBe("/one/location?view=people");
+    });
+
+    it("still closes an open flow in place, even with a tab switch recorded", () => {
+      // ?action= owns its own close-in-place target (back to the tab the
+      // flow was opened from); a merely-recorded sibling tab must not
+      // override that.
+      recordTabSelection("location", "/one/location?view=links");
+      recordTabSelection("location", "/one/location?view=people");
+
+      expect(
+        resolveTopShellBackAction({
+          pathname: "/one/location",
+          searchParams: new URLSearchParams("action=share&view=people"),
+        }),
+      ).toMatchObject({
+        href: "/one/location?view=people",
+        mode: "replace",
+      });
+    });
   });
 });

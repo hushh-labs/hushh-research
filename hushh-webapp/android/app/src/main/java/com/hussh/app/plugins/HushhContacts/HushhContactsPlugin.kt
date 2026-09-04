@@ -121,20 +121,19 @@ class HushhContactsPlugin : Plugin() {
             .put("sourcePlatform", "android")
     }
 
-    /**
-     * Best guess at the region bare national numbers belong to. The SIM's home
-     * country beats the serving network, because a traveller's contact book
-     * still holds home-region numbers.
-     */
+    /** Home number-plan region for bare national numbers. */
     private fun deviceRegion(): String? {
         val telephony = runCatching {
             context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
         }.getOrNull()
-        val candidates = listOf(
-            runCatching { telephony?.simCountryIso }.getOrNull(),
-            runCatching { telephony?.networkCountryIso }.getOrNull(),
-            runCatching { Locale.getDefault().country }.getOrNull()
-        )
+        // Return only home number-plan evidence here. The shared web layer ranks an
+        // Android `defaultRegion` above the signed-in account's verified phone,
+        // so falling back to the UI locale here would silently reinterpret an
+        // Indian national number as US (or vice versa) on Wi-Fi-only devices.
+        // A serving-network country is also unsafe while roaming. When the SIM
+        // provides no region, return null and let
+        // the shared resolver use the verified account phone before locale.
+        val candidates = listOf(runCatching { telephony?.simCountryIso }.getOrNull())
         return candidates
             .firstOrNull { !it.isNullOrBlank() && it.length == 2 }
             ?.uppercase(Locale.US)

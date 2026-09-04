@@ -3300,8 +3300,9 @@ class ConnectionsService:
             # blocks every INSERT/UPDATE/DELETE writer's ROW EXCLUSIVE lock.
             # The recount below and all graph writes therefore observe one
             # stable set of verified phone bindings. This avoids selecting an
-            # arbitrary account if a stale duplicate arrives between match and
-            # mutation without forcing a risky data-cleanup migration.
+            # arbitrary account if a stale duplicate arrives between the
+            # initial match and this mutation; migration 198 also prevents new
+            # duplicate verified owners at the database boundary.
             self._execute_many("LOCK TABLE actor_identity_cache IN SHARE MODE")
             # Read requester and candidate identities in canonical order. The
             # table SHARE lock already keeps those rows stable through commit,
@@ -3412,13 +3413,14 @@ class ConnectionsService:
                 -- Circle membership flows deliberately lock profiles before
                 -- connections. Contact sync already holds existing connection
                 -- rows, so waiting here would invert that order and deadlock.
-                -- A busy profile is omitted and fails closed for this run.
+                -- A busy profile is omitted and fails closed for new/revoked
+                -- pairs; an already-active relationship remains recognizable.
                 FOR UPDATE SKIP LOCKED
                 """,
                 {"candidate_user_ids": revalidated_user_ids},
             )
             profiles = {str(row.get("user_id") or ""): row for row in profile_rows}
-            eligible_rows_by_lookup: dict[str, list[dict[str, Any]]] = {}
+            revalidated_rows_by_lookup: dict[str, list[dict[str, Any]]] = {}
             for row in identity_rows:
                 target_user_id = str(row.get("user_id") or "")
                 profile = profiles.get(target_user_id) or {}
@@ -3435,25 +3437,19 @@ class ConnectionsService:
                         "contact_sync_consent_contract_version"
                     ),
                 }
-                if (
-                    enriched["contact_discoverable"]
-                    and enriched["contact_sync_consent_enabled_at"] is not None
-                    and enriched["contact_sync_consent_rule_version"] > 0
-                    and enriched["contact_sync_consent_contract_version"]
-                    == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
-                ):
-                    eligible_rows_by_lookup.setdefault(str(row.get("lookup_id") or ""), []).append(
-                        enriched
-                    )
+                revalidated_rows_by_lookup.setdefault(str(row.get("lookup_id") or ""), []).append(
+                    enriched
+                )
             activations: list[dict[str, Any]] = []
+            activation_required_target_ids: set[str] = set()
             for match in sorted(
                 normalized_matches,
                 key=lambda item: (str(item["user_id"]), str(item["lookup_id"])),
             ):
                 lookup_id = str(match["lookup_id"])
                 target_user_id = str(match["user_id"])
-                eligible_rows = eligible_rows_by_lookup.get(lookup_id) or []
-                identity = eligible_rows[0] if len(eligible_rows) == 1 else {}
+                revalidated_rows = revalidated_rows_by_lookup.get(lookup_id) or []
+                identity = revalidated_rows[0] if len(revalidated_rows) == 1 else {}
                 proof_valid = bool(
                     identity and str(identity.get("user_id") or "") == target_user_id
                 )
@@ -3464,20 +3460,41 @@ class ConnectionsService:
                     continue
                 existing = existing_by_target.get(target_user_id)
                 existing_status = str((existing or {}).get("status") or "")
+                has_current_contact_consent = bool(
+                    identity["contact_discoverable"]
+                    and identity["contact_sync_consent_enabled_at"] is not None
+                    and identity["contact_sync_consent_rule_version"] > 0
+                    and identity["contact_sync_consent_contract_version"]
+                    == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+                )
 
                 outcome = "auto_connected"
-                if existing_status == "revoked":
+                if existing_status == "active":
+                    # The canonical graph already discloses this person to the
+                    # requester. Recognizing their exact verified-phone proof
+                    # does not create a relationship or widen target consent.
+                    # Only add contact provenance when the target currently
+                    # opted into that relationship source; otherwise a new
+                    # durable origin could outlive the source that made the
+                    # existing connection visible.
+                    if has_current_contact_consent:
+                        activations.append(
+                            {
+                                "target_user_id": target_user_id,
+                                "origin_metadata": {"authorization": "existing_connection_match"},
+                            }
+                        )
+                        activation_required_target_ids.add(target_user_id)
+                    outcome = "already_connected"
+                elif not has_current_contact_consent:
+                    # A hidden/stale-consent target may be recognized only
+                    # through an already-active edge. New and revoked pairs
+                    # remain undisclosed and write nothing.
+                    continue
+                elif existing_status == "revoked":
                     # A disconnect is an explicit suppression tombstone even
                     # for a pair that predated contact-sync provenance.
                     outcome = "suppressed"
-                elif existing_status == "active":
-                    activations.append(
-                        {
-                            "target_user_id": target_user_id,
-                            "origin_metadata": {"authorization": "existing_connection_match"},
-                        }
-                    )
-                    outcome = "already_connected"
                 else:
                     # A match is emitted only after the target's current verified
                     # phone and contact-discoverability setting are revalidated
@@ -3506,6 +3523,7 @@ class ConnectionsService:
                             },
                         }
                     )
+                    activation_required_target_ids.add(target_user_id)
 
                 outcomes.append(
                     {
@@ -3537,7 +3555,7 @@ class ConnectionsService:
                 # suppressed and never create its origin/trusted/Circle rows.
                 for item in outcomes:
                     if (
-                        item["outcome"] in {"auto_connected", "already_connected"}
+                        str(item["userId"]) in activation_required_target_ids
                         and str(item["userId"]) not in activated_target_ids
                     ):
                         item["outcome"] = "suppressed"

@@ -112,22 +112,21 @@ function displayNameOf(person: PeoplePerson): string | null {
 /**
  * The number string to normalize, chosen deliberately.
  *
- * Google returns `canonicalForm` (its own E.164) beside `value` (whatever the
- * person typed). Using `canonicalForm` is the obvious shortcut and it is wrong:
- * `lib/contacts/phone-normalization.ts` exists so BOTH sides of the hash reach
- * byte-identical E.164 through ONE implementation. Google's parser and
- * `libphonenumber-js` need not agree at the edges, and the moment they disagree
- * the digest misses silently and the person is told nobody matched.
- *
- * `canonicalForm` is used only when `value` is empty, and even then it goes
- * THROUGH the normalizer, never around it.
+ * Google defines `canonicalForm` as its output-only ITU-T E.164 form. That is
+ * stronger country evidence than `value`, which can be a national number from
+ * any country in a globally mixed address book. Prefer a syntactically valid
+ * canonical form and still send it THROUGH our normalizer downstream. Falling
+ * back to `value` is safe only when Google omitted or malformed the canonical
+ * field; emitting both could hash a wrong regional interpretation as well.
  */
 function phoneStringsOf(person: PeoplePerson): string[] {
   return (person.phoneNumbers ?? [])
     .map((phone) => {
+      const canonical = String(phone?.canonicalForm || "").trim();
+      if (/^\+[1-9]\d{6,14}$/.test(canonical)) return canonical;
       const typed = String(phone?.value || "").trim();
       if (typed) return typed;
-      return String(phone?.canonicalForm || "").trim();
+      return "";
     })
     .filter(Boolean);
 }

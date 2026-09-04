@@ -1,6 +1,10 @@
 "use client";
 
-import { HushhContacts, type HushhContactsPermissionState } from "@/lib/capacitor";
+import {
+  HushhContacts,
+  type HushhContactsPermissionState,
+} from "@/lib/capacitor";
+import { isWeb } from "@/lib/capacitor/platform";
 import {
   buildMarketplaceContactLookups,
   CONTACT_SYNC_BATCH_SIZE,
@@ -149,27 +153,59 @@ function shouldRetryContactSyncBatch(error: unknown): boolean {
 
 export async function syncOneLocationContactSignals({
   idToken,
+  resolveIdToken,
   accountPhoneNumber,
+  resolveAccountPhoneNumber,
   contactLimit = 5000,
   signal,
   source,
 }: {
-  idToken: string;
+  /** Existing callers may provide an already-resolved Firebase token. */
+  idToken?: string;
+  /**
+   * Defers token work until after the contact picker/source has returned.
+   * Browser contact pickers require the original tap's transient activation,
+   * so no network-backed auth or identity read may run before the source.
+   */
+  resolveIdToken?: () =>
+    | string
+    | null
+    | undefined
+    | Promise<string | null | undefined>;
   accountPhoneNumber?: string | null;
+  resolveAccountPhoneNumber?: () =>
+    | string
+    | null
+    | undefined
+    | Promise<string | null | undefined>;
   contactLimit?: number;
   /** Retained at the call boundary for older callers; batching owns the cap. */
   matchLimit?: number;
   signal?: AbortSignal;
   source?: MarketplaceContactSource;
 }): Promise<OneLocationContactSignalResult> {
-  if (!source) await assertContactsReadable();
+  // The web Contact Picker requires transient user activation. Its own read
+  // reports availability, so avoid any async bridge/auth work before select().
+  if (!source && !isWeb()) await assertContactsReadable();
 
   const lookupResult = await buildMarketplaceContactLookups({
     limit: contactLimit,
     accountPhoneNumber,
+    resolveAccountPhoneNumber,
     signal,
     ...(source ? { source } : {}),
   });
+  // Besides supplying the region, the transaction-scoped resolver asserts the
+  // initiating account still owns this contact read. Recheck immediately on
+  // both sides of token resolution so no batch can cross an account switch.
+  if (resolveAccountPhoneNumber) await resolveAccountPhoneNumber();
+  const tokenValue =
+    idToken ?? (resolveIdToken ? await resolveIdToken() : null);
+  const resolvedIdToken = String(tokenValue ?? "").trim();
+  if (resolveAccountPhoneNumber) await resolveAccountPhoneNumber();
+  if (!resolvedIdToken) {
+    throw new Error("Sign in before syncing contacts.");
+  }
   const dispatchedLookups = lookupResult.lookups.slice(
     0,
     CONTACT_SYNC_MAX_LOOKUPS,
@@ -209,7 +245,7 @@ export async function syncOneLocationContactSignals({
         signal?.throwIfAborted();
         requestDispatched = true;
         response = await ConnectionsService.syncContacts({
-          idToken,
+          idToken: resolvedIdToken,
           lookups: batch,
           signal,
         });
@@ -467,8 +503,11 @@ export function describeContactSyncOutcome(
     ? `${contactsLabel(connected)} connected from your contacts`
     : result.matchedUserIds.length
       ? `${contactsLabel(result.matchedUserIds.length)} matched`
-      : "No Hushh users matched this time";
+      : "No eligible contacts matched";
   const details = [
+    result.matchedUserIds.length === 0
+      ? "New matches require a verified phone and contact matching enabled. Existing connections may still appear."
+      : null,
     result.requestRequiredCount
       ? result.requestRequiredCount === 1
         ? "1 contact needs a connection request."

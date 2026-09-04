@@ -92,6 +92,13 @@ tests/test_verify_uat_release.py
 # test, and this manifest is the only pytest invocation in any lane.
 tests/test_contact_match_correctness.py
 
+# Identity cache warmup must run on an asyncio loop, and the match/mutation
+# contract must keep verified-phone, uniqueness, explicit target-consent, and
+# tombstone checks fail-closed. These are one end-to-end contact-sync boundary.
+tests/test_api_middleware.py
+tests/test_contact_sync_connection_contract.py
+tests/services/test_actor_identity_service.py
+
 # One Location Circles, and the migration guards that protect them.
 #
 # Every file below was written to lock a behaviour that had already broken

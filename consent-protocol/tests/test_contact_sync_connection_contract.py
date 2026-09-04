@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from api.middlewares.rate_limit import limiter
 from api.routes.iam import ContactDiscoverabilityRequest
-from api.routes.one.connections import ContactSyncBody, ContactSyncLookup
+from api.routes.one.connections import ContactSyncBody, ContactSyncLookup, sync_contacts
 from hushh_mcp.services.account_service import AccountService
 from hushh_mcp.services.connection_graph_service import ConnectionGraphService
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
@@ -43,9 +43,11 @@ class _ContactSyncService(ConnectionsService):
         self,
         *,
         target_discoverable: bool = True,
+        target_discoverability_by_user: dict[str, bool] | None = None,
         explicit_consent: bool = True,
         consent_contract_version: str = CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
         existing_status: str | None = None,
+        existing_status_by_user: dict[str, str | None] | None = None,
         stale_proof: bool = False,
         requester_verified: bool = True,
         ambiguous_proof: bool = False,
@@ -53,9 +55,11 @@ class _ContactSyncService(ConnectionsService):
     ) -> None:
         super().__init__(notifier=None)
         self.target_discoverable = target_discoverable
+        self.target_discoverability_by_user = target_discoverability_by_user or {}
         self.explicit_consent = explicit_consent
         self.consent_contract_version = consent_contract_version
         self.existing_status = existing_status
+        self.existing_status_by_user = existing_status_by_user or {}
         self.stale_proof = stale_proof
         self.requester_verified = requester_verified
         self.ambiguous_proof = ambiguous_proof
@@ -150,7 +154,9 @@ class _ContactSyncService(ConnectionsService):
             return [
                 {
                     "user_id": target_user_id,
-                    "contact_discoverable": self.target_discoverable,
+                    "contact_discoverable": self.target_discoverability_by_user.get(
+                        str(target_user_id), self.target_discoverable
+                    ),
                     "contact_sync_consent_enabled_at": (
                         "2026-08-25T10:00:00+00:00" if self.explicit_consent else None
                     ),
@@ -162,18 +168,21 @@ class _ContactSyncService(ConnectionsService):
                 for target_user_id in params.get("candidate_user_ids") or []
             ]
         if "FROM connections connection" in sql:
-            if self.existing_status is None:
-                return []
-            return [
-                {
-                    "id": "00000000-0000-4000-8000-000000000001",
-                    "user_a_id": "requester",
-                    "user_b_id": target_user_id,
-                    "target_user_id": target_user_id,
-                    "status": self.existing_status,
-                }
-                for target_user_id in params.get("candidate_user_ids") or []
-            ]
+            rows = []
+            for index, target_user_id in enumerate(params.get("candidate_user_ids") or [], start=1):
+                status = self.existing_status_by_user.get(str(target_user_id), self.existing_status)
+                if status is None:
+                    continue
+                rows.append(
+                    {
+                        "id": f"00000000-0000-4000-8000-{index:012d}",
+                        "user_a_id": "requester",
+                        "user_b_id": target_user_id,
+                        "target_user_id": target_user_id,
+                        "status": status,
+                    }
+                )
+            return rows
         raise AssertionError(f"unexpected execute_many SQL: {sql}")
 
     def _join_trusted_system_circles_bulk(self, *, pairs: list[tuple[str, str]]) -> None:
@@ -285,6 +294,14 @@ def test_sync_route_keeps_both_outer_request_limits() -> None:
     assert any("day" in limit for limit in limits)
 
 
+def test_sync_route_hydrates_requester_identity_before_matching() -> None:
+    source = inspect.getsource(sync_contacts)
+    warmup = "await ActorIdentityService().sync_from_firebase"
+    assert warmup in source
+    assert source.index(warmup) < source.index("reserve_contact_sync_lookup_budget")
+    assert source.index(warmup) < source.index("match_one_network_contact_lookups_exact")
+
+
 def test_exact_matcher_has_no_candidate_cap_and_returns_no_proof_material() -> None:
     source = inspect.getsource(RIAIAMService.match_one_network_contact_lookups_exact)
     assert "UNNEST" in source
@@ -294,8 +311,12 @@ def test_exact_matcher_has_no_candidate_cap_and_returns_no_proof_material() -> N
     assert "actor.contact_sync_consent_enabled_at IS NOT NULL" in source
     assert "actor.contact_sync_consent_rule_version > 0" in source
     assert "actor.contact_sync_consent_contract_version = $5" in source
+    assert "EXISTS" in source
+    assert "existing_connection.status = 'active'" in source
+    assert "existing_connection.user_a_id = $1" in source
     assert "COALESCE(actor.contact_discoverable, TRUE)" not in source
     assert source.index("COUNT(*) OVER") < source.index("LEFT JOIN actor_profiles")
+    assert source.index("COUNT(*) OVER") < source.index("OR EXISTS")
     response_projection = source.rsplit("return [", 1)[1]
     assert '"lookup_id"' in response_projection
     assert '"hash"' not in response_projection
@@ -328,7 +349,7 @@ def test_sync_revalidates_every_match_and_writes_inside_one_transaction() -> Non
     profile_lock_start = source.index("FROM actor_profiles")
     assert (
         "FOR UPDATE SKIP LOCKED"
-        in source[profile_lock_start : source.index("eligible_rows_by_lookup")]
+        in source[profile_lock_start : source.index("revalidated_rows_by_lookup")]
     )
     assert "ORDER BY user_id" in source
     assert "FOR UPDATE" in source
@@ -337,6 +358,8 @@ def test_sync_revalidates_every_match_and_writes_inside_one_transaction() -> Non
     assert '"authorization": "verified_phone_contact_match"' in source
     assert '"authorization": "existing_connection_match"' in source
     assert 'existing_status == "revoked"' in source
+    assert 'existing_status == "active"' in source
+    assert "activation_required_target_ids" in source
     assert "create_grant" not in source
     assert "scope_proposal" not in source
     assert 'outcome = "request_required"' not in source
@@ -438,6 +461,104 @@ def test_behavior_explicitly_hidden_target_writes_nothing() -> None:
     assert result["matchedCount"] == 0
     assert result["indeterminateLookupIds"] == ["lookup_0001"]
     assert service.writes == []
+
+
+def test_behavior_hidden_active_connection_is_recognized_without_new_provenance() -> None:
+    service = _ContactSyncService(
+        target_discoverable=False,
+        existing_status="active",
+    )
+
+    result = _behavior_sync(service)
+
+    assert result["matchedCount"] == 1
+    assert result["alreadyConnectedCount"] == 1
+    assert result["items"][0]["outcome"] == "already_connected"
+    assert result["indeterminateLookupIds"] == []
+    assert service.writes == []
+
+
+def test_behavior_busy_profile_does_not_hide_active_connection() -> None:
+    service = _ContactSyncService(
+        existing_status="active",
+        profile_lock_skipped=True,
+    )
+
+    result = _behavior_sync(service)
+
+    assert result["matchedCount"] == 1
+    assert result["alreadyConnectedCount"] == 1
+    assert result["items"][0]["outcome"] == "already_connected"
+    assert result["indeterminateLookupIds"] == []
+    assert service.writes == []
+
+
+def test_behavior_hidden_revoked_connection_remains_undisclosed() -> None:
+    service = _ContactSyncService(
+        target_discoverable=False,
+        existing_status="revoked",
+    )
+
+    result = _behavior_sync(service)
+
+    assert result["matchedCount"] == 0
+    assert result["items"] == []
+    assert result["indeterminateLookupIds"] == ["lookup_0001"]
+    assert service.writes == []
+
+
+@pytest.mark.parametrize("proof_failure", ["stale", "ambiguous"])
+def test_behavior_hidden_active_connection_still_requires_unique_current_phone_proof(
+    proof_failure: str,
+) -> None:
+    service = _ContactSyncService(
+        target_discoverable=False,
+        existing_status="active",
+        stale_proof=proof_failure == "stale",
+        ambiguous_proof=proof_failure == "ambiguous",
+    )
+
+    result = _behavior_sync(service)
+
+    assert result["matchedCount"] == 0
+    assert result["items"] == []
+    assert result["indeterminateLookupIds"] == ["lookup_0001"]
+    assert service.writes == []
+
+
+def test_behavior_mixed_hidden_active_and_new_consented_match_preserves_both() -> None:
+    service = _ContactSyncService(
+        target_discoverability_by_user={"target_0001": False},
+        existing_status_by_user={"target_0001": "active"},
+    )
+
+    result = _behavior_sync(service, count=2)
+
+    assert [(item["userId"], item["outcome"]) for item in result["items"]] == [
+        ("target_0001", "already_connected"),
+        ("target_0002", "auto_connected"),
+    ]
+    assert result["matchedCount"] == 2
+    assert result["alreadyConnectedCount"] == 1
+    assert result["autoConnectedCount"] == 1
+    assert service.writes == [
+        (
+            "bulk_graph",
+            "requester",
+            (
+                {
+                    "target_user_id": "target_0002",
+                    "origin_metadata": {
+                        "authorization": "verified_phone_contact_match",
+                        "targetConsentEnabledAt": "2026-08-25T10:00:00+00:00",
+                        "targetConsentRuleVersion": 3,
+                        "targetConsentContractVersion": (CONTACT_SYNC_CONSENT_CONTRACT_VERSION),
+                    },
+                },
+            ),
+        ),
+        ("bulk_circle", (("requester", "target_0002"),)),
+    ]
 
 
 def test_behavior_stale_consent_contract_writes_nothing() -> None:

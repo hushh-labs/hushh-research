@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   syncSignals: vi.fn(),
+  requestContactCheck: vi.fn(() => true),
+  consentDialogOpenChange: vi.fn(),
+  consentDialogChoose: vi.fn(),
+  consentDialogRetry: vi.fn(),
 }));
 
 vi.mock("@/lib/capacitor/platform", () => ({
@@ -58,6 +62,23 @@ vi.mock("@/lib/one-location/contact-signals", async () => {
 vi.mock("@/lib/observability/client", () => ({ trackEvent: vi.fn() }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: { onConnectionGraphMutated: vi.fn() },
+}));
+vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
+  useContactDiscoverabilityConsent: () => ({
+    requestContactCheck: mocks.requestContactCheck,
+    preference: { status: "decided", enabled: true, ruleVersion: 1 },
+    dialogProps: {
+      open: false,
+      ready: false,
+      loading: false,
+      savingChoice: null,
+      error: null,
+      actionLabel: "Sync contacts",
+      onOpenChange: mocks.consentDialogOpenChange,
+      onChoose: mocks.consentDialogChoose,
+      onRetry: mocks.consentDialogRetry,
+    },
+  }),
 }));
 
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
@@ -107,6 +128,7 @@ function foreground() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.isNative.mockReturnValue(true);
+  mocks.requestContactCheck.mockReturnValue(true);
   mocks.addListener.mockResolvedValue({ remove: mocks.remove });
   mocks.openAppSettings.mockResolvedValue({ opened: true });
   mocks.getPermissionState.mockResolvedValue({ state: "denied" });

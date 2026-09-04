@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -55,6 +62,7 @@ import {
 } from "@/lib/services/consent-center-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
+import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
 import {
   isIAMSchemaNotReadyError,
   RiaService,
@@ -196,7 +204,17 @@ function formatEvidenceForms(forms?: Array<{ form?: string | null; last_filed_at
 
 export default function MarketplacePage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, phoneNumber, resolveVerifiedPhoneNumber } = useAuth();
+  const contactSyncIdentityRef = useRef({
+    userId: user?.uid ?? null,
+    accountPhoneNumber: phoneNumber ?? user?.phoneNumber ?? null,
+  });
+  useLayoutEffect(() => {
+    contactSyncIdentityRef.current = {
+      userId: user?.uid ?? null,
+      accountPhoneNumber: phoneNumber ?? user?.phoneNumber ?? null,
+    };
+  }, [phoneNumber, user]);
   const { personaState } = usePersonaState();
   const environment = resolveAppEnvironment();
   const allowTestProfiles = environment !== "production";
@@ -233,6 +251,15 @@ export default function MarketplacePage() {
   const [contactMatchLoading, setContactMatchLoading] = useState(false);
   const [contactMatchError, setContactMatchError] = useState<string | null>(null);
   const [contactScanSummary, setContactScanSummary] = useState<string | null>(null);
+  const contactResultOwnerUserIdRef = useRef(user?.uid ?? null);
+  useLayoutEffect(() => {
+    const nextUserId = user?.uid ?? null;
+    if (contactResultOwnerUserIdRef.current === nextUserId) return;
+    contactResultOwnerUserIdRef.current = nextUserId;
+    setContactMatches([]);
+    setContactMatchError(null);
+    setContactScanSummary(null);
+  }, [user?.uid]);
   const [deckRefreshNonce, setDeckRefreshNonce] = useState(0);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -863,24 +890,34 @@ export default function MarketplacePage() {
       toast.error("Sign in required. Connect needs your signed-in account before matching contacts.");
       return;
     }
+    const initiatingUserId = user.uid;
+    const resolveLatestAccountPhoneNumber =
+      createContactSyncAccountPhoneResolver({
+        initiatingUserId,
+        getCurrentIdentity: () => contactSyncIdentityRef.current,
+        hydrateAccountPhoneNumber: resolveVerifiedPhoneNumber,
+      });
     try {
       setContactMatchLoading(true);
       setContactMatchError(null);
       const lookupResult = await buildMarketplaceContactLookups({
         limit: 500,
         // Resolves which region bare national contact numbers belong to.
-        accountPhoneNumber: user.phoneNumber,
+        resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
       });
       if (lookupResult.lookups.length === 0) {
         setContactMatches([]);
         setContactScanSummary("No phone numbers found in contacts.");
         return;
       }
+      await resolveLatestAccountPhoneNumber();
       const idToken = await user.getIdToken();
+      await resolveLatestAccountPhoneNumber();
       const matches = await RiaService.matchMarketplaceContacts(idToken, {
         phone_lookups: lookupResult.lookups.map(({ hash, last4 }) => ({ hash, last4 })),
         limit: 50,
       });
+      await resolveLatestAccountPhoneNumber();
       setContactMatches(matches);
       setContactScanSummary(
         `${matches.length} match${matches.length === 1 ? "" : "es"} from ${lookupResult.totalContacts} contacts.`
@@ -895,7 +932,7 @@ export default function MarketplacePage() {
     } finally {
       setContactMatchLoading(false);
     }
-  }, [user]);
+  }, [resolveVerifiedPhoneNumber, user]);
 
   const openTestInvestorWorkspace = useCallback(
     (userId: string) => {

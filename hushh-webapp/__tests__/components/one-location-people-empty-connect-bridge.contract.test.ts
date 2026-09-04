@@ -14,10 +14,9 @@ import { describe, expect, it } from "vitest";
  *   2. Connect search finds nobody  -> offer "Invite them to One"  (on main)
  *   3. They accept the invite       -> they appear in both lists
  *
- * Steps 2 and 3 already existed. Step 1 ended at "No matching people / Try a
- * different name.", which answers a question nobody asked and leaves the
- * person to guess that Connect is the next place to look. The chain only works
- * end to end if every link points at the next one.
+ * Steps 2 and 3 already existed. Step 1 used to end at a dead end that left
+ * the person to guess that Connect was the next place to look. The chain only
+ * works end to end if every link points at the next one and keeps the search.
  *
  * These are source contracts rather than render tests because both surfaces
  * need a full view-model to mount, and what is worth protecting is narrow: the
@@ -37,8 +36,8 @@ const HUB = source(
 const CONNECT = source("app", "connect", "page-client.tsx");
 
 function peopleEmptyState(src: string): string {
-  // Identified by the two titles it switches between, not by line number.
-  const anchor = src.indexOf('hasSearch ? "No matching people"');
+  // Identified by the searched title, not by line number or formatting.
+  const anchor = src.indexOf("? `No match for");
   expect(
     anchor,
     "the People empty state was renamed; update this contract with it",
@@ -52,33 +51,33 @@ describe("link 1 — People search hands over to Connect", () => {
   const block = peopleEmptyState(HUB);
 
   it("names the empty result plainly", () => {
-    expect(block).toContain("No matching people");
-    expect(block).toContain("Try another name.");
+    expect(block).toContain("No match for");
+    expect(block).toContain("They may not be in your connections yet.");
   });
 
   it("offers the way into Connect", () => {
-    expect(block).toContain("action=");
-    expect(block).toContain("Manage connections");
-    expect(block).toContain(
-      'data-voice-control-id="one-location-empty-connect-bridge"',
-    );
+    expect(block).toContain("action={addPeopleEmptyAction}");
+    expect(HUB).toContain("Find or invite someone");
+    expect(HUB).toContain('data-testid="one-location-people-find-or-invite"');
   });
 
   it("offers the same bridge when there are no connections at all", () => {
     expect(block).toContain("addPeopleEmptyAction");
-    expect(HUB).toContain("Add people");
+    expect(HUB).toContain("onClick={onAddConnections}");
+    expect(HUB).toContain("Find or invite someone");
     expect(HUB).toContain(
       'data-voice-control-id="one-location-add-connections"',
     );
   });
 
-  it("routes through the hub's single Connect entry point", () => {
-    // The same one the header's Add people button uses, so the two cannot
-    // drift to different destinations.
-    expect(block).toContain("onClick={onAddConnections}");
+  it("preserves the search and a return path when it opens Connect", () => {
     expect(HUB).toContain(
-      "onAddConnections={() => router.push(ROUTES.CONNECT)}",
+      "href={peopleConnectRecoveryHref(vm.recipientSearch)}",
     );
+    expect(HUB).toContain('params.set("tab", "all")');
+    expect(HUB).toContain("params.set(CONNECT_SEARCH_QUERY_PARAM, trimmed)");
+    expect(HUB).toContain("params.set(CONNECT_RETURN_PARAM");
+    expect(HUB).toContain("`${ROUTES.ONE_LOCATION}?view=people`");
   });
 });
 
@@ -115,7 +114,8 @@ describe("the chain holds end to end", () => {
 
   it("every link points at the next one", () => {
     // 1 -> Connect
-    expect(peopleEmptyState(HUB)).toContain("Manage connections");
+    expect(peopleEmptyState(HUB)).toContain("addPeopleEmptyAction");
+    expect(HUB).toContain("Find or invite someone");
     expect(HUB).toContain("ROUTES.CONNECT");
     // 2 -> invite
     expect(CONNECT).toContain("Invite them to One");

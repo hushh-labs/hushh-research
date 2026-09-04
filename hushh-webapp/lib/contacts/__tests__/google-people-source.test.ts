@@ -111,29 +111,27 @@ describe("googlePeopleContactSource", () => {
     expect(init?.cache).toBe("no-store");
   });
 
-  it("passes the typed number through, not Google's canonical form", async () => {
-    // `phone-normalization.ts` exists so both sides of the hash reach
-    // byte-identical E.164 through ONE implementation. Google's parser and
-    // libphonenumber-js need not agree at the edges, and the moment they
-    // disagree the digest misses silently and the person is told nobody
-    // matched. The normalizer sees what the user typed.
+  it("prefers Google's canonical E.164 over an ambiguous typed value", async () => {
+    // A globally mixed Google address book can contain a US national display
+    // value while the signed-in account is Indian. canonicalForm preserves the
+    // contact's own country evidence; it still goes through our normalizer.
     respondWith({
       connections: [
         {
-          resourceName: "people/1",
-          names: [{ displayName: "Asha" }],
+          resourceName: "people/us-1",
+          names: [{ displayName: "US teammate" }],
           phoneNumbers: [
-            { value: "98765 43210", canonicalForm: "+919876543210" },
+            { value: "(415) 555-0101", canonicalForm: "+14155550101" },
           ],
         },
       ],
     });
 
     const result = await googlePeopleContactSource("tok")({ limit: 500 });
-    expect(result.contacts[0].phoneNumbers).toEqual(["98765 43210"]);
+    expect(result.contacts[0].phoneNumbers).toEqual(["+14155550101"]);
   });
 
-  it("falls back to the canonical form only when there is no typed value", async () => {
+  it("uses a canonical form when there is no typed value", async () => {
     respondWith({
       connections: [
         {
@@ -147,6 +145,23 @@ describe("googlePeopleContactSource", () => {
     const result = await googlePeopleContactSource("tok")({ limit: 500 });
     // Still goes THROUGH the normalizer downstream, never around it.
     expect(result.contacts[0].phoneNumbers).toEqual(["+919876500000"]);
+  });
+
+  it("falls back to the typed value when canonicalForm is malformed", async () => {
+    respondWith({
+      connections: [
+        {
+          resourceName: "people/typed-fallback",
+          names: [{ displayName: "Typed fallback" }],
+          phoneNumbers: [
+            { value: "98765 43210", canonicalForm: "not-e164" },
+          ],
+        },
+      ],
+    });
+
+    const result = await googlePeopleContactSource("tok")({ limit: 500 });
+    expect(result.contacts[0].phoneNumbers).toEqual(["98765 43210"]);
   });
 
   it("reports google, unlimited, and no region", async () => {
