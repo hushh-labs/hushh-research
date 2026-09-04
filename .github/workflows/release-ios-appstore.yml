@@ -116,6 +116,14 @@ jobs:
           REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ github.event.inputs.sha }}"
 
+      - name: Require release contains approved UAT commit
+        id: uatguard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          UAT_WORKFLOW: deploy-uat.yml
+        run: bash scripts/ci/require-release-contains-uat.sh "${{ github.event.inputs.sha }}"
+
       - name: Check out the exact release SHA (detached)
         shell: bash
         run: |
@@ -477,6 +485,7 @@ jobs:
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| SHA | \`${{ github.event.inputs.sha }}\` |"
+            echo "| UAT source | \`${UAT_SOURCE_SHA:-unknown}\` (release ⊇ approved UAT) |"
             echo "| Version | ${MARKETING:-unknown} |"
             echo "| Build | ${{ steps.build_number.outputs.next_build }} |"
             echo "| Bundle | ${IOS_BUNDLE_ID} |"
