@@ -28,28 +28,28 @@ async def test_require_firebase_auth_rejects_malformed_bearer_with_challenge():
 
 
 @pytest.mark.asyncio
-async def test_require_firebase_auth_schedules_identity_warmup(monkeypatch):
+async def test_require_firebase_auth_awaits_identity_warmup_lifecycle(monkeypatch):
     calls: list[str] = []
+    started = asyncio.Event()
+    release = asyncio.Event()
 
     async def _fake_run_in_threadpool(func, authorization):
         assert authorization == "Bearer firebase-token"
         return "firebase-user-123456789012"
 
     class _FakeActorIdentityService:
-        def schedule_sync_from_firebase(
+        async def sync_from_firebase_if_due(
             self,
             firebase_uid: str,
             *,
             force: bool = False,
-        ) -> None:
-            # Starlette dispatches synchronous BackgroundTasks through a
-            # worker thread. The real identity scheduler needs the request's
-            # running asyncio loop, so a sync wrapper silently made every
-            # authenticated-request warmup a no-op. Requiring a live loop here
-            # pins the execution model as well as the eventual call.
+        ) -> dict[str, str]:
             assert asyncio.get_running_loop().is_running()
             assert force is False
             calls.append(firebase_uid)
+            started.set()
+            await release.wait()
+            return {"user_id": firebase_uid}
 
     monkeypatch.setattr(middleware, "run_in_threadpool", _fake_run_in_threadpool)
     monkeypatch.setattr(
@@ -67,9 +67,61 @@ async def test_require_firebase_auth_schedules_identity_warmup(monkeypatch):
     assert firebase_uid == "firebase-user-123456789012"
     assert calls == []
 
-    await background_tasks()
+    warmup = asyncio.create_task(background_tasks())
+    await started.wait()
 
     assert calls == ["firebase-user-123456789012"]
+    assert not warmup.done()
+
+    release.set()
+    await warmup
+
+
+@pytest.mark.asyncio
+async def test_identity_warmup_failure_never_logs_user_or_phone_details(
+    monkeypatch,
+    caplog,
+):
+    firebase_uid = "firebase-user-123456789012"
+    phone_number = "+16505550101"
+
+    async def _fake_run_in_threadpool(func, authorization):
+        assert authorization == "Bearer firebase-token"
+        return firebase_uid
+
+    class _FakeActorIdentityService:
+        async def sync_from_firebase_if_due(
+            self,
+            requested_uid: str,
+            *,
+            force: bool = False,
+        ) -> None:
+            assert requested_uid == firebase_uid
+            assert force is False
+            raise RuntimeError(f"duplicate phone binding {phone_number}")
+
+    monkeypatch.setattr(middleware, "run_in_threadpool", _fake_run_in_threadpool)
+    monkeypatch.setattr(
+        middleware,
+        "ActorIdentityService",
+        _FakeActorIdentityService,
+    )
+    caplog.set_level("DEBUG", logger=middleware.__name__)
+
+    background_tasks = BackgroundTasks()
+    authenticated_uid = await middleware.require_firebase_auth(
+        authorization="Bearer firebase-token",
+        background_tasks=background_tasks,
+    )
+    await background_tasks()
+
+    assert authenticated_uid == firebase_uid
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "error=RuntimeError" in messages
+    assert firebase_uid not in messages
+    assert phone_number not in messages
+    assert not any(character.isdigit() for character in messages)
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 @pytest.mark.asyncio

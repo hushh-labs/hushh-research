@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  contactCheckAllowed: true,
+  requestContactCheck: vi.fn(),
 }));
 
 vi.mock("@/lib/capacitor", () => ({
@@ -38,6 +40,24 @@ vi.mock("@/lib/contacts/google-contacts-token", () => ({
   preloadGoogleContactsAuth: mocks.preloadGoogle,
   isGoogleContactsConsentCancelled: (error: unknown) =>
     (error as { name?: string })?.name === "AbortError",
+}));
+
+vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
+  useContactDiscoverabilityConsent: () => ({
+    requestContactCheck: mocks.requestContactCheck,
+    preference: { status: "decided", enabled: false, ruleVersion: 1 },
+    dialogProps: {
+      open: false,
+      ready: false,
+      loading: false,
+      savingChoice: null,
+      error: null,
+      actionLabel: "Sync contacts",
+      onOpenChange: vi.fn(),
+      onChoose: vi.fn(),
+      onRetry: vi.fn(),
+    },
+  }),
 }));
 
 vi.mock("sonner", () => ({
@@ -132,6 +152,10 @@ beforeEach(() => {
     state: mocks.permissionState,
   }));
   mocks.syncSignals.mockResolvedValue(EMPTY_RESULT);
+  mocks.contactCheckAllowed = true;
+  mocks.requestContactCheck.mockImplementation(
+    () => mocks.contactCheckAllowed,
+  );
   // The hook calls `.catch()` on this directly. A bare vi.fn() returns
   // undefined and throws inside the mount effect, which vitest reports as an
   // unhandled error while the assertions still pass.
@@ -139,6 +163,20 @@ beforeEach(() => {
 });
 
 describe("useContactSync — which source it reads", () => {
+  it("does not read a contact source until the privacy decision gate permits it", async () => {
+    mocks.contactCheckAllowed = false;
+    const { result } = setup();
+    await waitFor(() => expect(result.current.available).toBe(true));
+
+    await act(async () => {
+      await result.current.sync();
+    });
+
+    expect(mocks.requestContactCheck).toHaveBeenCalledTimes(1);
+    expect(mocks.requestGoogleToken).not.toHaveBeenCalled();
+    expect(mocks.syncSignals).not.toHaveBeenCalled();
+  });
+
   it("reads the device book and never touches Google when one exists", async () => {
     mocks.googleAvailability = "connectable";
     const { result } = setup();

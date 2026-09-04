@@ -134,6 +134,7 @@ function BodyPortal({ children }: { children: ReactNode }) {
 
 import { HushhContacts } from "@/lib/capacitor";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import {
   googleContactsAvailability,
   googlePeopleContactSource,
@@ -145,6 +146,7 @@ import {
 } from "@/lib/contacts/google-contacts-token";
 import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-availability";
 import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
+import { useContactDiscoverabilityConsent } from "@/lib/contacts/use-contact-discoverability-consent";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
@@ -2449,6 +2451,18 @@ export function OneLocationAgentPageContent({
       accountPhoneNumber,
     };
   }, [accountPhoneNumber, contactSyncUserId]);
+  const resolveContactPrivacyIdToken = useCallback(
+    async () => auth.user?.getIdToken() ?? null,
+    [auth.user],
+  );
+  const {
+    requestContactCheck,
+    dialogProps: contactDiscoverabilityConsentDialogProps,
+  } = useContactDiscoverabilityConsent({
+    userId: contactSyncUserId,
+    getIdToken: auth.user ? resolveContactPrivacyIdToken : null,
+    actionLabel: "Find contacts",
+  });
   const { vaultOwnerToken, vaultKey } = useVault();
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
@@ -6806,6 +6820,12 @@ export function OneLocationAgentPageContent({
           canOpenSettings: false,
         };
       }
+      if (!requestContactCheck()) {
+        // The page owns the consent dialog. Return onboarding to its idle
+        // state and require the fresh Find contacts tap that browser/native
+        // contact pickers depend on after a preference is recorded.
+        return { status: "cancelled" };
+      }
       const initiatingUserId = contactSyncUserId;
       const resolveLatestAccountPhoneNumber =
         createContactSyncAccountPhoneResolver({
@@ -6923,6 +6943,7 @@ export function OneLocationAgentPageContent({
       contactSyncUserId,
       googleContactsFallback,
       loadRecipientPage,
+      requestContactCheck,
       recipientSearch,
       refresh,
     ]);
@@ -7029,6 +7050,7 @@ export function OneLocationAgentPageContent({
       toast.error(message);
       return;
     }
+    if (!requestContactCheck()) return;
     if (contactSyncInFlightRef.current) return;
     contactSyncInFlightRef.current = true;
     const initiatingUserId = contactSyncUserId;
@@ -7233,6 +7255,7 @@ export function OneLocationAgentPageContent({
     handleInviteContactCandidates,
     openContactSettingsAndWatch,
     loadRecipientPage,
+    requestContactCheck,
     recipientSearch,
     refresh,
   ]);
@@ -13239,6 +13262,9 @@ export function OneLocationAgentPageContent({
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
         />
+        <ContactDiscoverabilityConsentDialog
+          {...contactDiscoverabilityConsentDialogProps}
+        />
 
         <SaveLocationModal
           key={`saved-location-${auth.userId}`}
@@ -13630,6 +13656,9 @@ export function OneLocationAgentPageContent({
           onSyncAgain={handleSyncContactSignal}
           onInvite={handleInviteContactCandidates}
           onRequestConnection={handleRequestContactMatch}
+        />
+        <ContactDiscoverabilityConsentDialog
+          {...contactDiscoverabilityConsentDialogProps}
         />
       </AppPageShell>
     );

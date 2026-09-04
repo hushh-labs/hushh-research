@@ -9216,10 +9216,31 @@ class RIAIAMService:
                 -- duplicate cannot make another account appear unique.
                 WHERE identity.match_count = 1
                   AND identity.user_id <> $1
-                  AND actor.contact_discoverable = TRUE
-                  AND actor.contact_sync_consent_enabled_at IS NOT NULL
-                  AND actor.contact_sync_consent_rule_version > 0
-                  AND actor.contact_sync_consent_contract_version = $5
+                  AND (
+                    (
+                      actor.contact_discoverable = TRUE
+                      AND actor.contact_sync_consent_enabled_at IS NOT NULL
+                      AND actor.contact_sync_consent_rule_version > 0
+                      AND actor.contact_sync_consent_contract_version = $5
+                    )
+                    OR EXISTS (
+                      -- Contact discoverability controls disclosure to new
+                      -- people. It must not hide a relationship the requester
+                      -- can already see in their canonical ONE graph.
+                      SELECT 1
+                      FROM connections existing_connection
+                      WHERE existing_connection.status = 'active'
+                        AND (
+                          (
+                            existing_connection.user_a_id = $1
+                            AND existing_connection.user_b_id = identity.user_id
+                          ) OR (
+                            existing_connection.user_b_id = $1
+                            AND existing_connection.user_a_id = identity.user_id
+                          )
+                        )
+                    )
+                  )
                 ORDER BY identity.lookup_id
                 """,
                 user_id,

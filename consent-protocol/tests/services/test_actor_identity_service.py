@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import copy
+import logging
 import sys
 import types
 from datetime import datetime, timezone
@@ -160,11 +163,45 @@ class _PhoneClaimFakeConnection:
                 "updated_at": now,
             },
         }
+        self.fail_claim = False
+        self.statement_order: list[str] = []
+
+    class _Transaction:
+        def __init__(self, conn: "_PhoneClaimFakeConnection") -> None:
+            self.conn = conn
+            self.snapshot: dict[str, dict[str, object]] | None = None
+
+        async def __aenter__(self) -> None:
+            self.snapshot = copy.deepcopy(self.conn.rows)
+            return None
+
+        async def __aexit__(self, exc_type, *args: object) -> bool:
+            if exc_type is not None and self.snapshot is not None:
+                self.conn.rows = self.snapshot
+            return False
+
+    def transaction(self) -> "_PhoneClaimFakeConnection._Transaction":
+        return self._Transaction(self)
 
     async def execute(self, query: str, *args):
         normalized = " ".join(query.lower().split())
+        if "insert into vault_keys" in normalized:
+            self.statement_order.append("vault")
+            return "INSERT 0 1"
+        if "insert into actor_profiles" in normalized:
+            self.statement_order.append("profile")
+            return "INSERT 0 1"
+        if "pg_advisory_xact_lock" in normalized:
+            self.statement_order.append("phone_lock")
+            assert query.count("$1") == 1
+            assert args == ("actor_identity_phone_claim:+16505550101",)
+            assert "+16505550101" not in query
+            return "SELECT 1"
         if "update actor_identity_cache" not in normalized:
             return "UPDATE 0"
+        self.statement_order.append("clear_duplicate")
+        assert "order by user_id" in normalized
+        assert "for update" in normalized
         user_id, phone_number = args
         cleared = 0
         for row in self.rows.values():
@@ -179,6 +216,9 @@ class _PhoneClaimFakeConnection:
         normalized = " ".join(query.lower().split())
         if "insert into actor_identity_cache" not in normalized:
             return None
+        self.statement_order.append("claim")
+        if self.fail_claim:
+            raise RuntimeError("simulated identity insert failure")
         user_id, phone_number, source = args
         now = datetime.now(timezone.utc)
         row = self.rows.setdefault(
@@ -202,6 +242,32 @@ class _PhoneClaimFakeConnection:
             }
         )
         return row
+
+
+@pytest.mark.asyncio
+async def test_verified_phone_owner_transfer_uses_parameterized_lock_and_ordered_rows() -> None:
+    statements: list[tuple[str, tuple[object, ...]]] = []
+
+    class FakeConnection:
+        async def execute(self, query: str, *args: object) -> str:
+            statements.append((query, args))
+            return "OK"
+
+    await ActorIdentityService._lock_and_clear_verified_phone_binding(
+        FakeConnection(),  # type: ignore[arg-type]
+        user_id="firebase-user-123456789012",
+        phone_number="+16505550101",
+    )
+
+    assert len(statements) == 2
+    lock_sql, lock_args = statements[0]
+    assert "pg_advisory_xact_lock(hashtextextended($1, 0))" in lock_sql
+    assert lock_args == ("actor_identity_phone_claim:+16505550101",)
+    assert "+16505550101" not in lock_sql
+    clear_sql, clear_args = statements[1]
+    assert "WITH locked_bindings AS MATERIALIZED" in clear_sql
+    assert clear_sql.index("ORDER BY user_id") < clear_sql.index("FOR UPDATE")
+    assert clear_args == ("firebase-user-123456789012", "+16505550101")
 
 
 @pytest.mark.asyncio
@@ -285,11 +351,49 @@ async def test_sync_from_firebase_preserves_backend_phone_claim_when_firebase_ha
 
 
 @pytest.mark.asyncio
+async def test_firebase_sync_failure_never_logs_identity_or_phone_details(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = ActorIdentityService()
+    firebase_uid = "firebase-user-123456789012"
+    phone_number = "+16505550101"
+
+    async def fake_get_many(user_ids: list[str]) -> dict[str, dict]:
+        assert user_ids == [firebase_uid]
+        return {}
+
+    def fail_get_user(uid: str, *, app: object) -> None:
+        assert uid == firebase_uid
+        raise RuntimeError(f"provider rejected phone {phone_number}")
+
+    monkeypatch.setattr(service, "get_many", fake_get_many)
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setitem(
+        sys.modules,
+        "firebase_admin",
+        types.SimpleNamespace(auth=types.SimpleNamespace(get_user=fail_get_user)),
+    )
+    caplog.set_level(logging.DEBUG, logger=actor_identity_service.__name__)
+
+    result = await service.sync_from_firebase(firebase_uid, force=True)
+
+    assert result is None
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "error=RuntimeError" in messages
+    assert firebase_uid not in messages
+    assert phone_number not in messages
+    assert not any(character.isdigit() for character in messages)
+    assert all(record.exc_info is None for record in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = ActorIdentityService()
     conn = _PhoneClaimFakeConnection()
+    conn.rows.pop("firebase-user-123456789012")
 
     async def fake_get_pool() -> _AliasFakePool:
         return _AliasFakePool(conn)
@@ -308,6 +412,85 @@ async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
     previous_owner = conn.rows["other-firebase-user-1234567890"]
     assert previous_owner["phone_number"] is None
     assert previous_owner["phone_verified"] is False
+    assert conn.statement_order == ["vault", "profile", "phone_lock", "clear_duplicate", "claim"]
+
+
+@pytest.mark.asyncio
+async def test_claim_verified_phone_rolls_back_duplicate_clear_when_claim_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    conn = _PhoneClaimFakeConnection()
+    conn.rows.pop("firebase-user-123456789012")
+    conn.fail_claim = True
+
+    async def fake_get_pool() -> _AliasFakePool:
+        return _AliasFakePool(conn)
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    identity = await service.claim_verified_phone(
+        user_id="firebase-user-123456789012",
+        phone_number="+16505550101",
+    )
+
+    assert identity is None
+    previous_owner = conn.rows["other-firebase-user-1234567890"]
+    assert previous_owner["phone_number"] == "+16505550101"
+    assert previous_owner["phone_verified"] is True
+    assert "firebase-user-123456789012" not in conn.rows
+    assert conn.statement_order == ["vault", "profile", "phone_lock", "clear_duplicate", "claim"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("writer", ["upsert", "claim"])
+async def test_verified_phone_writer_never_logs_exception_phone_details(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    writer: str,
+) -> None:
+    phone_number = "+16505550101"
+    database_error = RuntimeError(
+        "duplicate key value violates unique constraint; "
+        f"Key (phone_number)=({phone_number}) already exists"
+    )
+
+    class FailingAcquire:
+        async def __aenter__(self) -> None:
+            raise database_error
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class FailingPool:
+        def acquire(self) -> FailingAcquire:
+            return FailingAcquire()
+
+    async def fake_get_pool() -> FailingPool:
+        return FailingPool()
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+    caplog.set_level(logging.DEBUG, logger=actor_identity_service.__name__)
+
+    service = ActorIdentityService()
+    if writer == "upsert":
+        result = await service.upsert_identity(
+            user_id="firebase-user-alpha",
+            phone_number=phone_number,
+            phone_verified=True,
+        )
+    else:
+        result = await service.claim_verified_phone(
+            user_id="firebase-user-alpha",
+            phone_number=phone_number,
+        )
+
+    assert result is None
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "error=RuntimeError" in messages
+    assert phone_number not in messages
+    assert not any(character.isdigit() for character in messages)
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -500,7 +683,7 @@ async def test_email_alias_verification_blocks_existing_verified_owner(
 async def test_upsert_identity_ensures_actor_profile_spine_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    executed_statements: list[str] = []
+    executed_statements: list[tuple[str, tuple[object, ...]]] = []
 
     class FakeTx:
         async def __aenter__(self) -> None:
@@ -514,11 +697,11 @@ async def test_upsert_identity_ensures_actor_profile_spine_row(
             return FakeTx()
 
         async def execute(self, query: str, *args: object) -> str:
-            executed_statements.append(query)
+            executed_statements.append((query, args))
             return "INSERT 0 1"
 
         async def fetchrow(self, query: str, *args: object) -> dict[str, object]:
-            executed_statements.append(query)
+            executed_statements.append((query, args))
             now = datetime.now(timezone.utc)
             return {
                 "user_id": args[0],
@@ -562,6 +745,184 @@ async def test_upsert_identity_ensures_actor_profile_spine_row(
     assert identity is not None
     assert identity["user_id"] == "new-signup-user-9999"
     assert identity["phone_verified"] is True
-    assert len(executed_statements) == 2
-    assert "INSERT INTO actor_profiles" in executed_statements[0]
-    assert "INSERT INTO actor_identity_cache" in executed_statements[1]
+    assert len(executed_statements) == 5
+    assert "INSERT INTO vault_keys" in executed_statements[0][0]
+    assert "'placeholder'" in executed_statements[0][0]
+    assert "INSERT INTO actor_profiles" in executed_statements[1][0]
+    lock_sql, lock_args = executed_statements[2]
+    assert "pg_advisory_xact_lock(hashtextextended($1, 0))" in lock_sql
+    assert lock_args == ("actor_identity_phone_claim:+15559990000",)
+    assert "+15559990000" not in lock_sql
+    clear_sql, clear_args = executed_statements[3]
+    assert "ORDER BY user_id" in clear_sql
+    assert "FOR UPDATE" in clear_sql
+    assert clear_args == ("new-signup-user-9999", "+15559990000")
+    assert "INSERT INTO actor_identity_cache" in executed_statements[4][0]
+
+
+@pytest.mark.asyncio
+async def test_awaited_sync_coalesces_concurrent_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    user_id = "firebase-user-coalesced-1234567890"
+    actor_identity_service._IDENTITY_SYNC_TASKS.clear()
+    actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def slow_sync(_user_id: str, *, force: bool = False):
+        nonlocal calls
+        assert _user_id == user_id
+        assert force is False
+        calls += 1
+        started.set()
+        await release.wait()
+        return {"user_id": _user_id}
+
+    monkeypatch.setattr(service, "sync_from_firebase", slow_sync)
+
+    first = asyncio.create_task(service.sync_from_firebase_if_due(user_id))
+    await started.wait()
+    second = asyncio.create_task(service.sync_from_firebase_if_due(user_id))
+    await asyncio.sleep(0)
+
+    assert calls == 1
+    release.set()
+    assert await asyncio.gather(first, second) == [
+        {"user_id": user_id},
+        {"user_id": user_id},
+    ]
+    assert user_id not in actor_identity_service._IDENTITY_SYNC_IN_FLIGHT
+    assert user_id in actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+
+
+@pytest.mark.asyncio
+async def test_awaited_sync_success_cooldown_skips_underlying_cache_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    user_id = "firebase-user-cooldown-1234567890"
+    actor_identity_service._IDENTITY_SYNC_TASKS.clear()
+    actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+    calls = 0
+
+    async def successful_sync(_user_id: str, *, force: bool = False):
+        nonlocal calls
+        calls += 1
+        return {"user_id": _user_id}
+
+    monkeypatch.setattr(service, "sync_from_firebase", successful_sync)
+
+    assert await service.sync_from_firebase_if_due(user_id) == {"user_id": user_id}
+    assert await service.sync_from_firebase_if_due(user_id) is None
+    assert calls == 1
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_mode", ["none", "exception"])
+async def test_awaited_sync_failure_clears_cooldown_for_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    failure_mode: str,
+) -> None:
+    service = ActorIdentityService()
+    user_id = "firebase-user-awaited-retry-1234567890"
+    actor_identity_service._IDENTITY_SYNC_TASKS.clear()
+    actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+    calls = 0
+
+    async def failed_sync(_user_id: str, *, force: bool = False):
+        nonlocal calls
+        calls += 1
+        if failure_mode == "exception":
+            raise RuntimeError("simulated sync failure")
+        return None
+
+    monkeypatch.setattr(service, "sync_from_firebase", failed_sync)
+
+    if failure_mode == "exception":
+        with pytest.raises(RuntimeError, match="simulated sync failure"):
+            await service.sync_from_firebase_if_due(user_id)
+    else:
+        assert await service.sync_from_firebase_if_due(user_id) is None
+
+    assert user_id not in actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL
+    if failure_mode == "exception":
+        with pytest.raises(RuntimeError, match="simulated sync failure"):
+            await service.sync_from_firebase_if_due(user_id)
+    else:
+        assert await service.sync_from_firebase_if_due(user_id) is None
+    assert calls == 2
+    actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_mode", ["none", "exception"])
+async def test_failed_scheduled_sync_clears_cooldown_for_immediate_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    failure_mode: str,
+) -> None:
+    service = ActorIdentityService()
+    user_id = "firebase-user-retry-1234567890"
+    actor_identity_service._IDENTITY_SYNC_TASKS.clear()
+    actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+
+    async def failed_sync(_user_id: str, *, force: bool = False):
+        assert _user_id == user_id
+        assert force is False
+        if failure_mode == "exception":
+            raise RuntimeError("simulated sync failure")
+        return None
+
+    monkeypatch.setattr(service, "sync_from_firebase", failed_sync)
+
+    assert service.schedule_sync_from_firebase(user_id) is True
+    first = actor_identity_service._IDENTITY_SYNC_TASKS[user_id]
+    await asyncio.gather(first, return_exceptions=True)
+    await asyncio.sleep(0)
+
+    assert user_id not in actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL
+    assert service.schedule_sync_from_firebase(user_id) is True
+    second = actor_identity_service._IDENTITY_SYNC_TASKS[user_id]
+    await asyncio.gather(second, return_exceptions=True)
+    await asyncio.sleep(0)
+    actor_identity_service._IDENTITY_SYNC_TASKS.clear()
+    actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+
+
+@pytest.mark.asyncio
+async def test_successful_scheduled_sync_keeps_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    user_id = "firebase-user-success-1234567890"
+    actor_identity_service._IDENTITY_SYNC_TASKS.clear()
+    actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+
+    async def successful_sync(_user_id: str, *, force: bool = False):
+        assert _user_id == user_id
+        assert force is False
+        return {"user_id": _user_id}
+
+    monkeypatch.setattr(service, "sync_from_firebase", successful_sync)
+
+    assert service.schedule_sync_from_firebase(user_id) is True
+    first = actor_identity_service._IDENTITY_SYNC_TASKS[user_id]
+    await first
+    await asyncio.sleep(0)
+
+    assert user_id in actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL
+    assert service.schedule_sync_from_firebase(user_id) is False
+    actor_identity_service._IDENTITY_SYNC_TASKS.clear()
+    actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
+    actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()

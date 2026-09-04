@@ -234,8 +234,9 @@ export function ContactSyncResultsSheet({
             </ul>
           ) : (
             <div className="rounded-2xl bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
-              No eligible Hushh accounts matched. Only people who verified their
-              phone and chose to be found through contact matching can appear.
+              No eligible contacts matched. New matches require a verified
+              phone and contact matching enabled. Existing connections may
+              still appear.
             </div>
           )}
           {hiddenMatchCount ? (

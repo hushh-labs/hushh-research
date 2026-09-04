@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   contactsPermissionState: "prompt" as "prompt" | "granted" | "unavailable",
   syncContactSignals: vi.fn(),
   toastInfo: vi.fn(),
+  requestContactCheck: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/capacitor", () => ({
@@ -73,6 +74,24 @@ vi.mock("@/lib/one-location/contact-signals", async (importOriginal) => ({
     typeof import("@/lib/one-location/contact-signals")
   >()),
   syncOneLocationContactSignals: mocks.syncContactSignals,
+}));
+
+vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
+  useContactDiscoverabilityConsent: () => ({
+    requestContactCheck: mocks.requestContactCheck,
+    preference: { status: "decided", enabled: false, ruleVersion: 1 },
+    dialogProps: {
+      open: false,
+      ready: false,
+      loading: false,
+      savingChoice: null,
+      error: null,
+      actionLabel: "Sync contacts",
+      onOpenChange: vi.fn(),
+      onChoose: vi.fn(),
+      onRetry: vi.fn(),
+    },
+  }),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -203,6 +222,7 @@ const EVERYONE = Array.from({ length: 100 }, (_, index) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.requestContactCheck.mockReturnValue(true);
   mocks.authPhoneNumber = "+919000000001";
   mocks.resolveVerifiedPhoneNumber.mockImplementation(
     async () => mocks.authPhoneNumber,
@@ -2335,10 +2355,10 @@ describe("Connect — contact sync", () => {
     // deleting its mount breaks no test in this file.
     expect(await screen.findByText("Contact sync results")).toBeTruthy();
     expect(
-      screen.getByText(/No eligible Hushh accounts matched/),
+      screen.getByText(/No eligible contacts matched/),
     ).toBeTruthy();
     expect(mocks.toastInfo.mock.calls[0][0]).toBe(
-      "No Hushh users matched this time",
+      "No eligible contacts matched",
     );
   });
 });

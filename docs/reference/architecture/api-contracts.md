@@ -295,10 +295,23 @@ this first release.
 
 ### Contact Discovery
 
-Matching an address book against the Hussh user directory. The device normalizes each
-number to E.164 and hashes it; **raw phone numbers and contact names never leave the
-device**, and the server **persists nothing** — the request body is consumed in memory and
-discarded, so a contact who is not a Hussh user leaves no trace.
+Matching an address book against the Hussh user directory. The shared iOS, Android,
+browser-picker, and Google Contacts pipeline resolves national-format numbers from
+number-plan, verified-account, then locale evidence; an explicit `+` country code is
+authoritative. A country code retained without `+` is accepted only when it is a valid
+international mobile and the regional interpretation is not a valid number; ambiguous valid
+regional numbers keep the stronger region evidence. Google People's output-only E.164
+`canonicalForm` takes precedence over its locale-shaped display value. The client normalizes
+each usable number to E.164 and hashes it locally. **Raw phone
+numbers and unmatched contact names never leave the client**, and the server never persists
+submitted proofs. A successful consented match may persist only its authorized canonical
+relationship/provenance, and the lookup-weighted abuse budget persists only aggregate counts.
+
+The client reads up to 5,000 unique usable numbers per sync, dispatches them in batches of at
+most 1,000, and reports any source/cap overflow as unchecked rather than as zero/unmatched.
+`actor_identity_cache` stores only canonical E.164 verified phones. Migration 198 clears every
+member of a malformed or duplicate verified binding, marks the shadow stale for an immediate
+Firebase refresh, and enforces a partial unique index; it never guesses an owner.
 
 `last4` is an index bucket, not an answer: it narrows the candidate rows so the query can
 use `idx_actor_identity_cache_phone_last4`, and the full digest is what decides a match.
@@ -328,10 +341,10 @@ budget to Redis/Memorystore later without changing the API contract.
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | POST | `/api/marketplace/contacts/match` | Firebase Bearer | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` matches phone-verified accounts that explicitly enabled the versioned combined find-and-auto-connect setting; legacy/default discoverability is not consent. `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
-| POST | `/api/one/connections/contact-sync` | Firebase Bearer + verified requester phone | Exact-match up to 1000 opaque `{lookup_id, hash, last4}` proofs from `lookups` (`last4` is exactly four digits), revalidate the target's current verified phone plus explicit combined contact-sync consent, and transactionally materialize every eligible, non-suppressed match as a canonical connection. Returns batch counts, matched `items` only as `{lookupId, userId, displayName, photoUrl, outcome}`, and opaque `indeterminateLookupIds` for initially matched proofs that could not be safely revalidated; clients must neither display those as matches nor treat them as invitation candidates. New behavior emits `auto_connected`, `already_connected`, or `suppressed` (`request_required` remains client-readable only for rolling compatibility). Viewer-relative provenance records the exact target consent contract, timestamp, and rule version that authorized a new automatic relationship, never proof material. Hashes and digits are never returned or stored. Contact sync itself grants no location or information access; a later eligible location request from any active connection, including a contact-sync connection, follows the owner's pre-existing `all_contacts` standing rule. |
+| POST | `/api/one/connections/contact-sync` | Firebase Bearer + verified requester phone | Exact-match up to 1000 opaque `{lookup_id, hash, last4}` proofs from `lookups` (`last4` is exactly four digits). A current, unique verified-phone proof may map to an already-active canonical ONE connection even when that target has contact discovery disabled, because the relationship is already visible to the requester; this recognition creates no new contact provenance or Trusted/Circle projection. Discovering or creating a relationship with anyone else still requires the target's current explicit combined contact-sync consent. The mutation revalidates the proof, relationship, and consent boundary transactionally. Hidden nonconnections and hidden revoked pairs are omitted; consented revoked pairs remain suppressed. Returns batch counts, matched `items` only as `{lookupId, userId, displayName, photoUrl, outcome}`, and opaque `indeterminateLookupIds` for initially matched proofs that could not be safely revalidated; clients must neither display those as matches nor treat them as invitation candidates. New behavior emits `auto_connected`, `already_connected`, or `suppressed` (`request_required` remains client-readable only for rolling compatibility). Viewer-relative provenance records the exact target consent contract, timestamp, and rule version that authorized a new automatic relationship, never proof material. Hashes and digits are never returned or stored. Contact sync itself grants no location or information access; a later eligible location request from any active connection, including a contact-sync connection, follows the owner's pre-existing `all_contacts` standing rule. |
 | GET | `/api/one/connections` | Firebase Bearer | With no query parameters, preserves the legacy complete `{items}` array. Supplying any of `page`, `limit` (maximum 100), `query`, or `audience=all\|ria` selects the bounded contract `{items,page,hasMore,totalCount,audience}`. Filtering, including verified-RIA audience filtering, happens before stable normalized-name/user/connection ordering and paging; contact provenance and RIA annotations are computed only for page rows. |
 | GET | `/api/iam/contact-discoverability` | Firebase Bearer | Read the single combined contact-sync preference: whether verified people holding this account's number may find and automatically connect with it. Defaults off and includes the server enablement timestamp, monotonic consent rule version, and exact authored consent-contract version |
-| POST | `/api/iam/contact-discoverability` | Firebase Bearer | Atomically set the combined preference. Enabling requires `{enabled:true, consent_version:"contact_find_auto_connect_v1"}`; a missing/stale marker returns `409`, so an older findability-only client cannot broaden authority. Disabling accepts `{enabled:false}` and blocks future matches without erasing existing connections. The relationship grants no location or information access |
+| POST | `/api/iam/contact-discoverability` | Firebase Bearer | Atomically set the combined preference. Enabling requires `{enabled:true, consent_version:"contact_find_auto_connect_v1"}`; a missing/stale marker returns `409`, so an older findability-only client cannot broaden authority. Disabling accepts `{enabled:false}` and blocks future new-person discovery and automatic edge creation without erasing or hiding existing active connections. The relationship grants no location or information access |
 
 ### One Location Agent
 
