@@ -199,6 +199,52 @@ describe("SiriOneActionHandoff lifecycle", () => {
     await waitFor(() => expect(executor).toHaveBeenCalledWith(navigation));
   });
 
+  it("claims locked-vault pause once, opens settings, and cannot replay after unlock", async () => {
+    const pending = invocation({
+      id: "locked-pause",
+      actionId: "location.pause_updates",
+      slots: {},
+      requiresVault: true,
+      confirmedBySystem: false,
+    });
+    mocks.runtime.tier = "signed_locked";
+    mocks.getPendingInvocation.mockResolvedValue(pending);
+
+    const view = render(<SiriOneActionHandoff />);
+
+    await waitFor(() =>
+      expect(executor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: pending.id,
+          actionId: "location.open_settings",
+          slots: {},
+          requiresVault: false,
+          confirmedBySystem: false,
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.completeInvocation).toHaveBeenCalledWith({
+        id: pending.id,
+        outcome: "blocked",
+        summary:
+          "Unlock Agent One to pause your location. Location settings are open.",
+      }),
+    );
+    expect(mocks.claimInvocation).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(executor.mock.calls[0]?.[0].actionId).not.toBe(
+      "location.pause_updates",
+    );
+
+    mocks.runtime.tier = "signed_unlocked";
+    view.rerender(<SiriOneActionHandoff />);
+    await act(async () => Promise.resolve());
+
+    expect(mocks.claimInvocation).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledTimes(1);
+  });
+
   it("expires a cold-launch request without claiming or executing it", async () => {
     const pending = invocation({
       id: "expired-action",

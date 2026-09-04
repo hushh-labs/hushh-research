@@ -21,17 +21,31 @@ enum OneSystemActionID: String, Codable, CaseIterable, Sendable {
     case createCircle = "location.create_circle"
     case renameCircle = "location.rename_circle"
 
+    static let vaultRequiredActionIDs: Set<OneSystemActionID> = [
+        .shareLocation,
+        .askForLocation,
+        .stopShare,
+        .pauseLocation,
+        .resumeLocation,
+        .createCircle,
+        .renameCircle
+    ]
+
+    static let systemConfirmationRequiredActionIDs: Set<OneSystemActionID> = [
+        .shareLocation,
+        .askForLocation,
+        .stopShare,
+        .resumeLocation,
+        .createCircle,
+        .renameCircle
+    ]
+
     var requiresVault: Bool {
-        switch self {
-        case .shareLocation, .askForLocation, .stopShare, .pauseLocation,
-             .resumeLocation, .createCircle, .renameCircle:
-            return true
-        case .openLocation, .openLocationMap, .openActiveShares,
-             .openSharedWithMe, .openRequestsToReview, .openLocationSettings,
-             .openTemporaryLink, .openCheckIn, .openEmergencySOS,
-             .openSMSContacts:
-            return false
-        }
+        Self.vaultRequiredActionIDs.contains(self)
+    }
+
+    var requiresSystemConfirmation: Bool {
+        Self.systemConfirmationRequiredActionIDs.contains(self)
     }
 
     var allowedSlotNames: Set<String> {

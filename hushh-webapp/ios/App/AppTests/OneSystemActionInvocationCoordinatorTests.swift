@@ -183,6 +183,11 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         XCTAssertFalse(OneSystemActionID.openLocation.requiresVault)
         XCTAssertTrue(OneSystemActionID.resumeLocation.requiresVault)
         XCTAssertFalse(OneSystemActionID.openSMSContacts.requiresVault)
+        XCTAssertEqual(OneSystemActionID.vaultRequiredActionIDs.count, 7)
+        XCTAssertTrue(OneSystemActionID.pauseLocation.requiresVault)
+        XCTAssertFalse(OneSystemActionID.pauseLocation.requiresSystemConfirmation)
+        XCTAssertTrue(OneSystemActionID.resumeLocation.requiresSystemConfirmation)
+        XCTAssertEqual(OneSystemActionID.systemConfirmationRequiredActionIDs.count, 6)
     }
 
     @available(iOS 16.0, *)

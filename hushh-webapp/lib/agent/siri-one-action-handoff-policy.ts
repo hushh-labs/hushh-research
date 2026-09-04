@@ -9,6 +9,7 @@ export type SiriOneActionHandoffState =
   | "waiting_for_runtime"
   | "waiting_for_vault"
   | "waiting_for_executor"
+  | "review_vault"
   | "dispatch";
 
 export function resolveSiriOneActionHandoffState(input: {
@@ -22,6 +23,7 @@ export function resolveSiriOneActionHandoffState(input: {
   runtimeReady: boolean;
   tier: AgentAccessTier | null;
   requiresVault: boolean;
+  hasVaultLockedFallback: boolean;
   executorReady: boolean;
 }): SiriOneActionHandoffState {
   if (input.expiresAt <= input.now) return "expired";
@@ -35,6 +37,9 @@ export function resolveSiriOneActionHandoffState(input: {
     return "waiting_for_runtime";
   }
   if (input.requiresVault && input.tier !== "signed_unlocked") {
+    if (input.hasVaultLockedFallback) {
+      return input.executorReady ? "review_vault" : "waiting_for_executor";
+    }
     return "waiting_for_vault";
   }
   if (!input.executorReady) return "waiting_for_executor";
