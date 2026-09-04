@@ -5,6 +5,10 @@ from hushh_mcp.services import push_notifications as push_module
 from hushh_mcp.services.push_notifications import (
     _GENERIC_CONNECTION_REQUEST_BODY,
     _connection_request_body,
+    send_circle_member_invite_cancelled_push,
+    send_circle_member_invite_declined_push,
+    send_circle_member_left_push,
+    send_circle_member_removed_push,
     send_connection_request_push,
 )
 from hushh_mcp.services.requester_identity import (
@@ -420,3 +424,128 @@ def test_the_email_handle_rung_is_a_privacy_switch_not_a_default():
     # the person.
     named = {"user_id": "u1", "display_name": "Neelesh", "email": "n@example.com"}
     assert label_from_identity_row(named, allow_email_handle=False) == "Neelesh"
+
+
+# ---------------------------------------------------------------------------
+# Circle invite/membership resolution pushes -- the same "creation notifies,
+# resolution goes silent" gap the Connect fix (#6507/#6509) closed, found to
+# repeat across every other request/invite surface in the app.
+# ---------------------------------------------------------------------------
+
+
+def test_circle_member_invite_declined_push_names_the_invitee_and_targets_the_inviter(
+    monkeypatch,
+):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="Ankit Sharma",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["user_id"] == "inviter-1"
+    assert captured["body"] == "Ankit Sharma declined your Circle invitation."
+    assert captured["data"]["invitee_user_id"] == "invitee-1"
+    assert captured["data"]["network_display_label"] == "Ankit Sharma"
+
+
+def test_circle_member_invite_declined_push_falls_back_when_name_is_missing(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["body"] == "Someone declined your Circle invitation."
+
+
+def test_circle_member_invite_cancelled_push_targets_the_invitee(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_cancelled_push(
+        invitee_user_id="invitee-1",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["user_id"] == "invitee-1"
+    assert captured["body"] == 'Your invitation to "Family" was withdrawn.'
+    assert captured["data"]["circle_id"] == "circle-1"
+
+
+def test_circle_member_removed_push_targets_the_removed_member(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_removed_push(
+        member_user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["user_id"] == "member-1"
+    assert captured["body"] == 'You were removed from "Family".'
+
+
+def test_circle_member_left_push_names_the_member_and_targets_the_owner(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_left_push(
+        owner_user_id="owner-1",
+        member_user_id="member-1",
+        member_display_name="Ankit Sharma",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["user_id"] == "owner-1"
+    assert captured["body"] == 'Ankit Sharma left "Family".'
+
+
+def test_circle_member_invite_declined_and_cancelled_pushes_use_distinct_tags(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="Ankit",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+    declined_tag = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_circle_member_invite_cancelled_push(
+        invitee_user_id="invitee-1",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+    cancelled_tag = captured["notification_tag"]
+
+    assert declined_tag != cancelled_tag
+
+
+def test_circle_member_removed_and_left_pushes_use_distinct_tags_per_member(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_circle_member_removed_push(
+        member_user_id="member-1", circle_id="circle-1", circle_name="Family"
+    )
+    removed_tag_1 = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_circle_member_removed_push(
+        member_user_id="member-2", circle_id="circle-1", circle_name="Family"
+    )
+    removed_tag_2 = captured["notification_tag"]
+
+    assert removed_tag_1 != removed_tag_2
