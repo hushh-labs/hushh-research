@@ -19,6 +19,7 @@ import {
   useTopShellTabSwipeState,
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
+import { recordTabSelection } from "@/lib/navigation/tab-switch-history";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
@@ -107,6 +108,19 @@ export function TopShellTabs({
     if (Math.abs(tabSwipeState.position - activeIndex) < 0.001) return;
     setTopShellTabSwipeState(tabSet.id, activeIndex, false);
   }, [activeIndex, tabSet.id, tabSwipeState.pagerOwned, tabSwipeState.position]);
+
+  // Record which tab this set is actually on, once the URL confirms it (not
+  // `selectedValue` above, which can carry an optimistic value for a
+  // navigation that has not committed yet). Back consults this to undo a tab
+  // switch -- see tab-switch-history.ts for why a plain hierarchy climb is
+  // not enough here.
+  const committedTabHref = tabSet.tabs.find(
+    (tab) => tab.value === tabSet.activeValue,
+  )?.href;
+  useEffect(() => {
+    if (!committedTabHref) return;
+    recordTabSelection(tabSet.id, committedTabHref);
+  }, [tabSet.id, committedTabHref]);
 
   const selectIndex = useCallback(
     (index: number, focus: boolean) => {
