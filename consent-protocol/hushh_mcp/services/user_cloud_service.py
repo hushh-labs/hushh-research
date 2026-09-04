@@ -38,6 +38,12 @@ class UserCloud:
     #: Proven, never asserted. True only when hushh minted a token against the person's
     #: bootstrap account and it worked. A form cannot set this.
     authorized: bool
+    #: The registry could not be read, so NOTHING below is known -- least of all that
+    #: this person has no cloud. Kept as a field rather than signalled by returning
+    #: ``None`` because ``None`` already means "no row", and collapsing "they have no
+    #: cloud" into "we could not find out" is what let a BYOC person's pod be built on
+    #: hushh's compute.
+    lookup_failed: bool = False
 
     @property
     def is_user_owned(self) -> bool:
@@ -79,7 +85,37 @@ class UserCloud:
         switch statement with three arms and then five. The knowledge belongs here,
         beside the other facts about a person's cloud.
         """
-        return self.is_user_owned and not self.is_ready_to_provision
+        return self.lookup_failed or (self.is_user_owned and not self.is_ready_to_provision)
+
+    @property
+    def refusal_reason(self) -> str:
+        """Why provisioning must stop, in the caller's words rather than a cloud's.
+
+        The common layer may not name a provider, but it must still say something
+        true: "not yet authorized" is the wrong sentence for a registry that would
+        not answer, and it would send a person to re-run a grant they already made.
+        """
+        if self.lookup_failed:
+            return (
+                "this person's cloud could not be read, so where their agent belongs "
+                "is unknown; refusing rather than defaulting to hushh's own cloud"
+            )
+        return (
+            "this person's own cloud is recorded but not yet authorized; they need to "
+            "authorize their project before their agent can be built there"
+        )
+
+
+#: One shared instance: it carries no per-person facts, only the absence of them.
+_LOOKUP_FAILED = UserCloud(
+    deployment_target=None,
+    model_credential_mode=None,
+    project=None,
+    region=None,
+    bootstrap_sa=None,
+    authorized=False,
+    lookup_failed=True,
+)
 
 
 def user_cloud_from_row(row: Optional[dict[str, Any]]) -> Optional[UserCloud]:
@@ -99,15 +135,21 @@ def user_cloud_from_row(row: Optional[dict[str, Any]]) -> Optional[UserCloud]:
 async def resolve_user_cloud(user_id: str, *, repo: Any = None) -> Optional[UserCloud]:
     """The person's cloud, or ``None`` when they have no registry row yet.
 
-    Never raises for a missing row or an unreachable registry: every caller here is on a
-    path where "I could not find out" and "they have no cloud" must lead to the same
-    conservative behaviour -- the deployment default -- and a raise would turn a
-    read-only lookup into an outage on the phone-verify seam.
+    Still never raises -- a raise would turn a read-only lookup into an outage on the
+    phone-verify seam -- but an unreachable registry is no longer answered with the same
+    value as an empty one. It returns a cloud whose ``lookup_failed`` is set.
 
-    That conservatism is only safe because it is paired with a refusal upstream: a row
-    that DOES name a user_gcp target without authorization is not treated as absent, it
-    is reported truthfully and the caller declines. Silence here means "no cloud", never
-    "an unverified one".
+    The previous wording claimed the two could safely share an answer because "a row
+    that DOES name a user_gcp target without authorization is reported truthfully and
+    the caller declines". That reasoning holds for a MISSING row and not for a FAILED
+    READ, and the code could not tell them apart: on any registry exception a BYOC
+    person's pod was built on hushh's compute and hushh's bill, with applied=True at
+    every layer. The distinction lives in the return type now, so no caller has to
+    remember it.
+
+    Read-only callers are unaffected -- each gates on ``is_user_owned`` or ``project``,
+    both empty on a failed read, so they behave exactly as they did for ``None``. Only
+    the caller that BUILDS something sees the difference, via ``blocks_provisioning``.
     """
     if not str(user_id or "").strip():
         return None
@@ -127,9 +169,15 @@ async def resolve_user_cloud(user_id: str, *, repo: Any = None) -> Optional[User
         # (the pod's ADC) instead of treating "your pod's AI" as hushh's managed
         # model and refusing it (founder-hit, 2026-09-02).
         return await _parked_user_cloud(user_id)
-    except Exception:  # noqa: BLE001 - a read-only lookup must not break provisioning
+    except Exception:  # noqa: BLE001 - still no raise; the answer is "unknown", not an outage
         logger.warning("user_cloud.lookup_failed", exc_info=True)
-        return None
+        # NOT None. None means "this person has no cloud", and the caller that builds
+        # infrastructure acts on that by using the deployment default -- which for a
+        # BYOC person is hushh's own project, on hushh's fleet identity, reporting
+        # applied=True at every layer with nothing anywhere saying so. The comment
+        # above the provisioning gate names this exact outcome as the thing to avoid;
+        # returning None here was how it happened anyway.
+        return _LOOKUP_FAILED
 
 
 async def _parked_user_cloud(user_id: str) -> Optional[UserCloud]:

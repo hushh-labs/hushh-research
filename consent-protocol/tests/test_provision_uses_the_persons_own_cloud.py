@@ -114,22 +114,45 @@ def test_a_person_with_no_row_has_no_cloud_and_gets_the_deployment_default():
     assert user_cloud_from_row({}) is None
 
 
-def test_a_lookup_failure_reports_no_cloud_rather_than_raising():
-    """A read-only lookup must not turn the phone-verify seam into an outage.
+class _Exploding(_Registry):
+    """A registry that will not answer. Not one that answers 'nobody'.
 
-    Safe only because it is paired with the refusal above: a row that DOES name an
-    unauthorized cloud is reported truthfully, so silence here means "no cloud", never
-    "an unverified one".
+    Only the READ fails -- everything else works -- because that is the shape of a
+    transient database blip, and the point is what provisioning does with it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(None)
+
+    async def get(self, user_id: str):
+        raise RuntimeError("registry unreachable")
+
+
+def test_a_lookup_failure_still_does_not_raise():
+    """The half of the old contract that was right: no outage on the phone-verify seam."""
+    import asyncio
+
+    from hushh_mcp.services.user_cloud_service import resolve_user_cloud
+
+    assert asyncio.run(resolve_user_cloud("uid-1", repo=_Exploding())) is not None
+
+
+def test_a_lookup_failure_is_not_reported_as_having_no_cloud():
+    """The half that was wrong, and this test used to assert it.
+
+    It read `is None` under a docstring arguing that "silence here means no cloud,
+    never an unverified one". That argument is sound for a MISSING row and unsound for
+    a FAILED READ, and the return type could not tell them apart -- so every caller
+    that acted on "no cloud" acted on a registry that had simply not answered.
     """
     import asyncio
 
     from hushh_mcp.services.user_cloud_service import resolve_user_cloud
 
-    class _Exploding:
-        async def get(self, user_id: str):
-            raise RuntimeError("registry unreachable")
-
-    assert asyncio.run(resolve_user_cloud("uid-1", repo=_Exploding())) is None
+    cloud = asyncio.run(resolve_user_cloud("uid-1", repo=_Exploding()))
+    assert cloud.lookup_failed is True
+    assert cloud.blocks_provisioning is True, "unknown must stop a build, not default it"
+    assert "could not be read" in cloud.refusal_reason
 
 
 def test_the_error_is_temporary_not_invalid_details():
@@ -223,3 +246,27 @@ async def test_provision_refuses_an_unauthorized_cloud(monkeypatch):
         await service.provision(user_id="uid-1", phone_e164="+14155550123")
 
     assert substrate.specs == [], "infrastructure was applied for a cloud hushh cannot reach"
+
+
+async def test_an_unreadable_registry_never_builds_on_the_deployment_default(monkeypatch):
+    """The consequence, end to end, and the reason any of this matters.
+
+    Before: one transient registry error built a BYOC person's pod inside hushh's own
+    project, on hushh's fleet identity, with applied=True at every layer and nothing
+    anywhere saying so -- the exact outcome the comment above the provisioning gate
+    names as the thing to avoid. The refusal above only fires for a row that WAS read.
+
+    Broken on purpose: return None from resolve_user_cloud's exception handler and this
+    fails -- the substrate is applied and the pod is built on the deployment default.
+    """
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
+    substrate = _SpySubstrate()
+    service = PersonalAgentProvisioningService(
+        registry=_Exploding(), grant=_Grant(), backend=_SpyBackend(), substrate=substrate
+    )
+
+    with pytest.raises(PersonalAgentCloudNotAuthorizedError) as caught:
+        await service.provision(user_id="uid-1", phone_e164="+14155550123")
+
+    assert "could not be read" in str(caught.value)
+    assert substrate.specs == [], "infrastructure was applied for a cloud nobody could read"

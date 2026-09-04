@@ -684,11 +684,11 @@ class PersonalAgentProvisioningService:
                 # Refuse rather than fall back. Falling back would build this person's
                 # agent on hushh's compute and hushh's bill after they explicitly chose
                 # otherwise, and the product would show them a working agent.
-                raise PersonalAgentCloudNotAuthorizedError(
-                    "this person's own cloud is recorded but not yet authorized; "
-                    "they need to run the authorization script in their project "
-                    "before their agent can be built there"
-                )
+                # The reason comes from the cloud, not from here: an unreadable
+                # registry and an unauthorized project both stop provisioning, and
+                # telling the second person's story to the first would send them to
+                # re-run a grant they already made.
+                raise PersonalAgentCloudNotAuthorizedError(cloud.refusal_reason)
 
             # Narrative emitters, closed over the ids the backends deliberately do not
             # hold. Both run on worker threads (the backend's _run closure and the
@@ -1147,10 +1147,7 @@ class PersonalAgentProvisioningService:
 
         cloud = await resolve_user_cloud(user_id, repo=self._registry)
         if cloud is not None and cloud.blocks_provisioning:
-            raise PersonalAgentCloudNotAuthorizedError(
-                "this person's own cloud is recorded but not authorized; their pod "
-                "cannot be upgraded there until they re-run the authorization"
-            )
+            raise PersonalAgentCloudNotAuthorizedError(cloud.refusal_reason)
         spec = PodSpec(
             hushh_id=hushh_id,
             phone_e164_hash=phone_hash,
