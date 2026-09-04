@@ -164,12 +164,11 @@ beforeEach(() => {
 });
 
 describe("circleRowDescription", () => {
-  it("counts everyone except the viewer", () => {
-    // "3 people" reading as two others and yourself is the answer to a question
-    // nobody asked. The Location list already excludes the viewer; these two
-    // now agree.
-    expect(circleRowDescription(circle("c", "K Family", 4))).toBe("3 people");
-    expect(circleRowDescription(circle("c", "K Family", 2))).toBe("1 person");
+  it("counts everyone in the Circle, owner included", () => {
+    // The Circle's own detail screen counts everyone including the owner;
+    // this row now agrees with it instead of disagreeing by exactly one.
+    expect(circleRowDescription(circle("c", "K Family", 4))).toBe("4 people");
+    expect(circleRowDescription(circle("c", "K Family", 2))).toBe("2 people");
     expect(circleRowDescription(circle("c", "K Family", 1))).toBe(
       "No members yet",
     );
@@ -181,10 +180,10 @@ describe("circleRowDescription", () => {
     // never asked. These lines answer the question a Circle you did not create
     // actually raises.
     expect(circleRowDescription(circle("t", "Trusted", 8, "trusted"))).toBe(
-      "Everyone you're connected to · 7 people",
+      "Everyone you're connected to · 8 people",
     );
     expect(circleRowDescription(circle("s", "SMS Circle", 4, "sms"))).toBe(
-      "Gets your SMS · 3 people",
+      "Gets your SMS · 4 people",
     );
   });
 
@@ -216,7 +215,7 @@ describe("circleRowDescription", () => {
 
   it("still recognises an SMS Circle from a server that predates systemKind", () => {
     const legacy = { ...circle("s", "SMS Circle", 3, "sms"), systemKind: null };
-    expect(circleRowDescription(legacy)).toBe("Gets your SMS · 2 people");
+    expect(circleRowDescription(legacy)).toBe("Gets your SMS · 3 people");
   });
 });
 
