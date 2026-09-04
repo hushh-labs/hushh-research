@@ -148,4 +148,65 @@ describe("OneLocationStateResource", () => {
       expiresAt: null,
     });
   });
+
+  it("patches a request's status from a push payload without a full reload", async () => {
+    const userId = "location-resource-requester";
+    const initial = {
+      recipients: [],
+      requests: [
+        {
+          id: "req_1",
+          ownerUserId: "friend",
+          requesterUserId: userId,
+          status: "pending",
+        },
+      ],
+    } as unknown as OneLocationState;
+    OneLocationStateResource.write(userId, initial);
+
+    let resolveStale!: (state: OneLocationState) => void;
+    const staleLoad = OneLocationStateResource.load(
+      userId,
+      () =>
+        new Promise<OneLocationState>((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+
+    expect(
+      OneLocationStateResource.mergeRequestStatus(userId, {
+        id: "req_1",
+        status: "denied",
+        resolvedAt: "2026-09-04T00:00:00.000Z",
+      }),
+    ).toBe(true);
+    expect(OneLocationStateResource.peek(userId)?.data.requests[0]).toMatchObject({
+      id: "req_1",
+      ownerUserId: "friend",
+      status: "denied",
+      resolvedAt: "2026-09-04T00:00:00.000Z",
+    });
+
+    // A stale in-flight full reload from before the patch must not clobber it.
+    resolveStale(initial);
+    await staleLoad;
+    expect(
+      OneLocationStateResource.peek(userId)?.data.requests[0].status,
+    ).toBe("denied");
+  });
+
+  it("does not patch a request id it has no cached row for", () => {
+    const userId = "location-resource-requester";
+    OneLocationStateResource.write(userId, {
+      recipients: [],
+      requests: [],
+    } as unknown as OneLocationState);
+
+    expect(
+      OneLocationStateResource.mergeRequestStatus(userId, {
+        id: "req_missing",
+        status: "denied",
+      }),
+    ).toBe(false);
+  });
 });
