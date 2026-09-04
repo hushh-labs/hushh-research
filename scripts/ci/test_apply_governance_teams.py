@@ -119,6 +119,53 @@ def test_the_maintainer_set_is_the_union_of_both_governed_branches(module) -> No
         assert set(policy[key]["merge_queue_bypass_users"]) <= maintainers
 
 
+def test_org_owners_are_never_demoted(module) -> None:
+    """An org owner must not appear in the demotion set, or the sync never converges.
+
+    GitHub reports an organization owner as a maintainer of every team they are in
+    and refuses to demote them there. Attempting it anyway made apply-governance
+    print a demotion plan on every run forever -- a governance tool that always
+    claims drift is one people learn to scroll past, which is precisely how the
+    UAT cohort stayed wrong in the advisory lane. Excluding owners costs nothing:
+    they can edit branch protection and team membership directly regardless.
+    """
+    calls = {"role_lookups": []}
+
+    def fake_gh(args, check=True):  # team_exists -> exists
+        return 0, "", ""
+
+    def fake_gh_json(args):
+        joined = " ".join(args)
+        # Order matters: "/members" is a substring of "/memberships/".
+        if "/memberships/" in joined:
+            login = joined.rsplit("/", 1)[-1]
+            calls["role_lookups"].append(login)
+            return {"role": "maintainer"}
+        if "/members" in joined:
+            return [{"login": "owner-person"}, {"login": "regular-person"}]
+        return []
+
+    original = (module.gh, module.gh_json, module.organization_owners)
+    try:
+        module.gh, module.gh_json = fake_gh, fake_gh_json
+        module.organization_owners = lambda: {"owner-person"}
+        changed = module.apply_team_membership(
+            "some-team", ["owner-person", "regular-person"], apply=False
+        )
+    finally:
+        module.gh, module.gh_json, module.organization_owners = original
+
+    assert "owner-person" not in calls["role_lookups"], (
+        "an org owner's team role was inspected for demotion; GitHub will never "
+        "let it change, so the sync would report drift on every run"
+    )
+    assert "regular-person" in calls["role_lookups"], (
+        "a non-owner at role=maintainer must still be demoted -- that is the "
+        "grant path this closes"
+    )
+    assert changed is True
+
+
 def main() -> int:
     module = _module()
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
