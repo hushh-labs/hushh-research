@@ -328,3 +328,19 @@ tests/test_one_location_nearby_presence_routes.py
 tests/services/test_one_location_nearby_presence_service.py
 tests/test_one_location_nearby_point_contract_migration.py
 tests/test_one_location_nearby_check_in_preferences_migration.py
+# Registered 2026-09-04. Each of these was the ONLY coverage for a feature that had
+# already shipped on this branch, and the gate runs the manifest and nothing else --
+# there is no `pytest tests/` catch-all anywhere in .github/workflows/ or scripts/, so
+# an unregistered file is not "run less often", it never runs. The repo has been bitten
+# by this before: f2518d602 records a stale migration-contract test that drifted five
+# columns behind because it was not in the manifest, "so nobody saw it".
+#
+# Measured before adding, not assumed: all seven pass, all are hermetic (no database,
+# no credential), and together they cost ~16s against a ~78s gate.
+tests/test_byoc_billing_refusals.py
+tests/test_byoc_oauth_authorizer_state.py
+tests/test_byoc_one_click_authorize_routes.py
+tests/test_pod_hub_specialist_read.py
+tests/test_pod_memory_bank.py
+tests/test_pod_model_diagnostic.py
+tests/test_pod_update_detection.py
