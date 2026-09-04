@@ -49,6 +49,13 @@ describe("OneDashboardPage", () => {
       />,
     );
 
+    // One greets by first name with a single warm line. The previously removed
+    // hero block stays removed: no "One" hero heading, no marketing tagline.
+    expect(
+      screen.getByRole("heading", {
+        name: /^(Good morning|Good afternoon|Good evening|Welcome back), Kushal\.$/,
+      }),
+    ).toBeTruthy();
     expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
     expect(screen.queryByText("One")).toBeNull();
     expect(

@@ -6,6 +6,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { OneAgentRoster } from "@/components/dashboard/one-agent-roster";
+import { HomeGreeting } from "@/components/dashboard/home-greeting";
 import { ONE_SETUP_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
 import {
   isCapabilitySetupActionable,
@@ -62,6 +63,7 @@ function FinishSetupStrip({
 }
 
 export function OneDashboardPage({
+  displayName,
   capabilityStatusById = {},
 }: {
   displayName?: string | null;
@@ -70,6 +72,10 @@ export function OneDashboardPage({
   const hasSetupRemaining = Object.values(capabilityStatusById).some((status) =>
     isCapabilitySetupActionable(status),
   );
+  // Honest, state-derived subline — never claims activity One did not do.
+  const greetingSubline = hasSetupRemaining
+    ? "A few things left to set up whenever you're ready."
+    : "Everything's ready when you are.";
   const setupable = ONE_SETUP_CAPABILITIES;
   const doneCount = setupable.filter((cap) => {
     const status = capabilityStatusById[cap.id];
@@ -89,6 +95,7 @@ export function OneDashboardPage({
     >
       <AppPageContentRegion>
         <div className="space-y-5">
+          <HomeGreeting displayName={displayName} subline={greetingSubline} />
           {hasSetupRemaining ? (
             <FinishSetupStrip
               completedCount={doneCount}
