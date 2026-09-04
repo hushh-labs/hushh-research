@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils";
 type MemberRow = {
   userId: string;
   label: string;
+  photoUrl?: string | null;
+  isRia: boolean;
   fromContacts: boolean;
   /** Set when the member cannot receive SMS yet; explains why, inline. */
   blockedReason: string | null;
@@ -106,6 +108,8 @@ export function CircleMemberPicker({
     return selection.ready.map((target) => ({
       userId: target.recipient.userId,
       label: recipientLabel(target.recipient),
+      photoUrl: target.recipient.photoUrl,
+      isRia: Boolean(target.recipient.isRia),
       fromContacts: Boolean(target.recipient.connectedFromContacts),
       blockedReason: null,
     }));
@@ -121,6 +125,8 @@ export function CircleMemberPicker({
         .map((item) => ({
           userId: item.member.userId,
           label: recipientLabel(item.member),
+          photoUrl: item.member.photoUrl,
+          isRia: Boolean(item.member.isRia),
           fromContacts: Boolean(item.member.connectedFromContacts),
           blockedReason: item.label,
         }))
@@ -303,7 +309,11 @@ export function CircleMemberPicker({
                         (added || blocked) && "opacity-60",
                       )}
                     >
-                      <ContactAvatar label={row.label} />
+                      <ContactAvatar
+                        label={row.label}
+                        photoUrl={row.photoUrl}
+                        verified={row.isRia}
+                      />
                       <span className="min-w-0 flex-1">
                         <span className="flex min-w-0 items-start gap-1.5">
                           <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">

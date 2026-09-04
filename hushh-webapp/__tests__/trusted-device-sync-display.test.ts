@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import {
   deriveSyncDisplay,
+  HEARTBEAT_FRESH_MS,
   SEAL_CONFIRM_WINDOW_MS,
 } from "@/lib/trusted-device/sync-display";
 
@@ -15,12 +16,55 @@ describe("deriveSyncDisplay", () => {
       NOW,
     );
     expect(d.tone).toBe("active");
-    expect(d.label).toMatch(/^Active · last synced /);
+    expect(d.label).toMatch(/^Trusted · last synced /);
   });
 
-  it("shows 'not yet synced' for an active device that never synced", () => {
+  it("never claims live reachability for a trusted device", () => {
+    // status="active" means authorized, not running. The label must not imply
+    // the agent is reachable right now -- there is no liveness channel.
+    const d = deriveSyncDisplay(
+      { status: "active", last_synced_at: NOW - 2 * 86_400_000 },
+      NOW,
+    );
+    expect(d.label).not.toMatch(/^Active\b/);
+    expect(d.label).toContain("Trusted");
+  });
+
+  it("says a device is active now only on a fresh heartbeat", () => {
+    const d = deriveSyncDisplay(
+      {
+        status: "active",
+        last_synced_at: NOW - 2 * 86_400_000,
+        last_heartbeat_at: NOW - 30_000,
+        heartbeat: { current_model: "gemini-3.6-flash" },
+      },
+      NOW,
+    );
+    // A stale sync must not suppress a live heartbeat: this is the exact case
+    // that used to read "last synced 2 days ago" while the agent was running.
+    expect(d).toEqual({
+      label: "Active now · running gemini-3.6-flash",
+      tone: "active",
+    });
+  });
+
+  it("falls back to trust-only once the heartbeat goes stale", () => {
+    const d = deriveSyncDisplay(
+      {
+        status: "active",
+        last_synced_at: NOW - 3_600_000,
+        last_heartbeat_at: NOW - HEARTBEAT_FRESH_MS - 1000,
+      },
+      NOW,
+    );
+    // Never keep claiming reachability from an expired heartbeat.
+    expect(d.label).toMatch(/^Trusted · last synced /);
+    expect(d.label).not.toContain("Active now");
+  });
+
+  it("shows 'not yet synced' for a trusted device that never synced", () => {
     const d = deriveSyncDisplay({ status: "active", last_synced_at: null }, NOW);
-    expect(d).toEqual({ label: "Active · not yet synced", tone: "neutral" });
+    expect(d).toEqual({ label: "Trusted · not yet synced", tone: "neutral" });
   });
 
   it("reports a sealed device as reported, never asserts sealing as fact", () => {

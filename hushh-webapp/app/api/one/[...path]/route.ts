@@ -14,6 +14,19 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
+const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
+  developmentFloorMs: 285_000,
+  overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
+});
+
+function requestTimeoutMs(path: string, acceptHeader: string | null): number {
+  const acceptsEventStream =
+    acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
+  const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");
+  return acceptsEventStream || isKnownStreamRoute
+    ? ONE_STREAM_TIMEOUT_MS
+    : ONE_API_TIMEOUT_MS;
+}
 
 function privateResponseHeaders(upstream?: Response): Headers {
   const headers = new Headers({
@@ -57,8 +70,15 @@ function isUpstreamTimeoutError(error: unknown): boolean {
  * read once at module scope and would unbound every JSON route on this proxy
  * at once, which is precisely the blanket behavior being retired.
  */
-function resolveOneUpstreamTimeoutMs(path: string): number | null {
+function resolveOneUpstreamTimeoutMs(path: string, acceptHeader: string | null): number | null {
   if (path === "pod/lifecycle/stream") {
+    return null;
+  }
+  // Agent chat is an SSE connection. An AbortSignal.timeout stays attached to
+  // the response body after fetch resolves, so it would cut off a valid
+  // response mid-stream even while the backend is still sending keep-alives.
+  // Let the browser disconnect signal own that stream's lifetime instead.
+  if (path === "agent-chat") {
     return null;
   }
   // The one-click cloud completion legitimately runs long: create project,
@@ -72,7 +92,9 @@ function resolveOneUpstreamTimeoutMs(path: string): number | null {
   if (path === "runtime/byoc/authorize/complete") {
     return 55_000;
   }
-  return ONE_API_TIMEOUT_MS;
+  // Everything else keeps the accept-header-aware split: an event-stream route
+  // gets the long stream budget, an ordinary JSON route the short one.
+  return requestTimeoutMs(path, acceptHeader);
 }
 
 /** The Kai proxy's signal resolution, ported verbatim in behavior: a null
@@ -138,7 +160,10 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers,
       body,
-      signal: resolveUpstreamSignal(request.signal, resolveOneUpstreamTimeoutMs(path)),
+      signal: resolveUpstreamSignal(
+        request.signal,
+        resolveOneUpstreamTimeoutMs(path, acceptHeader)
+      ),
     });
 
     // A streamed upstream must be handed through untouched. The JSON path below
@@ -191,6 +216,13 @@ export async function GET(
 }
 
 export async function POST(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  return proxyRequest(request, await props.params);
+}
+
+export async function PUT(
   request: NextRequest,
   props: { params: Promise<{ path: string[] }> }
 ) {

@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search, X } from "lucide-react";
+import { ArrowLeft, Search, X } from "lucide-react";
 import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -14,6 +14,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { SurfaceCard, SurfaceCardContent, SurfaceStack } from "@/components/app-ui/surfaces";
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -53,6 +54,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toInvestorLoading, toInvestorMessage } from "@/lib/copy/investor-language";
 import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
+import { CacheService } from "@/lib/services/cache-service";
 import {
   getKaiActivePickSource,
   setKaiActivePickSource,
@@ -117,7 +119,7 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
   }
 
   return (
-    <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+    <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
       <RoundTabsCard
         roundNumber={1}
         title="Initial Deep Analysis"
@@ -181,6 +183,9 @@ export function KaiAnalysisPageContent() {
   const [historyCount, setHistoryCount] = useState(0);
   // Landing shows the summary "table"; debate is its own ?view=debate route.
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("summary");
+  const workspaceTabRef = useRef<WorkspaceTab>("summary");
+  workspaceTabRef.current = workspaceTab;
+  const lastFocusedRouteKeyRef = useRef<string | null>(null);
   const workspaceTabOptions = useMemo(
     () => [
       { value: "debate", label: "Debate" },
@@ -195,6 +200,7 @@ export function KaiAnalysisPageContent() {
   const [stockPreviewLoading, setStockPreviewLoading] = useState(false);
   const [stockPreviewError, setStockPreviewError] = useState<string | null>(null);
   const [previewPickSource, setPreviewPickSource] = useState("default");
+  const analysisSearchButtonRef = useRef<HTMLButtonElement | null>(null);
   const [startingPreviewDebate, setStartingPreviewDebate] = useState(false);
 
   const hasFreshAnalysisIntent =
@@ -231,6 +237,9 @@ export function KaiAnalysisPageContent() {
     if (!routeIntent.shouldApply) return;
 
     if (routeIntent.focusActive || routeIntent.runId) {
+      const routeKey = routeIntent.runId
+        ? `run:${routeIntent.runId}`
+        : "focus:active";
       if (routeIntent.runId) {
         setFocusedRunId(routeIntent.runId);
       }
@@ -238,10 +247,14 @@ export function KaiAnalysisPageContent() {
       // Focusing a run defaults to its debate view, but never overrides a tab
       // the URL names outright.
       setWorkspaceTab(routeIntent.workspaceTab ?? "debate");
-      requestAnimationFrame(() => {
-        workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-      });
+      if (lastFocusedRouteKeyRef.current !== routeKey) {
+        lastFocusedRouteKeyRef.current = routeKey;
+        requestAnimationFrame(() => {
+          workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+        });
+      }
     } else if (routeIntent.showHistory) {
+      lastFocusedRouteKeyRef.current = null;
       setFocusedRunId(null);
       setShowHistoryWhileActive(true);
       setWorkspaceTab("debate");
@@ -454,13 +467,24 @@ export function KaiAnalysisPageContent() {
     [previewPickSource, router, setAnalysisParams, setDebateIdParam]
   );
 
-  const searchParamsRef = useRef(searchParams);
-  searchParamsRef.current = searchParams;
+  const searchParamsRef = useRef(new URLSearchParams(searchParams.toString()));
+  useEffect(() => {
+    searchParamsRef.current = new URLSearchParams(searchParams.toString());
+  }, [searchParams]);
   const setWorkspaceView = useCallback(
     (value: WorkspaceTab) => {
-      setWorkspaceTab(value);
+      if (workspaceTabRef.current !== value) {
+        workspaceTabRef.current = value;
+        setWorkspaceTab(value);
+      }
       const params = new URLSearchParams(searchParamsRef.current.toString());
+      if (params.get("view") === value) return;
       params.set("view", value);
+      // Treat this as the optimistic route authority so Embla's settle event
+      // cannot issue the same Next navigation a second time before
+      // useSearchParams catches up. That duplicate navigation was the visible
+      // flash on every Analysis tab switch.
+      searchParamsRef.current = new URLSearchParams(params.toString());
       if (value === "debate") {
         // Debate is its own back-navigable route under Analysis.
         router.push(
@@ -520,9 +544,6 @@ export function KaiAnalysisPageContent() {
       setFocusedRunId(meta.runId);
       setShowHistoryWhileActive(false);
       setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
-      requestAnimationFrame(() => {
-        workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-      });
     },
     [analysisParams?.portfolioSource, setAnalysisParams]
   );
@@ -872,7 +893,10 @@ export function KaiAnalysisPageContent() {
     router.replace(buildKaiMarketRoute("analysis"), { scroll: false });
   }, [router, setAnalysisParams]);
   const handleChangePreviewStock = useCallback(() => {
-    openKaiCommandBar();
+    openKaiCommandBar({
+      intent: "finance_stock_analysis",
+      initialQuery: "Analyze ",
+    });
   }, []);
   useLocalOnboardingActionHandler("analysis.back_to_history", () => {
     setAnalysisParams(null);
@@ -925,16 +949,26 @@ export function KaiAnalysisPageContent() {
     }
 
     let cancelled = false;
+    const cache = CacheService.getInstance();
     const cached = getLatestMarketSnapshotFromCache(userId, activeTicker);
     setHeaderSnapshotLoading(Boolean(vaultOwnerToken) && !cached);
     if (!cancelled) {
       setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached));
     }
 
+    const unsubscribeCache = cache.subscribe((event) => {
+      if (cancelled || event.type !== "set") return;
+      if (!event.key.startsWith(`kai_market_home_${userId}_`)) return;
+      const next = getLatestMarketSnapshotFromCache(userId, activeTicker);
+      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, next));
+      setHeaderSnapshotLoading(false);
+    });
+
     if (!vaultOwnerToken) {
       setHeaderSnapshotLoading(false);
       return () => {
         cancelled = true;
+        unsubscribeCache();
       };
     }
 
@@ -960,6 +994,7 @@ export function KaiAnalysisPageContent() {
 
     return () => {
       cancelled = true;
+      unsubscribeCache();
     };
   }, [activeTicker, showWorkspace, userId, vaultOwnerToken]);
 
@@ -1105,7 +1140,7 @@ export function KaiAnalysisPageContent() {
     <>
       {showWorkspace ? (
         <div
-          className="w-full min-w-0 max-w-full h-full overflow-hidden"
+          className="w-full min-w-0 max-w-full"
           data-testid={liveIntentReady ? "kai-analysis-active-run" : "kai-analysis-primary"}
         >
           <NativeTestBeacon
@@ -1120,6 +1155,18 @@ export function KaiAnalysisPageContent() {
               description="Review the live debate and detailed recommendation."
               actions={
                 <>
+                  {!liveIntentReady ? (
+                    <MorphyButton
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={handleBrowseRecommendations}
+                      data-voice-control-id="analysis_back_to_history"
+                    >
+                      <Icon icon={ArrowLeft} size="xs" className="mr-1" />
+                      Back to history
+                    </MorphyButton>
+                  ) : null}
                   {liveIntentReady ? (
                     <MorphyButton
                       variant="none"
@@ -1187,6 +1234,9 @@ export function KaiAnalysisPageContent() {
                 tabSetId="analysis-workspace"
                 activeValue={workspaceTab}
                 options={workspaceTabOptions}
+                heightMode="active"
+                holdHeightDuringTransition={false}
+                viewportMinHeight="0px"
                 onSelectionChange={(value) => setWorkspaceTab(value as WorkspaceTab)}
                 onSelectionCommit={(value) => setWorkspaceView(value as WorkspaceTab)}
               >
@@ -1306,7 +1356,7 @@ export function KaiAnalysisPageContent() {
           </AppPageContentRegion>
         </div>
       ) : !resolvingEntry ? (
-        <div className="w-full min-w-0 max-w-full h-full overflow-hidden" data-testid="kai-analysis-primary">
+        <div className="w-full min-w-0 max-w-full" data-testid="kai-analysis-primary">
           <NativeTestBeacon
             routeId={ROUTES.KAI_ANALYSIS}
             marker="native-route-kai-analysis"
@@ -1329,18 +1379,24 @@ export function KaiAnalysisPageContent() {
           />
           <AppPageContentRegion className="min-w-0 max-w-full">
             <SurfaceStack compact className="min-w-0 max-w-full">
-          {analysisSuggestions.length > 0 ? (
-            <SurfaceCard className="w-full">
-              <SurfaceCardContent className="flex flex-col gap-3 px-3 py-3">
+          <SurfaceCard className="w-full">
+            <SurfaceCardContent className="flex flex-col gap-3 px-3 py-3">
                 <button
+                  ref={analysisSearchButtonRef}
                   type="button"
-                  onClick={() => openKaiCommandBar()}
+                  onClick={() =>
+                    openKaiCommandBar({
+                      intent: "finance_stock_analysis",
+                      initialQuery: "Analyze ",
+                    })
+                  }
                   className="flex h-9 w-full items-center gap-2 rounded-full border border-border/70 px-3.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted"
                 >
                   <Icon icon={Search} size="sm" className="shrink-0" />
                   Search any stock to analyze
                 </button>
-                <div className="flex flex-wrap items-center gap-2">
+                {analysisSuggestions.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-2">
                   <span className="mr-1 text-xs font-medium text-muted-foreground">
                     Research starters
                   </span>
@@ -1359,11 +1415,46 @@ export function KaiAnalysisPageContent() {
                       </span>
                     </MorphyButton>
                   ))}
-                </div>
+                  </div>
+                ) : null}
               </SurfaceCardContent>
             </SurfaceCard>
-          ) : null}
-          {previewTickerFromQuery ? (
+          <KaiControlSurface
+            open={Boolean(previewTickerFromQuery)}
+            onOpenChange={(open) => {
+              if (open) return;
+              handleBrowseRecommendations();
+              requestAnimationFrame(() => analysisSearchButtonRef.current?.focus());
+            }}
+            leading={
+              previewTickerFromQuery ? (
+                <SymbolAvatar
+                  symbol={previewTickerFromQuery}
+                  name={previewTickerFromQuery}
+                  size="lg"
+                />
+              ) : null
+            }
+            eyebrow="Stock analysis"
+            title={previewTickerFromQuery || "Stock preview"}
+            description="Confirm the live quote and research source before starting the debate."
+            bodyClassName="!p-0"
+            surfaceClassName="!max-h-[calc(100dvh-var(--kb-height,0px))]"
+            showMobileCloseButton={false}
+            footer={
+              <div className="flex w-full justify-end">
+                <MorphyButton
+                  variant="blue-gradient"
+                  effect="fill"
+                  className="w-full sm:w-auto sm:min-w-40"
+                  onClick={handleStartDebateFromPreview}
+                  disabled={stockPreviewLoading || startingPreviewDebate || !stockPreview}
+                >
+                  {startingPreviewDebate ? "Preparing debate..." : "Start debate"}
+                </MorphyButton>
+              </div>
+            }
+          >
             <StockComparisonPreview
               preview={stockPreview}
               loading={stockPreviewLoading}
@@ -1375,8 +1466,10 @@ export function KaiAnalysisPageContent() {
               onPickSourceChange={setPreviewPickSource}
               compact
               starting={startingPreviewDebate}
+              embeddedInDetailSurface
+              showStartAction={false}
             />
-          ) : null}
+          </KaiControlSurface>
           {activeRunTask ? (
             <SurfaceCard accent="sky" className="w-full">
               <SurfaceCardContent className="px-3 py-2 text-xs text-accent-strong">
@@ -1394,9 +1487,6 @@ export function KaiAnalysisPageContent() {
                   }
                   setShowHistoryWhileActive(false);
                   setWorkspaceTab("debate");
-                  requestAnimationFrame(() => {
-                    workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-                  });
                 }}
               >
                 Open active analysis

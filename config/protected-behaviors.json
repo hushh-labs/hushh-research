@@ -137,7 +137,7 @@
           "assertion_pattern": "expect\\(",
           "min_assertions": 18,
           "required_titles": [
-            "requires an explicit capability review whenever there is anything to review"
+            "sends the visible Connect action directly without a one-person review dialog"
           ]
         }
       ]
@@ -424,9 +424,9 @@
           "min_assertions": 30,
           "required_titles": [
             "states the checked-in fact in three lines and nothing more",
-            "ends the check-in with a neutral action, not a destructive one",
+            "keeps leaving styled as a neutral action, not a destructive one",
             "keeps the pre-check-in panel to where, how long, and check in",
-            "keeps the required consent visible and drops the optional preference a level"
+            "keeps the required consent and connection preference visible"
           ]
         }
       ]

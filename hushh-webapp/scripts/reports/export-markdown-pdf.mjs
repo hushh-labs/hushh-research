@@ -632,6 +632,14 @@ export function renderMarkdown(markdown) {
       continue;
     }
 
+    const image = /^!\[([^\]]*)\]\((data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+|https?:\/\/[^)]+)\)$/.exec(line.trim());
+    if (image) {
+      flushParagraph();
+      closeLists();
+      html.push(`<figure class="report-figure"><img src="${image[2]}" alt="${escapeHtml(image[1])}" /><figcaption>${escapeHtml(image[1])}</figcaption></figure>`);
+      continue;
+    }
+
     if (line.startsWith("> ")) {
       flushParagraph();
       closeLists();
@@ -1805,6 +1813,27 @@ export async function buildHtml(markdown, { documentTitle, displayTitle, subtitl
 
       strong {
         color: var(--fg);
+      }
+
+      .report-figure {
+        break-inside: avoid;
+        margin: 14px 0 20px;
+      }
+
+      .report-figure img {
+        border-radius: 16px;
+        box-shadow: 0 20px 52px -38px var(--accent-deep);
+        display: block;
+        height: auto;
+        max-height: 210mm;
+        object-fit: contain;
+        width: 100%;
+      }
+
+      .report-figure figcaption {
+        color: var(--fg-secondary);
+        font-size: 9px;
+        margin-top: 7px;
       }
     </style>
   </head>

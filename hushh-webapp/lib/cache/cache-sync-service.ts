@@ -7,6 +7,7 @@ import {
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
+import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   clearAllLocationWorkspaceMemory,
@@ -18,6 +19,7 @@ import {
   forgetOneLocationControlPreference,
 } from "@/lib/one-location/location-control-state";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
+import type { FeedListResponse } from "@/lib/services/feed-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
 
@@ -28,6 +30,16 @@ function toNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function feedIdAtOrBefore(id: string, watermark: string): boolean {
+  try {
+    return BigInt(id) <= BigInt(watermark);
+  } catch {
+    // Feed IDs are numeric today. Exact matching is the only safe fallback if
+    // that contract ever changes; lexical ordering would mark unrelated rows.
+    return id === watermark;
+  }
 }
 
 function deriveAttributeCount(
@@ -347,6 +359,7 @@ export class CacheSyncService {
         }),
       );
     };
+    bumpPkmInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
@@ -445,6 +458,7 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
       this.invalidateKaiFinancialResource(userId);
     }
+    bumpPkmInvalidationEpoch(userId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("pkm-domain-changed", {
@@ -486,6 +500,7 @@ export class CacheSyncService {
       this.invalidateKaiFinancialResource(userId, { includeDevice: true });
       this.onKaiMarketContextChanged(userId);
     }
+    bumpPkmInvalidationEpoch(userId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("pkm-domain-changed", {
@@ -610,6 +625,59 @@ export class CacheSyncService {
     cache.invalidatePattern(`ria_workspace_${userId}_`);
     cache.invalidate(CACHE_KEYS.VAULT_STATUS(userId));
     this.onKaiMarketContextChanged(userId);
+  }
+
+  /**
+   * Optimistically settle Feed read state while the authoritative watermark is
+   * posted. This is the sole cache owner for that mutation: components never
+   * patch or invalidate Feed keys directly.
+   */
+  static onFeedReadStarted(userId: string, upToId: string): void {
+    if (!userId || !upToId) return;
+    const cache = CacheService.getInstance();
+    const listKey = CACHE_KEYS.FEED_LIST(userId);
+    const snapshot = cache.peek<FeedListResponse>(listKey);
+    let remainingUnread = 0;
+
+    if (snapshot) {
+      const items = snapshot.data.items.map((item) => {
+        if (!item.read && feedIdAtOrBefore(item.id, upToId)) {
+          return { ...item, read: true };
+        }
+        if (!item.read) remainingUnread += 1;
+        return item;
+      });
+      cache.set(
+        listKey,
+        {
+          ...snapshot.data,
+          items,
+          unread_count: remainingUnread,
+        },
+        CACHE_TTL.SHORT,
+      );
+    }
+
+    cache.set(
+      CACHE_KEYS.FEED_UNREAD_COUNT(userId),
+      remainingUnread,
+      CACHE_TTL.SHORT,
+    );
+  }
+
+  /** A successful watermark keeps the optimistic list and recounts rows that
+   * may have arrived concurrently after that watermark. */
+  static onFeedReadSettled(userId: string): void {
+    if (!userId) return;
+    CacheService.getInstance().invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(userId));
+  }
+
+  /** Restore both projections from authority after a failed read mutation. */
+  static onFeedReadFailed(userId: string): void {
+    if (!userId) return;
+    const cache = CacheService.getInstance();
+    cache.invalidate(CACHE_KEYS.FEED_LIST(userId));
+    cache.invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(userId));
   }
 
   /**

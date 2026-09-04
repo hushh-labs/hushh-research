@@ -60,6 +60,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/register-phone`
 - `/logout`
 - `/agent`
+- `/people/[personRef]`
 - `/one/profile`
 - `/one/profile/regulatory`
 - `/one/profile/account`
@@ -86,6 +87,13 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/support`
 - `/one/profile/support/routing`
 - `/one/profile/support/compose?kind=<support_kind>`
+
+`/people/[personRef]` is the deliberate exception: it is the sole canonical,
+unguessable public person URL and cannot be reduced to a directory or a finite
+identifier set. Web renders it server-side so invalid and suppressed profiles
+produce a non-enumerating `404`. The Capacitor export emits one inert route
+fixture so the shared dynamic client bundle is available; actual profile reads
+use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/profile/receipts`
 - `/one/profile/gmail/oauth/return`
 - `/one/connect`
@@ -99,9 +107,15 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
+- `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
+- `/one/pkm/recent`
 - `/one/gmail`
 - `/one/email`
 - `/one/kyc`
+- `/one/location`
+- `/one/location/map`
+- `/one/location/check-in`
+- `/one/location/check-in/hotel?stay=<opaque_stay_id>` — eligibility-gated and fail-closed until a supported hotel stay provider exists
 - `/one/marketplace`
 - `/marketplace`
 - `/marketplace/ria`
@@ -164,6 +178,15 @@ returns through `/one/profile/google/oauth/return` and routes back to Calendar.
 The access manager is the One-owned `/one/consent` workspace. Legacy
 `/consents` links redirect there while preserving transient query state such as
 the selected review tab and request identifier.
+
+## Shell and navigation
+
+The standard navigation is four layers and one law, defined once in
+`docs/reference/quality/app-surface-design-system.md` under *Shell and navigation
+ownership*. The part route authors get wrong most often: **the back control is
+derived from the breadcrumb**, so a `standard` route with no breadcrumb entry has
+no back button and no native edge-back gesture. Declare the breadcrumb, or declare
+an `exemptionReason` in the route layout contract.
 
 ## Route Contract Cascade
 

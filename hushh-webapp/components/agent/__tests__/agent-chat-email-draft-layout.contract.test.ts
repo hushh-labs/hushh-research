@@ -16,7 +16,7 @@ describe("Agent Chat email draft layout contract", () => {
       "emailDraftInstruction = handoff.emailDraftInstruction?.trim()",
     );
     expect(source).toContain("openGmailEmailDraftFromDirective");
-    expect(source).toContain('payload.kind !== "gmail_email_draft"');
+    expect(source).toContain('event.raw.toolName !== "open_gmail_email_draft"');
     expect(source).toContain("setEmailDraftAutoDraft(true);");
     expect(source).toContain("autoDraft={emailDraftAutoDraft}");
     expect(source).toContain("onSendStarted={handleEmailSendStarted}");
@@ -26,7 +26,7 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).toContain("setEmailDraftAnchorMessageId(assistantMessageId);");
     expect(source).toContain("itemsAfterMessage.get(message.id)");
     expect(source).toContain(
-      'text: message.text.trim() ? message.text : event.message || "",',
+      "openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);",
     );
     expect(source).not.toContain(
       "current.filter((message) => message.id !== assistantMessageId)",

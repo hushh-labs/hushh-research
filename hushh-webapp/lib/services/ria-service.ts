@@ -349,9 +349,17 @@ export interface RiaClaimProfileFacts {
   registered_since?: string | null;
   branch_city?: string | null;
   branch_state?: string | null;
-  exams?: { code?: string | null; name?: string | null; date?: string | null }[];
+  exams?: {
+    code?: string | null;
+    name?: string | null;
+    date?: string | null;
+  }[];
   registered_states?: { state?: string | null; status?: string | null }[];
-  previous_firms?: { firm_name?: string | null; from?: string | null; to?: string | null }[];
+  previous_firms?: {
+    firm_name?: string | null;
+    from?: string | null;
+    to?: string | null;
+  }[];
   notice_filed_states?: string[];
   aum?: number | null;
   num_accounts?: number | null;
@@ -812,7 +820,15 @@ export interface RiaPickRow {
   conviction_weight?: number | null;
   recommendation_bias?: string | null;
   investment_thesis?: string | null;
+  advisor_thesis?: RiaAdvisorThesis | null;
   fcf_billions?: number | null;
+}
+
+export interface RiaAdvisorThesis {
+  text: string;
+  authored_by_user_id: string;
+  source: "ria_picks_editor";
+  updated_at: string;
 }
 
 export interface RiaAvoidRow {
@@ -842,6 +858,8 @@ export interface RiaPickPackage {
   avoid_rows: RiaAvoidRow[];
   screening_sections: RiaScreeningSection[];
   package_note?: string | null;
+  /** Advisor-authored, bounded context for an authorized investor's Kai debate. */
+  investor_debate_thesis?: string | null;
 }
 
 export interface RiaPicksRevisionMetadata {
@@ -902,6 +920,65 @@ const RIA_PICKS_DOMAIN = "ria";
 const RIA_PICKS_PATH = "advisor_package";
 const RIA_REGULATOR_PROFILE_PATH = "regulator_profile";
 const RIA_PICKS_DOMAIN_SCHEMA_VERSION = 1;
+const RIA_PICK_THESIS_MAX_LENGTH = 2000;
+
+function normalizeRiaPickThesisText(value: unknown): string | null {
+  const text = String(value || "").trim();
+  return text ? text.slice(0, RIA_PICK_THESIS_MAX_LENGTH) : null;
+}
+
+function normalizeRiaAdvisorThesis(
+  row: Partial<RiaPickRow> | null | undefined,
+  fallbackText?: string | null,
+): RiaAdvisorThesis | null {
+  const raw = row?.advisor_thesis;
+  const source = raw && raw.source === "ria_picks_editor" ? raw.source : null;
+  const authoredBy =
+    raw && typeof raw.authored_by_user_id === "string"
+      ? raw.authored_by_user_id.trim()
+      : "";
+  const updatedAt =
+    raw && typeof raw.updated_at === "string" ? raw.updated_at.trim() : "";
+  const text = normalizeRiaPickThesisText(
+    fallbackText !== undefined ? fallbackText : raw?.text,
+  );
+  if (!text || !source || !authoredBy || !updatedAt) return null;
+  return {
+    text,
+    authored_by_user_id: authoredBy,
+    source,
+    updated_at: updatedAt,
+  };
+}
+
+function buildRiaAdvisorThesis(text: string | null, userId: string, updatedAt: string) {
+  if (!text) return null;
+  return {
+    text,
+    authored_by_user_id: userId,
+    source: "ria_picks_editor" as const,
+    updated_at: updatedAt,
+  };
+}
+
+function stampRiaPickPackageTheses(
+  pkg: RiaPickPackage,
+  userId: string,
+  updatedAt: string,
+): RiaPickPackage {
+  const normalizedPackage = normalizePickPackage(pkg);
+  return {
+    ...normalizedPackage,
+    top_picks: normalizedPackage.top_picks.map((row) => {
+      const thesisText = normalizeRiaPickThesisText(row.investment_thesis);
+      return {
+        ...row,
+        investment_thesis: thesisText,
+        advisor_thesis: buildRiaAdvisorThesis(thesisText, userId, updatedAt),
+      };
+    }),
+  };
+}
 
 function emptyRiaPickPackage(): RiaPickPackage {
   return {
@@ -913,6 +990,7 @@ function emptyRiaPickPackage(): RiaPickPackage {
       { section: "the_math", rows: [] },
     ],
     package_note: null,
+    investor_debate_thesis: null,
   };
 }
 
@@ -968,36 +1046,46 @@ function normalizePickPackage(
           .filter(
             (row): row is RiaPickRow => Boolean(row) && typeof row === "object",
           )
-          .map((row) => ({
-            ticker: String(row.ticker || "")
-              .trim()
-              .toUpperCase(),
-            company_name: String(row.company_name || "").trim() || null,
-            sector: String(row.sector || "").trim() || null,
-            tier:
-              String(row.tier || "")
+          .map((row) => {
+            const investmentThesis = normalizeRiaPickThesisText(
+              row.investment_thesis,
+            );
+            const hasInvestmentThesisField =
+              Object.prototype.hasOwnProperty.call(row, "investment_thesis");
+            return {
+              ticker: String(row.ticker || "")
                 .trim()
-                .toUpperCase() || null,
-            tier_rank:
-              typeof row.tier_rank === "number" &&
-              Number.isFinite(row.tier_rank)
-                ? row.tier_rank
-                : null,
-            conviction_weight:
-              typeof row.conviction_weight === "number" &&
-              Number.isFinite(row.conviction_weight)
-                ? row.conviction_weight
-                : null,
-            recommendation_bias:
-              String(row.recommendation_bias || "").trim() || null,
-            investment_thesis:
-              String(row.investment_thesis || "").trim() || null,
-            fcf_billions:
-              typeof row.fcf_billions === "number" &&
-              Number.isFinite(row.fcf_billions)
-                ? row.fcf_billions
-                : null,
-          }))
+                .toUpperCase(),
+              company_name: String(row.company_name || "").trim() || null,
+              sector: String(row.sector || "").trim() || null,
+              tier:
+                String(row.tier || "")
+                  .trim()
+                  .toUpperCase() || null,
+              tier_rank:
+                typeof row.tier_rank === "number" &&
+                Number.isFinite(row.tier_rank)
+                  ? row.tier_rank
+                  : null,
+              conviction_weight:
+                typeof row.conviction_weight === "number" &&
+                Number.isFinite(row.conviction_weight)
+                  ? row.conviction_weight
+                  : null,
+              recommendation_bias:
+                String(row.recommendation_bias || "").trim() || null,
+              investment_thesis: investmentThesis,
+              advisor_thesis: normalizeRiaAdvisorThesis(
+                row,
+                hasInvestmentThesisField ? investmentThesis : undefined,
+              ),
+              fcf_billions:
+                typeof row.fcf_billions === "number" &&
+                Number.isFinite(row.fcf_billions)
+                  ? row.fcf_billions
+                  : null,
+            };
+          })
       : [],
     avoid_rows: Array.isArray(packageValue.avoid_rows)
       ? packageValue.avoid_rows
@@ -1021,6 +1109,10 @@ function normalizePickPackage(
         ? screeningSections
         : empty.screening_sections,
     package_note: String(packageValue.package_note || "").trim() || null,
+    investor_debate_thesis:
+      String(packageValue.investor_debate_thesis || "")
+        .trim()
+        .slice(0, 2000) || null,
   };
 }
 
@@ -1087,6 +1179,10 @@ function parseRiaPicksDomain(
       : [],
     package_note:
       typeof payload.package_note === "string" ? payload.package_note : null,
+    investor_debate_thesis:
+      typeof payload.investor_debate_thesis === "string"
+        ? payload.investor_debate_thesis
+        : null,
   });
   return {
     package: packageValue,
@@ -1100,7 +1196,13 @@ function buildRiaPicksDomainData(params: {
   pkg: RiaPickPackage;
   revision: number;
   updatedAt: string;
+  authoredByUserId: string;
 }): Record<string, unknown> {
+  const normalizedPackage = stampRiaPickPackageTheses(
+    params.pkg,
+    params.authoredByUserId,
+    params.updatedAt,
+  );
   return {
     schema_version: RIA_PICKS_DOMAIN_SCHEMA_VERSION,
     domain_intent: {
@@ -1111,7 +1213,7 @@ function buildRiaPicksDomainData(params: {
       updated_at: params.updatedAt,
     },
     [RIA_PICKS_PATH]: {
-      ...normalizePickPackage(params.pkg),
+      ...normalizedPackage,
       revision: params.revision,
       updated_at: params.updatedAt,
     },
@@ -1200,7 +1302,9 @@ async function toJsonOrThrow<T>(response: Response): Promise<T> {
       return null;
     })();
     const detailObject =
-      payload.detail && typeof payload.detail === "object" && !Array.isArray(payload.detail)
+      payload.detail &&
+      typeof payload.detail === "object" &&
+      !Array.isArray(payload.detail)
         ? (payload.detail as { code?: unknown })
         : null;
     const rawMessage =
@@ -1487,9 +1591,7 @@ export class RiaService {
   /** Explicit combined consent to be found and auto-connected by verified users
    * who already hold this account's verified phone number. Defaults off.
    */
-  static async getContactDiscoverability(
-    idToken: string,
-  ): Promise<{
+  static async getContactDiscoverability(idToken: string): Promise<{
     user_id: string;
     contact_discoverable: boolean;
     contact_sync_consent_enabled_at?: string | null;
@@ -2613,6 +2715,7 @@ export class RiaService {
     vaultOwnerToken?: string | null;
     label?: string;
     package_note?: string;
+    investor_debate_thesis?: string;
     top_picks?: RiaPickRow[];
     avoid_rows?: RiaAvoidRow[];
     screening_sections?: RiaScreeningSection[];
@@ -2626,6 +2729,7 @@ export class RiaService {
       avoid_rows: params.avoid_rows || [],
       screening_sections: params.screening_sections || [],
       package_note: params.package_note || null,
+      investor_debate_thesis: params.investor_debate_thesis || null,
     });
     const nextUpdatedAt = new Date().toISOString();
     const currentDomain = await PersonalKnowledgeModelService.loadDomainData({
@@ -2642,6 +2746,11 @@ export class RiaService {
         : null,
     );
     const nextRevision = Math.max(1, Number(currentParsed?.revision || 0) + 1);
+    const persistedPackage = stampRiaPickPackageTheses(
+      nextPackage,
+      params.userId,
+      nextUpdatedAt,
+    );
     // The "ria" domain holds more than picks (e.g. regulator_profile from a
     // claim). Carry every current key forward so a picks save can never erase
     // a sibling written by another flow.
@@ -2665,18 +2774,19 @@ export class RiaService {
         domainData: {
           ...currentSiblings,
           ...buildRiaPicksDomainData({
-            pkg: nextPackage,
+            pkg: persistedPackage,
             revision: nextRevision,
             updatedAt: nextUpdatedAt,
+            authoredByUserId: params.userId,
           }),
         },
         summary: {
           domain_contract_version: 1,
           package_revision: nextRevision,
-          top_pick_count: nextPackage.top_picks.length,
-          avoid_count: nextPackage.avoid_rows.length,
+          top_pick_count: persistedPackage.top_picks.length,
+          avoid_count: persistedPackage.avoid_rows.length,
           screening_row_count: countScreeningRows(
-            nextPackage.screening_sections,
+            persistedPackage.screening_sections,
           ),
           last_updated: nextUpdatedAt,
           ...(currentSiblings[RIA_REGULATOR_PROFILE_PATH]
@@ -2694,18 +2804,20 @@ export class RiaService {
       idToken: params.idToken,
       body: {
         label: params.label,
-        package_note: nextPackage.package_note || undefined,
-        top_picks: nextPackage.top_picks,
-        avoid_rows: nextPackage.avoid_rows,
-        screening_sections: nextPackage.screening_sections,
+        package_note: persistedPackage.package_note || undefined,
+        investor_debate_thesis:
+          persistedPackage.investor_debate_thesis || undefined,
+        top_picks: persistedPackage.top_picks,
+        avoid_rows: persistedPackage.avoid_rows,
+        screening_sections: persistedPackage.screening_sections,
         source_data_version: result.dataVersion,
         source_manifest_revision: undefined,
       },
     });
     const synced = await toJsonOrThrow<RiaPicksResponse>(shareSyncResponse);
     const payload: RiaPicksResponse = {
-      package: nextPackage,
-      metadata: buildRiaPickSummary(nextPackage, {
+      package: persistedPackage,
+      metadata: buildRiaPickSummary(persistedPackage, {
         ...(synced.metadata || {}),
         storage_source: "pkm",
         package_revision: result.dataVersion || nextRevision,
@@ -2728,6 +2840,7 @@ export class RiaService {
     source_filename?: string;
     label?: string;
     package_note?: string;
+    investor_debate_thesis?: string;
     avoid_rows?: RiaAvoidRow[];
     screening_sections?: RiaScreeningSection[];
   }): Promise<RiaPicksResponse> {
@@ -2755,6 +2868,7 @@ export class RiaService {
       vaultOwnerToken: params.vaultOwnerToken,
       label: params.label,
       package_note: parsedPackage.package_note || params.package_note,
+      investor_debate_thesis: params.investor_debate_thesis,
       top_picks: parsedPackage.top_picks,
       avoid_rows: parsedPackage.avoid_rows,
       screening_sections: parsedPackage.screening_sections,
@@ -2770,6 +2884,7 @@ export class RiaService {
     source_filename?: string;
     label?: string;
     package_note?: string;
+    investor_debate_thesis?: string;
     top_picks?: RiaPickRow[];
     avoid_rows?: RiaAvoidRow[];
     screening_sections?: RiaScreeningSection[];
@@ -2784,6 +2899,7 @@ export class RiaService {
         source_filename: params.source_filename,
         label: params.label,
         package_note: params.package_note,
+        investor_debate_thesis: params.investor_debate_thesis,
         avoid_rows: params.avoid_rows,
         screening_sections: params.screening_sections,
       });
@@ -2795,6 +2911,7 @@ export class RiaService {
       vaultOwnerToken: params.vaultOwnerToken,
       label: params.label,
       package_note: params.package_note,
+      investor_debate_thesis: params.investor_debate_thesis,
       top_picks: params.top_picks,
       avoid_rows: params.avoid_rows,
       screening_sections: params.screening_sections,

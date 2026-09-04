@@ -303,6 +303,23 @@ The `audit:cache-coherence` script hard-fails when the screen cache manifest is 
 
 ## Reconciliation Notes
 
+### Cross-route PKM freshness (2026-09-02)
+
+A domain stored on one route (Wallet, the Kai statement import, chat) used to
+reach Memory only if Memory was mounted at that moment: `pkm-domain-changed` is
+a fire-and-forget window event, and the metadata write-through patch reset the
+TTL, so `getMetadata(force=false)` on the next mount served the patch for up to
+five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap:
+
+- `CacheSyncService` bumps the per-owner epoch on every stored / cleared /
+  restored emit, alongside the event.
+- `usePkmDomainChangeRevision` seeds from the epoch, so a screen that mounts
+  after a write starts above zero and forces a fresh read; the listener still
+  covers writes made while it is mounted.
+- Profile my-data applies the same rule through `refreshPkmMetadata(true)`.
+- `audit-cache-coherence.mjs` invariant 0 fails the build if either side of the
+  link is removed.
+
 - Domain metadata patches should preserve canonical summary counters (`attribute_count`, `item_count`, `holdings_count`).
 - Raw `total_value` is not retained in index summary cache patches; numeric values should map to `portfolio_total_value`.
 - If patch inputs are insufficient, invalidate metadata and force a clean re-fetch rather than persisting partial summaries.

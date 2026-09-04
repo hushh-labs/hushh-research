@@ -66,6 +66,16 @@ export interface HushhAuthPlugin {
   }>;
 
   /**
+   * Requests Gmail consent through the platform Google Sign-In SDK.
+   *
+   * The result is a single-use server authorization code. It is handed to the
+   * authenticated backend immediately and is never persisted by the app.
+   */
+  connectGmail(options: { serverClientId: string }): Promise<{
+    serverAuthCode: string;
+  }>;
+
+  /**
    * Sign in with Apple using native iOS AuthenticationServices or Firebase OAuthProvider
    *
    * iOS: Uses ASAuthorizationController (native Apple Sign-In sheet)
@@ -246,6 +256,7 @@ export interface HushhConsentPlugin {
   revokeConsent(options: {
     userId: string;
     scope: string;
+    requestId?: string;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean; lockVault?: boolean }>;
 }

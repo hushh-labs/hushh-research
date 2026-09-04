@@ -712,21 +712,32 @@ export function KaiFlow({
   const { getPortfolioData, setPortfolioData, invalidateDomain } = useCache();
   const searchParams = useSearchParams();
   const [internalState, setInternalState] = useState<FlowState>("checking");
-  const state = (searchParams?.get("stage") as FlowState) || internalState;
+  const urlStage = searchParams?.get("stage") as FlowState | null;
+  const state = urlStage || internalState;
 
   const pathname = usePathname();
   const setState = useCallback(
     (newState: FlowState) => {
       setInternalState(newState);
+      const params = new URLSearchParams(searchParams?.toString());
       if (
         newState === "import_required" ||
         newState === "reviewing" ||
         newState === "importing" ||
         newState === "import_complete"
       ) {
-        const params = new URLSearchParams(searchParams?.toString());
         params.set("stage", newState);
         router.push(pathname + "?" + params.toString(), { scroll: true });
+        return;
+      }
+      // The URL stage wins over internal state, so a terminal transition must
+      // drop it or the flow stays pinned to the stage it just left.
+      if (params.has("stage")) {
+        params.delete("stage");
+        const query = params.toString();
+        router.replace(query ? pathname + "?" + query : pathname, {
+          scroll: false,
+        });
       }
     },
     [pathname, router, searchParams],
@@ -3309,7 +3320,12 @@ export function KaiFlow({
       });
 
       if (mode === "import") {
-        if (await finishFinanceSetupIfActive("statement")) return;
+        if (await finishFinanceSetupIfActive("statement")) {
+          // The setup route keeps this flow mounted; leave the review stage
+          // or the parsed portfolio we just cleared renders as a loader.
+          setState("dashboard");
+          return;
+        }
         setOnboardingFlowActiveCookie(false);
         router.push(ROUTES.KAI_DASHBOARD);
         return;
@@ -3727,6 +3743,18 @@ export function KaiFlow({
   // RENDER
   // =============================================================================
 
+  // A stale ?stage=reviewing (back button, reload) with nothing to review
+  // would otherwise render the "Preparing your review" loader forever.
+  useEffect(() => {
+    if (state !== "reviewing" || flowData.parsedPortfolio || isPreloadingSchema) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setState(mode === "import" ? "import_required" : "dashboard");
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [flowData.parsedPortfolio, isPreloadingSchema, mode, setState, state]);
+
   if (state === "checking") {
     return (
       <div className="w-full">
@@ -3746,7 +3774,7 @@ export function KaiFlow({
   }
 
   return (
-    <div className="flex w-full flex-col h-full overflow-hidden">
+    <div className="flex w-full flex-col">
       {/* State-based rendering */}
       {state === "import_required" && (
         <PortfolioImportView

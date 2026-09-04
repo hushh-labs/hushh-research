@@ -12,7 +12,30 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 DEFAULT_REPO = "hushh-labs/hushh-research"
-PRODUCTION_MANUAL_DISPATCH_USERS = ["kushaltrivedi5", "ankitkumarsingh1702"]
+# Deliberate SECOND KEY on production deploy authority. This list is duplicated
+# from config/ci-governance.json -> production.manual_dispatch_users on purpose:
+# widening the production cohort must be an explicit two-file edit, so a grant
+# cannot ride in as a one-line JSON diff nobody reads closely.
+#
+# THEREFORE: any PR that edits production.manual_dispatch_users MUST mirror the
+# change here in the same PR, or this check fails.
+#
+# It drifted twice because that rule was implicit (845a456bd added RGlodAkshat +
+# DamriaNeelesh on 2026-08-07 and left this stale for three weeks; the imsharukhan
+# grant on 2026-08-28 widened the gap to 5-vs-2). Stated explicitly now.
+PRODUCTION_MANUAL_DISPATCH_USERS = [
+    "kushaltrivedi5",
+    # Manish Sainani's second GitHub account, granted parity with `kushaltrivedi5`
+    # on 2026-09-04 at the founder's request after `msainani` became the pushing
+    # actor and every protected-surface edit on the workstream branch went red.
+    # Mirrored here deliberately, which is what this constant exists to force: a
+    # production-dispatch grant is stated twice or not at all.
+    "msainani",
+    "ankitkumarsingh1702",
+    "RGlodAkshat",
+    "DamriaNeelesh",
+    "imsharukhan",
+]
 
 
 def _gh_json(*args: str) -> dict:

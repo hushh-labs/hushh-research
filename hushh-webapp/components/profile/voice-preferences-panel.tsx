@@ -25,6 +25,9 @@ import {
 } from "@/lib/agent/voice-engine-changelog";
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { VOICE_PERSONA_OPTIONS } from "@/lib/agent/voice-persona-options";
+import { OneLocationService } from "@/lib/one-location/service";
+import type { OneLocationSosVoiceDefaultAction } from "@/lib/one-location/types";
+import { ConnectionsService } from "@/lib/services/connections-service";
 
 /** Select has no null option, so the default pick gets its own sentinel value. */
 const VOICE_NAME_DEFAULT_VALUE = "__default__";
@@ -78,12 +81,242 @@ function VoiceChangelog({ onOpenChangelog }: { onOpenChangelog: () => void }) {
   );
 }
 
+type LocationAgentDefaults = {
+  autoApproveRequests: boolean;
+  nearbyCheckInVisible: boolean;
+  nearbyCheckInAllowConnectionRequests: boolean;
+  sosDefaultAction: OneLocationSosVoiceDefaultAction;
+};
+
+function LocationAgentDefaultsGroup({
+  vaultOwnerToken,
+}: {
+  vaultOwnerToken: string | null;
+}) {
+  const [defaults, setDefaults] = useState<LocationAgentDefaults | null>(null);
+
+  useEffect(() => {
+    if (!vaultOwnerToken) return;
+    let cancelled = false;
+    OneLocationService.getState(vaultOwnerToken)
+      .then((state) => {
+        if (cancelled) return;
+        setDefaults({
+          autoApproveRequests: Boolean(state.autoApprovePreference?.enabled),
+          nearbyCheckInVisible: state.nearbyCheckInPreferences?.visible ?? true,
+          nearbyCheckInAllowConnectionRequests:
+            state.nearbyCheckInPreferences?.allowConnectionRequests ?? false,
+          sosDefaultAction: state.sosVoicePreference?.defaultAction ?? "open",
+        });
+      })
+      .catch(() => {
+        // Settings row disappears rather than showing a stale or wrong
+        // default; the person can reopen the page to retry.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultOwnerToken]);
+
+  if (!vaultOwnerToken || !defaults) return null;
+
+  const setNearbyCheckIn = (
+    updater: (current: LocationAgentDefaults) => LocationAgentDefaults,
+  ) => {
+    setDefaults((current) => {
+      if (!current) return current;
+      const next = updater(current);
+      OneLocationService.updateNearbyCheckInPreferences({
+        vaultOwnerToken,
+        visible: next.nearbyCheckInVisible,
+        allowConnectionRequests: next.nearbyCheckInAllowConnectionRequests,
+      }).catch(() => setDefaults(current));
+      return next;
+    });
+  };
+
+  const setSosDefault = (defaultAction: OneLocationSosVoiceDefaultAction) => {
+    setDefaults((current) => {
+      if (!current) return current;
+      OneLocationService.updateSosVoicePreference({
+        vaultOwnerToken,
+        defaultAction,
+      }).catch(() => setDefaults(current));
+      return { ...current, sosDefaultAction: defaultAction };
+    });
+  };
+
+  return (
+    <SettingsGroup
+      title="Location"
+      description="Defaults One uses for location requests and Nearby Check-In."
+    >
+      <SettingsRow
+        title="Auto-approve requests"
+        description="Let matching location requests through automatically."
+        trailing={
+          <Switch
+            checked={defaults.autoApproveRequests}
+            onCheckedChange={(checked) => {
+              setDefaults((current) =>
+                current ? { ...current, autoApproveRequests: checked } : current,
+              );
+              OneLocationService.updateAutoApprovePreference({
+                vaultOwnerToken,
+                enabled: checked,
+                scope: checked ? { kind: "all_contacts" } : undefined,
+              }).catch(() =>
+                setDefaults((current) =>
+                  current ? { ...current, autoApproveRequests: !checked } : current,
+                ),
+              );
+            }}
+            aria-label="Auto-approve requests"
+          />
+        }
+      />
+      <SettingsRow
+        title="Visible in Nearby Check-In"
+        description="Show up to people nearby when you check in."
+        trailing={
+          <Switch
+            checked={defaults.nearbyCheckInVisible}
+            onCheckedChange={(checked) =>
+              setNearbyCheckIn((current) => ({
+                ...current,
+                nearbyCheckInVisible: checked,
+              }))
+            }
+            aria-label="Visible in Nearby Check-In"
+          />
+        }
+      />
+      <SettingsRow
+        title="Allow connection requests"
+        description="Let people who see you checked in ask to connect."
+        trailing={
+          <Switch
+            checked={defaults.nearbyCheckInAllowConnectionRequests}
+            onCheckedChange={(checked) =>
+              setNearbyCheckIn((current) => ({
+                ...current,
+                nearbyCheckInAllowConnectionRequests: checked,
+              }))
+            }
+            aria-label="Allow connection requests"
+          />
+        }
+      />
+      <SettingsRow
+        title="In an emergency"
+        description="What a bare phrase like 'save me' or 'SOS' does. Still confirmed before anything sends."
+        trailing={
+          <Select
+            value={defaults.sosDefaultAction}
+            onValueChange={(value) =>
+              setSosDefault(value as OneLocationSosVoiceDefaultAction)
+            }
+          >
+            <SelectTrigger
+              className="w-full sm:w-56 min-w-[11rem]"
+              aria-label="In an emergency"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="open">Open the screen</SelectItem>
+              <SelectItem value="trigger">Send the alert</SelectItem>
+            </SelectContent>
+          </Select>
+        }
+        stackTrailingOnMobile
+      />
+    </SettingsGroup>
+  );
+}
+
+function ConnectAgentDefaultsGroup({
+  getIdToken,
+}: {
+  getIdToken: (() => Promise<string>) | null;
+}) {
+  const [shareScopes, setShareScopes] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!getIdToken) return;
+    let cancelled = false;
+    getIdToken()
+      .then((idToken) => ConnectionsService.getVoicePreferences({ idToken }))
+      .then((preferences) => {
+        if (!cancelled) setShareScopes(preferences.shareScopesFromLastRequest);
+      })
+      .catch(() => {
+        // Settings row disappears rather than showing a stale or wrong
+        // default; the person can reopen the page to retry.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getIdToken]);
+
+  if (!getIdToken || shareScopes === null) return null;
+
+  return (
+    <SettingsGroup
+      title="Connect"
+      description="Defaults One uses for voice-initiated connection requests."
+    >
+      {/*
+        The old copy said the setting lets a repeat request "offer the same
+        access as last time". It does more than offer: connect.send_request
+        reuses BOTH offeredScopeHandles and requestedScopeHandles, so it also
+        ASKS for the same access again. On a consent control that asymmetry is
+        the whole point -- somebody reading "offer" reasonably concludes this
+        only affects what they give away, not what they request.
+
+        "last time" was also vaguer than the behaviour. Scopes come from this
+        requester's most recent request to THIS exact person; there is
+        deliberately no wider "usual scopes" fallback, so a repeat can never
+        extrapolate from someone else and a first request is always empty.
+        That narrowness is reassuring, and the copy was hiding it.
+
+        "Scopes" is our word, not a person's. The row says access instead.
+      */}
+      <SettingsRow
+        title="Reuse access from last time"
+        description="A repeat voice request asks for and offers the same access you did with that person before. They still approve every request."
+        trailing={
+          <Switch
+            checked={shareScopes}
+            onCheckedChange={(checked) => {
+              setShareScopes(checked);
+              getIdToken()
+                .then((idToken) =>
+                  ConnectionsService.updateVoicePreferences({
+                    idToken,
+                    shareScopesFromLastRequest: checked,
+                  }),
+                )
+                .catch(() => setShareScopes(!checked));
+            }}
+            aria-label="Reuse access from last time"
+          />
+        }
+      />
+    </SettingsGroup>
+  );
+}
+
 export function VoicePreferencesPanel({
   userId,
+  vaultOwnerToken = null,
+  getIdToken = null,
   onOpenChangelog,
   onOpenExamples,
 }: {
   userId: string | null;
+  vaultOwnerToken?: string | null;
+  getIdToken?: (() => Promise<string>) | null;
   onOpenChangelog: () => void;
   onOpenExamples: () => void;
 }) {
@@ -163,10 +396,31 @@ export function VoicePreferencesPanel({
           stackTrailingOnMobile
         />
       </SettingsGroup>
-      <SettingsGroup title="Safety" description="For actions that already ask to confirm.">
+      {/*
+        The old copy here read "For actions that already ask to confirm" /
+        "Stops a spoken yes or no from confirming." Both were wrong, and
+        together they made a working control look broken.
+
+        Nothing "already asks". Voice deliberately does not confirm by
+        default -- `_directive_flags` in action_tools.py raises a card only
+        for `trusted_activation_required` (4 actions of 198) unless this
+        setting is on. So the group described a set that is empty in
+        practice, and the row promised to stop a spoken yes that was never
+        being asked for in the first place.
+
+        Turn this on and 35 `confirm_required` actions start asking, and
+        only a tap settles them. Both halves matter: the asking is new, not
+        just the tap. Somebody who reads the old copy tries it on an
+        ordinary action, sees no card, and concludes the switch does
+        nothing.
+      */}
+      <SettingsGroup
+        title="Safety"
+        description="For actions that share or change something."
+      >
         <SettingsRow
           title="Require a tap to confirm"
-          description="Stops a spoken yes or no from confirming."
+          description="They ask first, and a spoken yes won't do."
           disabled={!state.voiceEnabled}
           trailing={
             <Switch
@@ -197,6 +451,8 @@ export function VoicePreferencesPanel({
           }
         />
       </SettingsGroup>
+      <LocationAgentDefaultsGroup vaultOwnerToken={vaultOwnerToken} />
+      <ConnectAgentDefaultsGroup getIdToken={getIdToken} />
       <SettingsGroup
         title="What voice can control"
         description="Turn a domain off to block voice there; tap still works."

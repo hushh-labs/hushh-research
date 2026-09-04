@@ -14,16 +14,18 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run",
-    "test:layout-contracts": "CI=1 playwright test e2e/calendar-setup-shell.layout.spec.ts e2e/one-location-ready-panel.layout.spec.ts e2e/save-location-sheet.layout.spec.ts e2e/circle-member-row.layout.spec.ts e2e/connect-circle-cta.layout.spec.ts e2e/one-location-live-share.layout.spec.ts e2e/one-location-duration-ladder.layout.spec.ts e2e/gemini-endpoint-fields.layout.spec.ts e2e/one-location-checkin-card.layout.spec.ts e2e/feed-needs-you-row.layout.spec.ts e2e/one-location-tab-strip.layout.spec.ts e2e/app-shell-top-clearance.layout.spec.ts e2e/app-shell-bottom-clearance.layout.spec.ts e2e/one-location-check-in-panel.layout.spec.ts --project=chromium e2e/one-location-map-consent-panel.layout.spec.ts && CI=1 playwright test e2e/circle-member-row.layout.spec.ts e2e/connect-circle-cta.layout.spec.ts e2e/gemini-endpoint-fields.layout.spec.ts e2e/feed-needs-you-row.layout.spec.ts e2e/one-location-tab-strip.layout.spec.ts e2e/one-location-duration-ladder.layout.spec.ts e2e/save-location-sheet.layout.spec.ts e2e/app-shell-top-clearance.layout.spec.ts e2e/app-shell-bottom-clearance.layout.spec.ts --project=webkit e2e/one-location-map-consent-panel.layout.spec.ts",
+    "test:layout-contracts": "CI=1 playwright test e2e/calendar-setup-shell.layout.spec.ts e2e/one-location-ready-panel.layout.spec.ts e2e/save-location-sheet.layout.spec.ts e2e/circle-member-row.layout.spec.ts e2e/connect-circle-cta.layout.spec.ts e2e/one-location-live-share.layout.spec.ts e2e/one-location-duration-ladder.layout.spec.ts e2e/gemini-endpoint-fields.layout.spec.ts e2e/one-location-checkin-card.layout.spec.ts e2e/feed-needs-you-row.layout.spec.ts e2e/one-location-tab-strip.layout.spec.ts e2e/app-shell-top-clearance.layout.spec.ts e2e/app-shell-bottom-clearance.layout.spec.ts e2e/one-location-check-in-panel.layout.spec.ts e2e/one-location-flow-action-footer.layout.spec.ts e2e/connect-sticky-header.layout.spec.ts --project=chromium e2e/one-location-map-consent-panel.layout.spec.ts && CI=1 playwright test e2e/circle-member-row.layout.spec.ts e2e/connect-circle-cta.layout.spec.ts e2e/gemini-endpoint-fields.layout.spec.ts e2e/feed-needs-you-row.layout.spec.ts e2e/one-location-tab-strip.layout.spec.ts e2e/one-location-duration-ladder.layout.spec.ts e2e/save-location-sheet.layout.spec.ts e2e/app-shell-top-clearance.layout.spec.ts e2e/app-shell-bottom-clearance.layout.spec.ts e2e/one-location-flow-action-footer.layout.spec.ts e2e/connect-sticky-header.layout.spec.ts --project=webkit e2e/one-location-map-consent-panel.layout.spec.ts && CI=1 playwright test e2e/circle-member-row.layout.spec.ts e2e/connect-sticky-header.layout.spec.ts --project=mobile-chrome",
     "verify:first-run-admission": "vitest run __tests__/components/onboarding-journey-guard.test.tsx __tests__/components/session-chrome-quiescence.test.tsx __tests__/app/one/one-auth-gate.test.tsx",
     "verify:phone-verification": "vitest run __tests__/components/phone-verification-flow.test.ts __tests__/components/phone-verification-flow-interaction.test.tsx",
     "build:voice-gateway": "node ./scripts/voice/generate-kai-action-gateway.mjs",
-    "verify:voice-gateway": "node ./scripts/voice/generate-kai-action-gateway.mjs --check && npm run verify:route-orchestration-index",
+    "verify:voice-gateway": "node ./scripts/voice/generate-kai-action-gateway.mjs --check && npm run verify:siri-action-contract && npm run verify:route-orchestration-index",
+    "verify:siri-action-contract": "node ./scripts/native/verify-siri-action-contract.mjs",
     "build:route-orchestration-index": "node ./scripts/voice/generate-route-orchestration-index.mjs",
     "verify:route-orchestration-index": "node ./scripts/voice/generate-route-orchestration-index.mjs --check",
     "build:one-gateway": "npm run build:voice-gateway",
     "verify:one-gateway": "npm run verify:voice-gateway",
     "verify:one-voice": "npm run verify:voice-gateway && node ./scripts/voice/verify-one-voice-evals.mjs && vitest run __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/voice/one-voice-transport.test.ts",
+    "verify:agent-chat-protocol": "python3 ../scripts/ops/verify_agui_agent_chat_contract.py && vitest run __tests__/services/agent-chat-client.test.ts",
     "verify:morphy-ax": "vitest run __tests__/morphy-ax/morphy-ax-contract.test.ts __tests__/morphy-ax/pdf-theme-canon.test.ts __tests__/morphy-ax/pdf-report-table-rendering.test.ts __tests__/lib/agent-runtime-context.test.tsx __tests__/voice/voice-feature-flags.test.ts",
     "verify:analytics": "vitest run __tests__/services/observability-schema.test.ts __tests__/services/observability-route-map.test.ts __tests__/services/observability-growth.test.ts __tests__/services/observability-native-firebase.test.ts __tests__/services/observability-web-transport.test.ts __tests__/services/consent-pending-count.test.ts",
     "verify:analytics:governed": "npm run verify:analytics && npm run audit:analytics-sandbox && npm run smoke:analytics:uat && cd .. && python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health && ./bin/hushh docs verify",
@@ -33,7 +35,7 @@
     "verify:docs": "node ./scripts/architecture/verify-docs.mjs",
     "verify:surface-map": "node ./scripts/architecture/generate-surface-map.mjs --check",
     "sync:native-firebase-configs": "node ./scripts/native/sync-native-firebase-configs.mjs",
-    "verify:capacitor:static": "node ./scripts/native/verify-native-static-parity.mjs",
+    "verify:capacitor:static": "node ./scripts/native/verify-native-static-parity.mjs && npm run verify:siri-action-contract",
     "verify:capacitor:plugins": "node ./scripts/native/verify-native-plugin-contracts.mjs",
     "verify:capacitor:reports": "node ./scripts/native/verify-native-parity-reports.mjs",
     "verify:capacitor:audit": "node ./scripts/native/verify-capacitor-audit.mjs",
@@ -52,12 +54,13 @@
     "native:voice:test": "npm run ios:voice:test && npm run android:voice:test",
     "ios:device:ui:test": "node ./scripts/native/assert-destructive-native-audit.mjs && bash ./scripts/native/ios-device-ui-test.sh",
     "verify:cache": "vitest run __tests__/services/cache-sync-mutation-cascade.test.ts __tests__/services/cache-service.test.ts __tests__/services/cache-hit-rate-contract.test.ts __tests__/services/use-stale-resource.test.tsx __tests__/services/use-stale-resource-lifecycle.test.tsx __tests__/services/pkm-cache.test.ts __tests__/services/pkm-domain-resource.test.ts",
+    "verify:feed": "vitest run __tests__/components/feed-actionable-row.test.tsx __tests__/components/feed-live-and-cta.contract.test.ts __tests__/components/feed-page-clear.test.tsx __tests__/components/feed-row.test.tsx __tests__/components/navbar-bottom-nav.test.tsx __tests__/consent-notification-provider-connections.test.tsx __tests__/consent-notification-provider-location.test.tsx __tests__/firebase-messaging-service-worker.test.ts __tests__/lib/feed/feed-actionables-connection-dedup.test.tsx __tests__/lib/feed/feed-location-request-lines.test.ts __tests__/lib/feed/feed-notification-projection-renderers.test.ts __tests__/lib/feed/feed-pagination.test.ts __tests__/lib/feed/use-feed-live-refresh.test.tsx __tests__/lib/feed/use-feed-unread-count.test.tsx __tests__/navigation/browser-navigation-pending.test.ts __tests__/notifications/fcm-native-connection-routing.test.ts __tests__/notifications/fcm-native-permission-contract.test.ts __tests__/notifications/fcm-web-click-bridge.test.ts __tests__/notifications/one-location-sms-emergency-native.contract.test.ts __tests__/services/cache-sync-mutation-cascade.test.ts __tests__/services/feed-service.test.ts __tests__/services/use-stale-resource-lifecycle.test.tsx && node ./scripts/testing/capture-feed-needs-you-fixture.mjs && git diff --exit-code -- e2e/fixtures/feed-needs-you-rows.html",
     "verify:share-ladder": "vitest run __tests__/share/app-origin.test.ts __tests__/share/share-link.test.ts __tests__/connect/invite-to-one.test.ts __tests__/one-location/share-circle-code.test.ts __tests__/one-location/circle-join-url.test.ts",
-    "verify:connect-search": "vitest run __tests__/app/connect/page-client.test.tsx __tests__/app/connect/page-client.contract.test.ts components/connect/circles/__tests__/connect-circles-tab.test.tsx",
+    "verify:connect-search": "vitest run __tests__/components/contact-sync-results-sheet.test.tsx __tests__/components/one-location-people-empty-connect-bridge.contract.test.ts __tests__/lib/contacts/contact-sync-settings-return.test.tsx lib/contacts/__tests__/use-contact-discoverability-consent.test.tsx lib/contacts/__tests__/use-contact-sync.test.tsx lib/contacts/__tests__/contact-source-availability.test.ts lib/contacts/__tests__/contact-sync-identity.test.ts lib/contacts/__tests__/contact-phone-region.test.ts lib/contacts/__tests__/google-people-source.test.ts lib/contacts/__tests__/google-people-server-boundary.test.ts __tests__/lib/contacts/phone-normalization.test.ts __tests__/lib/marketplace/contact-matching.test.ts __tests__/components/settings-group-title-action.contract.test.tsx __tests__/app/connect/page-client.test.tsx __tests__/app/connect/page-client.contract.test.ts components/connect/circles/__tests__/connect-circles-tab.test.tsx",
     "verify:referrals": "vitest run __tests__/components/referrals-panel.test.tsx __tests__/services/referral-service.test.ts __tests__/services/referral-attribution.test.ts __tests__/services/referral-stream.test.ts",
     "verify:accent": "vitest run __tests__/lib/theme-accent.test.ts",
     "verify:bottom-sheet": "vitest run __tests__/components/bottom-sheet-drag-dismiss.contract.test.tsx __tests__/components/shared-sheet-consumers.contract.test.tsx",
-    "verify:one-location": "vitest run __tests__/components/one-location-agent-page.test.tsx __tests__/components/feed-live-and-cta.contract.test.ts __tests__/components/navbar-agent-trigger.contract.test.ts __tests__/components/one-location-tab-transition.contract.test.tsx __tests__/components/one-location-copy-pass.contract.test.ts __tests__/components/one-location-sos-emergency.contract.test.tsx __tests__/components/one-location-settings-placement.contract.test.ts __tests__/app/providers-bottom-clearance.contract.test.ts __tests__/utils/top-shell-breadcrumbs.test.ts __tests__/services/location-agent-service.test.ts components/one-location/redesign/__tests__/sos-panel.test.tsx components/one-location/redesign/__tests__/sms-contacts-flow.test.tsx components/one-location/redesign/__tests__/shared-with-me-card.test.tsx components/one-location/redesign/__tests__/share-lanes.test.tsx lib/one-location/__tests__/auto-approve-requests.test.ts lib/one-location/__tests__/location-control-state.test.ts components/one-location/redesign/__tests__/duration-wheel-picker.test.tsx components/one-location/redesign/__tests__/duration-presets.test.tsx __tests__/components/one-location-onboarding-finale.contract.test.tsx __tests__/lib/one-location/onboarding-map-point.test.ts components/one-location/onboarding/__tests__/save-location-modal.test.tsx __tests__/components/shared-sheet-consumers.contract.test.tsx __tests__/components/location-immersive-map.test.tsx __tests__/components/map-self-avatar-marker.test.tsx __tests__/one-location/map-world-view.test.ts components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx __tests__/components/bottom-sheet-drag-dismiss.contract.test.tsx components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx components/one-location/redesign/circles/__tests__/circle-grow-actions.test.tsx",
+    "verify:one-location": "vitest run lib/contacts/__tests__/use-contact-sync.test.tsx lib/contacts/__tests__/contact-phone-region.test.ts __tests__/lib/one-location/contact-signals.test.ts __tests__/lib/one-location/contact-sync-outcome.test.ts __tests__/lib/one-location/paged-reads-contract.test.ts __tests__/components/one-location-agent-page.test.tsx __tests__/components/feed-live-and-cta.contract.test.ts __tests__/components/navbar-agent-trigger.contract.test.ts __tests__/components/one-location-tab-transition.contract.test.tsx __tests__/components/one-location-copy-pass.contract.test.ts __tests__/components/one-location-sos-emergency.contract.test.tsx __tests__/components/one-location-settings-placement.contract.test.ts __tests__/app/providers-bottom-clearance.contract.test.ts __tests__/utils/top-shell-breadcrumbs.test.ts __tests__/services/location-agent-service.test.ts components/one-location/redesign/__tests__/sos-panel.test.tsx components/one-location/redesign/__tests__/sms-contacts-flow.test.tsx components/one-location/redesign/__tests__/shared-with-me-card.test.tsx components/one-location/redesign/__tests__/share-lanes.test.tsx lib/one-location/__tests__/auto-approve-requests.test.ts lib/one-location/__tests__/location-control-state.test.ts components/one-location/redesign/__tests__/duration-wheel-picker.test.tsx components/one-location/redesign/__tests__/duration-presets.test.tsx __tests__/components/one-location-onboarding-flow.test.tsx __tests__/components/one-location-onboarding-finale.contract.test.tsx __tests__/lib/one-location/onboarding-map-point.test.ts components/one-location/onboarding/__tests__/save-location-modal.test.tsx __tests__/components/shared-sheet-consumers.contract.test.tsx __tests__/components/location-immersive-map.test.tsx __tests__/components/map-self-avatar-marker.test.tsx __tests__/one-location/map-world-view.test.ts components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx __tests__/components/bottom-sheet-drag-dismiss.contract.test.tsx components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx components/one-location/redesign/circles/__tests__/circle-grow-actions.test.tsx lib/one-location/__tests__/share-replacement.test.ts components/one-location/redesign/__tests__/share-replacement-notice.test.tsx __tests__/voice/location-share-replacement-guard.contract.test.ts __tests__/one-location-extra-time-notifications.test.ts components/one-location/nearby-check-in/__tests__/star-rating-input.test.tsx lib/one-location/__tests__/maps-urls.test.ts components/one-location/redesign/__tests__/places-visited-flow.test.tsx",
     "report:contributor-impact:pdf": "node ../.codex/skills/pr-governance-review/scripts/export_contributor_impact_pdf.mjs",
     "report:markdown:pdf": "node ./scripts/reports/export-markdown-pdf.mjs",
     "audit:analytics-sandbox": "node ./scripts/testing/run-observability-sandbox-audit.mjs",
@@ -66,7 +69,7 @@
     "audit:ui-surfaces": "node ./scripts/architecture/audit-ui-surfaces.mjs",
     "cap:build": "node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_BUILD=true next build --webpack --debug-build-paths \"app/**/page.tsx,!app/api/**\"",
     "cap:sync:android": "npx cross-env CAPACITOR_PLATFORM=android npx cap sync android",
-    "cap:sync:ios": "node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_PLATFORM=ios npx cap sync ios",
+    "cap:sync:ios": "npm run sync:native-firebase-configs -- --platform ios && node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_PLATFORM=ios npx cap sync ios",
     "ios:run": "npm run cap:build && npm run cap:sync:ios && npx cap run ios",
     "ios:prepare:uat": "node ./scripts/native/prepare-ios-uat-archive.mjs",
     "ios:prepare:prod": "node ./scripts/native/prepare-ios-prod-archive.mjs",
@@ -80,6 +83,8 @@
     "android:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:test"
   },
   "dependencies": {
+    "@ag-ui/client": "0.0.59",
+    "@ag-ui/core": "0.0.59",
     "@base-ui/react": "^1.4.1",
     "@capacitor-firebase/analytics": "^8.2.0",
     "@capacitor-firebase/authentication": "^8.2.0",
@@ -117,7 +122,7 @@
     "jspdf": "^4.2.1",
     "libphonenumber-js": "^1.13.10",
     "lucide-react": "^0.577.0",
-    "next": "^16.2.10",
+    "next": "^16.2.11",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.4.3",
     "react": "^19.2.5",
@@ -148,7 +153,7 @@
     "eslint-config-next": "^16.2.4",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^25.0.0",
-    "mermaid": "11.16.0",
+    "mermaid": "11.17.2",
     "playwright": "^1.59.1",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.4.0",
@@ -159,41 +164,31 @@
   "overrides": {
     "@google-cloud/storage": "7.19.0",
     "@tootallnate/once": "3.0.1",
-    "@xmldom/xmldom": "0.8.13",
+    "@xmldom/xmldom": "0.8.15",
     "@eslint/config-array": {
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.13"
-      }
+      "minimatch": "3.1.5"
     },
     "@eslint/eslintrc": {
       "ajv": "6.14.0",
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.13"
-      }
+      "minimatch": "3.1.5",
+      "js-yaml": "4.3.1"
     },
     "eslint": {
       "ajv": "6.14.0",
-      "minimatch": {
-        ".": "3.1.5",
-        "brace-expansion": "1.1.13"
-      }
+      "minimatch": "3.1.5"
     },
     "firebase-admin": {
       "node-forge": "1.4.0"
     },
-    "dompurify": "3.4.12",
-    "fast-xml-parser": "5.10.0",
+    "dompurify": "3.4.13",
+    "fast-xml-parser": "5.10.1",
     "flatted": "3.4.2",
     "@capacitor/cli": {
-      "glob": "13.0.6"
+      "glob": "13.0.6",
+      "tar": "7.5.21"
     },
     "glob": {
-      "minimatch": {
-        ".": "10.2.4",
-        "brace-expansion": "5.0.5"
-      }
+      "minimatch": "10.2.4"
     },
     "micromatch": {
       "picomatch": "2.3.2"
@@ -216,17 +211,25 @@
     "router": {
       "path-to-regexp": "8.4.0"
     },
-    "postcss": "8.5.18",
+    "postcss": {
+      ".": "8.5.23",
+      "nanoid": "3.3.18"
+    },
     "uuid": "11.1.1",
     "google-gax": "4.6.1",
     "hono": "4.12.8",
     "http-proxy-agent": "7.0.2",
-    "protobufjs": "7.6.3",
+    "protobufjs": "7.6.5",
     "proto3-json-serializer": "3.0.5",
     "retry-request": "8.0.2",
-    "tar": "7.5.16",
+    "tar": "7.5.21",
     "teeny-request": "10.1.0",
     "typescript-eslint": "8.57.0",
-    "yauzl": "3.2.1"
+    "yauzl": "3.2.1",
+    "browserslist": "4.28.7",
+    "sharp": "0.35.0",
+    "brace-expansion@<2": "1.1.18",
+    "brace-expansion@>=2": "5.0.9",
+    "@humanfs/node": "0.16.8"
   }
 }

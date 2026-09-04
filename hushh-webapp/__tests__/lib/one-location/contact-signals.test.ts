@@ -5,11 +5,13 @@ const {
   mockSyncContacts,
   mockGetPermissionState,
   mockOpenAppSettings,
+  mockPlatform,
 } = vi.hoisted(() => ({
   mockBuildMarketplaceContactLookups: vi.fn(),
   mockSyncContacts: vi.fn(),
   mockGetPermissionState: vi.fn(),
   mockOpenAppSettings: vi.fn(),
+  mockPlatform: { web: false },
 }));
 
 vi.mock("@/lib/marketplace/contact-matching", () => ({
@@ -23,6 +25,10 @@ vi.mock("@/lib/capacitor", () => ({
     getPermissionState: mockGetPermissionState,
     openAppSettings: mockOpenAppSettings,
   },
+}));
+
+vi.mock("@/lib/capacitor/platform", () => ({
+  isWeb: () => mockPlatform.web,
 }));
 
 vi.mock("@/lib/services/connections-service", async (importOriginal) => ({
@@ -70,7 +76,106 @@ describe("one location contact signals", () => {
     mockSyncContacts.mockReset();
     mockGetPermissionState.mockReset();
     mockOpenAppSettings.mockReset();
+    mockPlatform.web = false;
     mockGetPermissionState.mockResolvedValue({ state: "granted" });
+  });
+
+  it("reads contacts before phone hydration and token resolution", async () => {
+    const order: string[] = [];
+    const actualContactMatching = await vi.importActual<
+      typeof import("@/lib/marketplace/contact-matching")
+    >("@/lib/marketplace/contact-matching");
+    mockBuildMarketplaceContactLookups.mockImplementationOnce((options) =>
+      actualContactMatching.buildMarketplaceContactLookups(options),
+    );
+    const source = vi.fn(async () => {
+      order.push("source");
+      return {
+        contacts: [
+          {
+            id: "contact_1",
+            displayName: "Asha",
+            phoneNumbers: ["9876543210"],
+          },
+        ],
+        sourcePlatform: "google" as const,
+        defaultRegion: null,
+        limited: false,
+        truncated: false,
+        totalAvailable: 1,
+      };
+    });
+    const resolveAccountPhoneNumber = vi.fn(async () => {
+      order.push("phone");
+      return "+919000000001";
+    });
+    const resolveIdToken = vi.fn(async () => {
+      order.push("token");
+      return "firebase-token";
+    });
+    mockSyncContacts.mockImplementationOnce(async () => {
+      order.push("api");
+      return { matches: [] };
+    });
+
+    await syncOneLocationContactSignals({
+      source,
+      resolveAccountPhoneNumber,
+      resolveIdToken,
+    });
+
+    expect(order).toEqual([
+      "source",
+      "phone",
+      "phone",
+      "token",
+      "phone",
+      "api",
+    ]);
+    expect(mockSyncContacts).toHaveBeenCalledWith(
+      expect.objectContaining({ idToken: "firebase-token" }),
+    );
+  });
+
+  it("never dispatches without a resolved Firebase token", async () => {
+    mockBuildMarketplaceContactLookups.mockResolvedValue(lookupResult(1));
+
+    await expect(
+      syncOneLocationContactSignals({ resolveIdToken: async () => null }),
+    ).rejects.toThrow("Sign in before syncing contacts.");
+    expect(mockSyncContacts).not.toHaveBeenCalled();
+  });
+
+  it("skips permission preflight before the default web contact source", async () => {
+    mockPlatform.web = true;
+    const order: string[] = [];
+    mockBuildMarketplaceContactLookups.mockImplementationOnce(async () => {
+      order.push("source");
+      return lookupResult(0);
+    });
+
+    await syncOneLocationContactSignals({
+      resolveIdToken: async () => {
+        order.push("token");
+        return "firebase-token";
+      },
+    });
+
+    expect(mockGetPermissionState).not.toHaveBeenCalled();
+    expect(order).toEqual(["source", "token"]);
+  });
+
+  it("does not resolve a token or dispatch when phone resolution fails", async () => {
+    mockBuildMarketplaceContactLookups.mockRejectedValueOnce(
+      new Error("Verify your phone number before syncing contacts."),
+    );
+    const resolveIdToken = vi.fn(async () => "firebase-token");
+
+    await expect(
+      syncOneLocationContactSignals({ resolveIdToken }),
+    ).rejects.toThrow("Verify your phone number before syncing contacts.");
+    expect(resolveIdToken).not.toHaveBeenCalled();
+    expect(mockSyncContacts).not.toHaveBeenCalled();
   });
 
   it("batches a large book exactly and classifies contacts rather than profile rows", async () => {

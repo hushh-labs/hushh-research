@@ -33,6 +33,7 @@ from google.oauth2 import id_token as google_id_token
 
 from db.connection import get_pool
 from db.db_client import get_db
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.runtime_settings import (
     APP_SIGNING_KEY_ENV,
@@ -874,7 +875,7 @@ class GmailReceiptsService:
         return _to_bool(os.getenv("GMAIL_RECEIPT_LLM_FALLBACK_ENABLED"), False)
 
     def _llm_model(self) -> str:
-        return _clean_text(os.getenv("GMAIL_RECEIPT_LLM_MODEL"), "gemini-3.1-flash-lite")
+        return str(GEMINI_MODEL)
 
     def _build_state_token(self, *, user_id: str, redirect_uri: str) -> str:
         payload = {
@@ -1103,6 +1104,22 @@ class GmailReceiptsService:
             "expires_at": (_utcnow() + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
         }
 
+    async def start_native_connect(self) -> dict[str, Any]:
+        """Return the public server client ID for native Google Sign-In.
+
+        Native clients obtain a short-lived ``serverAuthCode`` through the
+        platform Google SDK. They never receive the client secret or durable
+        Gmail credentials.
+        """
+
+        if not self.is_configured():
+            raise GmailApiError("Gmail OAuth is not configured", status_code=503)
+        self._resolve_oauth_redirect_uri(None)
+        return {
+            "configured": True,
+            "server_client_id": self._oauth_client_id(),
+        }
+
     async def _exchange_code(self, *, code: str, redirect_uri: str) -> dict[str, Any]:
         data = {
             "code": code,
@@ -1283,6 +1300,12 @@ class GmailReceiptsService:
                 status_code=409,
                 code="GMAIL_SEND_PERMISSION_REQUIRED",
             )
+        if not _to_bool(row.get("send_enabled"), False):
+            raise GmailApiError(
+                "Turn on Gmail sending before One can deliver an email.",
+                status_code=409,
+                code="GMAIL_SEND_DISABLED",
+            )
 
     async def get_send_access_token(self, *, user_id: str) -> str:
         """Use the canonical receipt connector token only after provider admission."""
@@ -1375,7 +1398,49 @@ class GmailReceiptsService:
         resolved_redirect = self._resolve_oauth_redirect_uri(redirect_uri)
         self._verify_state_token(state=state, user_id=user_id, redirect_uri=resolved_redirect)
 
-        token_payload = await self._exchange_code(code=code, redirect_uri=resolved_redirect)
+        return await self._complete_authorized_connect(
+            user_id=user_id,
+            code=code,
+            redirect_uri=resolved_redirect,
+        )
+
+    async def complete_native_connect(
+        self,
+        *,
+        user_id: str,
+        server_auth_code: str,
+    ) -> dict[str, Any]:
+        """Store a native Google Sign-In grant for an authenticated owner.
+
+        Google binds this single-use server authorization code to the configured
+        confidential Gmail client. The caller's Firebase identity remains the
+        user binding; unlike web OAuth, no browser callback state is involved.
+        """
+
+        if not self.is_configured():
+            raise GmailApiError("Gmail OAuth is not configured", status_code=503)
+
+        code = _clean_text(server_auth_code)
+        if not code:
+            raise GmailApiError("Missing native Gmail authorization code", status_code=400)
+
+        return await self._complete_authorized_connect(
+            user_id=user_id,
+            code=code,
+            # Google documents an empty redirect URI for native serverAuthCode
+            # exchange when the app does not have a browser callback of its own.
+            redirect_uri="",
+        )
+
+    async def _complete_authorized_connect(
+        self,
+        *,
+        user_id: str,
+        code: str,
+        redirect_uri: str,
+    ) -> dict[str, Any]:
+
+        token_payload = await self._exchange_code(code=code, redirect_uri=redirect_uri)
         access_token = _clean_text(token_payload.get("access_token"))
         refresh_token = _clean_text(token_payload.get("refresh_token"))
         scope_csv = _clean_text(token_payload.get("scope"))
@@ -2198,6 +2263,189 @@ class GmailReceiptsService:
             )
         return summaries
 
+    async def list_personal_inbox_messages_for_monitoring(
+        self, *, user_id: str, limit: int = 25
+    ) -> list[dict[str, Any]]:
+        """Return full messages only to an explicitly opted-in in-process monitor.
+
+        This is intentionally not a general inbox-read API.  The personal
+        information-request monitor consumes the returned values transiently,
+        persists only its metadata-only workflow record, and is responsible for
+        checking the owner's monitor preference before calling this method.
+        Receipt sync must never call this path.
+        """
+
+        messages, _next_page_token = await self.list_personal_inbox_monitor_page(
+            user_id=user_id,
+            limit=limit,
+        )
+        return messages
+
+    async def list_personal_inbox_monitor_page(
+        self, *, user_id: str, page_token: str | None = None, limit: int = 25
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Return one bounded inbox page for the opt-in monitor only.
+
+        The opaque Gmail page token remains monitor metadata. Callers must not
+        expose it to a browser or reuse it for receipt sync.
+        """
+
+        bounded_limit = max(1, min(int(limit or 25), 25))
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text="in:inbox newer_than:30d -category:promotions -category:social",
+            page_token=page_token,
+            max_results=bounded_limit,
+        )
+        raw_entries = listing.get("messages")
+        message_ids: list[str] = []
+        for entry in raw_entries if isinstance(raw_entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            message_id = _clean_text(entry.get("id"))
+            if message_id:
+                message_ids.append(message_id)
+        if not message_ids:
+            return [], None
+        results = await asyncio.gather(
+            *[
+                self._get_message_full(access_token=access_token, gmail_message_id=message_id)
+                for message_id in message_ids
+            ],
+            return_exceptions=True,
+        )
+        messages: list[dict[str, Any]] = []
+        for message_id, result in zip(message_ids, results, strict=False):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "gmail.personal_monitor.message_fetch_failed gmail_message_id=%s error=%s",
+                    message_id,
+                    type(result).__name__,
+                )
+                continue
+            if isinstance(result, dict):
+                messages.append(result)
+        next_page_token = _clean_text(listing.get("nextPageToken")) or None
+        return messages, next_page_token
+
+    async def capture_personal_inbox_monitor_history_id(self, *, user_id: str) -> str:
+        """Capture a forward-only Gmail History checkpoint for a new opt-in."""
+
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
+        history_id = _history_id_text(profile.get("historyId"))
+        if not history_id:
+            raise GmailApiError(
+                "Gmail could not establish a monitoring starting point. Try again.",
+                status_code=503,
+                code="GMAIL_MONITOR_HISTORY_UNAVAILABLE",
+            )
+        return history_id
+
+    async def list_personal_inbox_monitor_history_page(
+        self,
+        *,
+        user_id: str,
+        start_history_id: str,
+        page_token: str | None = None,
+        message_offset: int = 0,
+        limit: int = 25,
+    ) -> tuple[list[dict[str, Any]], str | None, str | None, int | None]:
+        """Return inbox messages added after a monitor's saved history checkpoint.
+
+        This never falls back to an inbox search. A missing or expired history
+        cursor is handled by the caller by capturing a new checkpoint without
+        reading existing email.
+        """
+
+        checkpoint = _history_id_text(start_history_id)
+        if not checkpoint:
+            raise GmailApiError(
+                "Gmail monitoring needs a valid starting point.",
+                status_code=409,
+                code="GMAIL_MONITOR_HISTORY_UNAVAILABLE",
+            )
+        bounded_limit = max(1, min(int(limit or 25), 25))
+        bounded_offset = max(0, int(message_offset or 0))
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        history = await self._list_history(
+            access_token=access_token,
+            start_history_id=checkpoint,
+            page_token=page_token,
+            max_results=bounded_limit,
+            history_types=("messageAdded",),
+        )
+        # Gmail's ``maxResults`` bounds History records, not the number of
+        # messages nested in those records.  Carry a private offset through a
+        # History page so one unusually dense record cannot fan out to an
+        # unbounded number of message fetches or silently skip its tail.
+        message_ids = self._message_ids_from_history(history)
+        page_message_ids = message_ids[bounded_offset : bounded_offset + bounded_limit]
+        results = await asyncio.gather(
+            *[
+                self._get_message_full(access_token=access_token, gmail_message_id=message_id)
+                for message_id in page_message_ids
+            ],
+            return_exceptions=True,
+        )
+        messages: list[dict[str, Any]] = []
+        for _message_id, result in zip(page_message_ids, results, strict=False):
+            if isinstance(result, Exception):
+                # Do not advance the monitor checkpoint if even one source
+                # message could not be read. The caller retries the same
+                # bounded slice instead of permanently dropping that email.
+                raise GmailApiError(
+                    "Gmail could not read a new monitored message. Try again.",
+                    status_code=503,
+                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                )
+            if not isinstance(result, dict):
+                raise GmailApiError(
+                    "Gmail returned an invalid monitored message. Try again.",
+                    status_code=503,
+                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                )
+            labels = {
+                _clean_text(label).upper()
+                for label in result.get("labelIds", [])
+                if _clean_text(label)
+            }
+            # Personal-information monitoring is deliberately narrower than
+            # receipt sync: after its opt-in History checkpoint it considers
+            # only messages that are still unread in the Inbox. A message read
+            # before this bounded scan is intentionally skipped rather than
+            # searched or backfilled later.
+            if "INBOX" in labels and "UNREAD" in labels and "SENT" not in labels:
+                messages.append(result)
+        return (
+            messages,
+            _clean_text(history.get("nextPageToken")) or None,
+            _history_id_text(history.get("historyId")),
+            bounded_offset + len(page_message_ids)
+            if bounded_offset + len(page_message_ids) < len(message_ids)
+            else None,
+        )
+
+    async def get_personal_inbox_message_for_monitoring(
+        self, *, user_id: str, gmail_message_id: str
+    ) -> dict[str, Any]:
+        """Fetch one original message for a source-bound personal-email action.
+
+        Only the personal information-request service may use this method after
+        it has checked the owner's monitoring preference and workflow source
+        binding.  The message is not a cache record and must not be persisted.
+        """
+
+        message_id = _clean_text(gmail_message_id)
+        if not message_id:
+            raise GmailApiError("Gmail message is unavailable", status_code=404)
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        return await self._get_message_full(
+            access_token=access_token,
+            gmail_message_id=message_id,
+        )
+
     async def _list_history(
         self,
         *,
@@ -2205,11 +2453,12 @@ class GmailReceiptsService:
         start_history_id: str,
         page_token: str | None,
         max_results: int = 100,
+        history_types: tuple[str, ...] = ("messageAdded", "labelAdded"),
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "startHistoryId": start_history_id,
             "maxResults": max_results,
-            "historyTypes": ["messageAdded", "labelAdded"],
+            "historyTypes": list(history_types),
         }
         if _clean_text(page_token):
             params["pageToken"] = _clean_text(page_token)

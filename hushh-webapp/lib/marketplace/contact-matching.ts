@@ -98,6 +98,16 @@ export async function buildMarketplaceContactLookups(options?: {
    * region bare national contact numbers belong to; never hashed or sent.
    */
   accountPhoneNumber?: string | null;
+  /**
+   * Reads the latest verified account phone after the contact source returns.
+   * AuthContext can finish hydrating while an OS/Google picker is open; callers
+   * that provide this resolver avoid freezing the earlier null value.
+   */
+  resolveAccountPhoneNumber?: () =>
+    | string
+    | null
+    | undefined
+    | Promise<string | null | undefined>;
   signal?: AbortSignal;
   /** Defaults to the device address book through the Capacitor plugin. */
   source?: MarketplaceContactSource;
@@ -113,23 +123,34 @@ export async function buildMarketplaceContactLookups(options?: {
   });
   options?.signal?.throwIfAborted();
 
+  const accountPhoneNumber = options?.resolveAccountPhoneNumber
+    ? await options.resolveAccountPhoneNumber()
+    : options?.accountPhoneNumber;
+
   const region = resolveContactPhoneRegion({
     deviceRegion: result.defaultRegion,
-    accountPhoneNumber: options?.accountPhoneNumber,
+    // Android is the only source whose region comes from the number plan; see
+    // `resolveContactPhoneRegion` for why iOS cannot supply one and why
+    // ranking a locale above the account's own number silently loses matches.
+    deviceRegionFromNumberPlan: result.sourcePlatform === "android",
+    accountPhoneNumber,
   });
 
   // Normalize once per unique number, while retaining which local contact rows
   // referenced it. The correlation table never leaves this process.
-  const candidatesByNumber = new Map<string, {
-    e164: string;
-    last4: string;
-    isMobile: boolean;
-    firstSeenIndex: number;
-  }>();
+  const candidatesByNumber = new Map<
+    string,
+    {
+      e164: string;
+      last4: string;
+      isMobile: boolean;
+      firstSeenIndex: number;
+    }
+  >();
   const contactNumbers = new Map<string, Set<string>>();
   const selfOnlyContactKeys = new Set<string>();
-  const accountPhoneE164 = options?.accountPhoneNumber
-    ? normalizeContactPhone(options.accountPhoneNumber, region)?.e164 ?? null
+  const accountPhoneE164 = accountPhoneNumber
+    ? (normalizeContactPhone(accountPhoneNumber, region)?.e164 ?? null)
     : null;
   const localContacts = result.contacts.map((contact, index) => ({
     contactKey: `${String(contact.id || "contact")}:${index + 1}`,
@@ -217,8 +238,8 @@ export async function buildMarketplaceContactLookups(options?: {
     return {
       ...contact,
       lookupIds: normalizedNumbers
-      .map((number) => lookupIdByNumber.get(number))
-      .filter((lookupId): lookupId is string => Boolean(lookupId)),
+        .map((number) => lookupIdByNumber.get(number))
+        .filter((lookupId): lookupId is string => Boolean(lookupId)),
       coverageComplete: normalizedNumbers.every((number) =>
         selectedNumbers.has(number),
       ),

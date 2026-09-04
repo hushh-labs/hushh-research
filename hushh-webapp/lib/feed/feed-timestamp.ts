@@ -13,25 +13,20 @@ export function daysSinceToday(date: Date, now: Date = new Date()): number {
 }
 
 /**
- * Renders a feed row's right-aligned day/time label: "Today - 03:45 PM",
- * "Yesterday - 03:45 PM", or "Mon - 03:45 PM" (short weekday) for anything
- * older. Always a two-digit 12-hour clock, explicit regardless of locale default,
- * so the feed timestamp column stays visually stable across one- and two-digit hours.
- * Returns "" for an invalid/missing instant so callers can embed the result
- * directly in JSX without a null-guard.
+ * Renders a feed row's local time only. The section header already owns the
+ * calendar day, so repeating "Today" or "Yesterday" on every row adds noise.
+ * Always a two-digit 12-hour clock so the timestamp column stays stable.
  */
 export function formatFeedTimestamp(value: string | number | Date): string {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
-  const time = formatLocalDateTime(date, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  });
-  if (!time) return "";
-  const diffDays = daysSinceToday(date);
-  if (diffDays === 0) return `Today - ${time}`;
-  if (diffDays === 1) return `Yesterday - ${time}`;
-  const weekday = date.toLocaleDateString(undefined, { weekday: "short" });
-  return `${weekday} - ${time}`;
+  const label =
+    formatLocalDateTime(date, {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }) || "";
+  return label.replace(/\b(am|pm)\b/iu, (meridiem) =>
+    meridiem.toUpperCase(),
+  );
 }

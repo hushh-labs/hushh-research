@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { KeyRound, Plus, ShieldCheck, Siren, UsersRound } from "lucide-react";
+import { KeyRound, Plus, ShieldCheck, UsersRound } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
@@ -18,10 +18,18 @@ import {
   CreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
+import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
 import { OneLocationService } from "@/lib/one-location/service";
+import {
+  CONNECT_CIRCLE_ACTION_PARAM,
+  CONNECT_CIRCLE_ID_PARAM,
+  CONNECT_SURFACE_PARAM,
+  readConnectCircleAction,
+  type ConnectCircleAction,
+} from "@/lib/navigation/connect-routes";
 import type { OneLocationCircleSummary } from "@/lib/one-location/types";
 import type { DirectoryPerson } from "@/lib/services/connections-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -64,26 +72,6 @@ import { VaultContext } from "@/lib/vault/vault-context";
  * there is right -- it was only ever wrong in front of "name a group".
  */
 
-/** The sub-view, carried in the URL beside `?tab=circles`.
- *
- *  Named to match the Location agent's own parameters, so an already-shared
- *  link keeps its shape when it is repointed here. */
-export const CONNECT_CIRCLE_ACTION_PARAM = "action";
-export const CONNECT_CIRCLE_ID_PARAM = "circleId";
-
-export type ConnectCircleAction =
-  | "create-circle"
-  | "join-circle"
-  | "circle-detail";
-
-function readAction(value: string | null): ConnectCircleAction | null {
-  return value === "create-circle" ||
-    value === "join-circle" ||
-    value === "circle-detail"
-    ? value
-    : null;
-}
-
 /** How the two product-managed Circles explain themselves.
  *
  * A description, never a category. Each line answers the only question a
@@ -100,9 +88,12 @@ const SYSTEM_CIRCLE_COPY = {
   },
   sms: {
     title: "SMS Circle",
-    description: "Gets your SOS text",
+    description: "Gets your SMS",
   },
-} as const satisfies Record<SystemCircleKind, { title: string; description: string }>;
+} as const satisfies Record<
+  SystemCircleKind,
+  { title: string; description: string }
+>;
 
 type SystemCircleKind = "trusted" | "sms";
 
@@ -147,36 +138,42 @@ export function circleRowDescription(circle: OneLocationCircleSummary): string {
   }
   if (kind === "sms") {
     // An SMS Circle appears in the list of everyone ON it, not only its
-    // owner's. "Gets your SOS text" is true for exactly one of those readers;
+    // owner's. "Gets your SMS" is true for exactly one of those readers;
     // for the rest the line has to say what it means for THEM.
     const lead = owns
       ? SYSTEM_CIRCLE_COPY.sms.description
-      : "You'll get their SOS text";
+      : "You'll get their SMS";
     if (!owns) return lead;
     return others === 0 ? `${lead} · no one yet` : `${lead} · ${people}`;
   }
   return others === 0 ? "No members yet" : people;
 }
 
-/** System Circles first, then the ones the person made, newest first. */
-export function orderCircles(
-  circles: readonly OneLocationCircleSummary[],
-): { system: OneLocationCircleSummary[]; owned: OneLocationCircleSummary[] } {
-  const system: OneLocationCircleSummary[] = [];
-  const owned: OneLocationCircleSummary[] = [];
+/** Circles you own first, with product-managed circles pinned above named ones. */
+export function orderCircles(circles: readonly OneLocationCircleSummary[]): {
+  owned: OneLocationCircleSummary[];
+  joined: OneLocationCircleSummary[];
+} {
+  const ownedSystem: OneLocationCircleSummary[] = [];
+  const ownedNamed: OneLocationCircleSummary[] = [];
+  const joined: OneLocationCircleSummary[] = [];
   for (const circle of circles) {
+    if (circle.role !== "owner") {
+      joined.push(circle);
+      continue;
+    }
     const kind = systemKindOf(circle);
-    if (kind === "trusted" || kind === "sms") system.push(circle);
-    else owned.push(circle);
+    if (kind === "trusted" || kind === "sms") ownedSystem.push(circle);
+    else ownedNamed.push(circle);
   }
   // Trusted above SMS: one describes who you know, the other what happens in an
   // emergency, and the first is the one a person opens this tab to see.
-  system.sort((left, right) => {
+  ownedSystem.sort((left, right) => {
     const rank = (c: OneLocationCircleSummary) =>
       systemKindOf(c) === "trusted" ? 0 : 1;
     return rank(left) - rank(right);
   });
-  return { system, owned };
+  return { owned: [...ownedSystem, ...ownedNamed], joined };
 }
 
 export function ConnectCirclesTab({
@@ -232,7 +229,9 @@ export function ConnectCirclesTab({
   /** Which vault session has already had its Trusted Circle reconciled. */
   const reconciledForTokenRef = useRef<string | null>(null);
 
-  const action = readAction(searchParams.get(CONNECT_CIRCLE_ACTION_PARAM));
+  const action = readConnectCircleAction(
+    searchParams.get(CONNECT_CIRCLE_ACTION_PARAM),
+  );
   const circleIdParam = String(
     searchParams.get(CONNECT_CIRCLE_ID_PARAM) || "",
   ).trim();
@@ -275,11 +274,9 @@ export function ConnectCirclesTab({
       : OneLocationService.ensureTrustedSystemCircle({
           vaultOwnerToken,
           summaryOnly: true,
-        }).then(
-          () => {
-            reconciledForTokenRef.current = vaultOwnerToken;
-          },
-        );
+        }).then(() => {
+          reconciledForTokenRef.current = vaultOwnerToken;
+        });
     void reconcile
       .catch(() => undefined)
       .then(() => OneLocationService.listCircles(vaultOwnerToken))
@@ -343,13 +340,11 @@ export function ConnectCirclesTab({
       );
   }, []);
 
-  const { system, owned } = useMemo(() => orderCircles(circles), [circles]);
+  const { owned, joined } = useMemo(() => orderCircles(circles), [circles]);
 
   const actions = useMemo(
     () =>
-      vaultOwnerToken
-        ? createConnectCircleActions({ vaultOwnerToken })
-        : null,
+      vaultOwnerToken ? createConnectCircleActions({ vaultOwnerToken }) : null,
     [vaultOwnerToken],
   );
 
@@ -372,7 +367,7 @@ export function ConnectCirclesTab({
       mode: "push" | "replace" = "push",
     ) => {
       const params = new URLSearchParams(searchParams.toString());
-      params.set("tab", "circles");
+      params.set(CONNECT_SURFACE_PARAM, "circles");
       for (const [key, value] of [
         [CONNECT_CIRCLE_ACTION_PARAM, next.action],
         [CONNECT_CIRCLE_ID_PARAM, next.circleId],
@@ -424,14 +419,17 @@ export function ConnectCirclesTab({
     [router],
   );
 
-  const withBusy = useCallback(async <T,>(run: () => Promise<T>): Promise<T> => {
-    setBusy(true);
-    try {
-      return await run();
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const withBusy = useCallback(
+    async <T,>(run: () => Promise<T>): Promise<T> => {
+      setBusy(true);
+      try {
+        return await run();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
 
   if (vaultOwnerToken && actions && action === "create-circle") {
     return (
@@ -552,6 +550,65 @@ export function ConnectCirclesTab({
     );
   }
 
+  const renderCircleRow = (circle: OneLocationCircleSummary) => {
+    const kind = systemKindOf(circle);
+    const isSmsCircle = kind === "sms";
+    const testId = kind
+      ? `connect-circle-${kind}`
+      : circle.role === "owner"
+        ? "connect-circle-owned"
+        : "connect-circle-joined";
+
+    return (
+      <SettingsRow
+        key={circle.id}
+        icon={
+          kind === "trusted"
+            ? ShieldCheck
+            : isSmsCircle
+              ? undefined
+              : UsersRound
+        }
+        leading={
+          isSmsCircle ? (
+            <span
+              aria-hidden="true"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
+            >
+              <SmsTextIcon className="text-[8px]" />
+            </span>
+          ) : undefined
+        }
+        iconTone="indigo"
+        // The product name only for the Circle that is yours. An SMS Circle
+        // shows up in the list of everyone on it, and the server deliberately
+        // renames the ones you do not own -- "Alice's SMS Circle" -- because
+        // three friends' rosters would otherwise be three identical rows
+        // reading "SMS Circle". Overwriting that name here threw the
+        // disambiguation away.
+        // The product's name only while it is still the product's.
+        //
+        // An owner may rename their SMS Circle -- the server treats that as
+        // their decision and heals only the default -- so overriding the title
+        // here unconditionally meant the rename succeeded, persisted, showed
+        // on Location, and was silently discarded on this list. Once the stored
+        // name differs from the default it is theirs, and it wins.
+        title={
+          isSystemCircleKind(kind) &&
+          circle.role === "owner" &&
+          circle.name === SYSTEM_CIRCLE_COPY[kind].title
+            ? SYSTEM_CIRCLE_COPY[kind].title
+            : circle.name
+        }
+        description={circleRowDescription(circle)}
+        density="compact"
+        chevron
+        onClick={() => openCircle(circle.id)}
+        testId={testId}
+      />
+    );
+  };
+
   return (
     <div className="space-y-4 sm:space-y-5" data-testid="connect-circles-tab">
       {vaultOwnerToken === null ? (
@@ -593,57 +650,24 @@ export function ConnectCirclesTab({
           <SettingsRow title="Loading circles…" density="compact" disabled />
         </SettingsGroup>
       ) : (
-        <SettingsGroup title="Your circles" separatorInset>
-          {system.map((circle) => {
-            const kind = systemKindOf(circle);
-            return (
-              <SettingsRow
-                key={circle.id}
-                icon={kind === "trusted" ? ShieldCheck : Siren}
-                iconTone="indigo"
-                // The product name only for the Circle that is yours. An SMS
-                // Circle shows up in the list of everyone on it, and the server
-                // deliberately renames the ones you do not own -- "Alice's SMS
-                // Circle" -- because three friends' rosters would otherwise be
-                // three identical rows reading "SMS Circle". Overwriting that
-                // name here threw the disambiguation away.
-                // The product's name only while it is still the product's.
-                //
-                // An owner may rename their SMS Circle -- the server treats
-                // that as their decision and heals only the default -- so
-                // overriding the title here unconditionally meant the rename
-                // succeeded, persisted, showed on Location, and was silently
-                // discarded on this list. Once the stored name differs from
-                // the default it is theirs, and it wins.
-                title={
-                  isSystemCircleKind(kind) &&
-                  circle.role === "owner" &&
-                  circle.name === SYSTEM_CIRCLE_COPY[kind].title
-                    ? SYSTEM_CIRCLE_COPY[kind].title
-                    : circle.name
-                }
-                description={circleRowDescription(circle)}
-                density="compact"
-                chevron
-                onClick={() => openCircle(circle.id)}
-                testId={`connect-circle-${kind}`}
-              />
-            );
-          })}
-          {owned.map((circle) => (
-            <SettingsRow
-              key={circle.id}
-              icon={UsersRound}
-              iconTone="indigo"
-              title={circle.name}
-              description={circleRowDescription(circle)}
-              density="compact"
-              chevron
-              onClick={() => openCircle(circle.id)}
-              testId="connect-circle-owned"
-            />
-          ))}
-        </SettingsGroup>
+        <>
+          <SettingsGroup
+            title="Your circles"
+            separatorInset
+            testId="connect-circle-group-owned"
+          >
+            {owned.map(renderCircleRow)}
+          </SettingsGroup>
+          {joined.length ? (
+            <SettingsGroup
+              title="Joined circles"
+              separatorInset
+              testId="connect-circle-group-joined"
+            >
+              {joined.map(renderCircleRow)}
+            </SettingsGroup>
+          ) : null}
+        </>
       )}
 
       {/* Its own group, below the list, so it does not move as the list grows

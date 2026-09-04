@@ -4,7 +4,6 @@ description: Use when operating reviewer-account browser rehearsals that require
 ---
 
 # Hussh Reviewer App Testing Skill
-
 ## Purpose and Trigger
 
 - Primary scope: `reviewer-app-testing`
@@ -45,34 +44,33 @@ Non-owned surfaces:
 ## Read First
 
 1. `.codex/skills/reviewer-app-testing/references/byok-reviewer-browser-contract.md`
-2. `hushh-webapp/scripts/testing/reviewer-test-identity.mjs`
-3. `hushh-webapp/lib/testing/native-test.ts`
-4. `hushh-webapp/components/app-ui/native-test-bootstrap.tsx`
-5. `hushh-webapp/components/app-ui/native-test-router.tsx`
-6. `hushh-webapp/lib/utils/browser-navigation.ts`
+2. `.codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md`
+3. `hushh-webapp/scripts/testing/reviewer-test-identity.mjs`
+4. `hushh-webapp/lib/testing/native-test.ts`
+5. `hushh-webapp/components/app-ui/native-test-bootstrap.tsx`
+6. `hushh-webapp/components/app-ui/native-test-router.tsx`
+7. `hushh-webapp/lib/utils/browser-navigation.ts`
 
 ## Workflow
 
-1. Resolve the canonical reviewer through the shared identity module; never print or persist its secrets.
-2. Decide and record whether the run is read-only or explicitly mutation-authorized.
-3. Prove a cold authenticated entry visibly hard-gates on the vault before supplying any passphrase.
-4. Unlock, derive the wrapper key locally, and verify `vaultKeyHash`.
-5. Keep passphrase, tokens, key, and decrypted information in memory throughout the same-session route chain.
-6. Use Next client navigation and assert `vault_unlocked` after every protected route transition.
-7. Fail the route chain on critical first-party vault, consent, connection, notification, or PKM API 5xx responses.
-8. Close the context, then test cold-session authentication and re-unlock separately.
-9. Hand domain assertions to the owning spoke while retaining this BYOK/session contract.
-
-### Localhost Enablement
-
-Reviewer rehearsals run against `http://localhost:3000`, not only UAT, so agents can review app changes locally without a deploy:
-
-1. The local backend loads the git-ignored maintainer overlay `.env.local` in the consent-protocol directory (`consent-protocol/hushh_mcp/runtime_settings.py`; a no-op in deployed environments, `override=False` keeps `.env` authoritative).
-2. Set `APP_REVIEW_MODE=true` in that `.env.local`, alongside the Secret-Manager-sourced `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` (bootstrap hydrates the fixture when `gcloud` is available). No `NEXT_PUBLIC_*` passphrase is ever used.
-3. Restart the local backend, confirm `GET /api/app-config/review-mode` returns `{"enabled": true}`, then drive `createReviewerSessionHarness({ appOrigin: "http://localhost:3000" })`. This stays local-only: `.env.local` never ships and the custom-token minter binds to the localhost backend; keep the passphrase, tokens, and vault key memory-only per the BYOK contract and never print them.
+1. Classify the run as read-only or explicitly mutation-authorized; ordinary review is read-only.
+2. Run the executable preflight before Chromium; it resolves the canonical reviewer without printing secrets and proves review mode is enabled.
+3. For local runs, use `scripts/env/reviewer_mode.sh`; restart the backend after enabling and disabling it.
+4. Let the default network guard block unapproved state-changing requests. A block is a failure, never a reason to weaken the guard.
+5. Prove a cold authenticated entry visibly hard-gates on the vault before supplying any passphrase.
+6. Unlock, verify `vaultKeyHash`, then use Next client navigation and assert `vault_unlocked` after every protected transition.
+7. Fail on critical API 5xx, a blocked mutation, identity mismatch, or any loss of vault continuity.
+8. Close the context, then prove cold-session authentication and re-unlock separately.
+9. For Agent Chat changes, run `verify-reviewer-agent-chat.mjs` with explicit
+   `REVIEWER_ALLOW_SHARED_MUTATIONS=true`; it must complete a real prompt turn and prove
+   consumer-safe errors, self-avatar rendering, idle-status removal, and overflow safety.
+10. Trusted Devices: `verify-reviewer-trusted-devices.mjs` (read-only). Always compose `createReviewerSessionHarness`; never hand-roll one (see the preflight reference).
+11. Wallet, consent lifecycle from chat, large Memory imports: `verify-reviewer-wallet.mjs`, `verify-reviewer-consent-chat.mjs`,
+    `verify-reviewer-memory-import.mjs` (mutation-authorized; the preflight reference states what each proves).
+Local enablement and identity reconciliation follow
+`.codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md`.
 
 ## Handoff Rules
-
 1. Vault and encrypted-storage implementation work routes to `vault-pkm-governance`.
 2. PKM upgrade and exact payload rehearsal routes to `pkm-upgrade-rehearsal`.
 3. Cache behavior proof routes to `frontend-cache-coherence`; broad security work returns to `security-audit`.
@@ -82,4 +80,6 @@ Reviewer rehearsals run against `http://localhost:3000`, not only UAT, so agents
 ```bash
 ./scripts/ci/reviewer-app-testing-check.sh
 ./bin/hushh codex route-task reviewer-app-rehearsal --text
+node .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs --help
+consent-protocol/.venv/bin/python .codex/skills/reviewer-app-testing/scripts/reconcile-reviewer-identity.py --help
 ```

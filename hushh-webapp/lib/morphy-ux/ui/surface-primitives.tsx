@@ -15,6 +15,7 @@
  */
 
 import type { ReactNode } from "react";
+import Image from "next/image";
 import { AlertTriangle, ChevronRight, ShieldCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -119,17 +120,33 @@ export function StatusPill({
 export function AvatarBubble({
   initials,
   size = 36,
+  imageUrl,
 }: {
   initials: string;
   size?: number;
+  imageUrl?: string | null;
 }) {
   return (
     <span
-      className={AVATAR_BUBBLE}
-      style={{ width: size, height: size }}
+      className={cn(AVATAR_BUBBLE, "relative overflow-hidden")}
+      style={{
+        width: size,
+        height: size,
+      }}
       aria-hidden
     >
       {initials}
+      {imageUrl ? (
+        <Image
+          src={imageUrl}
+          alt=""
+          fill
+          sizes={`${size}px`}
+          unoptimized
+          className="object-cover"
+          onError={(event) => event.currentTarget.remove()}
+        />
+      ) : null}
     </span>
   );
 }

@@ -38,7 +38,7 @@ export interface ConsentCenterEntry {
   scope_description?: string | null;
   scope_icon_name?: string | null;
   scope_color_hex?: string | null;
-  counterpart_type: "ria" | "investor" | "developer" | "self";
+  counterpart_type: "ria" | "investor" | "person" | "developer" | "self";
   counterpart_id?: string | null;
   counterpart_label?: string | null;
   counterpart_email?: string | null;
@@ -143,7 +143,7 @@ export interface PendingConsentLookupResponse {
 
 export interface ConsentRequestorGroup {
   id: string;
-  counterpart_type: "ria" | "investor" | "developer" | "self";
+  counterpart_type: "ria" | "investor" | "person" | "developer" | "self";
   counterpart_id?: string | null;
   counterpart_label?: string | null;
   latest_request_at?: number | string | null;

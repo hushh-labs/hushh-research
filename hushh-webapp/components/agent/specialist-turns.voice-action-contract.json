@@ -139,12 +139,9 @@
       "label": "Ask Location",
       "meaning": "Delegates live-location status and client-side location directives to the Location specialist under One.",
       "aliases": [
-        "who can see me right now",
-        "who can see my location",
         "show who can see me",
         "start sharing my location",
         "share my location with",
-        "stop sharing my location",
         "where am i",
         "check in here"
       ],
@@ -178,6 +175,8 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "siri_mode": "conversation_only",
+      "siri_requires_vault": false,
       "execution_target": {
         "status": "wired",
         "path": "voice_tool",

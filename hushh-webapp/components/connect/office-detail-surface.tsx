@@ -54,6 +54,7 @@ export function OfficeDetailSurface({
       onOpenChange={onOpenChange}
       eyebrow={location || undefined}
       title={card.name ?? "Office"}
+      headerTextOverflow="wrap"
       mobilePresentation="sheet"
       footer={
         card.phone ? (

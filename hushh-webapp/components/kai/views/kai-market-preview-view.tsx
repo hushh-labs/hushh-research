@@ -72,6 +72,7 @@ import {
   type KaiHomeSectorItem,
   type KaiHomeWatchlistItem,
 } from "@/lib/services/api-service";
+import { diversifyMarketNewsRows } from "@/lib/kai/market-news-diversity";
 import {
   getKaiActivePickSource,
   setKaiActivePickSource,
@@ -671,10 +672,13 @@ function OneMarketMoverMetric({
       <span className="mt-2 flex items-center gap-2.5">
         <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-semibold text-[color:var(--one-fg)]">
+          <span
+            title={row.companyName}
+            className="block line-clamp-2 min-h-[2.5rem] break-words text-[14px] font-semibold leading-5 text-[color:var(--one-fg)]"
+          >
             {row.companyName}
           </span>
-          <span className="mt-0.5 block truncate text-[12px] text-[color:var(--one-fg3)]">
+          <span className="mt-0.5 block text-[12px] text-[color:var(--one-fg3)]">
             {row.symbol}
           </span>
         </span>
@@ -2172,7 +2176,10 @@ export function KaiMarketPreviewView() {
   );
   const effectiveNewsTape = effectivePayload?.news_tape;
   const marketNewsRows = useMemo(
-    () => (Array.isArray(effectiveNewsTape) ? effectiveNewsTape : []),
+    () =>
+      diversifyMarketNewsRows(
+        Array.isArray(effectiveNewsTape) ? effectiveNewsTape : [],
+      ),
     [effectiveNewsTape],
   );
   const sectorRotationRows = useMemo(
@@ -2363,7 +2370,7 @@ export function KaiMarketPreviewView() {
                   icon={ChartColumnIncreasing}
                   tone="orange"
                 />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <OneMarketMoverMetric
                     label="Top mover"
                     row={moverGroups.gain[0]}

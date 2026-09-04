@@ -62,6 +62,12 @@ EXPECTED_AGENTS = {
     "site_reliability_engineer",
     "validation_simulation_engineer",
     "documentation_architect",
+    # Added deliberately, not incidentally. The on-device tier needs a grader
+    # for small-model output, and the strong model in that loop is a Claude
+    # Code session rather than an API call. This gate exists to keep the fleet
+    # bounded, so expanding it is a governance decision recorded here rather
+    # than a check bypassed elsewhere.
+    "local_model_judge",
 }
 REQUIRED_KEYS = {"name", "description", "developer_instructions", "sandbox_mode"}
 READ_ONLY_BASELINE = EXPECTED_AGENTS

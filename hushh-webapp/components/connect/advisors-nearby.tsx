@@ -72,6 +72,11 @@ export function AdvisorsNearby({
   const debouncedQuery = useDebouncedValue(query, 200);
 
   const requestRef = useRef(0);
+  const cardsRef = useRef<AdvisorCard[]>([]);
+
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
 
   useEffect(() => {
     if (!location.snapshot) return;
@@ -92,6 +97,7 @@ export function AdvisorsNearby({
       if (offset === 0) {
         setLoading(true);
         setError(null);
+        setMeta(null);
       } else {
         setLoadingMore(true);
       }
@@ -113,9 +119,12 @@ export function AdvisorsNearby({
         if (token !== requestRef.current) return;
         setMeta(result.meta);
         setAttribution(result.attribution ?? null);
-        setCards((previous) =>
-          offset === 0 ? result.items : [...previous, ...result.items],
-        );
+        setCards((previous) => {
+          const next =
+            offset === 0 ? result.items : [...previous, ...result.items];
+          cardsRef.current = next;
+          return next;
+        });
       } catch (caught) {
         if (token !== requestRef.current) return;
         const message =
@@ -123,11 +132,15 @@ export function AdvisorsNearby({
             ? caught.message
             : "Advisors are unavailable right now.";
         if (offset === 0) {
-          // A fresh search that failed has nothing to show, and its old paging
-          // cursor now points into a list that no longer exists.
-          setError(message);
-          setCards([]);
-          setMeta(null);
+          if (cardsRef.current.length > 0) {
+            setPageError(message);
+          } else {
+            // A cold search that failed has nothing to show, and its old paging
+            // cursor now points into a list that no longer exists.
+            setError(message);
+            setCards([]);
+            setMeta(null);
+          }
         } else {
           // A failed page must not take the page already on screen with it.
           setPageError(message);
@@ -194,6 +207,8 @@ export function AdvisorsNearby({
     meta?.radiusAdjusted && meta.radiusMi
       ? `Within ${meta.radiusMi} mi.`
       : null;
+  const blockingLoading = loading && cards.length === 0;
+  const refreshing = loading && cards.length > 0;
 
   return (
     <div className="space-y-4" data-testid="advisors-nearby">
@@ -201,14 +216,14 @@ export function AdvisorsNearby({
         value={String(radiusMi)}
         onValueChange={(value) => setRadiusMi(Number(value))}
         options={RADIUS_OPTIONS}
-        disabled={loading}
+        disabled={blockingLoading}
       />
 
       {narrowed ? (
         <p className="type-footnote text-muted-foreground">{narrowed}</p>
       ) : null}
 
-      {!error && !loading && cards.length > 0 ? (
+      {!error && cards.length > 0 ? (
         <NearbyDirectorySearch
           value={query}
           onChange={setQuery}
@@ -217,7 +232,7 @@ export function AdvisorsNearby({
         />
       ) : null}
 
-      {error && !loading ? (
+      {error && !blockingLoading ? (
         // A failed search must still offer the ZIP box. "Try again" only
         // re-runs the anchor that just failed, so on its own it strands anyone
         // whose ZIP was the problem — the only way out was to leave the tab and
@@ -247,7 +262,7 @@ export function AdvisorsNearby({
         </QuietBlock>
       ) : null}
 
-      {!error && !loading && cards.length === 0 ? (
+      {!error && !blockingLoading && cards.length === 0 ? (
         // Coordinates can be perfectly good and still match nobody — FINRA is a
         // US register. Offer the one input that can actually help rather than a
         // dead end.
@@ -271,7 +286,7 @@ export function AdvisorsNearby({
         </QuietBlock>
       ) : null}
 
-      {!error && !loading && cards.length > 0 && filteredCards.length === 0 ? (
+      {!error && !blockingLoading && cards.length > 0 && filteredCards.length === 0 ? (
         <QuietBlock
           title="No matches"
           subtitle="Try a different name or firm."
@@ -296,7 +311,7 @@ export function AdvisorsNearby({
           title={meta?.grouped ? "Offices" : "Advisors"}
           separatorInset
         >
-          {loading ? (
+          {blockingLoading ? (
             <DirectoryLoadingRows testId="advisors-loading" />
           ) : (
             filteredCards.map((card) => {
@@ -307,8 +322,10 @@ export function AdvisorsNearby({
                   icon={card.kind === "branch" ? Building2 : UserRound}
                   iconTone="blue"
                   title={
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">{card.name ?? "Advisor"}</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+                        {card.name ?? "Advisor"}
+                      </span>
                       <NearbyTagBadge>
                         {card.kind === "branch" ? "Office" : "Advisor"}
                       </NearbyTagBadge>
@@ -332,6 +349,16 @@ export function AdvisorsNearby({
           )}
         </SettingsGroup>
       )}
+
+      {refreshing ? (
+        <p
+          className="type-footnote text-center text-muted-foreground"
+          role="status"
+          data-testid="advisors-refreshing"
+        >
+          Updating nearby…
+        </p>
+      ) : null}
 
       {meta?.hasMore && typeof meta.nextOffset === "number" && !loading ? (
         <div className="flex flex-col items-center gap-2">

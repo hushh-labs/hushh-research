@@ -325,7 +325,7 @@ export function PhoneMandatePageContent() {
 
         {/* Verification is a focused task, not a hero. Keep the heading tight
             so the active field row can clear the native keyboard. */}
-        <div className="px-6 pb-3 pt-7 text-center">
+        <div className="px-6 pb-2 pt-7 text-center">
           <h1
             role="heading"
             aria-level={1}
@@ -334,9 +334,6 @@ export function PhoneMandatePageContent() {
           >
             Verify your phone number
           </h1>
-          <p className="mx-auto mt-1.5 max-w-[20rem] text-[15px] leading-[1.4] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
-            Add your phone number to continue. It&rsquo;s how your private agent is bound to you.
-          </p>
         </div>
 
         {/* The active field group owns the keyboard clearance. The keyboard
@@ -359,7 +356,9 @@ export function PhoneMandatePageContent() {
             onCompleted={continueToNextRoute}
             onContinueExisting={continueToNextRoute}
             onStepChange={setVerificationStep}
-            confirmLabel="Verify and continue"
+            sendCodeLabel="Send code"
+            confirmLabel="Verify"
+            primaryActionClassName="mx-auto max-w-[21.5rem]"
             className="gap-5"
           />
           <div id="recaptcha-container" className="mt-3 min-h-0" />

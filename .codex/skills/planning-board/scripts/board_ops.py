@@ -14,14 +14,40 @@ from collections import Counter
 from typing import Any
 
 OWNER = "hushh-labs"
-# Defaults to Hushh Engineering Core (#73). Override to drive another board on the
-# same owner -- e.g. HUSSH_BOARD_PROJECT_NUMBER=79 for "Hussh Action Items" -- so
-# one tool maintains every board rather than a copy per board. Fields are still
-# resolved dynamically per project, so no ids are assumed across boards.
-PROJECT_NUMBER = int(os.environ.get("HUSSH_BOARD_PROJECT_NUMBER", "73"))
-PROJECT_TITLE = os.environ.get("HUSSH_BOARD_PROJECT_TITLE", "Hushh Engineering Core")
 DEFAULT_REPO = "hushh-labs/hushh-research"
-DEFAULT_STATUS = "In progress"
+
+# Board profiles. Only identity + the safe creation status live here; every
+# field interaction resolves against the live field catalog at run time, so a
+# board's own schema (Sprint vs none, Target date vs Target Fix Date, Hierarchy
+# vs Lead/Owner/Severity) is honored without further hardcoding.
+BOARD_PROFILES: dict[str, dict[str, Any]] = {
+    "engineering-core": {
+        "number": 73,
+        "title": "Hushh Engineering Core",
+        "default_status": "In progress",
+    },
+    "action-items": {
+        "number": 79,
+        "title": "Hussh Action Items",
+        "default_status": "Accepted",
+    },
+}
+DEFAULT_BOARD = "engineering-core"
+PROJECT_NUMBER = BOARD_PROFILES[DEFAULT_BOARD]["number"]
+PROJECT_TITLE = BOARD_PROFILES[DEFAULT_BOARD]["title"]
+DEFAULT_STATUS = BOARD_PROFILES[DEFAULT_BOARD]["default_status"]
+
+
+def apply_board_profile(name: str) -> None:
+    global PROJECT_NUMBER, PROJECT_TITLE, DEFAULT_STATUS
+    profile = BOARD_PROFILES.get(name)
+    if not profile:
+        raise BoardOpsError(
+            f"unknown board profile: {name} (expected one of {sorted(BOARD_PROFILES)})"
+        )
+    PROJECT_NUMBER = profile["number"]
+    PROJECT_TITLE = profile["title"]
+    DEFAULT_STATUS = profile["default_status"]
 ASSIGNEE_HIERARCHY_DEFAULTS = {
     "kushaltrivedi5": "Kushal",
     "RGlodAkshat": "Akshat",
@@ -121,7 +147,7 @@ def get_project_id() -> str:
     )
     project = data["data"]["organization"]["projectV2"]
     if not project or project["title"] != PROJECT_TITLE:
-        raise BoardOpsError("failed to resolve Engineering Core project")
+        raise BoardOpsError(f"failed to resolve project: {PROJECT_TITLE}")
     _project_id_cache = project["id"]
     return _project_id_cache
 
@@ -448,14 +474,22 @@ def issue_create(args: argparse.Namespace) -> None:
     update_task(
         repo=args.repo,
         issue_number=issue_number,
-        status=args.status,
+        status=args.status or DEFAULT_STATUS,
         start_date=args.start_date,
         target_date=args.target_date,
         labels=parsed_labels,
         sync_current_sprint=True,
         hierarchy=hierarchy,
+        extra_fields=args.fields,
     )
     print(json.dumps(get_issue_json(args.repo, issue_number), indent=2))
+
+
+def resolve_date_field(fields: dict[str, Any], candidates: tuple[str, ...]) -> str | None:
+    for name in candidates:
+        if name in fields:
+            return name
+    return None
 
 
 def update_task(
@@ -468,6 +502,7 @@ def update_task(
     labels: list[str] | None,
     sync_current_sprint: bool,
     hierarchy: str | None = None,
+    extra_fields: list[str] | None = None,
 ) -> None:
     project_id = get_project_id()
     fields = get_field_catalog()
@@ -483,18 +518,38 @@ def update_task(
         )
 
     if start_date is not None:
-        set_project_field(
-            item_id=item_id,
-            project_id=project_id,
-            field_id=fields["Start date"]["id"],
-            date=start_date,
-        )
+        start_field = resolve_date_field(fields, ("Start date",))
+        if start_field:
+            set_project_field(
+                item_id=item_id,
+                project_id=project_id,
+                field_id=fields[start_field]["id"],
+                date=start_date,
+            )
+        else:
+            print(
+                f"Warning: {PROJECT_TITLE} has no Start date field; skipped for issue #{issue_number}",
+                file=sys.stderr,
+            )
     if target_date is not None:
-        set_project_field(
-            item_id=item_id,
-            project_id=project_id,
-            field_id=fields["Target date"]["id"],
-            date=target_date,
+        target_field = resolve_date_field(fields, ("Target date", "Target Fix Date"))
+        if target_field:
+            set_project_field(
+                item_id=item_id,
+                project_id=project_id,
+                field_id=fields[target_field]["id"],
+                date=target_date,
+            )
+        else:
+            print(
+                f"Warning: {PROJECT_TITLE} has no target-date field; skipped for issue #{issue_number}",
+                file=sys.stderr,
+            )
+    if sync_current_sprint and "Sprint" not in fields:
+        sync_current_sprint = False
+        print(
+            f"Warning: {PROJECT_TITLE} has no Sprint field; skipped for issue #{issue_number}",
+            file=sys.stderr,
         )
     if sync_current_sprint:
         try:
@@ -511,12 +566,34 @@ def update_task(
             else:
                 raise
     if hierarchy is not None:
+        if "Hierarchy" in fields:
+            set_single_select_by_name(
+                fields=fields,
+                item_id=item_id,
+                project_id=project_id,
+                field_name="Hierarchy",
+                option_name=hierarchy,
+            )
+        else:
+            print(
+                f"Warning: {PROJECT_TITLE} has no Hierarchy field; skipped for issue #{issue_number}",
+                file=sys.stderr,
+            )
+
+    for spec in extra_fields or []:
+        if "=" not in spec:
+            raise BoardOpsError(f"--field expects Name=Option, got: {spec}")
+        field_name, option_name = (part.strip() for part in spec.split("=", 1))
+        if field_name not in fields:
+            raise BoardOpsError(f"unknown {PROJECT_TITLE} field: {field_name}")
+        if not fields[field_name].get("options"):
+            raise BoardOpsError(f"field is not single-select: {field_name}")
         set_single_select_by_name(
             fields=fields,
             item_id=item_id,
             project_id=project_id,
-            field_name="Hierarchy",
-            option_name=hierarchy,
+            field_name=field_name,
+            option_name=option_name,
         )
 
     if labels is not None:
@@ -533,6 +610,7 @@ def cmd_update_task(args: argparse.Namespace) -> None:
         labels=parse_labels(args.labels),
         sync_current_sprint=args.sync_current_sprint,
         hierarchy=args.hierarchy,
+        extra_fields=args.fields,
     )
     print(json.dumps(get_issue_json(args.repo, args.issue), indent=2))
 
@@ -877,7 +955,13 @@ def cmd_show_open_work(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Hushh Engineering Core GitHub board helper")
+    parser = argparse.ArgumentParser(description="Hussh GitHub board helper (profile-aware)")
+    parser.add_argument(
+        "--board",
+        choices=sorted(BOARD_PROFILES),
+        default=DEFAULT_BOARD,
+        help="Board profile to operate on (default: engineering-core / project 73)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     summary = sub.add_parser("summary")
@@ -891,11 +975,17 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--title", required=True)
     create.add_argument("--body", required=True)
     create.add_argument("--assignee")
-    create.add_argument("--status", default=DEFAULT_STATUS)
+    create.add_argument("--status", default=None)
     create.add_argument("--start-date", default=today_iso())
     create.add_argument("--target-date", default=next_day_iso())
     create.add_argument("--labels")
     create.add_argument("--hierarchy")
+    create.add_argument(
+        "--field",
+        dest="fields",
+        action="append",
+        help="Extra single-select assignment as 'Name=Option' (repeatable), e.g. --field 'Severity=P0 Critical'",
+    )
     create.set_defaults(func=issue_create)
 
     update = sub.add_parser("update-task")
@@ -906,6 +996,12 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--target-date")
     update.add_argument("--labels")
     update.add_argument("--hierarchy")
+    update.add_argument(
+        "--field",
+        dest="fields",
+        action="append",
+        help="Extra single-select assignment as 'Name=Option' (repeatable)",
+    )
     update.add_argument("--sync-current-sprint", action="store_true")
     update.set_defaults(func=cmd_update_task)
 
@@ -931,6 +1027,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     try:
+        apply_board_profile(args.board)
         args.func(args)
     except BoardOpsError as exc:
         print(f"error: {exc}", file=sys.stderr)

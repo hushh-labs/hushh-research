@@ -436,6 +436,78 @@ async def trusted_device_seal_ack(
     return result
 
 
+def _heartbeat_snapshot(body: Any) -> dict[str, Any]:
+    """Read the telemetry out of a heartbeat body, flat or wrapped.
+
+    The route deliberately does NOT validate the body with a typed model. The
+    heartbeat is advisory telemetry whose one load-bearing effect is stamping
+    ``last_heartbeat_at``, and the service allow-list (``_safe_heartbeat``)
+    already keeps only known scalar fields, truncates text and drops
+    out-of-range numbers. A typed model with bounds in front of it turned one
+    over-long value into a 422 for the WHOLE beat: a 121-character model id
+    made every push fail, the device read as gone in One while it was healthy,
+    and the failure was silent because telemetry never raises on the device.
+    Sanitising per field costs that field; rejecting per request costs the
+    signal.
+
+    Two body shapes are read. Hermes builds from 2026-08-28 (when the
+    heartbeat first shipped) to 2026-09-03 posted the snapshot wrapped as
+    ``{"heartbeat": {...}}``; later builds post it flat. Top-level keys win
+    over the wrapped block on a shared key, and only one level is unwrapped.
+    A body that is not an object is an empty reading, which still stamps the
+    beat: liveness is the signal, the fields are extras.
+    """
+    if not isinstance(body, dict):
+        return {}
+    wrapped = body.get("heartbeat")
+    inner = (
+        {key: value for key, value in wrapped.items() if key != "heartbeat"}
+        if isinstance(wrapped, dict)
+        else {}
+    )
+    flat = {key: value for key, value in body.items() if key != "heartbeat"}
+    return {**inner, **flat}
+
+
+@router.post("/trusted-devices/{device_id}/heartbeat")
+async def trusted_device_heartbeat(
+    device_id: str,
+    payload: Any = Body(default=None),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Liveness heartbeat from a running trusted device.
+
+    Answers "is this agent reachable right now?", which last_synced_at cannot:
+    that column only advances when the device pulls the sync channel, so a
+    running-but-idle agent reads as stale.
+
+    Firebase-authed, matching the own-device status read: the device keeps a
+    user-level session, and a heartbeat grants nothing, so it needs no device
+    signature. Purely advisory telemetry -- the server stamps its own timestamp,
+    updates only an active row so a revoked device can never appear live, and
+    enforcement never consults it. Trust stays decided by status and
+    is_trusted_device_active.
+    """
+    snapshot = _heartbeat_snapshot(payload)
+    try:
+        await run_in_threadpool(
+            TrustedDeviceService().record_heartbeat,
+            user_id=firebase_uid,
+            device_id=device_id,
+            snapshot=snapshot,
+        )
+    except Exception:
+        logger.exception("trusted_device.heartbeat_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_STATUS_UNAVAILABLE",
+                "message": "Trusted-device status is temporarily unavailable.",
+            },
+        ) from None
+    return {"recorded": True, "server_time_ms": int(time.time() * 1000)}
+
+
 @router.post("/trusted-devices/{device_id}/challenge")
 async def create_trusted_device_challenge(
     device_id: str,

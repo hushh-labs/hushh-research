@@ -13,6 +13,7 @@ const NOW = Date.parse("2026-08-16T10:00:00.000Z");
 function status(overrides: Partial<LiveShareStatus> = {}): LiveShareStatus {
   return {
     count: 1,
+    grantCount: 1,
     names: ["Rohan Mehta"],
     startedAt: "2026-08-16T09:30:00.000Z",
     endsAt: "2026-08-16T11:00:00.000Z",
@@ -22,7 +23,9 @@ function status(overrides: Partial<LiveShareStatus> = {}): LiveShareStatus {
 }
 
 function countdown(): string {
-  return screen.getByTestId("one-location-live-share-countdown").textContent ?? "";
+  return (
+    screen.getByTestId("one-location-live-share-countdown").textContent ?? ""
+  );
 }
 
 describe("LiveShareStatusCard", () => {
@@ -104,14 +107,6 @@ describe("LiveShareStatusCard", () => {
     visibility.mockRestore();
   });
 
-  it("fills the progress bar with the time already spent", () => {
-    // Started 09:30, ends 11:00, now 10:00 — a third of the way through.
-    render(<LiveShareStatusCard status={status()} onManage={vi.fn()} />);
-
-    const bar = screen.getByTestId("one-location-live-share-progress");
-    expect(bar.getAttribute("style")).toContain("width: 33%");
-  });
-
   it("tells assistive tech the time in words, not once a second", () => {
     render(
       <LiveShareStatusCard
@@ -141,7 +136,6 @@ describe("LiveShareStatusCard", () => {
     expect(countdown()).toBe("30:00");
     expect(screen.getByText("so far")).toBeTruthy();
     expect(screen.getByText("Until you stop")).toBeTruthy();
-    expect(screen.queryByTestId("one-location-live-share-progress")).toBeNull();
   });
 
   it("names the person when the server state is loaded", () => {
@@ -154,13 +148,19 @@ describe("LiveShareStatusCard", () => {
     // the count and nothing else. It must still say something true.
     render(
       <LiveShareStatusCard
-        status={status({ count: 2, names: [], stoppableGrantId: null })}
+        status={status({
+          count: 2,
+          grantCount: 2,
+          names: [],
+          stoppableGrantId: null,
+        })}
         onManage={vi.fn()}
       />,
     );
 
     expect(screen.getByText("Sharing with 2 people")).toBeTruthy();
-    expect(countdown()).toBe("1h 00m");
+    expect(screen.queryByTestId("one-location-live-share-countdown")).toBeNull();
+    expect(screen.getByText("Different end times")).toBeTruthy();
   });
 
   it("offers Stop for a single share and Manage for several", () => {
@@ -179,7 +179,12 @@ describe("LiveShareStatusCard", () => {
 
     rerender(
       <LiveShareStatusCard
-        status={status({ count: 3, names: ["A", "B", "C"], stoppableGrantId: null })}
+        status={status({
+          count: 3,
+          grantCount: 3,
+          names: ["A", "B", "C"],
+          stoppableGrantId: null,
+        })}
         onManage={onManage}
       />,
     );
@@ -187,40 +192,33 @@ describe("LiveShareStatusCard", () => {
     expect(onManage).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps Stop for ONE person who happens to hold two shares", () => {
-    // The affordance is driven by a headcount, not a grant count. After the
-    // two-lane split one friend can hold an ordinary share and an SOS share at
-    // once; the summarizer reports that as `count: 1` with one name and a
-    // resolved `stoppableGrantId`, and the card must go on offering the
-    // one-tap Stop rather than degrading to Manage at the exact moment the
-    // owner has the most sharing running.
-    const onStop = vi.fn();
+  it("offers Manage for one person who holds two share lanes", () => {
+    const onManage = vi.fn();
     render(
       <LiveShareStatusCard
         status={status({
           count: 1,
+          grantCount: 2,
           names: ["Rohan Mehta"],
-          // The ordinary share: the SMS one has its own Stop on the Emergency
-          // screen, and after the lane split neither ends the other.
-          stoppableGrantId: "grant_ordinary",
+          stoppableGrantId: null,
           endsAt: "2026-08-16T18:00:00.000Z",
         })}
-        onManage={vi.fn()}
-        onStop={onStop}
+        onManage={onManage}
       />,
     );
 
     expect(screen.getByText("Sharing with Rohan Mehta")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
-    screen.getByRole("button", { name: "Stop" }).click();
-    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("2 active shares")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    screen.getByRole("button", { name: "Manage" }).click();
+    expect(onManage).toHaveBeenCalledTimes(1);
   });
 
-  it("offers Change time on a single share, beside the end time", () => {
+  it("offers Change end time on a single share after the primary share action", () => {
     // The reported bug: a 30-minute share could be stopped and nothing else.
-    // The control has to be there, and it has to be the footer's sibling --
-    // beside the end time it edits, and not clustered with Stop, which is the
-    // one destructive control on this card.
+    // The control has to be there, but the compact Now card keeps it below the
+    // primary "Share with more" CTA instead of exposing the duration editor on
+    // the page.
     const onChangeDuration = vi.fn();
     render(
       <LiveShareStatusCard
@@ -228,15 +226,22 @@ describe("LiveShareStatusCard", () => {
         onManage={vi.fn()}
         onStop={vi.fn()}
         onChangeDuration={onChangeDuration}
+        onShareMore={vi.fn()}
       />,
     );
 
-    const change = screen.getByRole("button", { name: "Change time" });
+    const change = screen.getByRole("button", { name: "Change end time" });
     change.click();
     expect(onChangeDuration).toHaveBeenCalledTimes(1);
+    expect(onChangeDuration).toHaveBeenCalledWith(change);
 
-    const ends = screen.getByText(/^Ends /);
-    expect(change.closest("div")).toBe(ends.parentElement);
+    expect(screen.getByText(/^Ends /)).toBeTruthy();
+    const shareMore = screen.getByRole("button", { name: "Share with more" });
+    expect(
+      (shareMore.compareDocumentPosition(change) &
+        Node.DOCUMENT_POSITION_FOLLOWING) !==
+        0,
+    ).toBe(true);
   });
 
   it("opens the share composer from the live timer card for another share", () => {
@@ -254,7 +259,7 @@ describe("LiveShareStatusCard", () => {
     expect(onShareMore).toHaveBeenCalledTimes(1);
   });
 
-  it("does not open manage when keyboard focus is on a child action", () => {
+  it("only opens manage from the visible Manage control", () => {
     const onManage = vi.fn();
     render(
       <LiveShareStatusCard
@@ -266,12 +271,18 @@ describe("LiveShareStatusCard", () => {
       />,
     );
 
+    expect(
+      screen.queryByRole("button", { name: "Your live location share" }),
+    ).toBeNull();
     fireEvent.keyDown(screen.getByRole("button", { name: "Stop" }), {
       key: "Enter",
     });
-    fireEvent.keyDown(screen.getByRole("button", { name: "Change time" }), {
-      key: " ",
-    });
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: "Change end time" }),
+      {
+        key: " ",
+      },
+    );
     fireEvent.keyDown(screen.getByRole("button", { name: "Share with more" }), {
       key: "Enter",
     });
@@ -279,23 +290,28 @@ describe("LiveShareStatusCard", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  it("hides Change time when there is no single share to change", () => {
+  it("hides Change end time when there is no single share to change", () => {
     // Same gate as Stop. With three shares running "change the time" has no
     // referent, and the card must not offer to act on an unnamed one.
     render(
       <LiveShareStatusCard
-        status={status({ count: 3, names: ["A", "B", "C"], stoppableGrantId: null })}
+        status={status({
+          count: 3,
+          grantCount: 3,
+          names: ["A", "B", "C"],
+          stoppableGrantId: null,
+        })}
         onManage={vi.fn()}
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Change time" })).toBeNull();
-    // "Last ends", not "Ends": the clock is the LATEST of the three, and two of
-    // them may stop long before it.
-    expect(screen.getByText(/^Last ends /)).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Change end time" }),
+    ).toBeNull();
+    expect(screen.getByText("Different end times")).toBeTruthy();
   });
 
-  it("says whose end time the clock is when several shares run", () => {
+  it("summarizes end times honestly when several shares run", () => {
     const { unmount } = render(
       <LiveShareStatusCard
         status={status()}
@@ -312,16 +328,21 @@ describe("LiveShareStatusCard", () => {
       <LiveShareStatusCard
         status={status({
           count: 2,
+          grantCount: 2,
           names: ["A", "B"],
           stoppableGrantId: null,
+          timeSummary: {
+            kind: "same_timed",
+            endsAt: "2026-08-16T11:00:00.000Z",
+          },
         })}
         onManage={vi.fn()}
       />,
     );
-    expect(screen.getByText(/^Last ends /)).toBeTruthy();
+    expect(screen.getByText(/^All end at /)).toBeTruthy();
   });
 
-  it("keeps Change time on an open-ended share", () => {
+  it("offers Set an end time on an open-ended ordinary share", () => {
     // "Until you stop" is the footer here, not an end time. The action still
     // belongs: giving an open share a finite end is exactly a time change.
     const onChangeDuration = vi.fn();
@@ -334,7 +355,7 @@ describe("LiveShareStatusCard", () => {
       />,
     );
 
-    screen.getByRole("button", { name: "Change time" }).click();
+    screen.getByRole("button", { name: "Set an end time" }).click();
     expect(onChangeDuration).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Until you stop")).toBeTruthy();
   });

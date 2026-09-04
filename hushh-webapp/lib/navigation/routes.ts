@@ -55,8 +55,33 @@ export function isKaiMarketPathname(value: string | null | undefined): boolean {
   return financeRoutePathname(value) === KAI_MARKET_PATH;
 }
 
+export function buildPersonProfileRoute(
+  personRef: string,
+  entries?: { from?: string | null },
+): string {
+  const normalized = String(personRef || "").trim();
+  if (!normalized) throw new Error("A public person reference is required.");
+  return withQuery(`/people/${encodeURIComponent(normalized)}`, {
+    from: normalizeInternalRouteHref(entries?.from),
+  });
+}
+
+export function resolvePersonRefFromProfilePathname(
+  pathname: string | null | undefined,
+): string | null {
+  const match = String(pathname || "").match(/^\/people\/([^/?#]+)/);
+  const rawRef = match?.[1]?.trim();
+  if (!rawRef) return null;
+  try {
+    return decodeURIComponent(rawRef);
+  } catch {
+    return rawRef;
+  }
+}
+
 export const ROUTES = {
   HOME: "/",
+  PERSON_PROFILE: "/people/[personRef]",
   /** Canonical public knowledge workspace; root remains anonymous onboarding. */
   WELCOME: "/welcome",
   ONE_HOME: "/one",
@@ -122,9 +147,13 @@ export const ROUTES = {
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
   PKM: "/one/pkm",
+  PKM_RECENT: "/one/pkm/recent",
   ONE_MARKETPLACE: "/one/marketplace",
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
+  ONE_WALLET: "/one/wallet",
+  /** Puppy One: the agent running on the owner's own machine. */
+  ONE_PUPPY: "/one/puppy",
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
@@ -149,6 +178,11 @@ export const ROUTES = {
    * as the same feature.
    */
   ONE_LOCATION_CHECK_IN: "/one/location/check-in",
+  /**
+   * Eligibility-gated hotel online check-in. Hidden unless a supported stay is
+   * returned by the hotel-check-in provider seam.
+   */
+  ONE_LOCATION_HOTEL_CHECK_IN: "/one/location/check-in/hotel",
   /**
    * Recipient landing for a shared Circle join link. An entry point from
    * outside the app, like LOGIN — the destination is the reason the person
@@ -468,6 +502,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.LOGOUT ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
+    normalizedPathname.startsWith("/people/") ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
     normalizedPathname === ROUTES.CIRCLE_JOIN

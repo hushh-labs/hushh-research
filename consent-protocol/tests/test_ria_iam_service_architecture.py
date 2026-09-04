@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.renaissance_service import RenaissanceService
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
@@ -1660,3 +1661,391 @@ def test_next_action_for_relationship_status():
     assert service._next_action_for_relationship_status("expired") == "re_request"
     assert service._next_action_for_relationship_status("blocked") == "resolve_block"
     assert service._next_action_for_relationship_status("unknown") == "request_access"
+
+
+def test_pick_package_projection_bounds_and_attributes_advisor_thesis(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    class _SymbolMaster:
+        @staticmethod
+        def normalize(value):
+            return str(value or "").strip().upper()
+
+        @staticmethod
+        def get_ticker_metadata(_ticker):
+            return {"title": "NVIDIA Corporation", "sector_primary": "Technology"}
+
+    monkeypatch.setattr(ria_module, "get_symbol_master_service", lambda: _SymbolMaster())
+    service = RIAIAMService()
+    oversized = "A" * 2100
+
+    package = service._build_pick_package_projection(
+        {
+            "top_picks": [
+                {
+                    "ticker": "NVDA",
+                    "tier": "ACE",
+                    "investment_thesis": oversized,
+                    "advisor_thesis": {
+                        "text": "forged browser text",
+                        "authored_by_user_id": "attacker",
+                        "source": "ria_picks_editor",
+                        "updated_at": "1999-01-01T00:00:00Z",
+                    },
+                }
+            ],
+            "avoid_rows": [],
+            "screening_sections": [],
+        },
+        provider_user_id="ria_user_1",
+        updated_at="2026-08-28T00:00:00Z",
+    )
+
+    row = package["top_picks"][0]
+    assert row["investment_thesis"] == "A" * 2000
+    assert row["advisor_thesis"] == {
+        "text": "A" * 2000,
+        "authored_by_user_id": "ria_user_1",
+        "source": "ria_picks_editor",
+        "updated_at": "2026-08-28T00:00:00Z",
+    }
+
+
+def test_pick_package_projection_allows_absent_advisor_thesis(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    class _SymbolMaster:
+        @staticmethod
+        def normalize(value):
+            return str(value or "").strip().upper()
+
+        @staticmethod
+        def get_ticker_metadata(_ticker):
+            return {"title": "NVIDIA Corporation", "sector_primary": "Technology"}
+
+    monkeypatch.setattr(ria_module, "get_symbol_master_service", lambda: _SymbolMaster())
+    service = RIAIAMService()
+
+    package = service._build_pick_package_projection(
+        {
+            "top_picks": [
+                {
+                    "ticker": "NVDA",
+                    "tier": "ACE",
+                    "investment_thesis": "",
+                    "advisor_thesis": {
+                        "text": "stale browser value",
+                        "authored_by_user_id": "attacker",
+                        "source": "ria_picks_editor",
+                        "updated_at": "1999-01-01T00:00:00Z",
+                    },
+                }
+            ],
+            "avoid_rows": [],
+            "screening_sections": [],
+        },
+        provider_user_id="ria_user_1",
+        updated_at="2026-08-28T00:00:00Z",
+    )
+
+    row = package["top_picks"][0]
+    assert row["investment_thesis"] is None
+    assert row["advisor_thesis"] is None
+
+
+def test_pick_package_projection_does_not_resurrect_removed_advisor_thesis(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    class _SymbolMaster:
+        @staticmethod
+        def normalize(value):
+            return str(value or "").strip().upper()
+
+        @staticmethod
+        def get_ticker_metadata(_ticker):
+            return {"title": "NVIDIA Corporation", "sector_primary": "Technology"}
+
+    monkeypatch.setattr(ria_module, "get_symbol_master_service", lambda: _SymbolMaster())
+    service = RIAIAMService()
+
+    package = service._build_pick_package_projection(
+        {
+            "top_picks": [
+                {
+                    "ticker": "NVDA",
+                    "tier": "ACE",
+                    "investment_thesis": "",
+                    "advisor_thesis": {
+                        "text": "OLD_REMOVED_THESIS_MUST_NOT_SURVIVE",
+                        "authored_by_user_id": "ria_user_1",
+                        "source": "ria_picks_editor",
+                        "updated_at": "2026-08-27T00:00:00Z",
+                    },
+                }
+            ],
+            "avoid_rows": [],
+            "screening_sections": [],
+        },
+        provider_user_id="ria_user_1",
+        updated_at="2026-08-28T00:00:00Z",
+    )
+
+    row = package["top_picks"][0]
+    assert row["investment_thesis"] is None
+    assert row["advisor_thesis"] is None
+    assert "OLD_REMOVED_THESIS_MUST_NOT_SURVIVE" not in json.dumps(package)
+
+
+def test_pick_package_projection_bounds_oversized_advisor_thesis_at_backend(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    class _SymbolMaster:
+        @staticmethod
+        def normalize(value):
+            return str(value or "").strip().upper()
+
+        @staticmethod
+        def get_ticker_metadata(_ticker):
+            return {"title": "NVIDIA Corporation", "sector_primary": "Technology"}
+
+    monkeypatch.setattr(ria_module, "get_symbol_master_service", lambda: _SymbolMaster())
+    service = RIAIAMService()
+
+    for oversized in ("B" * 2001, "C" * 2100):
+        package = service._build_pick_package_projection(
+            {
+                "top_picks": [
+                    {
+                        "ticker": "NVDA",
+                        "tier": "ACE",
+                        "investment_thesis": oversized,
+                    }
+                ],
+                "avoid_rows": [],
+                "screening_sections": [],
+            },
+            provider_user_id="ria_user_1",
+            updated_at="2026-08-28T00:00:00Z",
+        )
+        row = package["top_picks"][0]
+        assert len(row["investment_thesis"]) == 2000
+        assert len(row["advisor_thesis"]["text"]) == 2000
+
+
+@pytest.mark.asyncio
+async def test_resolve_investor_pick_source_denies_connection_only_without_share(monkeypatch):
+    class _FakeConn:
+        async def fetchrow(self, query: str, *args):
+            assert args == ("investor_1", "ria_profile_1", "ria_active_picks_feed_v1")
+            assert "rel.status = 'approved'" in query
+            assert "share.status = 'active'" in query
+            assert "proposal.status = 'active'" in query
+            assert "proposal.expires_at > NOW()" in query
+            assert "artifact.status = 'active'" in query
+            return None
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+
+    resolved = await service.resolve_investor_pick_source("investor_1", "ria:ria_profile_1")
+
+    assert resolved is None
+    assert "CONNECTION_ONLY_THESIS_MUST_NOT_LEAK" not in json.dumps(resolved)
+
+
+@pytest.mark.asyncio
+async def test_resolve_investor_pick_source_denies_wrong_investor(monkeypatch):
+    class _FakeConn:
+        async def fetchrow(self, _query: str, *args):
+            investor_user_id, ria_profile_id, grant_key = args
+            assert ria_profile_id == "ria_profile_1"
+            assert grant_key == "ria_active_picks_feed_v1"
+            if investor_user_id != "investor_a":
+                return None
+            return {
+                "relationship_id": "rel_a",
+                "share_grant_id": "grant_a",
+                "connection_scope_proposal_id": "proposal_a",
+                "ria_user_id": "ria_user_1",
+                "label": "Advisor Alpha",
+                "artifact_id": "artifact_a",
+                "source_data_version": 7,
+                "source_manifest_revision": 3,
+                "artifact_updated_at": "2026-08-28T00:00:00Z",
+                "artifact_projection": json.dumps(
+                    {
+                        "top_picks": [
+                            {
+                                "ticker": "NVDA",
+                                "tier": "ACE",
+                                "investment_thesis": "AUTHORIZED_ONLY_FOR_INVESTOR_A",
+                            }
+                        ],
+                        "avoid_rows": [],
+                        "screening_sections": [],
+                    }
+                ),
+            }
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_build_pick_package_projection", lambda package: package)
+
+    denied = await service.resolve_investor_pick_source("investor_b", "ria:ria_profile_1")
+    allowed = await service.resolve_investor_pick_source("investor_a", "ria:ria_profile_1")
+
+    assert denied is None
+    assert "AUTHORIZED_ONLY_FOR_INVESTOR_A" not in json.dumps(denied)
+    assert allowed is not None
+    assert (
+        allowed["package"]["top_picks"][0]["investment_thesis"] == "AUTHORIZED_ONLY_FOR_INVESTOR_A"
+    )
+    assert allowed["snapshot"]["share_grant_id"] == "grant_a"
+
+
+@pytest.mark.asyncio
+async def test_resolve_investor_pick_source_denies_revoked_share_on_new_resolution(monkeypatch):
+    class _FakeConn:
+        active = True
+
+        async def fetchrow(self, query: str, *_args):
+            assert "share.status = 'active'" in query
+            if not self.active:
+                return None
+            return {
+                "relationship_id": "rel_1",
+                "share_grant_id": "grant_1",
+                "connection_scope_proposal_id": "proposal_1",
+                "ria_user_id": "ria_user_1",
+                "label": "Advisor Alpha",
+                "artifact_id": "artifact_1",
+                "source_data_version": 7,
+                "source_manifest_revision": 3,
+                "artifact_updated_at": "2026-08-28T00:00:00Z",
+                "artifact_projection": json.dumps(
+                    {
+                        "top_picks": [
+                            {
+                                "ticker": "NVDA",
+                                "tier": "ACE",
+                                "investment_thesis": "REVOKED_THESIS_MUST_DISAPPEAR",
+                            }
+                        ],
+                        "avoid_rows": [],
+                        "screening_sections": [],
+                    }
+                ),
+            }
+
+        async def close(self):
+            return None
+
+    conn = _FakeConn()
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return conn
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_build_pick_package_projection", lambda package: package)
+
+    active = await service.resolve_investor_pick_source("investor_1", "ria:ria_profile_1")
+    conn.active = False
+    revoked = await service.resolve_investor_pick_source("investor_1", "ria:ria_profile_1")
+
+    assert "REVOKED_THESIS_MUST_DISAPPEAR" in json.dumps(active)
+    assert revoked is None
+    assert "REVOKED_THESIS_MUST_DISAPPEAR" not in json.dumps(revoked)
+
+
+@pytest.mark.asyncio
+async def test_resolve_investor_pick_source_denies_expired_proposal(monkeypatch):
+    class _FakeConn:
+        async def fetchrow(self, query: str, *_args):
+            assert "proposal.status = 'active'" in query
+            assert "proposal.expires_at > NOW()" in query
+            return None
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+
+    resolved = await service.resolve_investor_pick_source("investor_1", "ria:ria_profile_1")
+
+    assert resolved is None
+    assert "EXPIRED_THESIS_MUST_NOT_LEAK" not in json.dumps(resolved)
+
+
+def test_directory_search_never_emits_pick_thesis_fields(monkeypatch):
+    service = ConnectionsService(
+        directory_lookup=lambda _user_id: [
+            {
+                "userId": "ria_user_1",
+                "displayName": "Advisor Alpha",
+                "photoUrl": None,
+                "email": "advisor@example.com",
+                "advisor_thesis": "PUBLIC_DIRECTORY_THESIS_MUST_NOT_LEAK",
+                "investment_thesis": "PUBLIC_DIRECTORY_THESIS_MUST_NOT_LEAK",
+            }
+        ],
+        directory_visible=lambda _viewer, _candidate: True,
+    )
+    service._directory_search = None
+    monkeypatch.setattr(service, "_execute_many", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(service, "_verified_ria_user_ids", lambda _user_ids: {"ria_user_1"})
+    monkeypatch.setattr(
+        service, "_public_person_refs", lambda _user_ids: {"ria_user_1": "person_1"}
+    )
+
+    payload = service.search_directory("investor_1", audience="advisors")
+
+    assert payload["items"] == [
+        {
+            "userId": "ria_user_1",
+            "publicPersonRef": "person_1",
+            "displayName": "Advisor Alpha",
+            "photoUrl": None,
+            "email": "advisor@example.com",
+            "maskedEmail": None,
+            "maskedPhone": None,
+            "relationship": "none",
+            "isRia": True,
+        }
+    ]
+    assert "PUBLIC_DIRECTORY_THESIS_MUST_NOT_LEAK" not in json.dumps(payload)

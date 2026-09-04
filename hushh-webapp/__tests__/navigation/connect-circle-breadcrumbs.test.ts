@@ -17,10 +17,9 @@ describe("Connect circle flows get their own crumb", () => {
     const crumb = crumbFor("tab=circles&action=create-circle");
 
     expect(crumb?.items?.map((item) => item.label)).toEqual([
-      "One",
-      "Connect",
-      "New circle",
+      "Create a Circle",
     ]);
+    expect(crumb?.backLabel).toBe("Back to Circles");
     // Back to the list, not out of Connect.
     expect(crumb?.backHref).toBe(`${ROUTES.CONNECT}?tab=circles`);
   });
@@ -28,7 +27,7 @@ describe("Connect circle flows get their own crumb", () => {
   it("names joining and opening a circle too", () => {
     expect(
       crumbFor("tab=circles&action=join-circle")?.items?.at(-1)?.label,
-    ).toBe("Join with code");
+    ).toBe("Join a Circle");
     expect(
       crumbFor("tab=circles&action=circle-detail&circleId=c1")?.items?.at(-1)
         ?.label,
@@ -40,27 +39,25 @@ describe("Connect circle flows get their own crumb", () => {
     // query string disappears, so a bare `/one/connect` back href would be a
     // dead press from `?tab=circles&action=…`.
     for (const action of ["create-circle", "join-circle", "circle-detail"]) {
-      expect(crumbFor(`tab=circles&action=${action}`)?.backHref).toContain(
-        "tab=circles",
-      );
+      const circleId = action === "circle-detail" ? "&circleId=c1" : "";
+      expect(
+        crumbFor(`tab=circles&action=${action}${circleId}`)?.backHref,
+      ).toContain("tab=circles");
     }
   });
 
   it("leaves the plain Connect crumb alone", () => {
     // The list itself is still level two, and its back still leaves for home.
     const list = crumbFor("tab=circles");
-    expect(list?.items?.map((item) => item.label)).toEqual(["One", "Connect"]);
+    expect(list?.items?.map((item) => item.label)).toEqual(["One"]);
     expect(list?.backHref).toBe(ROUTES.ONE_HOME);
 
     const connections = crumbFor("tab=all");
-    expect(connections?.items?.map((item) => item.label)).toEqual([
-      "One",
-      "Connect",
-    ]);
+    expect(connections?.items?.map((item) => item.label)).toEqual(["One"]);
   });
 
   it("ignores an action it does not recognise", () => {
     const crumb = crumbFor("tab=circles&action=nonsense");
-    expect(crumb?.items?.map((item) => item.label)).toEqual(["One", "Connect"]);
+    expect(crumb?.items?.map((item) => item.label)).toEqual(["One"]);
   });
 });

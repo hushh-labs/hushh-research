@@ -157,7 +157,13 @@ function resolveRiaSubmitErrorMessage(
 }
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
-  return status === "active" || status === "verified";
+  return status === "active" || status === "verified" || status === "finra_verified";
+}
+
+function isEstablishedAdvisor(
+  status: Pick<RiaOnboardingStatus, "advisory_status" | "verification_status"> | null | undefined,
+): boolean {
+  return isAdvisoryAccessReady(status?.advisory_status || status?.verification_status);
 }
 
 function shouldRepairVerifiedPrefill(draft: RiaOnboardingDraft): boolean {
@@ -263,7 +269,7 @@ export default function RiaOnboardingPage({
       if (hasEditIntent || setupMode || setupOrigin) return "wizard";
       if (
         riaCapability === "switch" ||
-        personaRiaOnboardingStatus?.exists === true
+        isEstablishedAdvisor(personaRiaOnboardingStatus)
       ) {
         return "established";
       }
@@ -465,7 +471,7 @@ export default function RiaOnboardingPage({
     }
     if (
       riaCapability === "switch" ||
-      personaRiaOnboardingStatus?.exists === true
+      isEstablishedAdvisor(personaRiaOnboardingStatus)
     ) {
       setEntryMode("established");
       return;

@@ -52,9 +52,12 @@ Profile bootstrap rule:
 | `ONE_EMAIL_WATCH_RENEW_AUDIENCE` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | must equal the job's `--oidc-token-audience` |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | `consent-protocol/api/routes/one/email.py` | Y | N | Y | secret | N | secret | N | legacy pre-OIDC shared token; delete once the legacy path is off |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `consent-protocol/api/routes/one/email.py` | Y | N | N | env | N | env | N | required true for hosted One watch renewal |
+| `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED` | `consent-protocol/api/routes/one/gmail_information_requests.py` | Y | N | N | env | N | env | N | required true for hosted personal-Gmail monitoring |
+| `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE` | `consent-protocol/api/routes/one/gmail_information_requests.py` | Y | N | N | env | N | env | N | required Cloud Scheduler OIDC audience |
+| `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/api/routes/one/gmail_information_requests.py` | Y | N | N | env | N | env | N | required Cloud Scheduler OIDC service account |
 | `ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | Cloud Scheduler OIDC allowlist; empty refuses everyone |
 | `ONE_LOCATION_RETENTION_AUDIENCE` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | must equal the job's `--oidc-token-audience` |
-| `ONE_LOCATION_RETENTION_TOKEN` | `consent-protocol/api/routes/one/location.py` | Y | N | Y | secret | N | secret | N | legacy pre-OIDC dedicated token; delete once the legacy path is off |
+| `ONE_LOCATION_RETENTION_TOKEN` | `consent-protocol/api/routes/one/location.py` | Y | N | Y | secret | N | secret | N | legacy pre-OIDC dedicated token for the hosted One Location retention purge; delete once the legacy path is off |
 | `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | defaults on; set `0` after both scheduler jobs use OIDC |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `consent-protocol/api/routes/one/location.py` | Y | N | N | env | N | env | N | optional local/test override; hosted auth remains enabled |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | `consent-protocol/api/routes/one/location.py` | Y | N | N | env | N | N | N | optional non-production override: `disabled` or `uat_simulation`; production always fails closed |

@@ -10,7 +10,9 @@ import {
 } from "@/lib/voice/kai-action-gateway";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
-function makeRuntimeState(overrides: Partial<AppRuntimeState> = {}): AppRuntimeState {
+function makeRuntimeState(
+  overrides: Partial<AppRuntimeState> = {},
+): AppRuntimeState {
   return {
     auth: {
       signed_in: true,
@@ -74,24 +76,60 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
 ];
 
 describe("kai-action-gateway", () => {
-  it("does not advertise specialists that lack task-bound authority ingress as wired", () => {
+  it("publishes the bounded Siri catalog and locked-vault review fallback", () => {
+    const direct = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.siri_mode === "direct",
+    );
+    const review = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.siri_mode === "review_ui",
+    );
+    const conversation = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.siri_mode === "conversation_only",
+    );
+
+    expect(direct.map((action) => action.action_id).sort()).toEqual(
+      [
+        "location.create_circle",
+        "location.pause_updates",
+        "location.rename_circle",
+        "location.resume_updates",
+        "location.send_request",
+        "location.share_selected",
+        "location.stop_share",
+      ].sort(),
+    );
+    expect(review).toHaveLength(10);
+    expect(conversation.map((action) => action.action_id)).toEqual([
+      "location.chat.turn",
+    ]);
+    expect(getKaiActionById("location.pause_updates")).toMatchObject({
+      siri_mode: "direct",
+      siri_requires_vault: true,
+      siri_vault_locked_fallback_action_id: "location.open_settings",
+    });
+    expect(getKaiActionById("location.open_settings")).toMatchObject({
+      siri_mode: "review_ui",
+      siri_requires_vault: false,
+    });
     for (const actionId of [
-      "email.chat.turn",
-      "connections.chat.turn",
-      "connected_systems.chat.turn",
+      "location.trigger_sos",
+      "location.sos_default",
+      "location.delete_circle",
     ]) {
+      expect(getKaiActionById(actionId)?.siri_mode).toBe("unsupported");
+    }
+  });
+
+  it("does not advertise specialists that lack task-bound authority ingress as wired", () => {
+    for (const actionId of ["email.chat.turn", "connections.chat.turn"]) {
       expect(getKaiActionById(actionId)?.execution_target.status).toBe(
         "unwired",
       );
     }
+    expect(getKaiActionById("connected_systems.chat.turn")).toBeNull();
 
-    for (const actionId of [
-      "location.chat.turn",
-      "consent.chat.turn",
-    ]) {
-      expect(getKaiActionById(actionId)?.execution_target.status).toBe(
-        "wired",
-      );
+    for (const actionId of ["location.chat.turn", "consent.chat.turn"]) {
+      expect(getKaiActionById(actionId)?.execution_target.status).toBe("wired");
     }
     expect(getKaiActionById("marketplace.information.chat.turn")).toBeNull();
     expect(getKaiActionById("gmail.chat.turn")).toBeNull();
@@ -107,22 +145,22 @@ describe("kai-action-gateway", () => {
     expect(ids.every((id) => !id.startsWith(reservedNavPrefix))).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every((action) =>
-        ["one", "kai", "nav", "kyc"].includes(action.speaker_persona)
-      )
+        ["one", "kai", "nav", "kyc"].includes(action.speaker_persona),
+      ),
     ).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every(
         (action) =>
           action.delegate_agent_id === null ||
-          ALLOWED_DELEGATE_AGENT_IDS.includes(action.delegate_agent_id)
-      )
+          ALLOWED_DELEGATE_AGENT_IDS.includes(action.delegate_agent_id),
+      ),
     ).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every(
         (action) =>
           action.goal.goal_id === `goal.${action.action_id}` ||
-          action.goal.goal_id.startsWith("goal.")
-      )
+          action.goal.goal_id.startsWith("goal."),
+      ),
     ).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every(
@@ -130,10 +168,12 @@ describe("kai-action-gateway", () => {
           action.execution_target.status !== "wired" ||
           (action.goal.entrypoint_support.includes("voice") &&
             action.goal.entrypoint_support.includes("chat") &&
-            action.goal.workflow_steps.length >= 1)
-      )
+            action.goal.workflow_steps.length >= 1),
+      ),
     ).toBe(true);
-    expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");
+    expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe(
+      "kai",
+    );
     expect(getKaiActionById("route.consents")?.speaker_persona).toBe("nav");
     expect(getKaiActionById("route.profile")?.speaker_persona).toBe("one");
     expect(getKaiActionById("route.one_agents")).toMatchObject({
@@ -145,9 +185,9 @@ describe("kai-action-gateway", () => {
       },
       control_ids: ["top_agent_section_dropdown"],
     });
-    expect(getKaiActionsForControlId("top_agent_section_finance")[0]?.action_id).toBe(
-      "route.kai_home"
-    );
+    expect(
+      getKaiActionsForControlId("top_agent_section_finance")[0]?.action_id,
+    ).toBe("route.kai_home");
   });
 
   it("keeps analysis.start as the generated preview-first goal contract", () => {
@@ -172,7 +212,7 @@ describe("kai-action-gateway", () => {
         result_contract: expect.objectContaining({
           summary_mode: "preview_ready",
         }),
-      })
+      }),
     );
     expect(action?.goal.workflow_steps).toEqual(
       expect.arrayContaining([
@@ -180,14 +220,18 @@ describe("kai-action-gateway", () => {
           type: "action",
           action_id: "analysis.start",
         }),
-      ])
+      ]),
     );
     expect(action?.goal.workflow_steps).toHaveLength(1);
   });
 
   it("maps control ids and authored workflows back to canonical actions", () => {
-    const activeAnalysisActions = getKaiActionsForControlId("analysis_open_active");
-    expect(activeAnalysisActions.map((action) => action.action_id)).toContain("analysis.resume_active");
+    const activeAnalysisActions = getKaiActionsForControlId(
+      "analysis_open_active",
+    );
+    expect(activeAnalysisActions.map((action) => action.action_id)).toContain(
+      "analysis.resume_active",
+    );
 
     const riaHome = getKaiActionById("route.ria_home");
     expect(riaHome).not.toBeNull();
@@ -213,7 +257,7 @@ describe("kai-action-gateway", () => {
           mode: "preview",
           message: "preview this",
         },
-      })
+      }),
     ).toBeNull();
 
     expect(getKaiActionById("profile.pkm.save_capture")).toBeNull();
@@ -221,13 +265,15 @@ describe("kai-action-gateway", () => {
       getKaiActionByVoiceToolCall({
         tool_name: "capture_pkm_memory",
         args: { mode: "direct_save", message: "save this" },
-      })
+      }),
     ).toBeNull();
   });
 
   it("maps the RIA flow with direct navigation and guarded manual actions", () => {
     const riaActions = KAI_ACTION_GATEWAY.actions.filter(
-      (action) => action.surface_id.startsWith("ria_") || action.action_id.includes(".ria.")
+      (action) =>
+        action.surface_id.startsWith("ria_") ||
+        action.action_id.includes(".ria."),
     );
     expect(riaActions.map((action) => action.action_id)).toEqual(
       expect.arrayContaining([
@@ -240,7 +286,7 @@ describe("kai-action-gateway", () => {
         "ria.picks.save_package",
         "ria.client_workspace.open_access_tab",
         "ria.client_workspace.request_access",
-      ])
+      ]),
     );
 
     const riaHome = getKaiActionById("route.ria_home");
@@ -257,7 +303,7 @@ describe("kai-action-gateway", () => {
           path: "route",
           target: "/ria",
         },
-      })
+      }),
     );
     expect(riaHome?.reachability).toEqual(
       expect.objectContaining({
@@ -266,14 +312,15 @@ describe("kai-action-gateway", () => {
         hidden_navigable: true,
         active_personas: ["ria"],
         requires_persona_switch_confirmation: true,
-      })
+      }),
     );
     expect(riaHome?.workflow).toEqual(
       expect.objectContaining({
         workflow_id: "route.ria_home.entry",
         confirmation_required: true,
-        blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
-      })
+        blocked_guidance:
+          "Complete or unlock RIA setup before entering the RIA workspace.",
+      }),
     );
 
     expect(getKaiActionById("route.ria_clients")).toEqual(
@@ -285,9 +332,11 @@ describe("kai-action-gateway", () => {
           path: "route",
           target: "/ria/clients",
         },
-      })
+      }),
     );
-    expect(getKaiActionById("ria.picks.open_source_kai")?.execution_target).toEqual({
+    expect(
+      getKaiActionById("ria.picks.open_source_kai")?.execution_target,
+    ).toEqual({
       status: "wired",
       path: "route",
       target: "/ria/picks?source=kai",
@@ -299,7 +348,7 @@ describe("kai-action-gateway", () => {
         execution_target: expect.objectContaining({
           status: "unwired",
         }),
-      })
+      }),
     );
   });
 
@@ -323,7 +372,8 @@ describe("kai-action-gateway", () => {
       status: "requires_persona_switch",
       reason: "Switch to RIA workspace first.",
       target_persona: "ria",
-      blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
+      blocked_guidance:
+        "Complete or unlock RIA setup before entering the RIA workspace.",
     });
   });
 
@@ -372,7 +422,8 @@ describe("kai-action-gateway", () => {
       status: "blocked",
       reason: "RIA actions stay locked until you finish RIA setup.",
       target_persona: "ria",
-      blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
+      blocked_guidance:
+        "Complete or unlock RIA setup before entering the RIA workspace.",
     });
   });
 
@@ -399,7 +450,7 @@ describe("kai-action-gateway", () => {
 
   it("projects One KYC route and draft actions with explicit safety policies", () => {
     const kycActions = KAI_ACTION_GATEWAY.actions.filter(
-      (action) => action.surface_id === "one_kyc"
+      (action) => action.surface_id === "one_kyc",
     );
 
     expect(kycActions.map((action) => action.action_id)).toEqual([
@@ -413,8 +464,10 @@ describe("kai-action-gateway", () => {
     ]);
     expect(
       kycActions.every(
-        (action) => action.speaker_persona === "kyc" && action.delegate_agent_id === "agent_kyc"
-      )
+        (action) =>
+          action.speaker_persona === "kyc" &&
+          action.delegate_agent_id === "agent_kyc",
+      ),
     ).toBe(true);
 
     expect(getKaiActionById("route.one_kyc")).toEqual(
@@ -428,7 +481,7 @@ describe("kai-action-gateway", () => {
           target: "/one/kyc",
         },
         guard_ids: ["auth_required", "vault_unlocked"],
-      })
+      }),
     );
     expect(getKaiActionById("kyc.draft.approve_send")).toEqual(
       expect.objectContaining({
@@ -438,7 +491,7 @@ describe("kai-action-gateway", () => {
         execution_target: expect.objectContaining({
           status: "unwired",
         }),
-      })
+      }),
     );
     expect(getKaiActionById("kyc.draft.request_redraft")).toEqual(
       expect.objectContaining({
@@ -449,7 +502,7 @@ describe("kai-action-gateway", () => {
           path: "local_handler",
           target: "one_kyc_redraft",
         },
-      })
+      }),
     );
     expect(getKaiActionById("kyc.draft.reject")).toEqual(
       expect.objectContaining({
@@ -457,7 +510,7 @@ describe("kai-action-gateway", () => {
         execution_target: expect.objectContaining({
           status: "unwired",
         }),
-      })
+      }),
     );
   });
 
@@ -482,9 +535,12 @@ describe("kai-action-gateway", () => {
         },
       }),
     });
-    expect(riaResults.some((entry) => entry.action.action_id === "route.ria_home")).toBe(true);
     expect(
-      riaResults.find((entry) => entry.action.action_id === "route.ria_home")?.availability.status
+      riaResults.some((entry) => entry.action.action_id === "route.ria_home"),
+    ).toBe(true);
+    expect(
+      riaResults.find((entry) => entry.action.action_id === "route.ria_home")
+        ?.availability.status,
     ).toBe("requires_persona_switch");
   });
 
@@ -513,21 +569,27 @@ describe("kai-action-gateway", () => {
       }),
       limit: 40,
     });
-    const unavailableStatuses = new Set(["blocked", "dead", "manual_only", "unwired"]);
+    const unavailableStatuses = new Set([
+      "blocked",
+      "dead",
+      "manual_only",
+      "unwired",
+    ]);
     const firstUnavailableIndex = results.findIndex((entry) =>
-      unavailableStatuses.has(entry.availability.status)
+      unavailableStatuses.has(entry.availability.status),
     );
 
     expect(firstUnavailableIndex).toBeGreaterThan(0);
     expect(
       results.some(
-        (entry) => entry.availability.reason === "Unlock the vault to use this action."
-      )
+        (entry) =>
+          entry.availability.reason === "Unlock the vault to use this action.",
+      ),
     ).toBe(true);
     expect(
       results
         .slice(firstUnavailableIndex + 1)
-        .some((entry) => !unavailableStatuses.has(entry.availability.status))
+        .some((entry) => !unavailableStatuses.has(entry.availability.status)),
     ).toBe(false);
   });
 });

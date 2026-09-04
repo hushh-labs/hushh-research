@@ -122,7 +122,7 @@ describe("connection-request notification: payload field contract", () => {
     expect(PROVIDER_TSX).toContain('String(data.request_id || "").trim()');
     // Native tap target.
     expect(FCM_SERVICE_TS).toContain(
-      'typeof data?.request_id === "string" && data.request_id',
+      'String(data?.request_id || "").trim()',
     );
   });
 

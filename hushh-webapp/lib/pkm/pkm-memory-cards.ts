@@ -43,8 +43,11 @@ export type PkmMemorySnapshot = {
 const DEFAULT_MAX_CARDS = 96;
 const DEFAULT_MAX_CARDS_PER_DOMAIN = 24;
 const MAX_VALUE_CHARS = 180;
-const MAX_DEPTH = 6;
-const MAX_ARRAY_ITEMS = 12;
+// Defensive traversal guard. Memory nesting and array length are arbitrary by
+// design, so this caps total nodes visited (against a pathologically large or
+// malformed blob) rather than imposing a fixed semantic depth or a per-array
+// item limit that would hide later entries from browsing and search.
+const MAX_TREE_NODE_VISITS = 20_000;
 
 const INTERNAL_KEYS = new Set([
   "algorithm",
@@ -80,6 +83,9 @@ const INTERNAL_PKM_DOMAINS = new Set([
   "kyc_connector",
   "kyc_workflow",
   "runtime_secrets",
+  // The wallet domain itself is memory-visible (nickname, network, last4);
+  // its `secrets` branch is pruned by SECRET_KEY_PATTERN below, so PAN, CVV,
+  // and PIN reach only the on-device reveal widget.
 ]);
 
 function compact(value: unknown): string {
@@ -100,6 +106,11 @@ function titleize(value: string): string {
   return value
     .replace(/\[\d+\]/g, " ")
     .replace(/[_-]+/g, " ")
+    // A key that runs letters straight into digits reads as a machine name:
+    // `last4` titled itself "Last4" on the owner's Memory screen. Split the
+    // boundary only when the word is long enough to be a word, so short codes
+    // (w2, k1) stay intact.
+    .replace(/([a-z]{3,})(\d+)/gi, "$1 $2")
     .replace(/\b\w/g, (match) => match.toUpperCase())
     .trim();
 }
@@ -144,11 +155,13 @@ function parseDomainSummary(metadata: PersonalKnowledgeModelMetadata | null): Ma
  * to resolve a turn-local provider credential; it is never agent memory.
  */
 export function shouldSkipPkmMemoryKey(key: string): boolean {
+  // A leading underscore marks a private/internal key by convention. Check it on
+  // the raw key: normalizeKey() strips underscores, so this must run before it.
+  if (String(key ?? "").trim().startsWith("_")) return true;
   const normalized = normalizeKey(key);
   if (!normalized) return true;
   if (INTERNAL_KEYS.has(normalized)) return true;
   if (INTERNAL_PKM_DOMAINS.has(normalized) || SECRET_KEY_PATTERN.test(normalized)) return true;
-  if (normalized.startsWith("_")) return true;
   if (normalized.endsWith("_id") && normalized !== "student_id") return true;
   if (normalized.includes("cipher") || normalized.includes("token")) return true;
   return false;
@@ -234,14 +247,20 @@ function flattenCards(params: {
   value: unknown;
   sourceLabel: string;
   updatedAt: string | null;
-  depth?: number;
   pathSegments?: PkmPathSegment[];
   cards?: PkmMemoryCard[];
+  visits?: { count: number };
 }): PkmMemoryCard[] {
-  const depth = params.depth || 0;
   const pathSegments = params.pathSegments || [];
   const cards = params.cards || [];
-  if (depth > MAX_DEPTH || cards.length >= DEFAULT_MAX_CARDS_PER_DOMAIN * 3) return cards;
+  const visits = params.visits || { count: 0 };
+  visits.count += 1;
+  if (
+    visits.count > MAX_TREE_NODE_VISITS ||
+    cards.length >= DEFAULT_MAX_CARDS_PER_DOMAIN * 3
+  ) {
+    return cards;
+  }
 
   const primitive = primitiveValue(params.value);
   if (primitive) {
@@ -274,13 +293,13 @@ function flattenCards(params: {
   }
 
   if (Array.isArray(params.value)) {
-    params.value.slice(0, MAX_ARRAY_ITEMS).forEach((item, index) => {
+    params.value.forEach((item, index) => {
       flattenCards({
         ...params,
         value: item,
-        depth: depth + 1,
         pathSegments: [...pathSegments, index],
         cards,
+        visits,
       });
     });
     return cards;
@@ -292,12 +311,29 @@ function flattenCards(params: {
     flattenCards({
       ...params,
       value: child,
-      depth: depth + 1,
       pathSegments: [...pathSegments, key],
       cards,
+      visits,
     });
   }
   return cards;
+}
+
+/**
+ * Public wrapper around the internal flattener: given one node of decrypted
+ * domain data and the exact path segments that reach it, return the readable
+ * leaf memory cards beneath it. Used by the nested Memory level navigator so a
+ * drilled-in leaf carries the same id / fingerprint / labels as a search hit.
+ */
+export function buildPkmMemoryCardsFromNode(params: {
+  domain: string;
+  domainTitle: string;
+  value: unknown;
+  sourceLabel: string;
+  updatedAt: string | null;
+  pathSegments: PkmPathSegment[];
+}): PkmMemoryCard[] {
+  return flattenCards(params);
 }
 
 function tokens(value: string): Set<string> {
@@ -332,6 +368,51 @@ export function selectRelevantPkmMemoryCards(
     .sort((left, right) => right.score - left.score || right.card.confidence - left.card.confidence)
     .map((entry) => entry.card)
     .slice(0, limit);
+}
+
+const GENERIC_LEAF_LABELS = new Set([
+  "value",
+  "values",
+  "detail",
+  "details",
+  "profile",
+  "data",
+  "entry",
+  "item",
+  "note",
+  "notes",
+]);
+
+/**
+ * Human-readable labels for one memory row.
+ *
+ * `primary` is a short noun ("Morning flights", "Risk profile") derived from the
+ * last meaningful path segment; `secondary` is the readable value sentence
+ * ("You prefer morning flights"). When the derived name would just echo the
+ * sentence, the raw value is used as the subtitle instead so the row never
+ * repeats itself.
+ */
+export function pkmMemoryRowLabels(card: PkmMemoryCard): {
+  primary: string;
+  secondary: string;
+} {
+  const leaf = [...card.pathSegments]
+    .reverse()
+    .find((segment): segment is string => typeof segment === "string" && segment.trim().length > 0);
+  const derived = leaf ? titleize(leaf) : "";
+  const primary =
+    derived && !GENERIC_LEAF_LABELS.has(derived.toLowerCase())
+      ? derived
+      : card.domainTitle;
+  const value = compact(card.value);
+  let sentence = compact(card.title);
+  const prefix = `${primary}: `.toLowerCase();
+  if (sentence.toLowerCase().startsWith(prefix)) {
+    sentence = sentence.slice(prefix.length).trim();
+  }
+  const secondary =
+    sentence && sentence.toLowerCase() !== primary.toLowerCase() ? sentence : value;
+  return { primary, secondary };
 }
 
 function domainInsightSummary(params: {
@@ -419,7 +500,7 @@ export function buildPkmMemorySnapshot(params: {
       ...(params.metadata?.domains.map((domain) => domain.key).filter(Boolean) || []),
       ...Object.keys(params.fullBlob || {}),
     ])
-  );
+  ).filter((domainKey) => !shouldSkipPkmMemoryKey(domainKey));
 
   const cardsByDomain = new Map<string, PkmMemoryCard[]>();
   for (const domainKey of domainKeys) {
@@ -435,7 +516,23 @@ export function buildPkmMemorySnapshot(params: {
     cardsByDomain.set(domainKey, cards);
   }
 
-  const cards = Array.from(cardsByDomain.values()).flat().slice(0, maxCards);
+  // Round-robin rather than concatenate-then-truncate. Flattening in domain
+  // order and slicing meant the global budget was spent entirely on whichever
+  // domains happened to come first, so a domain late in the iteration order
+  // could contribute nothing at all and simply be absent from Memory. Taking
+  // one card from each domain per pass keeps every domain represented, and
+  // only the deepest tail of the largest domains is lost when the budget runs
+  // out.
+  const cards: PkmMemoryCard[] = [];
+  const queues = Array.from(cardsByDomain.values());
+  const deepest = queues.reduce((most, queue) => Math.max(most, queue.length), 0);
+  for (let round = 0; round < deepest && cards.length < maxCards; round += 1) {
+    for (const queue of queues) {
+      if (cards.length >= maxCards) break;
+      const card = queue[round];
+      if (card) cards.push(card);
+    }
+  }
   const domainInsights = domainKeys.map((domainKey) =>
     domainInsight({
       domain: domainsByKey.get(domainKey),

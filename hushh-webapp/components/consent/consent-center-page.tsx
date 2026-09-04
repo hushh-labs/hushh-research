@@ -618,6 +618,12 @@ function toPendingConsent(
 function pendingLookupItemToConsentEntry(
   item: PendingConsentLookupItem,
 ): ConsentCenterEntry {
+  const requesterActorType = String(
+    item.metadata?.requester_actor_type || "",
+  ).trim();
+  const requesterEntityId = String(
+    item.metadata?.requester_entity_id || "",
+  ).trim();
   const requesterLabel =
     item.requester_label || item.developer || item.agent_id || "Requester";
   return {
@@ -627,8 +633,11 @@ function pendingLookupItemToConsentEntry(
     action: "REQUESTED",
     scope: item.scope,
     scope_description: item.scope_description || null,
-    counterpart_type: "developer",
-    counterpart_id: item.agent_id || item.developer || requesterLabel,
+    counterpart_type: requesterActorType === "person" ? "person" : "developer",
+    counterpart_id:
+      requesterActorType === "person" && requesterEntityId
+        ? requesterEntityId
+        : item.agent_id || item.developer || requesterLabel,
     counterpart_label: requesterLabel,
     counterpart_image_url: item.requester_image_url || null,
     counterpart_website_url: item.requester_website_url || null,
@@ -658,9 +667,8 @@ function ConsentCounterpartAvatar({ entry }: { entry: ConsentCenterEntry }) {
       ? "ria"
       : entry.counterpart_type === "developer"
         ? "developer"
-        : "investor";
-  const Icon =
-    kind === "ria" ? Landmark : kind === "developer" ? Code2 : UserRound;
+        : "person";
+  const Icon = kind === "ria" ? Landmark : kind === "developer" ? Code2 : UserRound;
   const label = resolveCounterpartLabel(entry);
   const initials = label
     .split(/\s+/)
@@ -916,6 +924,18 @@ function ConsentEntryDetail({
   const isLocationEntry = Boolean(
     entry && isLocationConsent(entry.metadata, entry.scope),
   );
+  /**
+   * Whether this ask is for MORE time on a share that is already running.
+   *
+   * It changes what the duration picker below MEANS. Approving an extension
+   * adds the chosen amount to what is still live rather than replacing it
+   * (#6256), so a control labelled "Access duration" holding "1 hour" would
+   * read as a cap while actually granting an hour on top -- an owner narrowing
+   * the number would be lengthening the share. Written by the Consent Center
+   * contributor beside the requested amount.
+   */
+  const isLocationExtension =
+    isLocationEntry && Boolean(entry?.metadata?.is_extension);
   const parsedRequestedDuration = parseDurationHours(
     requestedDurationHours === null ? null : String(requestedDurationHours),
   );
@@ -1136,7 +1156,10 @@ function ConsentEntryDetail({
     !isConnectionDecision &&
     !showDurationChoice &&
     requestedDurationLabel
-      ? ["Requested duration", requestedDurationLabel]
+      ? [
+          isLocationExtension ? "Extra time requested" : "Requested duration",
+          requestedDurationLabel,
+        ]
       : null,
     entry.is_scope_upgrade && entry.additional_access_summary
       ? ["What changes", entry.additional_access_summary]
@@ -1246,9 +1269,17 @@ function ConsentEntryDetail({
               >
                 <SelectTrigger
                   className="w-[150px]"
-                  aria-label="Access duration"
+                  aria-label={
+                    isLocationExtension
+                      ? "Extra time to add"
+                      : "Access duration"
+                  }
                 >
-                  <SelectValue placeholder="Duration" />
+                  <SelectValue
+                    placeholder={
+                      isLocationExtension ? "Time to add" : "Duration"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {durationOptions.map((option) => (
@@ -1915,7 +1946,11 @@ export function ConsentCenterPage() {
         return;
       }
       if (!entry.scope) return;
-      void handleRevoke(entry.scope);
+      if (entry.request_id) {
+        void handleRevoke(entry.scope, entry.request_id);
+      } else {
+        void handleRevoke(entry.scope);
+      }
     },
     [
       handleLocationRevoke,

@@ -77,10 +77,16 @@ describe("ria-profile-view-model", () => {
     expect(props.advisoryAccessReady).toBe(false);
   });
 
-  it("treats active/verified as advisory access ready", () => {
+  it("treats active/verified/finra_verified as advisory access ready", () => {
     expect(isRiaAdvisoryAccessReady(baseStatus({ advisory_status: "active" }))).toBe(
       true,
     );
+    expect(
+      isRiaAdvisoryAccessReady(baseStatus({ advisory_status: "verified" })),
+    ).toBe(true);
+    expect(
+      isRiaAdvisoryAccessReady(baseStatus({ advisory_status: "finra_verified" })),
+    ).toBe(true);
     expect(
       isRiaAdvisoryAccessReady(baseStatus({ advisory_status: "submitted" })),
     ).toBe(false);

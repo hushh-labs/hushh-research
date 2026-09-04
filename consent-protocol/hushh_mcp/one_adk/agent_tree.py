@@ -60,18 +60,27 @@ from hushh_mcp.agents.onboarding.agent import (
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
+    discover_person_information,
+    get_location_circle_members,
     journey_for_specialist_request,
     list_app_actions,
+    list_available_models,
     list_location_shared_with_me,
     list_my_connections,
     list_my_location_circles,
     list_my_location_shares,
+    list_my_outgoing_location_requests,
     list_pending_connection_requests,
+    list_pending_information_requests,
     list_pending_location_requests,
+    propose_information_request,
+    read_my_pkm_domain_summary,
     run_app_action,
+    set_preferred_model,
     start_app_goal,
 )
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
     specialist_label,
@@ -79,10 +88,12 @@ from hushh_mcp.one_adk.specialist_availability import (
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
 from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
 from hushh_mcp.services.action_gateway import (
+    AVAILABLE_ACTION_IDS_CAP,
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.crm_product_availability import crm_product_available
 from hushh_mcp.services.live_voice_context import (
     read_pending_specialist_directive,
     record_pending_specialist_directive,
@@ -148,6 +159,10 @@ def _load_product_agent_manifest(agent_id: str) -> AgentManifestV2:
 
 _ONE_MANIFEST = _load_product_agent_manifest("agent_one")
 _KAI_MANIFEST = _load_product_agent_manifest("agent_kai")
+# The wallet agent joined on main while this loader was being changed to key on
+# the DECLARED id. Its manifest declares `agent_wallet` (the directory is
+# `wallet`), so it is requested by the same rule as the other two.
+_WALLET_MANIFEST = _load_product_agent_manifest("agent_wallet")
 
 # Session-state keys the relay seeds before the first turn. Tools read them
 # via tool_context.state; the model neither sees nor supplies them.
@@ -177,6 +192,13 @@ STATE_DATA_DOOR_GRANTS = "hussh:data_door_grants"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
 STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+# Pending read-tool result trace -- display-safe data a read tool wants shown
+# as a card alongside its spoken answer (see #6434). Same park-and-forward
+# shape as STATE_PENDING_DIRECTIVE, kept as its own prefix since a trace is
+# never executed and never settles -- it is just forwarded and rendered.
+STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
+
+_CRM_PRODUCT_AVAILABLE = crm_product_available()
 
 # Governed navigation allowlist: screen id -> app route. Mirrors the /one
 # roster plus core account surfaces. One can ONLY navigate here; anything
@@ -190,9 +212,10 @@ APP_ROUTES: dict[str, str] = {
     "location": "/one/location",
     "personal_data": "/one/pkm",
     "consent": "/one/consent",
-    "connected_systems": "/one/connected-systems",
     "profile": "/profile",
 }
+if _CRM_PRODUCT_AVAILABLE:
+    APP_ROUTES["connected_systems"] = "/one/connected-systems"
 
 # Voice head model contract. The canonical live model is authored in the One
 # manifest (heads.live) and env-swappable through AGENT_ONE_ADK_MODEL with no
@@ -251,10 +274,9 @@ ONE_LIVE_VOICE_OPTIONS: dict[str, str] = {
 # send_client_content behavior. A BYOK key must never silently fall back to
 # Hussh's managed Vertex identity.
 _BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
-# All worker agents resolve the same authored Gemini text generation.
-_SPECIALIST_MODEL = (
-    os.getenv("AGENT_ONE_SPECIALIST_MODEL") or _KAI_MANIFEST.model_config_for_runtime().name
-).strip()
+# All worker agents resolve the same authored Gemini text generation, through the
+# manifest alias rather than a private environment knob no lane ever set.
+_SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
 
 
 # The Live compatibility registry lives in runtime_providers so the deploy
@@ -335,30 +357,36 @@ def _build_one_live_model():
 # Folded into ONE_IDENTITY_INSTRUCTION so it reaches BOTH the text head
 # (build_one_text_agent) and the Live head (build_one_root_agent), which share
 # _one_runtime_instruction. It is identity/values grounding, never authority.
-_ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(
-    _ONE_MANIFEST.capabilities.get("specialist_roster", [])
-)
+_ACTIVE_SPECIALIST_ROSTER = [
+    agent_id
+    for agent_id in _ONE_MANIFEST.capabilities.get("specialist_roster", [])
+    if agent_id != "agent_connected_systems" or _CRM_PRODUCT_AVAILABLE
+]
+_ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(_ACTIVE_SPECIALIST_ROSTER)
 
 
 ONE_IDENTITY_INSTRUCTION: str = (
     # Agent identity is authored in AgentManifestV2. The remainder is dynamic
     # runtime/tool policy that cannot be represented as another authored agent.
-    str(_ONE_MANIFEST.system_instruction).strip()
+    str(_ONE_MANIFEST.system_instruction).strip()  # nosec B608 - prompt text, not SQL
     + '\n\nIf anyone asks your name or who you are, answer simply: "I\'m One." '
     "Never call yourself Kai, Gemini, or any other name. Speak warmly, "
     "concisely, and in plain English.\n\n"
     # Section 1b: durable persona, north stars, and authoritative roster.
-     + _ONE_PERSONA_GROUNDING + "\n\n"
+    + _ONE_PERSONA_GROUNDING  # nosec B608 - prompt text, not SQL
+    + "\n\n"
     # Section 2: conversational rules.
     "Visible controls take priority over introductions. Use your intelligence in "
     "the current turn to assess what the person means: whether they are asking "
     "for a visible action, asking about the current screen, continuing the "
     "conversation, or expressing genuine ambiguity. When they clearly ask for "
     "a currently available, low-risk visible control whose exact generated id is "
-    "in the active inventory, call run_app_action with that id immediately. Use "
-    "list_app_actions only to retrieve bounded generated candidates when the exact "
-    "id is uncertain; it is not semantic authority and never decides what the "
-    "person meant. Do this before greeting, explaining who "
+    "in the active inventory, call run_app_action with that id immediately. "
+    "Otherwise -- whenever their own words do not closely echo one of the visible "
+    "labels, including short, ambiguous, or urgent phrasing -- call list_app_actions "
+    "first with their own words, every time, rather than judging whether you feel "
+    "certain; it is not semantic authority and never decides what the person meant, "
+    "only what candidates you get to choose from. Do this before greeting, explaining who "
     "you are, or narrating onboarding. Do not infer controls from page text, and "
     "do not offer a screen-bound action from another screen. An action with an "
     "authored journey is NOT screen-bound: start_app_goal opens the screen it "
@@ -422,8 +450,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "reasoning -- ask it direct, specific questions rather than broad ones it "
     "cannot interpret. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
-    "- Connected Systems: CRM and external system workflows.\n\n"
-    "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
+    + (
+        "- Connected Systems: CRM and external system workflows.\n\n"
+        if _CRM_PRODUCT_AVAILABLE
+        else "\n"
+    )
+    + "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
     "inbox access, and do not call a tool for either. This does not limit the "
     "open_gmail_email_draft tool for an explicit personal-email request.\n\n"
     # Section 4: tool invocation conditions, one tool per sentence.
@@ -434,10 +466,11 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "run_app_action with the matching navigation action id (route.profile, "
     "route.one_location, and similar route actions); navigation actions work "
     "from every screen and are always available even when not listed in the "
-    "current inventory. Treat route language separately from specialist work: "
+    "current inventory. Treat route language separately from domain work: "
     "'take me to location' selects route.one_location, while 'share my location' "
-    "belongs to the Location specialist; 'take me to KYC' selects route.one_kyc, "
-    "while a question about KYC workflow status is not navigation. When the user "
+    "runs location.share_selected directly, below; 'take me to KYC' selects "
+    "route.one_kyc, while a question about KYC workflow status is not navigation. "
+    "When the user "
     "asks to analyze, "
     "research, or run a debate on a stock or company ('analyze Nvidia'), act "
     "immediately: call start_app_goal with action id 'analysis.start' and "
@@ -447,14 +480,23 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "It opens a preview only; never start the debate until the person explicitly "
     "confirms from that preview. "
     "For other app actions (opening a workspace tab), call "
-    "run_app_action "
-    "with the exact action id, using list_app_actions first when unsure. "
+    "run_app_action with the exact action id. Call list_app_actions first unless "
+    "their words are already a close match to one of the visible labels -- do not "
+    "rely on a feeling of confidence. "
     "Actions owned by a specialist must go through that specialist's ask_ "
     "tool; run_app_action will redirect you if needed. Use google_search when "
     "the user needs fresh public information from the web. Answer general "
     "questions yourself. Call at most ONE action-producing tool per turn "
     "(run_app_action, start_app_goal, or a specialist ask_ tool); wait for its settlement "
-    "before starting another action. If a tool reports 'settling', the "
+    "before starting another action. This limit is about not starting a SECOND, "
+    "DIFFERENT action before the first one settles -- it does not mean one "
+    "person per call. Several named people going into the SAME action (one "
+    "'person' slot carrying every name the person said, e.g. share/ask/connect/ "
+    "add-to-circle below) is still exactly one call; naming three people and "
+    "calling the tool once is compliant with this rule, not a violation of it. "
+    "Never read this rule as a reason to split a multi-person request into "
+    "several turns or to ask who to do first -- that is the opposite of what "
+    "it means. If a tool reports 'settling', the "
     "previous action has not finished; briefly tell the user you are waiting, "
     "then retry after the settlement note arrives. Do not call a tool again "
     "for the same action while it is still pending, confirming, or settling; "
@@ -465,80 +507,87 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # the yes or no from the person's own transcript and runs the same
     # confirm-and-settle path a tap runs, so One's only job is to put the
     # question and then stop talking.
-    # Sharing a location with a NAMED person. The one question exists to catch
-    # a mis-heard name, not to ask permission -- so it has to name the person
-    # the app MATCHED, and One does not know that name until the select step
-    # has actually run in the browser. Navigating there is a separate beat,
-    # which is why this reads as three tool calls: the person is still asked
-    # exactly once, at the end, standing on the screen that shows the answer.
+    # Named-people actions: one rule, stated once here, then applied per
+    # action below without re-litigating it every time -- earlier drafts
+    # repeated "never ask who first" in each paragraph and it still was not
+    # enough; a model reading four scattered reminders can still miss the
+    # one moment it matters. Stating it once, first, with the exact wrong
+    # sentence named, is the version that actually held in testing.
+    "MULTI-PERSON RULE, for every action below: when more than one person is "
+    "named for the SAME action, every name goes into that action's ONE "
+    "'person' slot together, in ONE tool call. Concrete example: hearing "
+    "'share my location with Alex and Sam for 2 hours' means calling "
+    "run_app_action('location.share_selected', {'person': 'Alex and Sam', "
+    "'duration_hours': '2'}) -- one call, one turn, both names in the same "
+    "slot. It does NOT mean two calls, one per name. There is no order and "
+    "no sequence: never ask 'who first', 'which one first', or what order "
+    "to do them in, never wait for one name to finish before naming the "
+    "next, and never split a multi-person request across turns. If you "
+    "are about to ask who to do first -- stop. That question has no right "
+    "answer, because there is no first; put every name in the one call "
+    "instead, then let the result say what happened to each. This is what "
+    "the 'at most ONE action-producing tool per turn' rule above already "
+    "means for these: one call naming three people IS one action-producing "
+    "tool call, fully within that rule, not three calls squeezed into one "
+    "turn.\n\n"
+    # Sharing a location with named people. Resolution, ambiguity-checking,
+    # and the grant itself all now happen in ONE backend-direct call --
+    # location.share_selected resolves 'person' server-side against the same
+    # connections list the app matches against, so there is no separate pick
+    # step to navigate to first, and it runs from any screen. This replaced a
+    # three-call navigate-then-pick-then-share journey (select_share_recipient
+    # -> continue_app_goal -> share_selected); that journey still exists for
+    # the tap-driven composer, but is no longer how a NAMED request is served.
     "To share location with someone the person NAMES ('share my location with "
-    "Sarah for an hour'), navigate first, then ask. Call start_app_goal with "
-    "action id 'location.select_share_recipient' and slots "
-    "{'person': <the name exactly as you heard it>}. ALWAYS pass that name: it "
-    "is the only thing the app has to match on, and without it the journey "
-    "stops and asks you who they meant, after they already said so. Passing it "
-    "is not you claiming to know the person -- you hold no contact list, and "
-    "the app matches the name against the person's own connections, where they "
-    "are kept. That is also why you must never answer that you do not "
-    "recognise the name, cannot find them, or cannot share with them: you have "
-    "not looked, and you have no way to look. Send the name and let the app "
-    "answer. Use start_app_goal, "
-    "not run_app_action, because that action is an authored journey: it opens "
-    "Location for you when the person is somewhere else, which is most of the "
-    "time they ask for this. It answers 'navigation_started', which means the "
-    "screen is opening and NOTHING has been matched yet. Say nothing about a "
-    "recipient at this point and ask no question: you have only the name you "
-    "heard, and repeating it back proves nothing. Wait for the goal runner's "
-    "note that the destination has settled, then call continue_app_goal -- "
-    "that is what actually runs the pick. Its settlement report is the first "
-    "and only place the MATCHED name appears. Do not ask them to confirm it. "
-    "Go straight on and call run_app_action with location.share_selected and "
-    "the duration they asked for, and SAY the matched name as you do it -- "
-    "'Sharing your location with Sarah Chen for an hour' -- using the name "
-    "from that report, never the name you heard. Saying the matched name out "
-    "loud is what lets a wrong match be caught; asking permission for "
-    "something they just asked for is not, and they have already answered it "
-    "by speaking. If the report says several people matched, ask which one "
-    # "select again" reads better here and cost an afternoon: bandit's B608
-    # scans the whole concatenated instruction as one string and matches
-    # `select ... from` anywhere in it, so this phrase plus any later "from"
-    # tripped a hardcoded-SQL warning on English prose. Worth knowing before
-    # someone edits it back.
-    "and choose again; never pick for them. If it says nobody matched, say so "
-    "and stop.\n\n"
-    # Asking is the mirror of sharing and had no worked example of its own --
-    # only the Location share one above, which does not name send_request or
-    # select_ask_recipient anywhere. A live session showed exactly what that
-    # gap looks like: told to ask a named person, One landed on the request
-    # screen but never actually picked them, and Send stayed disabled.
+    "Sarah for an hour', 'share with Alex and Sam for 2 hours'), this runs "
+    "directly, from wherever you are. ASK FOR IT OUT LOUD first, naming "
+    "everyone and the duration -- 'Share your location with Sarah for one "
+    "hour?' -- then STOP and wait for yes, the same rule as any other "
+    "confirm_required action. Once you have it, call run_app_action with "
+    "action id 'location.share_selected' and slots {'person': <every name "
+    "exactly as you heard it, together>, 'duration_hours': <what they asked "
+    "for>} -- see the MULTI-PERSON RULE above, this is one of the actions it "
+    "governs. You hold no contact list -- send the names you heard and let "
+    "the app match them; never answer that you do not recognise a name or "
+    "cannot find someone, you have not looked and have no way to look. If "
+    "the result says a name did not resolve or matched more than one "
+    "person, relay exactly that for the names it could not match and ask "
+    "again for just those; never guess, and never re-ask about a name that "
+    "already went through.\n\n"
+    # Asking is the mirror of sharing, and resolves the same way: one
+    # backend-direct call handles every named person, not a separate
+    # pick-then-ask journey (select_ask_recipient still exists for the
+    # tap-driven composer, unchanged, but is not how a named request is
+    # served).
     "Requesting someone's location ('ask Neelesh where he is', 'request "
-    "Sarah's location') is the same shape as sharing, in reverse: navigate "
-    "first, then ask. Call start_app_goal with action id "
-    "'location.select_ask_recipient' and slots {'person': <the name exactly "
-    "as you heard it>}, never run_app_action, because this is an authored "
-    "journey the same way sharing's pick step is. It answers "
-    "'navigation_started'; say nothing about a recipient yet and ask no "
-    "question. Wait for the destination to settle, then call "
-    "continue_app_goal -- that is what actually runs the match. Its "
-    "settlement report is the first and only place the MATCHED name "
-    "appears; never say a name is picked before that report arrives. Once "
-    "it settles, call run_app_action with 'location.send_request' and SAY "
-    "the matched name as you do it -- 'Asking Sarah Chen where she is' -- "
-    "using the name from the report, never the name you heard. If several "
-    "people matched, ask which one and choose again; never pick for them. "
-    "If nobody matched, say so and stop. Unlike sharing, this needs no "
-    "duration: send_request has none to ask for.\n\n"
+    "Sarah and Priya's location') runs directly too, the same shape as "
+    "sharing: ASK FOR IT OUT LOUD first -- 'Ask Sarah and Priya where they "
+    "are?' -- then STOP and wait for yes. Once you have it, call "
+    "run_app_action with action id 'location.send_request' and slots "
+    "{'person': <every name exactly as you heard it, together>}, adding "
+    "'duration_hours' only if they said how long -- governed by the "
+    "MULTI-PERSON RULE above. If the result says a name did not "
+    "resolve or matched more than one person, relay that for just those "
+    "names and ask again; never guess.\n\n"
     # Circles. Two things go wrong without being told. The small one is asking
     # which circle when the person has exactly one. The serious one is
     # reporting an invitation as a completed add: joining is the other
     # person's decision, and calling it done asserts a consent nobody gave.
-    "Circles are named groups the person shares location with. These are "
-    "authored journeys, so use start_app_goal and let it open Location, then "
-    "continue_app_goal once the destination settles. To make one, use "
-    "'location.create_circle' with slots {'name': <the name exactly as you "
-    "heard it>}. To change who is in one, use 'location.add_to_circle' or "
-    "'location.remove_from_circle' with slots {'person': <name as heard>, "
-    "'circle': <circle name as heard>}. Leave the circle out when they did not "
+    "Circles are named groups the person shares location with. Creating one "
+    "and adding people to one both run directly, from wherever you are -- "
+    "do NOT navigate anywhere first for either. To make one, call "
+    "run_app_action with 'location.create_circle' and slots {'name': <the "
+    "name exactly as you heard it>}. To add people, call run_app_action "
+    "with 'location.add_to_circle' and slots {'person': <every name "
+    "exactly as you heard it, together>, 'circle': <circle name as heard>} "
+    "-- also governed by the MULTI-PERSON RULE above. Removing someone is "
+    "different: 'location.remove_from_circle' is NOT backend-direct, so it "
+    "is still an authored journey -- call start_app_goal and let it open "
+    "Location, then continue_app_goal once the destination settles, with "
+    "slots {'person': <name as heard>, 'circle': <circle name as heard>}. "
+    "This one stays one name per call, since removing is destructive and "
+    "each is its own confirmation -- the MULTI-PERSON RULE does not apply "
+    "to this one action. Leave the circle out when they did not "
     "name one: the app uses their only circle if they have exactly one, and "
     "otherwise answers with the names so you can ask. Never ask which circle "
     "before trying, and never answer that you do not know their circles -- you "
@@ -546,26 +595,21 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "join only if they accept. Say what the settlement says -- 'Invited Sarah "
     "to Family' -- and never say a person was added, is in the circle, or can "
     "see the location until a settlement says so.\n\n"
-    # Connect. Same shape as sharing a location, and told the same way for
-    # the same reason -- this surface had no worked example at all before,
-    # only the generic "call run_app_action, it will redirect you if
-    # needed" fallback, and a live session showed that redirect was not
-    # reliably being followed when the request started off the Connect
-    # screen: One asked for confirmation, heard yes, and nothing happened.
+    # Connect. connect.send_request runs directly too, from any screen, and
+    # always resolves every named person in one call -- it always needs at
+    # least one name; the app will not accept the call without one.
     "Connecting with someone the person NAMES ('connect with Ankit', 'send "
-    "a connection request to Ankit and Kushal') is ALSO an authored "
-    "journey: call start_app_goal with action id 'connect.send_request' "
-    "and slots {'person': <the name exactly as you heard it>}, never "
-    "run_app_action for it directly -- start_app_goal opens Connect for "
-    "you when the person is elsewhere, which is most of the time this is "
-    "asked. More than one name in the same request means more than one "
-    "call, one person at a time: ask which to do first if it is not "
-    "obvious, then call start_app_goal for just that one name. Confirm and "
-    "wait for its settlement -- the same 'ASK FOR IT OUT LOUD... then STOP "
-    "and wait' rule below, and the same 'at most ONE action-producing tool "
-    "per turn' rule above -- before calling start_app_goal again for the "
-    "next name. Never call it for a second name while the first is still "
-    "pending, confirming, or settling.\n\n"
+    "a connection request to Ankit and Kushal') runs directly, from "
+    "wherever you are. ASK FOR IT OUT LOUD first, naming everyone -- 'Send "
+    "a connection request to Ankit and Kushal?' -- then STOP and wait for "
+    "yes. Once you have it, call run_app_action with action id "
+    "'connect.send_request' and slots {'person': <every name exactly as "
+    "you heard it, together>} -- governed by the MULTI-PERSON RULE above; "
+    "there is nothing to wait for between names, it is one call. If "
+    "the result says a name did not resolve, is already connected, or has "
+    "a request pending, relay exactly that for just that name; never "
+    "guess, and never claim a request was sent for a name the result did "
+    "not confirm.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
     "specific -- who, how long, how much: 'Share your location with Sarah for "
@@ -576,6 +620,61 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "open. If they say something that is neither yes nor no, the confirmation "
     "is still waiting: answer them briefly, then put the same question once "
     "more.\n\n"
+    # Reading Location/Connect data. Six read-only tools exist for exactly
+    # these questions and were previously undocumented here -- registered as
+    # callable tools, but with nothing telling One when to reach for them, so
+    # it answered "I don't have access to that" to questions the app could
+    # answer directly. None of these are confirm_required (nothing changes),
+    # none need navigation, and none take the current screen into account --
+    # call them the moment the question is asked, from anywhere.
+    "For questions about who the person is connected to or sharing with, "
+    "call the matching read tool directly rather than saying you cannot "
+    "check: list_my_connections ('who am I connected to', 'who are my "
+    "connections'), list_my_location_shares ('who am I sharing my location "
+    "with', 'who can see my location'), list_location_shared_with_me ('who "
+    "is sharing their location with me'), list_pending_location_requests "
+    "('who is waiting for me to approve', incoming asks for MY location), "
+    "list_my_outgoing_location_requests ('whom have I asked for their "
+    "location', 'what requests am I waiting on' -- the other direction from "
+    "list_pending_location_requests), list_pending_connection_requests with "
+    "direction='incoming' or 'outgoing' as asked, list_my_location_circles "
+    "('what circles do I have') for the circles themselves, and "
+    "get_location_circle_members with slot circle=<name as heard> for "
+    "'who is in my Family circle' specifically -- list_my_location_circles "
+    "only returns how MANY people are in each circle, not who they are; "
+    "that is what get_location_circle_members is for. If the circle name "
+    "does not resolve or matches more than one, relay exactly what the "
+    "tool says; never guess which circle was meant. Summarize what these "
+    "tools return in plain language; never invent a name, count, or status "
+    "they did not report.\n\n"
+    "When the person asks what information can be requested from a named connection, "
+    "or narrows that request to a domain such as financial or identity, call "
+    "discover_person_information with the name and optional domain. Present only the exact "
+    "labels, descriptions, domain groups, and sensitivity returned. Never invent a scope, "
+    "show a raw scope identifier, or imply that a social connection grants access. End with "
+    "a Markdown link using the returned profilePath so the person can select exact fields "
+    "and confirm the consent request. Do not claim a request was sent from discovery alone.\n\n"
+    # Reading the person's own PKM data. One general read tool, not one per
+    # domain -- every domain listed here is read the same way (the
+    # discovery-only summary index, never decrypted holdings), so a new
+    # domain needs no new tool, just the domain key added below.
+    "For 'what do you know about my X' / 'tell me about my X' questions -- "
+    "portfolio or investments, health, travel, subscriptions, professional "
+    "background, identity, food preferences, RIA practice, wallet, "
+    "entertainment, shopping, social, location, or anything else about the "
+    "person themselves -- call read_my_pkm_domain_summary with the matching "
+    "domain key: identity, financial, subscriptions, health, travel, food, "
+    "professional, ria, source_library, wallet, entertainment, shopping, "
+    "social, location, or general. Map the person's own words to the "
+    "closest key yourself; if the tool reports the key was not recognised, "
+    "read back the domains it lists rather than guessing again blind. If "
+    "has_data is false, say plainly that nothing has been captured for that "
+    "area yet rather than implying an error. The summary is redacted, "
+    "sanitized metadata, not raw records -- speak only the fields it "
+    "actually returned, in plain language; never invent a figure, date, or "
+    "status it did not report. This is a different tool from the "
+    "Location/Connect read tools above: those read live app data with "
+    "their own services, this reads the general PKM domains only.\n\n"
     # Guide mode: some actions cannot be triggered by the app at all, only by
     # the person (run_app_action reports these as 'manual_only', e.g. picking
     # a file or connecting a third-party account). This is not a dead end.
@@ -627,10 +726,11 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "CURRENT screen. If resolve_onboarding_goal returns selected_action_id, call "
     "start_app_goal for an authored journey or run_app_action for a single-screen action. "
     "Never turn an explicit Apple or Google request back into a generic provider "
-    "question after its destination is accepted. When the exact "
-    "generated id is uncertain, call list_app_actions (it returns only actions "
-    "valid for the current screen) and pick from that, rather than naming a "
-    "step from another screen. For example, do not bring up phone "
+    "question after its destination is accepted. Whenever the person's own words "
+    "are not a close match to one of the visible labels, call list_app_actions (it "
+    "returns only actions valid for the current screen) and pick from that, rather "
+    "than naming a step from another screen or guessing an id you are not directly "
+    "looking at. For example, do not bring up phone "
     "verification unless the user is actually on the phone screen. While "
     "someone is still finishing setup, be proactive rather than waiting to be "
     "asked: after you open a screen or complete a step, briefly name ONE next "
@@ -645,7 +745,9 @@ def _one_runtime_instruction(context: Any) -> str:
     """Inject bounded server-sanitized route, layer, and action guidance."""
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
-    pkm_context = state_getter(STATE_PKM_CONTEXT) if callable(state_getter) else None
+    pkm_context = resolve_request_secret(
+        state_getter(STATE_PKM_CONTEXT) if callable(state_getter) else None
+    )
     pkm_instruction = ""
     if isinstance(pkm_context, str) and pkm_context.strip():
         pkm_instruction = (
@@ -708,7 +810,7 @@ def _one_runtime_instruction(context: Any) -> str:
     verified_action_ids = (
         [
             str(action_id).strip()
-            for action_id in available_action_ids[:18]
+            for action_id in available_action_ids[:AVAILABLE_ACTION_IDS_CAP]
             if isinstance(action_id, str) and str(action_id).strip()
         ]
         if isinstance(available_action_ids, list)
@@ -752,12 +854,12 @@ def _one_runtime_instruction(context: Any) -> str:
         ]
 
     # Render every executable id the browser published (bounded upstream at
-    # 18 by the app_context sanitizer). Rendering fewer than the allowlist
-    # previously made ids 11+ executable but invisible, which read as
-    # "actions not detected" in conversation.
+    # AVAILABLE_ACTION_IDS_CAP by the app_context sanitizer). Rendering fewer
+    # than the allowlist previously made ids 11+ executable but invisible,
+    # which read as "actions not detected" in conversation.
     action_lines: list[str] = []
     rendered_ids: set[str] = set()
-    for action_id in prompt_action_ids[:18]:
+    for action_id in prompt_action_ids[:AVAILABLE_ACTION_IDS_CAP]:
         entry = get_action_gateway_action(str(action_id))
         if entry is None:
             continue
@@ -779,12 +881,14 @@ def _one_runtime_instruction(context: Any) -> str:
                 if unrendered
                 else ""
             )
-            + "\nFirst assess meaning semantically. For a clear request matching one "
-            "of these controls, call run_app_action with that exact id. A clear "
+            + "\nFirst check whether the person's own words closely echo one of the "
+            "labels above. If so, call run_app_action with that exact id. A clear "
             "provider request selects its exact Apple or Google action; never "
-            "replace it with a generic provider explanation. Use list_app_actions "
-            "only to retrieve bounded candidates when the id is uncertain. Do not "
-            "call open_screen or google_search instead of a matching current control."
+            "replace it with a generic provider explanation. If their words do not "
+            "clearly echo one of these labels -- including short, ambiguous, or "
+            "urgent phrasing -- call list_app_actions with their own words first, "
+            "every time, rather than guessing from a label that only partly fits. "
+            "Do not call open_screen or google_search instead of a matching current control."
         )
 
     layer_instruction = ""
@@ -899,7 +1003,7 @@ async def resolve_onboarding_goal(
             "status": "disabled",
             "message": "Onboarding goals are not enabled for this session.",
         }
-    consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(tool_context.state.get(STATE_CONSENT_TOKEN))
     phase = str(onboarding.get("phase") or "anonymous_auth")
     # One's current ADK turn supplies semantic fields. The deterministic layer
     # validates them but never reclassifies the request with keywords.
@@ -1003,7 +1107,7 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
     """
     state = tool_context.state
     user_id = str(state.get(STATE_USER_ID) or "").strip()
-    consent_token = str(state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(state.get(STATE_CONSENT_TOKEN))
     if not user_id or not consent_token:
         return None
     conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
@@ -1027,7 +1131,7 @@ async def _specialist_turn(
 
     voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
-    consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(tool_context.state.get(STATE_CONSENT_TOKEN))
     # Built BEFORE admission, not after, because admission has to know what authority
     # this turn actually carries. Asking afterwards is how it came to report `ready`
     # for specialists that then refused. Pure and cheap -- in-memory token validation,
@@ -1396,6 +1500,34 @@ async def ask_consent_agent(
     return result
 
 
+def _intro_navigable(entry: dict[str, Any] | None, action_id: str) -> bool:
+    """True only for what run_intro_navigation_action will actually run.
+
+    A single predicate shared by both functions below, so the catalog
+    list_intro_navigation_actions offers can never drift from what the
+    executor accepts. It used to be narrower here (route.* prefix + policy +
+    status) than in the list function (is_navigation_action alone, a
+    deliberately broader union used elsewhere for the main, post-vault
+    list_app_actions), so 45 of 77 "navigable" ids were listed as candidates
+    and then always rejected -- including every location.open_*/setup.open_*
+    action, none of which belongs pre-vault. Narrowing the list to this
+    predicate (rather than widening the executor to match the old list) is
+    the safe direction: run_intro_navigation_action's own contract is that it
+    "can never turn an informational pre-vault turn into a vault, consent, or
+    mutation action," which a wider executor would break.
+    """
+    if entry is None:
+        return False
+    policy = str(entry.get("risk", {}).get("execution_policy") or "")
+    status = str(entry.get("execution_target", {}).get("status") or "")
+    return (
+        action_id.startswith("route.")
+        and is_navigation_action(entry)
+        and policy == "allow_direct"
+        and status == "wired"
+    )
+
+
 async def run_intro_navigation_action(action_id: str, tool_context: ToolContext) -> dict[str, Any]:
     """Offer one low-risk route action from One's anonymous, pre-vault surface.
 
@@ -1405,15 +1537,7 @@ async def run_intro_navigation_action(action_id: str, tool_context: ToolContext)
     """
     clean_id = str(action_id or "").strip()
     entry = get_action_gateway_action(clean_id)
-    policy = str((entry or {}).get("risk", {}).get("execution_policy") or "")
-    status = str((entry or {}).get("execution_target", {}).get("status") or "")
-    if (
-        entry is None
-        or not clean_id.startswith("route.")
-        or not is_navigation_action(entry)
-        or policy != "allow_direct"
-        or status != "wired"
-    ):
+    if not _intro_navigable(entry, clean_id):
         return {
             "status": "unavailable",
             "message": "That action is not available before the vault is unlocked.",
@@ -1424,9 +1548,9 @@ async def run_intro_navigation_action(action_id: str, tool_context: ToolContext)
 async def list_intro_navigation_actions() -> dict[str, Any]:
     """List the generated, directly-wired routes available before vault unlock.
 
-    This is a bounded catalog, not a classifier. One uses it only when the
-    action id is uncertain; semantic interpretation of the user's request
-    remains in the model.
+    This is a bounded catalog, not a classifier. Call it first whenever the
+    person's words are not already a close match to a route you already know
+    -- semantic interpretation of what they meant still belongs to the model.
     """
     results = [
         {
@@ -1435,7 +1559,7 @@ async def list_intro_navigation_actions() -> dict[str, Any]:
             "meaning": str(entry.get("meaning") or ""),
         }
         for entry in list_action_gateway_actions()
-        if is_navigation_action(entry)
+        if _intro_navigable(entry, str(entry.get("action_id") or ""))
     ]
     return {"status": "ok", "results": results[:32]}
 
@@ -1451,6 +1575,15 @@ def _build_ria_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
+def _resolve_text_model(model: Any | None) -> Any:
+    """Resolve text-model authority without requiring cloud ADC in test collection."""
+    if model is not None:
+        return model
+    if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
+        return _SPECIALIST_MODEL
+    return build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+
+
 def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     """Build One's semantic but lower-privilege pre-vault text head.
 
@@ -1460,7 +1593,7 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     """
     return LlmAgent(
         name="one_intro",
-        model=model or build_managed_gemini_adk_model(_SPECIALIST_MODEL),
+        model=_resolve_text_model(model),
         description="One's informational, pre-vault private-agent surface.",
         instruction=(
             "You are One, the private agent inside Hussh. This is an informational "
@@ -1469,7 +1602,9 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
             "do not force a workflow or interpret words with fixed keyword rules. "
             "When the user clearly asks to open a Hussh screen, call "
             "run_intro_navigation_action with one exact generated route.* action id. "
-            "Call list_intro_navigation_actions only when the action id is uncertain. "
+            "Call list_intro_navigation_actions first unless their words are already a "
+            "close match to a route id you already know -- do not rely on a feeling "
+            "of confidence. "
             "Never claim access to personal information, PKM, "
             "email, location, consent records, CRM records, or any completed action. "
             "For protected or mutating work, explain that unlocking the vault and the "
@@ -1527,7 +1662,7 @@ def _financial_readiness_instruction(context: Any) -> str:
 def _bounded_finance_context(context: Any) -> str:
     state = getattr(context, "state", None)
     getter = getattr(state, "get", None)
-    pkm_context = getter(STATE_PKM_CONTEXT) if callable(getter) else None
+    pkm_context = resolve_request_secret(getter(STATE_PKM_CONTEXT) if callable(getter) else None)
     if not isinstance(pkm_context, str) or not pkm_context.strip():
         return _financial_readiness_instruction(context)
     return _financial_readiness_instruction(context) + (
@@ -1570,6 +1705,25 @@ def _build_finance_agent(*, model: Any | None = None) -> LlmAgent:
             AgentTool(agent=_build_ria_agent(model=specialist_model)),
             AgentTool(agent=_build_investor_agent(model=specialist_model)),
         ],
+    )
+
+
+def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
+    """Cards head: metadata-only conversation over client-executed actions.
+
+    Unlike Finance, no PKM context is ever injected - the manifest's
+    context_allowlist is empty by design. Every real operation (list, add,
+    reveal) executes client-side through the Action Gateway, where the browser
+    decrypts under the vault key; card secrets never reach this agent, the
+    model, or the server in plaintext.
+    """
+    specialist_model = model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    return LlmAgent(
+        name="wallet",
+        model=specialist_model,
+        description=_WALLET_MANIFEST.description,
+        instruction=str(_WALLET_MANIFEST.system_instruction),
+        tools=[],
     )
 
 
@@ -1652,7 +1806,10 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
 
         memory_tools = [load_memory]
 
-    return [
+    # `tools` stays a mutable list: the CRM and wallet specialists are inserted by
+    # POSITION below, next to the agent they belong beside, and `list.index` looks
+    # the anchor up by identity, so prepending the memory tool cannot shift them.
+    tools = [
         *memory_tools,
         AgentTool(agent=search_agent, propagate_grounding_metadata=True),
         open_screen,
@@ -1665,13 +1822,20 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         AgentTool(agent=_build_finance_agent(model=specialist_model)),
         ask_email_agent,
         ask_location_agent,
-        ask_connected_systems_agent,
         ask_consent_agent,
         list_my_location_circles,
+        get_location_circle_members,
         list_my_location_shares,
         list_location_shared_with_me,
         list_pending_location_requests,
+        list_my_outgoing_location_requests,
         list_my_connections,
+        read_my_pkm_domain_summary,
+        discover_person_information,
+        list_available_models,
+        list_pending_information_requests,
+        propose_information_request,
+        set_preferred_model,
         list_pending_connection_requests,
         calendar_summary,
         calendar_events,
@@ -1681,6 +1845,13 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         propose_calendar_reschedule,
         propose_calendar_cancellation,
     ]
+    if _CRM_PRODUCT_AVAILABLE:
+        tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)
+    tools.insert(
+        tools.index(ask_email_agent),
+        AgentTool(agent=_build_wallet_agent(model=specialist_model)),
+    )
+    return tools
 
 
 def build_one_root_agent(
@@ -1706,7 +1877,10 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
     surfaces run the specialist-generation model with the identical
     instruction and roster - ONE decision-maker, two transport heads.
     """
-    text_model = model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    # Route modules construct both ADK apps during import so FastAPI can
+    # register the canonical endpoint. The shared resolver keeps that import
+    # credential-independent in tests while hosted runtimes stay explicit.
+    text_model = _resolve_text_model(model)
     return LlmAgent(
         name="one",
         model=text_model,

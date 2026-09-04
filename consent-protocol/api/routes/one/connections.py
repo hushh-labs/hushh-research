@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, validator
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -61,6 +62,10 @@ class AcceptConnectionRequestBody(BaseModel):
 
 class LinkCircleInviteBody(BaseModel):
     peer_user_id: str
+
+
+class UpdateVoicePreferencesBody(BaseModel):
+    share_scopes_from_last_request: bool
 
 
 class ContactSyncLookup(BaseModel):
@@ -128,6 +133,30 @@ def list_connections(
         raise _handle(exc) from exc
 
 
+@router.get("/connect/voice-preferences")
+def get_connect_voice_preferences(firebase_uid: str = Depends(require_firebase_auth)):
+    try:
+        return {"preferences": _service().get_voice_preferences(user_id=firebase_uid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.patch("/connect/voice-preferences")
+def update_connect_voice_preferences(
+    body: UpdateVoicePreferencesBody,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return {
+            "preferences": _service().update_voice_preferences(
+                user_id=firebase_uid,
+                share_scopes_from_last_request=body.share_scopes_from_last_request,
+            )
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 @router.post("/connections/contact-sync")
 @limiter.limit(RateLimits.CONTACT_DISCOVERY_MATCH_DAILY)
 @limiter.limit(RateLimits.CONTACT_DISCOVERY_MATCH)
@@ -152,6 +181,11 @@ async def sync_contacts(
         }
     service = _service()
     try:
+        # Authentication background work runs after the response. Guarantee
+        # the requester's verified-phone shadow is ready in this request too,
+        # so a first contact-sync tap cannot fail merely because no earlier
+        # authenticated response finished its warmup yet.
+        await ActorIdentityService().sync_from_firebase(firebase_uid, force=False)
         # Charge before querying the discovery index. This is intentionally a
         # Postgres authority rather than an in-process limiter so production
         # remains bounded across Cloud Run instances without paid Redis infra.
@@ -164,13 +198,29 @@ async def sync_contacts(
             firebase_uid,
             phone_lookups=lookups,
         )
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             lambda: service.sync_contact_matches(
                 firebase_uid,
                 phone_lookups=lookups,
                 matches=matches,
             )
         )
+        # Metadata-only runtime evidence. Never log a uid, lookup id, digest,
+        # trailing digits, contact name, or response item from this boundary.
+        logger.info(
+            "contact_sync.completed lookup_count=%s candidate_count=%s "
+            "matched_count=%s auto_connected_count=%s "
+            "already_connected_count=%s suppressed_count=%s "
+            "indeterminate_count=%s",
+            len(lookups),
+            len(matches),
+            int(result.get("matchedCount") or 0),
+            int(result.get("autoConnectedCount") or 0),
+            int(result.get("alreadyConnectedCount") or 0),
+            int(result.get("suppressedCount") or 0),
+            len(result.get("indeterminateLookupIds") or []),
+        )
+        return result
     except IAMSchemaNotReadyError as exc:
         raise HTTPException(
             status_code=503,

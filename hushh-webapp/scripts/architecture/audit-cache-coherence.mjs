@@ -45,7 +45,9 @@ function routeSort(left, right) {
 }
 
 function routeFromPageFile(filePath) {
-  const relative = toPosixPath(path.relative(path.join(appRoot, "app"), filePath));
+  const relative = toPosixPath(
+    path.relative(path.join(appRoot, "app"), filePath),
+  );
   const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
   return route ? `/${route}` : "/";
 }
@@ -94,10 +96,7 @@ function sourceForRoute(route, contractEntry) {
   if (joined.includes("ConnectedSystemsPanel")) {
     sources.push(
       read(
-        path.join(
-          appRoot,
-          "components/profile/connected-systems-panel.tsx",
-        ),
+        path.join(appRoot, "components/profile/connected-systems-panel.tsx"),
       ),
     );
   }
@@ -139,6 +138,10 @@ function flagsForSource(source) {
 
 function isConsentCenterRoute(route) {
   return route === "/consents" || route === "/one/consent";
+}
+
+function isFeedRoute(route) {
+  return route === "/one/feed";
 }
 
 function isConnectedSystemsRoute(route) {
@@ -201,6 +204,7 @@ function cachePolicyFor(route, screenClass, flags) {
     return "secure-resource";
   if (route === "/one/kai") return "device-resource";
   if (route === "/one/kai/news") return "device-resource";
+  if (isFeedRoute(route)) return "memory-only";
   if (isConnectedSystemsRoute(route)) {
     return "memory-only";
   }
@@ -216,6 +220,16 @@ function cachePolicyFor(route, screenClass, flags) {
 }
 
 function routeCacheKeys(route) {
+  if (isFeedRoute(route)) {
+    return [
+      "FEED_LIST",
+      "FEED_UNREAD_COUNT",
+      "CONSENT_CENTER_SUMMARY",
+      "CONSENT_CENTER_LIST",
+      "ONE_LOCATION_STATE",
+      "CONNECTIONS_INCOMING",
+    ];
+  }
   if (isConsentCenterRoute(route))
     return ["CONSENT_CENTER_SUMMARY", "CONSENT_CENTER_LIST"];
   if (route === "/agent")
@@ -224,6 +238,7 @@ function routeCacheKeys(route) {
     return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
+  if (route === "/one/profile/security/devices") return ["TRUSTED_DEVICES"];
   if (route === "/pkm")
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/gmail")
@@ -267,6 +282,14 @@ function resourceClassesFor(route, screenClass) {
   if (screenClass === "public/static") return ["public_static"];
   if (screenClass === "auth/pre-vault") return ["auth_state"];
   if (isConsentCenterRoute(route)) return ["consent_list"];
+  if (isFeedRoute(route)) {
+    return [
+      "notification_activity",
+      "consent_list",
+      "location_state",
+      "connection_requests",
+    ];
+  }
   if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
   if (route === "/one/profile") return ["vault_metadata", "pkm_metadata"];
   if (isConnectedSystemsRoute(route)) {
@@ -350,7 +373,8 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
     (route.startsWith("/one/kai") && route !== "/one/kai/news") ||
     route === "/one/profile" ||
     route === "/one/kyc" ||
-    isConsentCenterRoute(route)
+    isConsentCenterRoute(route) ||
+    isFeedRoute(route)
   ) {
     kpis.push("warmup_completed");
   }
@@ -369,6 +393,7 @@ function ttlClassFor(route, screenClass) {
     return "single-use";
   if (screenClass === "realtime/SSE")
     return "CACHE_TTL.SHORT with active stream patching";
+  if (isFeedRoute(route)) return "CACHE_TTL.SHORT";
   if (isConnectedSystemsRoute(route)) {
     return "CACHE_TTL.MEDIUM when mapping is ready; CACHE_TTL.SHORT when unavailable";
   }
@@ -391,6 +416,9 @@ function warmSourceFor(route, screenClass) {
     return "RIA service memory/device cache";
   if (isConsentCenterRoute(route))
     return "UnlockWarmOrchestrator plus ConsentCenterService memory cache";
+  if (isFeedRoute(route)) {
+    return "FeedService plus domain-owned actionable resource caches";
+  }
   if (isConnectedSystemsRoute(route)) {
     return "ConnectedSystemsPanel user-scoped memory cache with stale-aware background refresh";
   }
@@ -405,9 +433,26 @@ function refreshTriggerFor(route, screenClass) {
   if (isConsentCenterRoute(route)) {
     return "FCM/SSE consent-change reconciliation plus stale-aware background refresh; explicit user refresh may force";
   }
+  if (isFeedRoute(route)) {
+    return "foreground push/action signal, visible focus/resume, and 45-second visible polling; explicit retry forces";
+  }
   if (screenClass === "realtime/SSE")
     return "SSE stream patch plus stale-aware background refresh";
+  if (isPkmEpochRoute(route)) {
+    return "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force";
+  }
   return "stale-aware background refresh; explicit user refresh may force";
+}
+
+// Screens that read PKM metadata and must notice a domain written elsewhere
+// (Wallet, Kai import, chat) the moment they mount, not after the TTL.
+function isPkmEpochRoute(route) {
+  return (
+    route === "/one/pkm" ||
+    route === "/one/pkm/recent" ||
+    route === "/one/profile/my-data" ||
+    route === "/one/wallet"
+  );
 }
 
 function invalidatorFor(route, screenClass) {
@@ -415,12 +460,16 @@ function invalidatorFor(route, screenClass) {
     return "none";
   if (isConsentCenterRoute(route) || route.includes("/requests"))
     return "CacheSyncService.onConsentMutated";
+  if (isFeedRoute(route)) {
+    return "CacheSyncService Feed read lifecycle plus domain mutation invalidators";
+  }
   if (isConnectedSystemsRoute(route)) {
     return "explicit refresh plus CacheService user/session invalidation";
   }
   if (
     route.startsWith("/one/kai") ||
     route === "/pkm" ||
+    isPkmEpochRoute(route) ||
     route === "/gmail" ||
     route === "/one/profile/receipts" ||
     route === "/one/kyc"
@@ -433,6 +482,9 @@ function invalidatorFor(route, screenClass) {
 }
 
 function realtimePolicyFor(route, screenClass) {
+  if (isFeedRoute(route)) {
+    return "push/action signals refresh the visible Feed; hidden tabs defer until visible; polling is visibility-scoped and concurrent requests dedupe";
+  }
   if (isConsentCenterRoute(route)) {
     return "FCM consent changes invalidate the shared cache and retained-data refresh the visible summary/list; visible SSE fallback reconciles when push is unavailable";
   }
@@ -648,6 +700,25 @@ function linkageInvariants() {
     return fs.existsSync(full) ? read(full) : "";
   };
 
+  // Invariant 0: a PKM write on one route must reach Memory, Profile, and Wallet
+  // when they mount later. The epoch is bumped by every domain emitter and
+  // read by the revision hook; losing either side re-opens the stale-Memory
+  // defect (write-through metadata patch that looks fresh for the TTL).
+  const epochLinks = [
+    ["lib/cache/cache-sync-service.ts", "bumpPkmInvalidationEpoch"],
+    ["lib/pkm/use-pkm-domain-change-revision.ts", "currentPkmInvalidationEpoch"],
+    ["components/profile/pkm-natural-panel.tsx", "usePkmDomainChangeRevision"],
+    ["app/profile/profile-workspace-page.tsx", "currentPkmInvalidationEpoch"],
+  ];
+  for (const [relPath, needle] of epochLinks) {
+    const source = readSource(relPath);
+    if (source && !source.includes(needle)) {
+      violations.push(
+        `${relPath} must reference ${needle} so a PKM write on another route forces a fresh read on mount`,
+      );
+    }
+  }
+
   // Invariant 1: the /consents read-path service must cache its read responses
   // at CACHE_TTL.MEDIUM (matching the manifest ttl_class). A CACHE_TTL.SHORT
   // write here is the TTL drift that caused stale-driven refetch on scroll.
@@ -684,6 +755,22 @@ function linkageInvariants() {
         "unlock-warm-orchestrator.ts must call ConsentCenterService.getSummary + listEntries so warmed keys match the /consents page-read keys",
       );
     }
+  }
+
+  // Invariant 3: /one/feed is a short-lived, visible-only live projection. The
+  // manifest must stay anchored to the actual list service, SWR hook, live
+  // signal, and coordinator instead of falling back to generic MEDIUM/unknown.
+  const feedPageSource = readSource("components/feed/feed-page.tsx");
+  const feedServiceSource = readSource("lib/services/feed-service.ts");
+  if (
+    !feedPageSource.includes("useStaleResource") ||
+    !feedPageSource.includes("useFeedLiveRefresh") ||
+    !feedPageSource.includes("CacheSyncService") ||
+    !feedServiceSource.includes("CACHE_TTL.SHORT")
+  ) {
+    violations.push(
+      "/one/feed must retain its SWR + visible live-refresh + CacheSyncService lifecycle at CACHE_TTL.SHORT",
+    );
   }
 
   return violations;

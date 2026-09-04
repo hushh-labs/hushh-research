@@ -58,6 +58,10 @@ vi.mock("@/components/app-ui/page-sections", () => ({
   ),
 }));
 
+vi.mock("@/components/app-ui/surfaces", () => ({
+  SurfaceStack: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+}));
+
 vi.mock("@/components/profile/settings-ui", () => ({
   SettingsGroup: ({
     title,
@@ -74,7 +78,7 @@ vi.mock("@/components/profile/settings-ui", () => ({
       {children}
     </section>
   ),
-  SettingsSegmentedTabs: ({
+  SegmentedTabs: ({
     value,
     onValueChange,
     options,

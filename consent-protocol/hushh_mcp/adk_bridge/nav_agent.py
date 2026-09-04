@@ -361,6 +361,17 @@ def _parse_datetime(value: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError:
+        # Some sources of expires_at/issued_at (consent_db.py's audit/token
+        # rows, compared against now_ms throughout that module) carry epoch
+        # milliseconds rather than an ISO string -- already str()'d by the
+        # caller before it ever reaches here. Without this, a value that
+        # failed ISO parsing fell through to being spoken aloud as a raw
+        # number: "until 1785283200000."
+        if normalized.isdigit():
+            try:
+                return datetime.fromtimestamp(int(normalized) / 1000, tz=UTC)
+            except (OverflowError, OSError, ValueError):
+                return None
         return None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)

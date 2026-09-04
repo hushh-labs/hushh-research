@@ -20,7 +20,6 @@ import { toast } from "sonner";
 import { Check, Loader2, Search, Send, Share2, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Sheet,
   SheetContent,
@@ -44,20 +43,11 @@ import {
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
   circleInviteSelectionLimit,
 } from "@/lib/one-location/circle-invite-contract";
-
-function circleInitials(value: string): string {
-  return value
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-}
 
 function growErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
@@ -358,18 +348,15 @@ export function CircleInvitePeopleSheet({
                         <SettingsRow
                           key={connection.userId}
                           leading={
-                            <Avatar className="h-10 w-10 rounded-xl">
-                              {connection.photoUrl ? (
-                                <AvatarImage src={connection.photoUrl} alt="" />
-                              ) : null}
-                              <AvatarFallback className="rounded-xl">
-                                {circleInitials(connection.displayName)}
-                              </AvatarFallback>
-                            </Avatar>
+                            <ConnectionPersonAvatar
+                              photoUrl={connection.photoUrl ?? null}
+                              label={connection.displayName}
+                              verified={Boolean(connection.isRia)}
+                            />
                           }
                           title={
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              <span className="min-w-0 truncate">
+                            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
                                 {connection.displayName}
                               </span>
                               {connection.connectedFromContacts ? (

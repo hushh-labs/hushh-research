@@ -1,13 +1,21 @@
 name: Dev Pod Lifecycle Drill
 
-# The harness's Layer 2. It runs the pod lifecycle drill's ORCHESTRATION on a
-# cadence -- provision, teach, prove-learned, kill, rebuild the same owner,
-# recall across the death, negative control -- against the in-memory fleet, and
-# archives the result. This is the offline `--dry-run` half: it needs no cloud,
-# costs nothing, and goes red the day the drill's own logic (including the
-# negative self-test, which proves a state-LOSING lifecycle fails the drill)
-# stops holding. It runs here, on a schedule, independent of any PR, so the
-# guarantee does not depend on someone remembering to run the tests.
+# The verification harness's Layer 2. It runs the pod lifecycle drill's
+# ORCHESTRATION on a cadence -- provision, teach, prove-learned, kill, rebuild
+# the same owner, recall across the death, negative control -- against the
+# in-memory fleet, and archives the result. This is the offline `--dry-run`
+# half: it needs no cloud, costs nothing, and goes red the day the drill's own
+# logic (including the negative self-test, which proves a state-LOSING lifecycle
+# fails the drill) stops holding. It runs here, on a schedule, independent of any
+# PR, so the guarantee does not depend on someone remembering to run the tests.
+#
+# WHAT GUARDS THE LOGIC: the `--dry-run` this workflow executes IS the guard. It
+# runs the same `_self_test()` -- a state-preserving lifecycle must pass AND a
+# state-losing one must fail -- so a regression in the orchestration turns this
+# scheduled run red on its own. The matching unit test
+# (`tests/test_pod_lifecycle_drill.py`) rides the pod-architecture development
+# branch, where it additionally guards the drill on every PR; the promoted copy
+# on `main` carries only the drill script and this workflow.
 #
 # THE LIVE DOUBLE-CYCLE IS DELIBERATELY NOT A CI JOB.
 # Running the identical sequence against real Cloud Run + real GCS is the

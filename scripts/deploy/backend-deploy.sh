@@ -216,13 +216,20 @@ append_optional_env "ONE_EMAIL_WEBHOOK_AUDIENCE" "${_ONE_EMAIL_WEBHOOK_AUDIENCE}
 append_optional_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "ONE_EMAIL_WEBHOOK_AUTH_ENABLED" "${_ONE_EMAIL_WEBHOOK_AUTH_ENABLED}"
 append_optional_env "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED" "${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
+append_optional_env "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED" "${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED}"
+append_optional_env "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE" "${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE}"
+append_optional_env "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL" "${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
 append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
 append_optional_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
 append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
+# One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the proven
+# default; set only after the lane's Vertex allowed-models policy admits the id.
+append_optional_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"
 append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
 append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
+append_optional_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"
 append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
 append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
@@ -642,8 +649,9 @@ cmd=(
   "--allow-unauthenticated"
   "--port=8080"
   "--memory=1Gi"
-  "--cpu=1"
+  "--cpu=${_CLOUD_RUN_CPU}"
   "--timeout=3600"
+  "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
   "--session-affinity"
   # Service-level limits bound aggregate database fan-out across traffic
   # splits. Revision min=0 prevents no-traffic/retired revisions from

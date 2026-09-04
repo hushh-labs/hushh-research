@@ -50,7 +50,13 @@ ALTER TABLE one_location_events
       'location_circle_invite_created',
       'location_circle_invite_claimed',
       'location_circle_invite_revoked',
-      'location_one_network_joined'
+      'location_one_network_joined',
+      -- Not this branch's value either: added by migration 180, which lands
+      -- on main after this one. Same rule as the comment above -- any new
+      -- value has to appear here too, or re-adding the constraint drops it.
+      'location_circle_code_joined',
+      'location_circle_member_invite_accepted',
+      'circle_member_added'
     )
   );
 

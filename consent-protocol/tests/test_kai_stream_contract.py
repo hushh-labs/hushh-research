@@ -162,13 +162,17 @@ def test_portfolio_statement_import_compat_stream_does_not_use_multipart_request
     assert "request=_AlwaysConnectedImportStreamRequest()" in portfolio_source
 
 
-def test_portfolio_import_defaults_to_gemini_37_flash_with_env_override():
-    constants_source = (_ROOT / "hushh_mcp/constants.py").read_text(encoding="utf-8")
+def test_portfolio_import_runs_the_fleet_model_with_no_private_knob():
+    """Portfolio import has no model of its own.
+
+    It used to consult KAI_PORTFOLIO_IMPORT_MODEL and KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL,
+    neither of which any lane set, in front of a constant already equal to the fleet
+    model. One answer, one name.
+    """
     portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
 
-    assert 'KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.7-flash"' in constants_source
-    assert '"KAI_PORTFOLIO_IMPORT_MODEL"' in portfolio_source
-    assert '"KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"' in portfolio_source
+    assert "KAI_PORTFOLIO_IMPORT_MODEL" not in portfolio_source
+    assert "return GEMINI_MODEL" in portfolio_source
     assert "extraction_model = _resolve_portfolio_import_model()" in portfolio_source
 
 

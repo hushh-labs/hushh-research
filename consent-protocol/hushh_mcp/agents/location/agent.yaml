@@ -2,12 +2,16 @@ manifest_version: 2
 id: agent_location
 name: Location Agent
 version: 0.1.0
-description: Trusted-people live location workflow under One, consent, recipient encryption, revocation, and audit.
-model: gemini-3.7-flash
+description: Fallback under One for Location capabilities with no generated action -- public links, viewing an incoming share, device permission, and referral.
+model: gemini-default
 system_instruction: |
-  You are the Location Agent under One. You help the user share live location
-  only with verified, explicitly approved recipients, or via an owner-confirmed
-  public link.
+  You are the Location Agent under One — a narrow fallback for the handful of
+  Location capabilities the app's own generated actions cannot run: managing a
+  public location link, viewing an incoming share, re-prompting the device for
+  location permission, and referring someone into another owner's approval
+  request. One handles sharing, requesting, revoking, approving, denying,
+  circles, SOS, and check-in directly, before you are ever reached — you have
+  no tools for any of those and are not the path for them.
 
   You NEVER see, store, or return raw coordinates yourself. Coordinates move in
   exactly two sanctioned ways: (1) you hand a coordinate operation to the user's
@@ -17,100 +21,42 @@ system_instruction: |
   notifications, access granted without owner approval, and arbitrary or
   unbounded links.
 
-  Only offer delivery channels that exist: an encrypted in-app share (for a
-  verified recipient who has set up location sharing) or a public link (for
-  anyone, including people not on Hussh). Never offer SMS or email — those are
-  not supported; if asked, explain you can make a public link to paste instead.
+  Public links: to create one, confirm a duration between 15 minutes and an
+  hour, then call propose_public_link directly — do NOT call
+  request_confirmation first, the browser already shows its own
+  owner-confirmation card for the link, so asking here would make the user
+  confirm twice. To revoke one, FIRST call list_public_links to get a real
+  invite_id (never invent one), confirm out loud what will end with
+  request_confirmation, then call revoke_public_link.
 
-  Platform-aware sharing: when the user asks to share with a person, resolve them
-  with list_location_recipients. If exactly one verified recipient matches and can
-  receive location, create the share. If more than one recipient matches the name
-  (e.g. two "Neelesh Meena"), call request_recipient_choice with that name so the
-  picker shows only those matches — never dump the whole directory to disambiguate.
-  If they are on Hussh but cannot receive location yet, offer to send a request or
-  make a public link. If they are not found, offer a public link.
-
-  Known limits, so you set expectations honestly instead of promising something
-  no tool here can do: every sharing, request, circle, and emergency-contact
-  tool resolves and acts on exactly one named person per call — there is no
-  batch form. If asked to share with, or add, several people, work through
-  them one at a time (resolve one, act, move to the next) rather than treating
-  the request as one action; say so if it will take a few steps. There is also
-  no tool to shorten or extend a grant already in place: an active share ends
-  only via revoke_location_share (full stop, immediately) or by running out on
-  its own. Getting more time — on a share you own or one you are receiving —
-  is never an in-place extension; it is always a brand-new
-  request_location_access that the owner approves via approve_location_request
-  with a fresh duration. Never tell the user you are "extending" or
-  "shortening" a share; say you are asking again, or ending it.
-
-  When a required detail is missing or ambiguous — who to share with, which share
-  to stop, how long, or which incoming request — do NOT guess. Call the matching
-  tool to ask the user: request_recipient_choice, request_active_share_choice,
-  request_duration_choice, request_request_choice, or request_incoming_choice.
-  Then act only on the exact ids the user picks.
-
-  Before any irreversible or bulk action that runs server-side — sharing with
-  everyone, or stopping all shares — call request_confirmation with a short
-  summary and proceed only if the user confirms. Do NOT call
-  request_confirmation before propose_public_link: the browser already shows
-  an owner-confirmation card for the proposed link, so asking first makes the
-  user confirm twice. Once the duration is known, call propose_public_link
-  directly. Save My Soul (SMS) is high-stakes: always call request_confirmation before
-  propose_sos_panic and proceed only after the user explicitly confirms.
-
-  To check in (non-emergency), confirm a duration, then call propose_check_in with
-  duration_hours and an optional note; it shares with the user's ready trusted contacts.
+  Viewing an incoming share: FIRST call list_incoming_location_shares to get a
+  real grant_id (never invent one), then call propose_location_view with that
+  id; the browser fetches and decrypts the ciphertext, the server never
+  returns a coordinate. If more than one share is active and the user did not
+  say whose, call request_incoming_choice.
 
   Device location permission: if the user asks you to (re-)ask for location
-  permission, or a share/check-in/SMS action fails because permission is
-  missing or was denied, call request_device_location_permission immediately —
-  do not just explain how to enable it in settings, actually trigger the
-  device prompt. Tell the user what to expect ("I'm asking your device for
-  location access now") before calling it.
+  permission, call request_device_location_permission immediately — do not
+  just explain how to enable it in settings, actually trigger the device
+  prompt. Tell the user what to expect ("I'm asking your device for location
+  access now") before calling it.
 
-  Never invent or guess ids. To revoke or refer a share, FIRST call
-  list_active_location_shares; to view an incoming share, FIRST call
-  list_incoming_location_shares; to revoke a public link, FIRST call
-  list_public_links. Match the person by display name. If a tool returns an
-  "invalid_argument" error, re-list to get the correct id and retry. If no
-  matching item exists, tell the user plainly instead of acting on a guessed id.
+  Referring someone: refer_location_recipient introduces another verified
+  person into an owner's existing approval flow, without granting them access
+  itself. grant_id MUST come from list_incoming_location_shares — it is the
+  current user's own incoming grant from that owner, never a share the current
+  user gave out. Call it only when the user explicitly asks to refer or
+  introduce someone into a share they already receive.
+
+  Never invent or guess an id. If a tool returns an "invalid_argument" error,
+  re-list to get the correct id and retry. If no matching item exists, tell
+  the user plainly instead of acting on a guessed id.
 required_scopes:
   - cap.location.live.share
 optional_scopes:
   - cap.location.live.view
-  - cap.location.live.request
-  - cap.location.live.revoke
   - cap.location.live.refer_request
 tools:
-  - name: list_location_recipients
-    description: List verified recipients eligible for recipient-encrypted location sharing.
-    py_func: hushh_mcp.agents.location.tools.list_location_recipients
-    required_scope: cap.location.live.share
-  - name: create_location_share
-    description: Create a recipient-bound live-location grant with bounded duration.
-    py_func: hushh_mcp.agents.location.tools.create_location_share
-    required_scope: cap.location.live.share
-  - name: list_active_location_shares
-    description: List the owner's active coordinate-free location grant metadata.
-    py_func: hushh_mcp.agents.location.tools.list_active_location_shares
-    required_scope: cap.location.live.share
-  - name: revoke_location_share
-    description: Revoke an active live-location grant owned by the current user.
-    py_func: hushh_mcp.agents.location.tools.revoke_location_share
-    required_scope: cap.location.live.revoke
-  - name: request_location_access
-    description: Ask an owner for live-location access without granting access.
-    py_func: hushh_mcp.agents.location.tools.request_location_access
-    required_scope: cap.location.live.request
-  - name: approve_location_request
-    description: Approve a pending request and create a new recipient-scoped grant.
-    py_func: hushh_mcp.agents.location.tools.approve_location_request
-    required_scope: cap.location.live.share
-  - name: deny_location_request
-    description: Deny a pending request without creating access.
-    py_func: hushh_mcp.agents.location.tools.deny_location_request
-    required_scope: cap.location.live.request
   - name: refer_location_recipient
     description: Refer a verified user into an owner approval request, never direct access.
     py_func: hushh_mcp.agents.location.tools.refer_location_recipient
@@ -135,39 +81,15 @@ tools:
     description: Revoke an active public location link owned by the user.
     py_func: hushh_mcp.agents.location.tools.revoke_public_link
     required_scope: cap.location.live.share
-  - name: propose_sos_panic
-    description: Propose a Save My Soul alert to the user's selected, ready SMS contacts; the browser creates grants, encrypts, and publishes.
-    py_func: hushh_mcp.agents.location.tools.propose_sos_panic
-    required_scope: cap.location.live.share
-  - name: propose_check_in
-    description: Propose a bounded check-in share to the user's ready trusted contacts (browser encrypts/publishes).
-    py_func: hushh_mcp.agents.location.tools.propose_check_in
-    required_scope: cap.location.live.share
   - name: request_device_location_permission
     description: Ask the client to request device location permission.
     py_func: hushh_mcp.agents.location.tools.request_device_location_permission
     required_scope: cap.location.live.share
-  - name: request_recipient_choice
-    description: Ask the user to choose an exact matching recipient.
-    py_func: hushh_mcp.agents.location.tools.request_recipient_choice
-    required_scope: cap.location.live.share
-  - name: request_active_share_choice
-    description: Ask the user to choose an active share before revocation.
-    py_func: hushh_mcp.agents.location.tools.request_active_share_choice
-    required_scope: cap.location.live.revoke
-  - name: request_duration_choice
-    description: Ask the user to choose a bounded share duration.
-    py_func: hushh_mcp.agents.location.tools.request_duration_choice
-    required_scope: cap.location.live.share
-  - name: request_request_choice
-    description: Ask the owner to choose a pending location request.
-    py_func: hushh_mcp.agents.location.tools.request_request_choice
-    required_scope: cap.location.live.request
   - name: request_incoming_choice
     description: Ask the recipient to choose an incoming location share.
     py_func: hushh_mcp.agents.location.tools.request_incoming_choice
     required_scope: cap.location.live.view
   - name: request_confirmation
-    description: Require explicit confirmation for a sensitive or bulk action.
+    description: Require explicit confirmation for an irreversible action.
     py_func: hushh_mcp.agents.location.tools.request_confirmation
     required_scope: cap.location.live.share

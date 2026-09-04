@@ -1,6 +1,6 @@
 """One translator, One's directives -> chat SSE frames, shared by hub and pod.
 
-Extracted from ``api/routes/kai/agent_chat.py`` so the pod relay can emit the
+Extracted from the hub's agent-chat route so the pod relay can emit the
 BYTE-IDENTICAL frames the hub emits for the same directive. Two translators
 would drift on exactly the fields that matter -- execution policy, trusted
 activation, the tool_start/tool_waiting pair -- and a pod card that rendered

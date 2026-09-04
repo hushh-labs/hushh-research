@@ -12,6 +12,7 @@ import {
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
   CHECK_IN_CATEGORY_ROW_CLASSNAME,
+  CHECK_IN_NOTE_TEXTAREA_CLASSNAME,
   CHECK_IN_PANEL_DESKTOP_WIDTH_REM,
   CHECK_IN_PLACE_DISTANCE_CLASSNAME,
   CHECK_IN_PLACE_META_CLASSNAME,
@@ -19,6 +20,11 @@ import {
   CHECK_IN_PLACE_ROW_CLASSNAME,
   CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
   CHECK_IN_PLACE_ROW_ON_CLASSNAME,
+  CHECK_IN_RATING_COMPOSER_CLASSNAME,
+  CHECK_IN_STAR_GLYPH_OFF_CLASSNAME,
+  CHECK_IN_STAR_GLYPH_ON_CLASSNAME,
+  CHECK_IN_STAR_ROW_CLASSNAME,
+  CHECK_IN_STAR_TARGET_CLASSNAME,
   CHECK_OUT_BUTTON_VARIANT,
 } from "../components/one-location/nearby-check-in/check-in-panel-layout";
 import { buttonVariants } from "../components/ui/button";
@@ -72,13 +78,20 @@ const MIN_TAP_TARGET_PX = 44;
 const MIN_CHIP_HEIGHT_PX = 36;
 
 /**
- * How wide the whole eight-chip set is allowed to be, in CSS px.
+ * How wide the whole chip set is allowed to be, in CSS px.
  *
  * Viewport-independent on purpose: the set's width is a property of the
- * labels, not of the screen. The shipped one-word labels measure 632px; the
- * two multi-word ones they replaced measured 765px.
+ * labels, not of the screen.
+ *
+ * Measured: eleven chips are 847px. Eight were 632px, and the two multi-word
+ * labels they replaced were 765px. The set grew because Worship, Civic and More
+ * were added -- three categories that previously matched no chip at all, so the
+ * places in them were unreachable the moment any chip was tapped. A wider
+ * scroller is the price of that, and it is only a scroller: `MIN_VISIBLE_CHIPS`
+ * below is what actually guards reachability, and it is unchanged because the
+ * three are appended after the leading ones.
  */
-const MAX_CATEGORY_SCROLL_EXTENT_PX = 660;
+const MAX_CATEGORY_SCROLL_EXTENT_PX = 880;
 
 /**
  * How many chips must be reachable at each width without scrolling at all.
@@ -211,6 +224,14 @@ const HARNESS_CLASSES = [
   "h-4 w-4 border relative",
 ].join(" ");
 
+/**
+ * A replica of `PLACE_CATEGORIES` in the sheet, because this fixture is CSS-only
+ * and cannot import a React module.
+ *
+ * It goes stale SILENTLY -- a spec measuring eight chips while the app ships
+ * eleven still passes -- so `nearby-check-in-sheet.test.tsx` asserts the two
+ * lists match. Change one, change the other.
+ */
 const CATEGORY_LABELS = [
   "All",
   "Food",
@@ -218,8 +239,11 @@ const CATEGORY_LABELS = [
   "Shops",
   "Hotels",
   "Education",
-  "Outdoors",
+  "Leisure",
   "Transit",
+  "Worship",
+  "Civic",
+  "More",
 ];
 
 /** The longest realistic venue name plus the longest realistic category. */
@@ -298,6 +322,15 @@ const CANDIDATES = [
   CHECK_IN_PLACE_NAME_CLASSNAME,
   CHECK_IN_PLACE_META_CLASSNAME,
   CHECK_IN_PLACE_DISTANCE_CLASSNAME,
+  // Every constant measured below must be here, or Tailwind compiles the
+  // fixture stylesheet without it and each assertion passes against an
+  // unstyled box.
+  CHECK_IN_STAR_ROW_CLASSNAME,
+  CHECK_IN_STAR_TARGET_CLASSNAME,
+  CHECK_IN_STAR_GLYPH_ON_CLASSNAME,
+  CHECK_IN_STAR_GLYPH_OFF_CLASSNAME,
+  CHECK_IN_RATING_COMPOSER_CLASSNAME,
+  CHECK_IN_NOTE_TEXTAREA_CLASSNAME,
   buttonClass("default", "sm", "shrink-0 rounded-full"),
   buttonClass("secondary", "sm", "shrink-0 rounded-full"),
   buttonClass("default", "default", "h-12 min-h-12 w-full"),
@@ -599,4 +632,98 @@ test.describe("The desktop rail does not outgrow the map", () => {
       }
     });
   }
+});
+
+/**
+ * The rating step's whole layout contract is one sentence: choosing a star must
+ * not change the pane's height.
+ *
+ * The map puts a ResizeObserver on this sheet and republishes
+ * `map.setPadding()` on every height change, so a composer that swaps a helper
+ * line for a textarea by growing would settle the camera a second time in the
+ * middle of the interaction. JSDOM cannot see any of this; only a real browser
+ * can.
+ */
+test.describe("the rating step does not move the map", () => {
+  const ratingBody = (withNote: boolean) => `
+    <section style="width:100%">
+      <div class="${CHECK_IN_STAR_ROW_CLASSNAME}" data-testid="stars">
+        ${[1, 2, 3, 4, 5]
+          .map(
+            (n) => `<span class="${CHECK_IN_STAR_TARGET_CLASSNAME}" data-testid="star-${n}">
+              <span class="${
+                withNote && n <= 4
+                  ? CHECK_IN_STAR_GLYPH_ON_CLASSNAME
+                  : CHECK_IN_STAR_GLYPH_OFF_CLASSNAME
+              }"></span>
+            </span>`,
+          )
+          .join("")}
+      </div>
+      <div class="${CHECK_IN_RATING_COMPOSER_CLASSNAME}" data-testid="composer">
+        ${
+          withNote
+            ? `<textarea class="${CHECK_IN_NOTE_TEXTAREA_CLASSNAME}" data-testid="note">${"a very long note ".repeat(
+                40,
+              )}</textarea>`
+            : `<p>Tap a star to rate. Only you see this.</p>`
+        }
+      </div>
+    </section>`;
+
+  async function composerHeight(page: Page, withNote: boolean) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(
+      await buildFixture(
+        `check-in-rating-${withNote ? "note" : "empty"}`,
+        ratingBody(withNote),
+        CANDIDATES,
+      ),
+    );
+    await awaitProductFont(page);
+    await fontsReady(page);
+    return page.getByTestId("composer").boundingBox();
+  }
+
+  test("reserves one composer height whether or not a star has been chosen", async ({
+    page,
+  }) => {
+    const before = await composerHeight(page, false);
+    const after = await composerHeight(page, true);
+
+    expect(before?.height).toBeTruthy();
+    // Not "roughly": the whole point is that the number does not move.
+    expect(after?.height).toBe(before?.height);
+  });
+
+  test("does not let a long note grow the box", async ({ page }) => {
+    // `components/ui/textarea.tsx` ships `field-sizing-content`, which grows
+    // with what you type. `field-sizing-fixed` is the override that stops it,
+    // and this is what proves the override survived.
+    await composerHeight(page, true);
+    const note = await page.getByTestId("note").boundingBox();
+
+    expect(note?.height).toBeLessThanOrEqual(80);
+  });
+
+  test("gives every star a 44px target on the narrowest phone", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto(
+      await buildFixture("check-in-rating-320", ratingBody(false), CANDIDATES),
+    );
+    await awaitProductFont(page);
+    await fontsReady(page);
+
+    const tops = new Set<number>();
+    for (const n of [1, 2, 3, 4, 5]) {
+      const box = await page.getByTestId(`star-${n}`).boundingBox();
+      expect(box?.width).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+      expect(box?.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+      tops.add(Math.round(box?.y ?? 0));
+    }
+    // One row, never wrapped: five 44px targets fit inside 320px.
+    expect(tops.size).toBe(1);
+  });
 });

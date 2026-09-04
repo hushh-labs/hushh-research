@@ -1,4 +1,6 @@
+import json
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -20,6 +22,25 @@ def _db_returning(rows):
     """Mock get_db() whose execute_raw returns the given rows for every call."""
     db = SimpleNamespace(execute_raw=lambda sql, params=None: SimpleNamespace(data=rows))
     return lambda: db
+
+
+def test_feed_identity_label_uses_canonical_name_then_email_handle() -> None:
+    svc = _svc()
+    opaque_uid = "RPNmQAmVdlNz84GVfXxta50wnYx1"
+    svc._execute_one = lambda _sql, _params=None: {
+        "user_id": opaque_uid,
+        "display_name": opaque_uid,
+        "email": "alice@example.com",
+    }
+
+    assert svc._display_name_for(opaque_uid) == "alice"
+
+    svc._execute_one = lambda _sql, _params=None: {
+        "user_id": opaque_uid,
+        "display_name": opaque_uid,
+        "email": f"{opaque_uid}@example.com",
+    }
+    assert svc._display_name_for(opaque_uid) is None
 
 
 def test_create_request_inserts_pending_with_explicit_id():
@@ -214,7 +235,7 @@ def test_proposal_items_ria_picks_label_matches_catalog():
     assert "picks" in items[0]["description"].lower()
 
 
-def test_information_scope_catalog_requires_an_active_connection_and_filters_private_entries():
+def test_information_scope_catalog_is_connection_independent_and_filters_private_entries():
     svc = ConnectionsService(
         scope_entries_lookup=lambda _owner: [
             {
@@ -248,9 +269,8 @@ def test_information_scope_catalog_requires_an_active_connection_and_filters_pri
     assert result["items"][0]["match_reason"] == "substring_match"
 
     svc._execute_one = lambda _sql, _params=None: None
-    with pytest.raises(ConnectionsError) as exc:
-        svc.get_information_scope_catalog("user-a", "user-b")
-    assert exc.value.code == "CONNECTION_INFORMATION_SCOPE_FORBIDDEN"
+    without_connection = svc.get_information_scope_catalog("user-a", "user-b")
+    assert [entry["scope"] for entry in without_connection["items"]] == ["attr.financial.holdings"]
 
 
 class _RecordingDB:
@@ -865,6 +885,7 @@ def test_accept_creates_connection_and_two_trusted_edges():
             [{"id": "req-1"}],
         ]
     )
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.accept_request("user-b", "req-1")
     assert out["status"] == "accepted"
@@ -881,6 +902,12 @@ def test_accept_creates_connection_and_two_trusted_edges():
     # explicit OneLocationAccessRequest.
     assert not any("one_location_share_grants" in c[0] for c in db.calls)
     assert not any("one_location_map_preferences" in c[0] for c in db.calls)
+    feed_inserts = [(sql, params) for sql, params in db.calls if "INSERT INTO feed_events" in sql]
+    assert len(feed_inserts) == 2
+    assert {params["owner_user_id"] for _, params in feed_inserts} == {"user-a", "user-b"}
+    assert {params["source_row_id"] for _, params in feed_inserts} == {"req-1"}
+    assert {params["counterpart_label"] for _, params in feed_inserts} == {"Alice", "Bob"}
+    assert all("counterpart_user_id" not in params for _, params in feed_inserts)
 
 
 def test_accept_request_never_imports_or_calls_location_service():
@@ -1088,6 +1115,188 @@ def test_reject_rejected_when_not_addressee():
     assert exc.value.status_code == 403
 
 
+@pytest.mark.parametrize("terminal_status", ["accepted", "cancelled"])
+def test_reject_refuses_non_pending_terminal_requests(terminal_status: str) -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": terminal_status,
+    }
+    svc._execute_one = lambda *_args, **_kwargs: pytest.fail(
+        "a terminal request must not be mutated or projected"
+    )
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc.reject_request("user-b", "req-1")
+
+    assert exc.value.code == "CONNECTION_NOT_PENDING"
+    assert exc.value.status_code == 409
+
+
+def test_reject_retry_is_idempotent_without_duplicate_projection() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "rejected",
+    }
+    svc._execute_one = lambda *_args, **_kwargs: pytest.fail(
+        "an already-rejected request must not be mutated or projected"
+    )
+
+    assert svc.reject_request("user-b", "req-1") == {
+        "status": "rejected",
+        "requestId": "req-1",
+    }
+
+
+def test_reject_projects_only_after_the_guarded_update_succeeds() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    svc._execute_one = lambda _sql, _params=None: None
+    svc._resolve_pending_scope_proposals = lambda *_args, **_kwargs: pytest.fail(
+        "a lost pending transition must not resolve proposals"
+    )
+    svc._record_connection_feed_transition = lambda **_kwargs: pytest.fail(
+        "a lost pending transition must not create Feed history"
+    )
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc.reject_request("user-b", "req-1")
+
+    assert exc.value.code == "CONNECTION_NOT_PENDING"
+    assert exc.value.status_code == 409
+
+
+def test_reject_feed_projection_is_idempotent_and_omits_user_ids() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    calls: list[tuple[str, dict]] = []
+
+    def execute_one(sql, params=None):
+        calls.append((sql, params or {}))
+        return {"id": "req-1"}
+
+    svc._execute_one = execute_one
+    svc._resolve_pending_scope_proposals = lambda *_args, **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+    assert svc.reject_request("user-b", "req-1") == {
+        "status": "rejected",
+        "requestId": "req-1",
+    }
+
+    feed_inserts = [(sql, params) for sql, params in calls if "INSERT INTO feed_events" in sql]
+    assert len(feed_inserts) == 2
+    assert {params["source_row_id"] for _, params in feed_inserts} == {"req-1"}
+    assert all("counterpart_user_id" not in params for _, params in feed_inserts)
+
+
+def test_reject_feed_failure_rolls_back_the_relationship_transition() -> None:
+    """A durable relationship state may not commit without its Feed history."""
+
+    svc = _svc()
+    request_row = {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    events: list[tuple[str, object]] = []
+    db = _TransactionalDB(
+        [
+            [request_row],
+            [{"id": "req-1"}],
+        ],
+        events,
+    )
+    original_execute = db.connection.execute
+
+    def fail_feed_insert(statement, params=None):
+        sql = str(statement)
+        if "INSERT INTO feed_events" in sql:
+            db.connection.calls.append((sql, params or {}))
+            events.append(("execute", sql))
+            raise RuntimeError("simulated Feed write failure")
+        return original_execute(statement, params)
+
+    db.connection.execute = fail_feed_insert
+    svc._resolve_pending_scope_proposals = lambda *_args, **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        pytest.raises(RuntimeError, match="Feed write failure"),
+    ):
+        svc.reject_request("user-b", "req-1")
+
+    assert events[-1] == ("rollback", None)
+    update_index = next(
+        index
+        for index, (_kind, sql) in enumerate(events)
+        if isinstance(sql, str) and "UPDATE connection_requests" in sql
+    )
+    feed_index = next(
+        index
+        for index, (_kind, sql) in enumerate(events)
+        if isinstance(sql, str) and "INSERT INTO feed_events" in sql
+    )
+    assert update_index < feed_index
+
+
+def test_remove_connection_feed_projection_uses_connection_id() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    rows = iter(
+        [
+            {
+                "id": "conn-1",
+                "user_a_id": "user-a",
+                "user_b_id": "user-b",
+                "status": "active",
+            },
+            {"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"},
+        ]
+    )
+    calls: list[tuple[str, dict]] = []
+
+    def execute_one(sql, params=None):
+        calls.append((sql, params or {}))
+        if "INSERT INTO feed_events" in sql:
+            return None
+        return next(rows)
+
+    svc._execute_one = execute_one
+    svc._execute_many = lambda _sql, _params=None: []
+    svc._revoke_pair_capabilities = lambda **_kwargs: None
+    svc._end_one_location_circle_memberships = lambda **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+    assert svc.remove_connection("user-a", "conn-1") == {"removed": 1}
+
+    feed_inserts = [(sql, params) for sql, params in calls if "INSERT INTO feed_events" in sql]
+    assert len(feed_inserts) == 2
+    assert {params["source_row_id"] for _, params in feed_inserts} == {
+        "conn-1:2026-08-26T12:00:00+00:00"
+    }
+    assert all("counterpart_user_id" not in params for _, params in feed_inserts)
+
+
 def test_search_directory_reuses_ready_people_and_annotates_relationship():
     svc = _svc()
     # People come from the One Location "Ready people" lookup (list_verified_recipients),
@@ -1225,6 +1434,7 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
         "items": [
             {
                 "userId": "user-c",
+                "publicPersonRef": None,
                 "displayName": "Cara",
                 "photoUrl": None,
                 "email": None,
@@ -1473,6 +1683,70 @@ def test_list_connections_makes_no_ria_query_when_you_have_none():
 
     assert out == []
     assert len(db.calls) == 1
+
+
+def test_list_connections_stringifies_a_real_driver_datetime():
+    """The DB driver hands back a real datetime, not the string these fixtures
+    use elsewhere. The voice read tool serializes this dict with plain
+    json.dumps (no FastAPI encoder to save it) -- a raw datetime here crashes
+    the whole live session with no result ever reaching the user, which is
+    exactly what happened when asking to check a connection by voice."""
+    svc = _svc()
+    rows = [
+        {
+            "connection_id": "conn-1",
+            "user_id": "user-b",
+            "display_name": "Bob",
+            "photo_url": None,
+            "created_at": datetime(2026, 7, 9, 0, 0, 0, tzinfo=timezone.utc),
+        }
+    ]
+    db = _RecordingDB([rows, []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_connections("user-a")
+    assert out[0]["createdAt"] == "2026-07-09T00:00:00+00:00"
+    json.dumps(out)
+
+
+def test_list_requests_stringifies_a_real_driver_datetime():
+    """Same crash, the other read tool: list_pending_connection_requests hands
+    this dict to the same plain json.dumps path, including the nested
+    proposal 'scopes' rows, which carry three datetime columns of their own."""
+    svc = _svc()
+    now = datetime(2026, 7, 9, 0, 0, 0, tzinfo=timezone.utc)
+    request_rows = [
+        {
+            "id": "req-1",
+            "requester_user_id": "user-a",
+            "addressee_user_id": "user-b",
+            "status": "pending",
+            "message": None,
+            "created_at": now,
+            "metadata": None,
+            "counterpart_user_id": "user-b",
+            "counterpart_display_name": "Bob",
+        }
+    ]
+    proposal_rows = [
+        {
+            "id": "prop-1",
+            "scope_handle": "handle-1",
+            "capability_key": "cap.demo",
+            "direction": "requester_to_addressee",
+            "status": "pending",
+            "created_at": now,
+            "expires_at": now,
+            "resolved_at": None,
+        }
+    ]
+    db = _RecordingDB([request_rows, proposal_rows])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_requests("user-a", direction="outgoing")
+    assert out[0]["createdAt"] == "2026-07-09T00:00:00+00:00"
+    assert out[0]["scopes"][0]["createdAt"] == "2026-07-09T00:00:00+00:00"
+    assert out[0]["scopes"][0]["expiresAt"] == "2026-07-09T00:00:00+00:00"
+    assert out[0]["scopes"][0]["resolvedAt"] is None
+    json.dumps(out)
 
 
 def test_remove_connection_revokes_connection_and_trusted_edges():
@@ -2336,3 +2610,89 @@ def test_the_trusted_join_is_skipped_rather_than_guessed_without_a_transaction()
     svc._transaction_connection = None
 
     svc._join_trusted_system_circles(user_a_id="user-a", user_b_id="user-b")
+
+
+def test_get_voice_preferences_defaults_share_scopes_off_when_no_row():
+    svc = _svc()
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning([])):
+        preference = svc.get_voice_preferences(user_id="user-a")
+
+    assert preference == {"shareScopesFromLastRequest": False, "updatedAt": None}
+
+
+def test_update_voice_preferences_upserts_and_returns_stored_row():
+    svc = _svc()
+    calls = []
+    updated_at = datetime.now(timezone.utc)
+
+    def execute_raw(sql, params=None):
+        calls.append((sql, dict(params or {})))
+        if "INSERT INTO connection_voice_preferences" in sql:
+            return SimpleNamespace(
+                data=[{"share_scopes_from_last_request": True, "updated_at": updated_at}]
+            )
+        return SimpleNamespace(data=[])
+
+    db = SimpleNamespace(execute_raw=execute_raw)
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        preference = svc.update_voice_preferences(
+            user_id="user-a", share_scopes_from_last_request=True
+        )
+
+    upsert_sql, upsert_params = next(
+        (sql, params) for sql, params in calls if "INSERT INTO connection_voice_preferences" in sql
+    )
+    assert "ON CONFLICT (user_id) DO UPDATE SET" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user-a",
+        "share_scopes_from_last_request": True,
+    }
+    assert preference == {
+        "shareScopesFromLastRequest": True,
+        "updatedAt": updated_at.isoformat(),
+    }
+
+
+def test_update_voice_preferences_raises_when_upsert_returns_nothing():
+    svc = _svc()
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning([])):
+        with pytest.raises(ConnectionsError) as excinfo:
+            svc.update_voice_preferences(user_id="user-a", share_scopes_from_last_request=True)
+
+    assert excinfo.value.code == "CONNECTION_VOICE_PREFERENCES_UPDATE_FAILED"
+
+
+def test_get_last_request_scope_handles_splits_by_direction():
+    svc = _svc()
+    responses = iter(
+        [
+            SimpleNamespace(data=[{"id": "req-9"}]),  # latest request lookup
+            SimpleNamespace(
+                data=[
+                    {"scope_handle": "location.live", "direction": "requested"},
+                    {"scope_handle": "calendar.busy", "direction": "offered"},
+                    {"scope_handle": "location.history", "direction": "requested"},
+                ]
+            ),
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        handles = svc.get_last_request_scope_handles(
+            requester_user_id="user-a", addressee_user_id="user-b"
+        )
+
+    assert handles == {
+        "requestedScopeHandles": ["location.live", "location.history"],
+        "offeredScopeHandles": ["calendar.busy"],
+    }
+
+
+def test_get_last_request_scope_handles_is_empty_for_a_first_time_recipient():
+    svc = _svc()
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning([])):
+        handles = svc.get_last_request_scope_handles(
+            requester_user_id="user-a", addressee_user_id="user-b"
+        )
+
+    assert handles == {"requestedScopeHandles": [], "offeredScopeHandles": []}

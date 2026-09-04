@@ -25,10 +25,12 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", async () => 
     LocationPickerMap: ({
       ref,
       onConfirm,
+      onSelectionChange,
       onReadyChange,
       onCancel,
       confirmLabel,
       cancelLabel,
+      embedded,
       rendererDisclosureAccepted,
       onAcceptRendererDisclosure,
     }: {
@@ -38,10 +40,16 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", async () => 
         longitude: number;
         address: string;
       }) => void;
+      onSelectionChange?: (picked: {
+        latitude: number;
+        longitude: number;
+        address: string;
+      }) => void;
       onReadyChange?: (ready: boolean) => void;
       onCancel: () => void;
-      confirmLabel: string;
-      cancelLabel: string;
+      confirmLabel?: string;
+      cancelLabel?: string;
+      embedded?: boolean;
       rendererDisclosureAccepted: boolean;
       onAcceptRendererDisclosure: () => Promise<void>;
     }) => {
@@ -63,6 +71,11 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", async () => 
       useEffect(() => {
         onReadyChange?.(mapPickerMockState.canConfirm);
       }, [onReadyChange]);
+      useEffect(() => {
+        if (mapPickerMockState.canConfirm) {
+          onSelectionChange?.(mapPickerMockState.picked);
+        }
+      }, [onSelectionChange]);
       if (!rendererDisclosureAccepted) {
         return (
           <button
@@ -72,6 +85,9 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", async () => 
             Use Google Maps
           </button>
         );
+      }
+      if (embedded) {
+        return <div aria-label="Mock embedded location picker" />;
       }
       return (
         <div aria-label="Mock location picker">
@@ -1102,8 +1118,9 @@ describe("SaveLocationModal", () => {
 
       const footer = screen.getByRole("button", { name: /Save location/ })
         .parentElement!;
+      expect(footer.className).toContain("bg-background");
       expect(footer.className).toContain(
-        "bg-[color:var(--app-card-surface-default-solid)]",
+        "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
       );
       expect(footer.className).not.toContain("/95");
       expect(footer.className).not.toContain("sticky");
@@ -1465,6 +1482,63 @@ describe("SaveLocationModal", () => {
       }
     });
 
+    it("stays a bottom sheet, under the app's own layers, by default", () => {
+      // Saving a place from Settings is a sheet over a screen you are coming
+      // back to, and that screen is SUPPOSED to stay visible behind it. The
+      // takeover geometry must not leak into this lane.
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} />);
+        const surface = screen.getByTestId("save-location-modal");
+
+        expect(surface.className).toContain("z-[601]");
+        expect(surface.className).not.toContain("z-[9101]");
+        expect(surface.className).not.toContain("top-0");
+        expect(surface.className).not.toContain("max-h-none");
+      } finally {
+        restore();
+      }
+    });
+
+    it("covers the app's chrome when it is an onboarding step", () => {
+      // QA, photographing the pin step: the back arrow, the avatar and the
+      // Now / People / Links strip were sitting above it -- "onboarding screen
+      // mein yeh nav bar dikhna hi nahi chahiye".
+      //
+      // Two halves to that. The surface reached only 92% of the screen from
+      // the bottom, so the top was never its to cover; and it was pinned at
+      // z-600/601 against an onboarding takeover that has since moved to
+      // z-[9000], so it was being painted UNDER the screen it belongs to.
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} takeover />);
+        const surface = screen.getByTestId("save-location-modal");
+
+        // Above the z-[9000] takeover, not below it.
+        expect(surface.className).toContain("z-[9101]");
+        expect(surface.className).not.toContain("z-[601]");
+
+        // Top of the screen to just above the keyboard: `top-0` joins the
+        // primitive's `bottom-[var(--kb-height,0px)]`, and the 92% cap is
+        // erased rather than left to win on stylesheet order.
+        expect(surface.className).toContain("top-0");
+        expect(surface.className).toContain("max-h-none");
+        expect(surface.className).not.toContain(
+          "max-h-[calc((100dvh-var(--kb-height,0px))*0.92)]",
+        );
+        expect(surface.className).toContain("bottom-[var(--kb-height,0px)]");
+
+        // A surface that reaches the top has to clear the status bar itself.
+        expect(surface.className).toContain(
+          "pt-[calc(env(safe-area-inset-top,0px)+20px)]",
+        );
+        // Nothing left to round against, and no edge to draw.
+        expect(surface.className).toContain("rounded-none");
+      } finally {
+        restore();
+      }
+    });
+
     it("makes the step rail the drag surface, without a second handle", () => {
       const restore = asPhone();
       try {
@@ -1550,6 +1624,205 @@ describe("SaveLocationModal", () => {
       } finally {
         restore();
       }
+    });
+  });
+
+  describe("the unified onboarding place step", () => {
+    const unifiedProps = (overrides: Record<string, unknown> = {}) => ({
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      onPickExactLocation: vi.fn(),
+      onBack: vi.fn(),
+      collectAddressDetails: true,
+      unifiedOnboarding: true,
+      ...overrides,
+    });
+
+    const asPhone = () => {
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        matches: query === "(max-width: 639.98px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+      return () => {
+        window.matchMedia = original;
+      };
+    };
+
+    it("renders the map, editable address, optional details, and category in one screen", async () => {
+      render(<SaveLocationModal {...unifiedProps()} />);
+
+      expect(
+        screen.getByRole("navigation", {
+          name: "One Location setup progress",
+        }),
+      ).toHaveTextContent("3 of 4");
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Save this place" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByLabelText("Mock embedded location picker"),
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByLabelText("Address")).toHaveValue(
+          "Kartavya Path, New Delhi, Delhi 110001, India",
+        ),
+      );
+      expect(screen.getByLabelText("House or flat")).toBeInTheDocument();
+      expect(screen.getByLabelText("Landmark")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Home" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Work" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Other" })).toBeInTheDocument();
+      expect(
+        screen.getByText("Private to you. Nothing is shared until you choose."),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Save & continue" }),
+      ).toBeEnabled();
+      expect(
+        screen.getByRole("button", { name: "Skip saving this place" }),
+      ).toBeInTheDocument();
+
+      expect(
+        screen.queryByRole("button", { name: "Confirm pin" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "Address details" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("save-location-sheet-grabber"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps Back separate from skipping the saved place", () => {
+      const onBack = vi.fn();
+      const onSkip = vi.fn();
+      render(
+        <SaveLocationModal
+          {...unifiedProps({ onBack, onSkip })}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Back to what One Location does",
+        }),
+      );
+      expect(onBack).toHaveBeenCalledTimes(1);
+      expect(onSkip).not.toHaveBeenCalled();
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Skip saving this place" }),
+      );
+      expect(onSkip).toHaveBeenCalledTimes(1);
+      expect(onBack).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses a keyboard-safe full-width sheet on phones", () => {
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...unifiedProps()} />);
+
+        const surface = screen.getByTestId("save-location-modal");
+        expect(surface.dataset.slot).toBe("sheet-content");
+        expect(surface.className).toContain("w-full");
+        expect(surface.className).toContain("inset-x-0");
+        expect(surface.className).toContain("bottom-[var(--kb-height,0px)]");
+        expect(surface.className).toContain(
+          "max-h-[calc((100dvh-var(--kb-height,0px))*0.96)]",
+        );
+
+        const scroll = screen.getByTestId(
+          "one-location-onboarding-save-place-scroll",
+        );
+        expect(scroll.className).toContain("overflow-y-auto");
+        const footer = screen
+          .getByRole("button", { name: "Save & continue" })
+          .closest("footer");
+        expect(footer?.className).toContain("shrink-0");
+        expect(footer?.className).toContain("env(safe-area-inset-bottom,0px)");
+      } finally {
+        restore();
+      }
+    });
+
+    it("recomposes into a stable wide dialog on desktop", () => {
+      render(<SaveLocationModal {...unifiedProps()} />);
+
+      const surface = screen.getByTestId("save-location-modal");
+      expect(surface.dataset.slot).toBe("dialog-content");
+      expect(surface.className).toContain("!h-[min(92dvh,860px)]");
+      expect(surface.className).toContain(
+        "sm:!max-w-[min(1120px,calc(100vw-48px))]",
+      );
+      const details = screen.getByLabelText("Place details");
+      expect(details.parentElement?.className).toContain("lg:grid-cols-");
+    });
+
+    it("submits one atomic pin-and-form payload and retains it after a save error", async () => {
+      const onSave = vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      render(<SaveLocationModal {...unifiedProps({ onSave })} />);
+
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Save & continue" })).toBeEnabled(),
+      );
+      fireEvent.change(screen.getByLabelText("Address"), {
+        target: { value: "12 Custom Road, Bengaluru 560001" },
+      });
+      fireEvent.change(screen.getByLabelText("House or flat"), {
+        target: { value: " Flat 4B " },
+      });
+      fireEvent.change(screen.getByLabelText("Landmark"), {
+        target: { value: "Near the main gate" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Other" }));
+      fireEvent.change(screen.getByLabelText("Name it"), {
+        target: { value: " Parents' home " },
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
+
+      const expectedPayload = [
+        "other",
+        "Parents' home",
+        {
+          houseOrFlat: "Flat 4B",
+          buildingColor: "",
+          landmark: "Near the main gate",
+          postalCode: "560001",
+        },
+        "12 Custom Road, Bengaluru 560001",
+        mapPickerMockState.picked,
+      ] as const;
+      await waitFor(() =>
+        expect(onSave).toHaveBeenNthCalledWith(1, ...expectedPayload),
+      );
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        /details are still here/i,
+      );
+      expect(screen.getByLabelText("Address")).toHaveValue(
+        "12 Custom Road, Bengaluru 560001",
+      );
+      expect(screen.getByLabelText("House or flat")).toHaveValue(" Flat 4B ");
+      expect(screen.getByLabelText("Landmark")).toHaveValue(
+        "Near the main gate",
+      );
+      expect(screen.getByLabelText("Name it")).toHaveValue(" Parents' home ");
+
+      fireEvent.click(screen.getByRole("button", { name: "Try saving again" }));
+      await waitFor(() =>
+        expect(onSave).toHaveBeenNthCalledWith(2, ...expectedPayload),
+      );
     });
   });
 });

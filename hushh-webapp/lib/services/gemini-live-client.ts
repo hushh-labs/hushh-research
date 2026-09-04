@@ -816,6 +816,24 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       return;
     }
 
+    const toolTrace = readRecord(message.toolTrace);
+    const toolTraceKind = readString(toolTrace?.kind);
+    if (toolTrace && toolTraceKind) {
+      const eventOptions = this.nextEventOptions();
+      this.handlers.onEvent?.({
+        type: "tool_trace",
+        provider: this.provider,
+        trace: {
+          kind: toolTraceKind,
+          payload: readRecord(toolTrace.payload) || undefined,
+        },
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+      return;
+    }
+
     const serverContent = message.serverContent as
       | {
           modelTurn?: { parts?: Array<Record<string, unknown>> };
@@ -904,6 +922,16 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     if (serverContent.interrupted) {
       this.modelTurnOpen = false;
+      // The turn that was open is now closed, one way or another -- whatever
+      // the visitor says next is a fresh utterance, not a continuation of
+      // whatever last set this. Without this reset, voice_activity_start
+      // only ever fires once for the whole socket instead of once per
+      // utterance, which silently breaks every backend guard keyed on it
+      // meaning "fresh speech" (live_voice_context.py's per-turn dedupe
+      // clears, the already-completed/already-failed loop guards, stale
+      // directive disarming) for the rest of the call after the first thing
+      // the visitor says.
+      this.visitorActivitySent = false;
       this.stopPlayback();
       this.setState("listening");
       return;
@@ -914,6 +942,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       // settle back to listening when nothing is queued for playback.
       // When audio is still queued, the last node's onended settles instead.
       this.modelTurnOpen = false;
+      this.visitorActivitySent = false;
       this.suppressModelAudio = false;
       if (
         this.activeSources.size === 0 &&

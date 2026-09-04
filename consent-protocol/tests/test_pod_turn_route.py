@@ -439,9 +439,14 @@ async def test_a_pod_with_no_identity_of_its_own_refuses(enabled, monkeypatch):
 
 def test_the_credential_bound_matches_the_hubs():
     """A tighter cap here would 422 credentials the hub accepts, surfacing through
-    the relay as an opaque refusal rather than an actionable message."""
-    from api.routes.kai.agent_chat import AgentChatStreamRequest
+    the relay as an opaque refusal rather than an actionable message.
+
+    This used to compare against ``api/routes/kai/agent_chat.py``. That SSE transport
+    was replaced by the AG-UI route, so the hub-side door a pod turn actually passes
+    through is the relay request model. Same invariant, current owner.
+    """
+    from api.routes.one.pod_relay import PodTurnRelayRequest
 
     pod_max = PodTurnRequest.model_fields["runtime_credential"].metadata
-    hub_max = AgentChatStreamRequest.model_fields["runtime_credential"].metadata
+    hub_max = PodTurnRelayRequest.model_fields["runtime_credential"].metadata
     assert str(pod_max) == str(hub_max)

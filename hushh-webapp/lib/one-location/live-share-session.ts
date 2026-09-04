@@ -254,34 +254,15 @@ function recipientKey(entry: LiveShareSessionEntry, index: number): string {
 /**
  * The one grant the hero card's Stop (and its duration editor) may act on.
  *
- * The rule was "exactly one live entry", which read a GRANT count as a PERSON
- * count. Once an ordinary share and an SOS share to the same person can both be
- * live, that silently returned `null` for a single friend -- taking away the
- * owner's Stop button and their end-time editor at the exact moment they had
- * the most sharing running.
- *
- * The rule is a headcount now. With more than one person there is still no
- * single share to end, so the card keeps offering Manage. With one person the
- * ORDINARY share is what this resolves to: the SMS-lane share has its own Stop
- * on the SOS screen, ending it is a distinct decision ("I'm safe") from ending
- * a normal share, and after the two-lane split neither one stops the other.
- * When the SOS share is the only thing running it resolves to that, which is
- * exactly what happened before.
+ * The hero card may expose Stop only when there is exactly one grant. A person
+ * can hold both an ordinary share and a Save My Soul lane at once; in that case
+ * Stop has to move to Manage, where each lane states exactly what will end.
  */
 export function resolveStoppableGrantId(
   entries: LiveShareSessionEntry[],
 ): string | null {
-  if (!entries.length) return null;
-  const people = new Set(entries.map(recipientKey));
-  if (people.size !== 1) return null;
-
-  const ordinary = entries.filter((entry) => entry.shareKind !== "sos");
-  const candidates = ordinary.length ? ordinary : entries;
-  // Same-lane replacement still guarantees one live grant per lane per pair, so
-  // this is a belt-and-braces refusal: given an ambiguity that should not exist,
-  // offer Manage rather than guess which share a tap meant to end.
-  if (candidates.length !== 1) return null;
-  return candidates[0]?.grantId ?? null;
+  if (entries.length !== 1) return null;
+  return entries[0]?.grantId ?? null;
 }
 
 /** Collapse the live shares into the one window the status card renders. */

@@ -150,7 +150,12 @@ export function PhoneMandateGuard({
     }
 
     let cancelled = false;
-    const setVaultPresence = (next: boolean) => {
+    // `boolean | null`, because the bootstrap state now reports "not read
+    // yet" as null instead of flattening it to false. This component already
+    // handles that: null holds the redirect (`hasVault !== null` below) and
+    // renders the loader rather than deciding. Only this setter was narrower
+    // than the value it receives.
+    const setVaultPresence = (next: boolean | null) => {
       if (!cancelled) {
         setHasVault((current) => (current === next ? current : next));
       }

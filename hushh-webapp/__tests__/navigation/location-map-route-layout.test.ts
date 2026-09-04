@@ -22,4 +22,15 @@ describe("Location Your Map route contract", () => {
     });
     expect(resolveTopShellTabSet(ROUTES.ONE_LOCATION_CHECK_IN)).toBeNull();
   });
+
+  it("keeps Hotel Check-In hidden until a real eligible stay exists", () => {
+    expect(
+      resolveAppRouteLayout(ROUTES.ONE_LOCATION_HOTEL_CHECK_IN),
+    ).toMatchObject({
+      mode: "hidden",
+      persistentChrome: "none",
+      interactionLayerPolicy: { allowedFamilies: [] },
+    });
+    expect(resolveTopShellTabSet(ROUTES.ONE_LOCATION_HOTEL_CHECK_IN)).toBeNull();
+  });
 });

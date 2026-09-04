@@ -1,8 +1,6 @@
-#!/usr/bin/env node
-
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +32,52 @@ const CAPABILITY_GUARD_COVERAGE_PATH = path.resolve(
   "contracts/kai/capability-guard-coverage.v1.json",
 );
 
+// Mirrors GLOBAL_NAV_ACTION_IDS in hushh-webapp/lib/voice/screen-context-builder.ts.
+// There is no automated cross-file sync for this; bump both together. Used only to
+// decide alias-collision risk below -- a global-nav id can appear alongside any
+// screen's own actions, so it always counts as co-occurring with everything.
+const GLOBAL_NAV_ACTION_IDS = new Set([
+  "route.one_agents",
+  "route.kai_home",
+  "route.ria_home",
+  "route.profile",
+  "route.one_location",
+  "route.one_pkm",
+  "route.consents",
+  "route.profile_connected_systems",
+  "route.voice_settings",
+  "route.one_feed",
+]);
+
+// Alias collisions the guard below is allowed to ignore. Empty, and meant to
+// stay that way: an entry here is a known-broken pair kept only long enough
+// for a follow-up PR to resolve it, never a permanent exemption. The 12
+// pre-existing pairs seeded when this guard was introduced (#6081-#6085) were
+// all retired in the PR that emptied this set -- each resolved by removing the
+// shared alias from whichever action had the weaker claim to it, so a bare
+// phrase now resolves to exactly one action.
+const KNOWN_ALIAS_COLLISIONS = new Set([]);
+
+// The frontend gateway parser (lib/voice/kai-action-gateway.ts) only knows
+// how to keep an action whose execution_target.path is one of these -- any
+// other value makes it drop the whole action, silently, everywhere (#6122:
+// location.find_contacts and ria.clients.switch_to_nearby vanished this way
+// for a release before anyone noticed). Failing the build here means a
+// typo'd or newly-invented path is caught at authoring time instead.
+const KNOWN_EXECUTION_TARGET_PATHS = new Set([
+  "kai_command",
+  "voice_tool",
+  "route",
+  "local_handler",
+  "control",
+]);
+const SIRI_MODES = new Set([
+  "direct",
+  "review_ui",
+  "conversation_only",
+  "unsupported",
+]);
+
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
 const AGENT_PERSONAS = new Set([
   "one",
@@ -41,6 +85,7 @@ const AGENT_PERSONAS = new Set([
   "nav",
   "agent_kyc",
   "agent_nav",
+  "agent_wallet",
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
@@ -423,6 +468,17 @@ function normalizeExecutionTarget(raw, actionId) {
         `${actionId}: wired execution_target requires path and target`,
       );
     }
+    if (!KNOWN_EXECUTION_TARGET_PATHS.has(pathValue)) {
+      throw new Error(
+        `${actionId}: execution_target.path "${pathValue}" is not one of ` +
+          `${[...KNOWN_EXECUTION_TARGET_PATHS].join(", ")} -- the frontend ` +
+          `gateway parser silently drops the entire action for an ` +
+          `unrecognized path (see kai-action-gateway.ts's ` +
+          `validateExecutionTarget). Add the new path to ` +
+          `KNOWN_EXECUTION_TARGET_PATHS here and to the matching union in ` +
+          `kai-action-gateway.ts if it is genuinely new.`,
+      );
+    }
     const normalized = {
       status,
       path: pathValue,
@@ -586,6 +642,10 @@ function normalizeAction(surface, action) {
   const riskLevel = cleanString(action.risk_level);
   const executionPolicy = cleanString(action.execution_policy);
   const activationPolicy = cleanString(action.activation_policy) || "none";
+  const siriMode = cleanString(action.siri_mode) || "unsupported";
+  const siriVaultLockedFallbackActionId = cleanString(
+    action.siri_vault_locked_fallback_action_id,
+  );
   if (!actionId || !label || !meaning || !riskLevel || !executionPolicy) {
     throw new Error(
       `${surface.surface_id}: action requires action_id, label, meaning, risk_level, execution_policy`,
@@ -594,6 +654,25 @@ function normalizeAction(surface, action) {
   if (!["none", "trusted_activation_required"].includes(activationPolicy)) {
     throw new Error(
       `${actionId}: activation_policy must be none or trusted_activation_required`,
+    );
+  }
+  if (!SIRI_MODES.has(siriMode)) {
+    throw new Error(
+      `${actionId}: siri_mode must be one of ${Array.from(SIRI_MODES).join(", ")}`,
+    );
+  }
+  if (
+    action.siri_requires_vault !== undefined &&
+    typeof action.siri_requires_vault !== "boolean"
+  ) {
+    throw new Error(`${actionId}: siri_requires_vault must be a boolean`);
+  }
+  if (
+    action.siri_vault_locked_fallback_action_id !== undefined &&
+    !siriVaultLockedFallbackActionId
+  ) {
+    throw new Error(
+      `${actionId}: siri_vault_locked_fallback_action_id must be a non-empty action id`,
     );
   }
   const speakerPersona =
@@ -639,6 +718,10 @@ function normalizeAction(surface, action) {
     risk_level: riskLevel,
     execution_policy: executionPolicy,
     activation_policy: activationPolicy,
+    siri_mode: siriMode,
+    siri_requires_vault: action.siri_requires_vault === true,
+    siri_vault_locked_fallback_action_id:
+      siriVaultLockedFallbackActionId || null,
     execution_target: normalizeExecutionTarget(
       action.execution_target,
       actionId,
@@ -659,6 +742,71 @@ function normalizeAction(surface, action) {
   normalized.expected_effects.state_changes =
     deriveDefaultStateChanges(normalized);
   return normalized;
+}
+
+function validateSiriExposure(actions) {
+  const actionsById = new Map(
+    actions.map((action) => [action.action_id, action]),
+  );
+
+  for (const action of actions) {
+    const { execution_target: target } = action;
+    if (action.siri_mode === "direct") {
+      if (
+        target.status !== "wired" ||
+        !["local_handler", "control"].includes(target.path)
+      ) {
+        throw new Error(
+          `${action.action_id}: siri_mode direct requires a wired local_handler or control target`,
+        );
+      }
+      if (action.execution_policy === "manual_only") {
+        throw new Error(
+          `${action.action_id}: a manual_only action cannot be exposed as a direct Siri action`,
+        );
+      }
+    } else if (action.siri_mode === "review_ui") {
+      if (
+        target.status !== "wired" ||
+        target.path !== "route" ||
+        action.execution_policy !== "allow_direct" ||
+        action.risk_level !== "low"
+      ) {
+        throw new Error(
+          `${action.action_id}: siri_mode review_ui requires a wired, low-risk, allow_direct route`,
+        );
+      }
+    } else if (action.siri_mode === "conversation_only") {
+      if (target.status !== "wired" || target.path !== "voice_tool") {
+        throw new Error(
+          `${action.action_id}: siri_mode conversation_only requires a wired voice_tool target`,
+        );
+      }
+    }
+
+    if (
+      action.siri_requires_vault &&
+      action.siri_mode !== "direct"
+    ) {
+      throw new Error(
+        `${action.action_id}: siri_requires_vault is valid only for direct Siri actions`,
+      );
+    }
+
+    const fallbackId = action.siri_vault_locked_fallback_action_id;
+    if (!fallbackId) continue;
+    if (!action.siri_requires_vault || action.siri_mode !== "direct") {
+      throw new Error(
+        `${action.action_id}: a Siri vault fallback requires a vault-gated direct action`,
+      );
+    }
+    const fallback = actionsById.get(fallbackId);
+    if (!fallback || fallback.siri_mode !== "review_ui") {
+      throw new Error(
+        `${action.action_id}: Siri vault fallback ${fallbackId} must resolve to a review_ui action`,
+      );
+    }
+  }
 }
 
 function normalizeSurface(contractPath, raw) {
@@ -801,6 +949,65 @@ async function readContracts() {
   };
 }
 
+// A bare alias owned by two actions is not just noisy: the backend ranker
+// (consent-protocol/hushh_mcp/one_adk/action_tools.py `_relevance_score`)
+// scores a full-phrase exact alias match at +90, well clear of label (+20) or
+// meaning (+5) -- so whichever action happens to own a shared alias wins
+// outright, and no amount of better `meaning` text on the other side can
+// out-argue it. This only matters when both actions could plausibly be in
+// the same per-turn candidate set at once; two actions on unrelated,
+// never-co-visible screens sharing a word is not a real routing risk.
+function validateAliasCollisions(actions) {
+  const wired = actions.filter(
+    (action) => action.execution_target?.status === "wired",
+  );
+  const ownersByAlias = new Map();
+  for (const action of wired) {
+    for (const alias of action.aliases) {
+      const key = alias.trim().toLowerCase();
+      if (!key) continue;
+      if (!ownersByAlias.has(key)) ownersByAlias.set(key, []);
+      ownersByAlias.get(key).push(action);
+    }
+  }
+
+  const canCoOccur = (a, b) => {
+    if (a.surface_id === b.surface_id) return true;
+    if (GLOBAL_NAV_ACTION_IDS.has(a.action_id) || GLOBAL_NAV_ACTION_IDS.has(b.action_id)) {
+      return true;
+    }
+    const aScreens = new Set(a.reachability?.screens || []);
+    return (b.reachability?.screens || []).some((screen) => aScreens.has(screen));
+  };
+
+  const offenders = [];
+  for (const [alias, owners] of ownersByAlias) {
+    if (owners.length < 2) continue;
+    for (let i = 0; i < owners.length; i += 1) {
+      for (let j = i + 1; j < owners.length; j += 1) {
+        const [a, b] = [owners[i], owners[j]].sort((x, y) =>
+          x.action_id.localeCompare(y.action_id),
+        );
+        if (!canCoOccur(a, b)) continue;
+        const collisionKey = `${alias}::${a.action_id}::${b.action_id}`;
+        if (KNOWN_ALIAS_COLLISIONS.has(collisionKey)) continue;
+        offenders.push(`"${alias}": ${a.action_id} vs ${b.action_id}`);
+      }
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new Error(
+      "Alias collision(s) between actions that can appear in the same turn " +
+        "(same surface, shared reachable screen, or global nav):\n  " +
+        offenders.join("\n  ") +
+        "\nMove or remove the alias from one action, or -- only if this is a " +
+        "genuine, deliberate, low-stakes overlap -- add it to " +
+        "KNOWN_ALIAS_COLLISIONS in this file with a one-line reason.",
+    );
+  }
+}
+
 async function validateCapabilityGuardCoverage(contracts) {
   const raw = JSON.parse(
     await fs.readFile(CAPABILITY_GUARD_COVERAGE_PATH, "utf8"),
@@ -873,6 +1080,8 @@ async function main() {
   const checkOnly = args.has("--check");
 
   const contracts = await readContracts();
+  validateSiriExposure(contracts.actions);
+  validateAliasCollisions(contracts.actions);
   await validateCapabilityGuardCoverage(contracts);
   const gatewayPayload = createGatewayPayload(contracts);
   const gatewayText = `${JSON.stringify(gatewayPayload, null, 2)}\n`;
@@ -898,7 +1107,21 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+// Only auto-run when executed directly (`node generate-kai-action-gateway.mjs`),
+// not when imported by a test -- importing this module must not perform file
+// I/O or throw as a side effect of loading it.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
+
+export {
+  validateAliasCollisions,
+  validateSiriExposure,
+  KNOWN_ALIAS_COLLISIONS,
+  GLOBAL_NAV_ACTION_IDS,
+  normalizeExecutionTarget,
+  KNOWN_EXECUTION_TARGET_PATHS,
+};

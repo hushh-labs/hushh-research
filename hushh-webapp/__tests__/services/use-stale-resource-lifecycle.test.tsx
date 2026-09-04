@@ -342,4 +342,54 @@ describe("useStaleResource lifecycle", () => {
     });
     expect(result.current.data).toEqual({ recovered: true });
   });
+
+  it("never lets a late response from a previous cache key overwrite the active resource", async () => {
+    let resolveFirst!: (value: string) => void;
+    let resolveSecond!: (value: string) => void;
+    const load = vi.fn(
+      (cacheKey: string) =>
+        new Promise<string>((resolve) => {
+          if (cacheKey === "feed:user-a") resolveFirst = resolve;
+          else resolveSecond = resolve;
+        }),
+    );
+
+    const { result, rerender } = renderHook(
+      ({ cacheKey }) =>
+        useStaleResource({
+          cacheKey,
+          enabled: true,
+          load: () => load(cacheKey),
+        }),
+      { initialProps: { cacheKey: "feed:user-a" } },
+    );
+
+    await waitFor(() => expect(load).toHaveBeenCalledWith("feed:user-a"));
+
+    rerender({ cacheKey: "feed:user-b" });
+
+    // The previous user's value is never exposed while the new request starts.
+    expect(result.current.data).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(true);
+    await waitFor(() => expect(load).toHaveBeenCalledWith("feed:user-b"));
+
+    await act(async () => {
+      getCache().set("feed:user-b", "user-b-data");
+      resolveSecond("user-b-data");
+    });
+    await waitFor(() => expect(result.current.data).toBe("user-b-data"));
+
+    // The first request settles last. It may still populate its own keyed cache,
+    // but it must not mutate the active hook state or its loading lifecycle.
+    await act(async () => {
+      getCache().set("feed:user-a", "user-a-data");
+      resolveFirst("user-a-data");
+    });
+
+    expect(result.current.data).toBe("user-b-data");
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
 });

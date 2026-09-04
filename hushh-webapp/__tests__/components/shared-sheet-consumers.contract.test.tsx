@@ -52,6 +52,7 @@ const SHEET_CONSUMERS = [
   "components/profile/profile-avatar-editor.tsx",
   "components/app-ui/settings-ui.tsx",
   "components/onboarding/AuthLegalDialog.tsx",
+  "components/agent/puppy-resource-monitor.tsx",
 ] as const;
 
 describe("the shared bottom sheet stays shared", () => {

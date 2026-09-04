@@ -15,6 +15,7 @@ export type DirectoryAudience = "all" | "people" | "ria";
 
 export interface DirectoryPerson {
   userId: string;
+  publicPersonRef?: string | null;
   displayName: string | null;
   photoUrl: string | null;
   email: string | null;
@@ -33,14 +34,17 @@ export interface DirectoryPage {
   items: DirectoryPerson[];
   page: number;
   hasMore: boolean;
+  totalCount: number;
   audience?: DirectoryAudience;
 }
 
 export interface ConnectionSummaryEntry {
   connectionId: string;
   userId: string;
+  publicPersonRef?: string | null;
   displayName: string | null;
   photoUrl: string | null;
+  email?: string | null;
   createdAt: string | null;
   /**
    * Whether this connection holds a verified RIA profile — the same
@@ -53,6 +57,11 @@ export interface ConnectionSummaryEntry {
   isRia?: boolean;
   /** Viewer-relative provenance; absent on pre-upgrade cached rows. */
   connectedFromContacts?: boolean;
+}
+
+export interface ConnectionVoicePreference {
+  shareScopesFromLastRequest: boolean;
+  updatedAt?: string | null;
 }
 
 export type ConnectionAudience = "all" | "ria";
@@ -345,7 +354,25 @@ export class ConnectionsService {
         headers: authHeaders(opts.idToken),
       },
     );
-    return jsonOrThrow<DirectoryPage>(response);
+    const payload = await jsonOrThrow<Partial<DirectoryPage>>(response);
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const page = Math.max(1, Number(payload.page) || opts.page || 1);
+    const limit = Math.max(1, Number(opts.limit) || items.length || 1);
+    const visibleUpperBound = (page - 1) * limit + items.length;
+    return {
+      items,
+      page,
+      hasMore: Boolean(payload.hasMore),
+      totalCount: Math.max(
+        0,
+        visibleUpperBound,
+        Number(payload.totalCount) || 0,
+      ),
+      audience:
+        payload.audience === "people" || payload.audience === "ria"
+          ? payload.audience
+          : opts.audience,
+    };
   }
 
   static async listConnections(opts: {
@@ -457,6 +484,32 @@ export class ConnectionsService {
     );
     const payload = await jsonOrThrow<{ request: ConnectionRequest }>(response);
     return payload.request;
+  }
+
+  static async getVoicePreferences(opts: {
+    idToken: string;
+  }): Promise<ConnectionVoicePreference> {
+    const response = await ApiService.apiFetch("/api/one/connect/voice-preferences", {
+      method: "GET",
+      headers: authHeaders(opts.idToken),
+    });
+    const payload = await jsonOrThrow<{ preferences: ConnectionVoicePreference }>(response);
+    return payload.preferences;
+  }
+
+  static async updateVoicePreferences(opts: {
+    idToken: string;
+    shareScopesFromLastRequest: boolean;
+  }): Promise<ConnectionVoicePreference> {
+    const response = await ApiService.apiFetch("/api/one/connect/voice-preferences", {
+      method: "PATCH",
+      headers: authHeaders(opts.idToken),
+      body: JSON.stringify({
+        share_scopes_from_last_request: opts.shareScopesFromLastRequest,
+      }),
+    });
+    const payload = await jsonOrThrow<{ preferences: ConnectionVoicePreference }>(response);
+    return payload.preferences;
   }
 
   static async getScopeProposalHistory(opts: {

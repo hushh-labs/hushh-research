@@ -52,7 +52,7 @@ jobs:
     name: Build & upload iOS (UAT) to TestFlight
     runs-on: macos-15
     environment: uat
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Assert manual dispatch originates from main
@@ -215,10 +215,10 @@ jobs:
           put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
           put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"
 
-          # Native GoogleService-Info.plist for the iOS target. This is NOT part of
-          # ios:prepare:uat, and sync:native-firebase-configs requires an Android
-          # config we don't have here, so decode the GCP secret straight into place.
-          PLIST_DEST="hushh-webapp/ios/App/App/GoogleService-Info.plist"
+          # Materialize the canonical root source consumed by
+          # sync:native-firebase-configs --platform ios. The prepare step copies
+          # this validated source into the iOS app target.
+          PLIST_SOURCE="GoogleService-Info.plist"
           if ! gcloud secrets describe IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
             echo "Missing GCP secret IOS_GOOGLESERVICE_INFO_PLIST_B64 in ${GCP_PROJECT_ID}." >&2
             echo "Create it from the iOS GoogleService-Info.plist:" >&2
@@ -227,8 +227,8 @@ jobs:
             exit 1
           fi
           gcloud secrets versions access latest --secret=IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" \
-            | openssl base64 -d -A > "$PLIST_DEST"
-          if ! plutil -lint "$PLIST_DEST" >/dev/null 2>&1; then
+            | openssl base64 -d -A > "$PLIST_SOURCE"
+          if ! plutil -lint "$PLIST_SOURCE" >/dev/null 2>&1; then
             echo "Decoded GoogleService-Info.plist failed plist validation." >&2
             exit 1
           fi
@@ -315,6 +315,13 @@ jobs:
           echo "next_build=${NEXT_BUILD}" >> "$GITHUB_OUTPUT"
           echo "Next build number: ${NEXT_BUILD}"
 
+      - name: Test App Store Connect release gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/test_resolve_ios_build_number.py
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/test_wait_for_testflight_build.py
+
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
@@ -334,6 +341,42 @@ jobs:
             -scheme "${XCODE_SCHEME}" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
+      - name: Run native iOS unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIMULATOR_ID="$(python3 - <<'PY'
+          import json
+          import subprocess
+
+          payload = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "--json"],
+                  text=True,
+              )
+          )
+          for runtime, devices in payload.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit(0)
+          raise SystemExit("No available iPhone Simulator is installed on the release runner.")
+          PY
+          )"
+          xcodebuild test \
+            -project "${XCODE_PROJECT}" \
+            -scheme "${XCODE_SCHEME}" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${SIMULATOR_ID}" \
+            -derivedDataPath "${RUNNER_TEMP}/derived-data" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            -only-testing:AppTests \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Archive
         shell: bash
         run: |
@@ -345,6 +388,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "${RUNNER_TEMP}/App.xcarchive" \
+            -derivedDataPath "${RUNNER_TEMP}/derived-data" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "${RUNNER_TEMP}/asc.p8" \
@@ -384,61 +428,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "${RUNNER_TEMP}/asc-venv/bin/python" - <<'EOF'
-          import urllib.request, json, time, jwt, os, sys
-
-          p8_path = os.environ["RUNNER_TEMP"] + "/asc.p8"
-          key_id = os.environ["ASC_KEY_ID"]
-          issuer_id = os.environ["ASC_ISSUER_ID"]
-          bundle_id = os.environ.get("IOS_BUNDLE_ID", "com.hushh.app")
-          target_version = "${{ steps.build_number.outputs.next_build }}"
-
-          with open(p8_path, "rb") as f:
-              p8_bytes = f.read()
-
-          def mint_token():
-              now = int(time.time())
-              payload = {"iss": issuer_id, "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"}
-              headers = {"kid": key_id, "typ": "JWT"}
-              return jwt.encode(payload, p8_bytes, algorithm="ES256", headers=headers)
-
-          token = mint_token()
-          req = urllib.request.Request(f"https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]={bundle_id}", headers={"Authorization": f"Bearer {token}"})
-          with urllib.request.urlopen(req) as r:
-              app_id = json.loads(r.read())["data"][0]["id"]
-
-          print(f"Polling App Store Connect for Build {target_version} processing status...")
-          success = False
-          for attempt in range(1, 31):
-              token = mint_token()
-              url = f"https://api.appstoreconnect.apple.com/v1/builds?filter[app]={app_id}&limit=10&sort=-uploadedDate&include=buildBetaDetail"
-              req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-              try:
-                  with urllib.request.urlopen(req) as r:
-                      data = json.loads(r.read())
-                  for b in data.get("data", []):
-                      attr = b.get("attributes") or {}
-                      ver = attr.get("version")
-                      state = attr.get("processingState")
-                      enc = attr.get("usesNonExemptEncryption")
-                      if str(ver) == str(target_version):
-                          print(f"Attempt {attempt}: Build {target_version} found! ProcessingState: {state}, EncryptionExempt: {enc == False}")
-                          if state == "VALID":
-                              print(f"==> Build {target_version} processing is VALID and TestFlight distribution is ready!")
-                              success = True
-                              break
-                          elif state in ("FAILED", "INVALID"):
-                              print(f"==> Build {target_version} processing failed on App Store Connect with state: {state}")
-                              sys.exit(1)
-              except Exception as exc:
-                  print(f"Attempt {attempt}: transient error querying ASC API: {exc}")
-              if success:
-                  break
-              time.sleep(15)
-
-          if not success:
-              print(f"==> Warning: Polling timed out before build {target_version} reached VALID state.")
-          EOF
+          MARKETING="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "${PBXPROJ}" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/wait_for_testflight_build.py \
+            --p8-path "${RUNNER_TEMP}/asc.p8" \
+            --key-id "${ASC_KEY_ID}" \
+            --issuer-id "${ASC_ISSUER_ID}" \
+            --bundle-id "${IOS_BUNDLE_ID}" \
+            --marketing-version "${MARKETING}" \
+            --build-number "${{ steps.build_number.outputs.next_build }}" \
+            --timeout-seconds 1200 \
+            --poll-interval-seconds 15
+          echo "upload_state=COMPLETE" >> "$GITHUB_OUTPUT"
+          echo "processing_state=VALID" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
         if: always()
@@ -470,6 +471,8 @@ jobs:
             echo "| Bundle | ${IOS_BUNDLE_ID} |"
             echo "| Backend | UAT (hushh-pda-uat) |"
             echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'dry run (no upload)' || 'upload to TestFlight' }} |"
+            echo "| Apple upload | ${{ steps.poll_asc.outputs.upload_state || (github.event.inputs.dry_run == 'true' && 'not uploaded' || 'not verified') }} |"
+            echo "| TestFlight processing | ${{ steps.poll_asc.outputs.processing_state || (github.event.inputs.dry_run == 'true' && 'not uploaded' || 'not verified') }} |"
             if [ -n "${{ github.event.inputs.notes }}" ]; then
               echo "| Notes | ${{ github.event.inputs.notes }} |"
             fi

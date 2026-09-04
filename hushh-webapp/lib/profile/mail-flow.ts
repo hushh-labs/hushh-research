@@ -41,15 +41,15 @@ export interface GmailStatusSummary {
  * what comes back out, which is the question being asked at the moment nothing
  * is connected yet.
  *
- * It names all three things the connection does. Receipts are the oldest and
- * were once the only one, but needs-a-reply threads and upcoming meetings ship
- * in `GmailNudgesSection` and belong in the promise made before connecting.
+ * It names only the features the connected Gmail workspace currently exposes.
+ * Personal-information monitoring is an independent, explicit opt-in after
+ * connection, so it must not be implied by the connection itself.
  *
  * The active-scan state does NOT share this: it has its own sentence inside
  * `describeGmailReceiptScanProgress`, which carries live counts.
  */
 export const GMAIL_INBOX_SIGNAL_EXPLANATION =
-  "One reads your inbox to flag what needs a reply, surfaces upcoming meetings, and turns your receipts into a private shopping summary.";
+  "One syncs purchase receipts into a private shopping summary. You can separately turn on KYC-request monitoring after connecting.";
 
 export function describeGmailReceiptScanProgress(params: {
   scanned: number;

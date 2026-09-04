@@ -20,11 +20,10 @@ import type {
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import { TaskFlowHeader } from "@/components/one-location/redesign/primitives";
 import {
-  CONTACT_AVATAR_TONE,
+  ContactAvatar,
   ContactGroup,
   ContactRow,
   EmptyStateCard,
-  initials,
 } from "@/components/one-location/redesign/contact-picker/atoms";
 import { CircleMemberPicker } from "@/components/one-location/redesign/contact-picker/circle-member-picker";
 import { ContactListControls } from "@/components/one-location/redesign/contact-picker/list-controls";
@@ -329,6 +328,8 @@ export function SmsContactsFlow({
                     return (
                       <ContactRow
                         label={label}
+                        photoUrl={recipient.photoUrl}
+                        verified={Boolean(recipient.isRia)}
                         subtitle={recipientSubtitle(recipient)}
                         fromContacts={recipient.connectedFromContacts}
                         selected={selectedIds.has(recipient.userId)}
@@ -380,22 +381,19 @@ export function SmsContactsFlow({
             the tested one -- and only wider viewports re-centre it. */}
         <AlertDialogContent
           size="sm"
-          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-xl"
+          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-[var(--app-card-shadow-standard)] dark:md:!shadow-none"
         >
           <AlertDialogHeader className="!place-items-center !text-center sm:!place-items-center sm:!text-center">
             {/* The person being removed, not a warning about them. A solid
                 orange well read as "attention" on a face, and white on
                 --app-warning measures ~2.2:1. The danger in this dialog is
                 carried by the red Remove button and the title copy. */}
-            <span
-              className={cn(
-                "flex h-[52px] w-[52px] items-center justify-center rounded-[16px] text-xl font-semibold",
-                CONTACT_AVATAR_TONE,
-              )}
-              aria-hidden
-            >
-              {pendingRemoval ? initials(recipientLabel(pendingRemoval)) : "?"}
-            </span>
+            <ContactAvatar
+              label={pendingRemoval ? recipientLabel(pendingRemoval) : "?"}
+              photoUrl={pendingRemoval?.photoUrl}
+              verified={Boolean(pendingRemoval?.isRia)}
+              className="h-[52px] w-[52px] rounded-[16px] text-xl"
+            />
             <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-semibold !leading-[25px] !tracking-normal">
               <span className="text-foreground">
                 Remove{" "}
@@ -427,7 +425,7 @@ export function SmsContactsFlow({
             <AlertDialogCancel
               variant="secondary"
               disabled={removing}
-              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-foreground hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
+              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-[color:var(--app-label)] hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
             >
               Cancel
             </AlertDialogCancel>

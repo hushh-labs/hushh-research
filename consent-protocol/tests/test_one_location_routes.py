@@ -172,6 +172,52 @@ def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) ->
     assert service.calls[0]["enforce_connection"] is True
 
 
+def test_set_grant_duration_route_binds_owner_and_exact_grant(monkeypatch) -> None:
+    class DurationRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def set_grant_duration(self, **kwargs):
+            self.calls.append(kwargs)
+            return authoritative_grant
+
+    grant_id = str(uuid.uuid4())
+    authoritative_grant = {
+        "id": grant_id,
+        "status": "active",
+        "durationMode": "timed",
+        "durationHours": 3.5,
+        "expiresAt": "2026-09-04T15:30:00+00:00",
+    }
+    service = DurationRouteProbe()
+    client = _client(  # type: ignore[arg-type]
+        service,
+        {"user_id": "owner-from-token"},
+        monkeypatch,
+    )
+
+    response = client.patch(
+        f"/api/one/location/grants/{grant_id}/duration",
+        json={
+            "durationMode": "timed",
+            "durationHours": 3.5,
+            "clientOperationId": "duration-operation-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"grant": authoritative_grant}
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "grant_id": grant_id,
+            "duration_hours": 3.5,
+            "duration_mode": "timed",
+            "client_operation_id": "duration-operation-1",
+        }
+    ]
+
+
 def test_auto_approval_route_threads_only_the_server_rule_version(monkeypatch) -> None:
     class ApprovalRouteProbe:
         def __init__(self) -> None:
@@ -335,8 +381,138 @@ def test_auto_approve_preference_route_binds_owner_and_scope(monkeypatch) -> Non
             "enabled": True,
             "scope_kind": "circle",
             "circle_id": circle_id,
+            "circle_ids": None,
         }
     ]
+
+
+def test_auto_approve_preference_route_binds_multiple_circles(monkeypatch) -> None:
+    """#6468: "circles" (plural) scope carries a list, not one circleId."""
+
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def update_auto_approve_preference(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "enabled": True,
+                "scope": {"kind": "circles", "circleIds": kwargs["circle_ids"]},
+                "enabledAt": "2026-08-24T09:00:00+00:00",
+                "ruleVersion": 3,
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    circle_ids = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+    ]
+
+    response = client.patch(
+        "/api/one/location/auto-approve-preference",
+        json={"enabled": True, "scopeKind": "circles", "circleIds": circle_ids},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "user_id": "owner-from-token",
+            "enabled": True,
+            "scope_kind": "circles",
+            "circle_id": None,
+            "circle_ids": circle_ids,
+        }
+    ]
+
+
+def test_nearby_check_in_preferences_route_reads_and_writes_the_owner(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.get_calls: list[dict] = []
+            self.update_calls: list[dict] = []
+
+        def get_nearby_check_in_defaults(self, **kwargs):
+            self.get_calls.append(kwargs)
+            return {"visible": True, "allowConnectionRequests": False, "updatedAt": None}
+
+        def update_nearby_check_in_defaults(self, **kwargs):
+            self.update_calls.append(kwargs)
+            return {
+                "visible": kwargs["visible"],
+                "allowConnectionRequests": kwargs["allow_connection_requests"],
+                "updatedAt": "2026-08-26T09:00:00+00:00",
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    get_response = client.get("/api/one/location/nearby-check-in-preferences")
+    assert get_response.status_code == 200
+    assert get_response.json() == {
+        "preferences": {"visible": True, "allowConnectionRequests": False, "updatedAt": None}
+    }
+    assert service.get_calls == [{"user_id": "owner-from-token"}]
+
+    patch_response = client.patch(
+        "/api/one/location/nearby-check-in-preferences",
+        json={"visible": False, "allowConnectionRequests": True},
+    )
+    assert patch_response.status_code == 200
+    assert service.update_calls == [
+        {
+            "user_id": "owner-from-token",
+            "visible": False,
+            "allow_connection_requests": True,
+        }
+    ]
+
+
+def test_sos_voice_preference_route_reads_and_writes_the_owner(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.get_calls: list[dict] = []
+            self.update_calls: list[dict] = []
+
+        def get_sos_voice_preference(self, **kwargs):
+            self.get_calls.append(kwargs)
+            return {"defaultAction": "open", "updatedAt": None}
+
+        def update_sos_voice_preference(self, **kwargs):
+            self.update_calls.append(kwargs)
+            return {
+                "defaultAction": kwargs["default_action"],
+                "updatedAt": "2026-08-26T09:00:00+00:00",
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    get_response = client.get("/api/one/location/sos-voice-preference")
+    assert get_response.status_code == 200
+    assert get_response.json() == {"preference": {"defaultAction": "open", "updatedAt": None}}
+    assert service.get_calls == [{"user_id": "owner-from-token"}]
+
+    patch_response = client.patch(
+        "/api/one/location/sos-voice-preference",
+        json={"defaultAction": "trigger"},
+    )
+    assert patch_response.status_code == 200
+    assert service.update_calls == [
+        {
+            "user_id": "owner-from-token",
+            "default_action": "trigger",
+        }
+    ]
+
+    invalid_response = client.patch(
+        "/api/one/location/sos-voice-preference",
+        json={"defaultAction": "not-a-real-choice"},
+    )
+    assert invalid_response.status_code == 422
 
 
 def test_view_envelope_route_threads_allow_empty_query_param(monkeypatch) -> None:

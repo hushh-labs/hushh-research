@@ -16,6 +16,8 @@ already held alone.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pytest
 
@@ -378,3 +380,312 @@ def test_request_events_name_both_parties_for_the_two_sided_feed() -> None:
         assert metadata["counterpart_label"] == "User B"
         # And the amount, so the feed line can name it.
         assert metadata.get("requested_duration_hours") == 3 or metadata.get("duration_hours") == 3
+
+
+# ---------------------------------------------------------------------------
+# Approving an extension ADDS time (#6256)
+#
+# The ask is additive on every surface that words it. The recipient taps
+# "30 min more". The owner is told "is asking for 30 min more of your live
+# location. They have 1 hour 50 minutes left." and taps "Approve 30 min more".
+# Declining says "any access you already have is unchanged".
+#
+# `approve_request` resolved that number as an ABSOLUTE total and handed it to
+# `create_grant`, which revokes the live grant in the lane and inserts a new
+# one -- so approving "30 min more" on a share with 1h50m left took 80 minutes
+# away, and told the recipient by push that they had been given more.
+# ---------------------------------------------------------------------------
+
+
+def _expires_at(service: FourUserMemoryService, grant_id: str) -> Any:
+    return service.grants[grant_id]["expires_at"]
+
+
+def _added_seconds(
+    service: FourUserMemoryService, original_grant_id: str, new_grant_id: str
+) -> float:
+    """How much later the new share ends than the one it replaced."""
+    before = _expires_at(service, original_grant_id)
+    after = _expires_at(service, new_grant_id)
+    return float((after - before).total_seconds())
+
+
+def test_approving_extra_time_adds_to_what_is_already_running() -> None:
+    # The reported case. Two hours live, thirty minutes asked for, and the
+    # answer has to be two and a half -- not thirty minutes with ninety
+    # destroyed.
+    service = _service_with_keys("user_a", "user_b")
+    original = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=2,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=0.5,
+        requested_duration_mode="timed",
+    )
+    assert request["isExtension"] is True
+
+    resolved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=None,
+    )
+
+    # Measured as a delta between the two expiries rather than against a
+    # hard-coded total, so the assertion does not depend on how long the test
+    # itself took to reach this line.
+    added = _added_seconds(service, original["id"], resolved["grant"]["id"])
+    assert added == pytest.approx(1800, abs=120)
+    # Still exactly one live grant per lane. Time stacks; rows do not.
+    assert service.grants[original["id"]]["status"] == "revoked"
+
+
+def test_an_explicit_owner_duration_on_an_extension_is_also_additive() -> None:
+    # The branch the real approve button reaches: the client always sends an
+    # explicit `durationHours`, so a fix confined to the "no duration supplied"
+    # branch would not have fixed the reported case at all.
+    #
+    # Additive here too, because every number the owner can pick on an
+    # extension is labelled as an increment -- the primary button says "Approve
+    # 30 min more", and the smaller rungs beside it say "add less".
+    service = _service_with_keys("user_a", "user_b")
+    original = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=2,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=1,
+        requested_duration_mode="timed",
+    )
+
+    resolved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=0.25,
+    )
+
+    added = _added_seconds(service, original["id"], resolved["grant"]["id"])
+    assert added == pytest.approx(900, abs=120)
+
+
+def test_the_push_names_the_time_added_not_the_new_total() -> None:
+    # "gave you 2 hours 30 min more" for a thirty-minute top-up is the same
+    # class of lie as the one this fix is about, pointing the other way.
+    service = _service_with_keys("user_a", "user_b")
+    service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=2,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=0.5,
+        requested_duration_mode="timed",
+    )
+
+    resolved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=None,
+    )
+
+    approved = _notifications(service, "location_access_approved")[-1]
+    assert approved["title"] == "More location time approved"
+    assert approved["body"] == "User A gave you 30 minutes more of their live location."
+    assert approved["data"]["added_duration_hours"] == "0.5"
+    # The new total still travels beside it for anything rendering a countdown.
+    assert approved["data"]["duration_hours"] == str(resolved["grant"]["durationHours"])
+    event = next(
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_access_approved"
+    )
+    assert _event_metadata(event)["added_duration_hours"] == 0.5
+
+
+def test_auto_approving_extra_time_adds_rather_than_replaces() -> None:
+    # The worst version of the reported bug: a standing rule destroyed the
+    # remaining time with no owner tap at all, and the only trace was a toast
+    # saying the share had been made.
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    service._seed_auto_approve_preference(
+        enabled_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        rule_version=1,
+    )
+    original = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user-b",
+        duration_hours=2,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=0.5,
+        requested_duration_mode="timed",
+    )
+
+    resolved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="automatic",
+        duration_hours=None,
+        auto_approve_rule_version=1,
+    )
+
+    added = _added_seconds(service, original["id"], resolved["grant"]["id"])
+    assert added == pytest.approx(1800, abs=120)
+
+
+def test_an_extension_past_the_day_ceiling_is_clamped_not_refused() -> None:
+    # `normalize_duration_hours` rejects anything over 24h, and it runs inside
+    # create_grant -- after the sum. Left unclamped, an owner saying yes to a
+    # perfectly ordinary request would get a validation error.
+    service = _service_with_keys("user_a", "user_b")
+    service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=23,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=4,
+        requested_duration_mode="timed",
+    )
+
+    resolved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=None,
+    )
+
+    assert resolved["grant"]["durationHours"] == 24
+    # The clamp names itself. Four hours were asked for and one was available,
+    # so the push must say one -- not the four it could not give.
+    approved = _notifications(service, "location_access_approved")[-1]
+    assert approved["body"] == "User A gave you 1 hour more of their live location."
+
+
+def test_extending_a_share_that_never_ends_keeps_it_open_ended() -> None:
+    # There is no arithmetic to do against an open-ended share, and handing it
+    # a finite window would be this same defect wearing a different hat.
+    service = _service_with_keys("user_a", "user_b")
+    service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=0.5,
+        requested_duration_mode="timed",
+    )
+
+    resolved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=None,
+    )
+
+    assert resolved["grant"]["durationMode"] == "until_stopped"
+    assert resolved["grant"]["expiresAt"] is None
+    approved = _notifications(service, "location_access_approved")[-1]
+    # Not "gave you for as long as you need more of their live location".
+    assert approved["body"] == "User A is now sharing their live location until they stop."
+
+
+def test_extending_a_share_that_already_ended_grants_the_amount_asked_for() -> None:
+    # Nothing left to preserve. The person still asked for thirty minutes, and
+    # thirty minutes is what an approval should mean when there is no balance
+    # to add it to.
+    service = _service_with_keys("user_a", "user_b")
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=0.5,
+        requested_duration_mode="timed",
+    )
+    # The share ends between the ask and the tap.
+    service.revoke_grant(owner_user_id="user_a", grant_id=grant["id"])
+
+    resolved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=None,
+    )
+
+    assert resolved["grant"]["durationHours"] == 0.5
+
+
+def test_an_extension_never_reads_the_emergency_lane() -> None:
+    # A plain share never supersedes a Save My Soul share, so an SOS grant's
+    # hours must never enter this sum either. Unscoped, the newest live grant
+    # wins -- which during an emergency is the SOS one.
+    service = _service_with_keys("user_a", "user_b")
+    ordinary = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    service._seed_connection("user_a", "user_b")
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=0.5,
+        requested_duration_mode="timed",
+    )
+
+    resolved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=None,
+    )
+
+    # 1h + 30m, not 8h + 30m.
+    added = _added_seconds(service, ordinary["id"], resolved["grant"]["id"])
+    assert added == pytest.approx(1800, abs=120)
+    # And the emergency share is still running, untouched.
+    assert service.grants[sos["id"]]["status"] == "active"

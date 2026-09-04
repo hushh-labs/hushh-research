@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { isLocalCrmProductAvailable } from "@/lib/connected-systems/crm-product-availability";
 import {
   createUpstreamHeaders,
   resolveRequestId,
@@ -35,6 +36,9 @@ export async function DELETE(
 
 async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const requestId = resolveRequestId(request);
+  if (!isLocalCrmProductAvailable({ hostname: request.nextUrl.hostname })) {
+    return withRequestIdJson(requestId, { detail: "Not found" }, { status: 404 });
+  }
   const path = params.path.join("/");
   const queryString = request.nextUrl.search;
   const url = `${getPythonApiUrl()}/api/connected-systems/${path}${queryString}`;

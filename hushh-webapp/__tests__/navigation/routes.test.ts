@@ -8,6 +8,7 @@ import {
   buildKaiMarketRoute,
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
+  buildPersonProfileRoute,
   buildWelcomeRoute,
   isAnalyticsExemptRoute,
   isCapabilityHandoffTarget,
@@ -22,6 +23,7 @@ import {
   isRiaRoute,
   resolveCapabilityHandoffTarget,
   resolveCompletedSetupCapabilityEntry,
+  resolvePersonRefFromProfilePathname,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -63,6 +65,34 @@ describe("navigation routes", () => {
     expect(buildWelcomeRoute("//example.com")).toBe(ROUTES.HOME);
   });
 
+  it("builds person profile routes with a safe origin marker", () => {
+    expect(
+      buildPersonProfileRoute("public person/ref", { from: ROUTES.CONNECT }),
+    ).toBe("/people/public%20person%2Fref?from=%2Fone%2Fconnect");
+    expect(
+      buildPersonProfileRoute("public-person-ref", {
+        from: "https://example.com/one/connect",
+      }),
+    ).toBe("/people/public-person-ref");
+    expect(buildPersonProfileRoute("public-person-ref")).toBe(
+      "/people/public-person-ref",
+    );
+  });
+
+  it("resolves the active person ref from public profile pathnames", () => {
+    expect(
+      resolvePersonRefFromProfilePathname("/people/public-person-ref"),
+    ).toBe("public-person-ref");
+    expect(
+      resolvePersonRefFromProfilePathname(
+        "/people/public%20person%2Fref?from=%2Fone%2Fconnect",
+      ),
+    ).toBe("public person/ref");
+    expect(
+      resolvePersonRefFromProfilePathname("/one/profile/access"),
+    ).toBeNull();
+  });
+
   it("builds canonical nested profile routes while preserving transient query state", () => {
     const transient = new URLSearchParams({
       unlock_vault: "1",
@@ -88,15 +118,20 @@ describe("navigation routes", () => {
     expect(
       buildProfileRoute({ panel: "my-data", detail: "domain:finance" }),
     ).toBe("/one/profile/my-data/domain?key=finance");
+    // Sharing and its per-connection detail are sub-views of the unified Memory
+    // panel but keep the legacy /one/profile/access URLs for deep-link parity.
     expect(
-      buildProfileRoute({ panel: "access", detail: "connection:abc 123" }),
+      buildProfileRoute({ panel: "my-data", detail: "connection:abc 123" }),
     ).toBe("/one/profile/access/connection?id=abc+123");
+    expect(buildProfileRoute({ panel: "my-data", detail: "sharing" })).toBe(
+      "/one/profile/access",
+    );
     expect(
       buildProfileRoute({
         panel: "support",
         detail: "support-compose:bug_report",
       }),
-    ).toBe("/one/profile/support/compose?kind=bug_report");
+    ).toBe("/one/profile/support?kind=bug_report");
     expect(buildProfileRoute({ panel: "gmail" })).toBe("/one/gmail");
     expect(
       buildProfileRoute({
@@ -127,7 +162,14 @@ describe("navigation routes", () => {
         "/one/profile",
         "tab=privacy&detail=connection:abc",
       ),
-    ).toEqual({ panel: "access", detail: "connection:abc" });
+    ).toEqual({ panel: "my-data", detail: "connection:abc" });
+    expect(resolveProfileRouteState("/one/profile/access")).toEqual({
+      panel: "my-data",
+      detail: "sharing",
+    });
+    expect(
+      resolveProfileRouteState("/one/profile/access/connection", "id=abc"),
+    ).toEqual({ panel: "my-data", detail: "connection:abc" });
     expect(resolveProfileRouteState("/one/profile/regulatory")).toEqual({
       panel: null,
       detail: null,
@@ -137,7 +179,13 @@ describe("navigation routes", () => {
         "/one/profile",
         "panel=support&detail=support-routing",
       ),
-    ).toBe("/one/profile/support/routing");
+    ).toBe("/one/profile/support");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=support&detail=support-compose:developer_reachout&from=%2Fone",
+      ),
+    ).toBe("/one/profile/support?from=%2Fone&kind=developer_reachout");
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
         "/one/profile",
@@ -210,10 +258,14 @@ describe("navigation routes", () => {
   it("defines profile and Connect inside the vault-protected One route family", () => {
     expect(ROUTES.PROFILE).toBe("/one/profile");
     expect(ROUTES.PROFILE_SECURITY).toBe("/one/profile/security");
+    expect(ROUTES.PERSON_PROFILE).toBe("/people/[personRef]");
     expect(ROUTES.CONNECT).toBe("/one/connect");
     expect(ROUTES.CONNECT_SETTINGS).toBe("/one/connect/settings");
     expect(isOnboardingAdmissionExemptRoute(ROUTES.PROFILE)).toBe(true);
     expect(isOnboardingAdmissionExemptRoute(ROUTES.PROFILE_SECURITY)).toBe(
+      true,
+    );
+    expect(isOnboardingAdmissionExemptRoute("/people/person-ref-scoped")).toBe(
       true,
     );
   });

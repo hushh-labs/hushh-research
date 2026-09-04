@@ -288,6 +288,8 @@ async def test_developer_export_rejects_nonshareable_source_library_token(monkey
         lambda **_kwargs: SimpleNamespace(
             app_id="app_demo",
             agent_id="developer:app_demo",
+            allowed_tool_groups=[],
+            allowed_capabilities=[],
         ),
     )
 
@@ -344,6 +346,8 @@ async def test_developer_export_rejects_forged_source_library_export_row(monkeyp
         lambda **_kwargs: SimpleNamespace(
             app_id="app_demo",
             agent_id="developer:app_demo",
+            allowed_tool_groups=[],
+            allowed_capabilities=[],
         ),
     )
     monkeypatch.setattr(developer, "ConsentDBService", _ForgedConsentDBService)

@@ -103,6 +103,8 @@ export interface OneKycWorkflowListResponse {
 
 export interface OneKycRecentMailboxSyncResponse {
   accepted: boolean;
+  /** A sanitized intake outcome when no workflow was prepared. */
+  reason?: string;
   scanned_count: number;
   processed_count: number;
   matched_count: number;

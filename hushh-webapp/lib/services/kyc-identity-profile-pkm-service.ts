@@ -162,13 +162,20 @@ export class KycIdentityProfilePkmService {
         surface: "web",
         source: "kyc_identity_onboarding",
       },
+      // Save & Continue confirms the onboarding form, not every ambiguous
+      // extraction. KYC persists only the same high-confidence cards allowed
+      // by the owner's explicit auto-save policy.
+      writePolicy: "auto_save_only",
     });
     if (ingestion.save.saved === 0) {
       return {
         ...(profileResult ?? { fullBlob: {} }),
         success: false,
         saveState: "failed",
-        message: "We couldn't save the imported details as separate memories. Try again.",
+        message:
+          ingestion.save.attempted > 0
+            ? "We couldn't save the imported details as separate memories. Try again."
+            : "No private details could be recognized. Edit the summary and try again.",
       };
     }
 

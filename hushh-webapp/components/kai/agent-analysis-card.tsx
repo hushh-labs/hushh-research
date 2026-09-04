@@ -31,6 +31,7 @@ export function AgentAnalysisCard({
       icon={icon}
       streamedText={state.text}
       thoughts={state.thoughts}
+      statusMessage={state.statusMessage}
       errorMessage={state.error}
       accentColor={accentClass}
       className="h-full"

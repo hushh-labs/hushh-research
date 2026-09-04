@@ -78,7 +78,7 @@ class PodTurnRequest(BaseModel):
     timezone: Optional[str] = Field(default=None, max_length=64)
     # The OWNER'S model credential, supplied per turn. See _resolve_runtime for why
     # a pod uses the person's own key rather than a fleet identity.
-    # 12000 matches the hub's own bound (api/routes/kai/agent_chat.py). A tighter
+    # 12000 matches the hub's own bound (api/routes/one/pod_relay.py). A tighter
     # cap here would 422 credentials the hub accepts, and the relay would surface
     # that as an opaque refusal rather than "your key is too long".
     runtime_credential: Optional[str] = Field(

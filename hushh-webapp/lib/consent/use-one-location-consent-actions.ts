@@ -62,8 +62,14 @@ function clampApprovalDurationHours(durationHours?: number): number {
   // The consent-manager duration picker offers values in hours. One Location's
   // backend clamps to its own policy window, so we only guard against missing /
   // non-positive input here and let the server enforce the real ceiling.
+  //
+  // One hour rather than twenty-four, matching the server's own
+  // `DEFAULT_APPROVAL_DURATION_HOURS`. This is the "nobody said" fallback, and
+  // on an extension the number is now time ADDED to a live share (#6256) --
+  // so a missing value defaulting to a full day would quietly hand out the
+  // largest top-up the policy allows on the one path where nothing was chosen.
   if (!Number.isFinite(durationHours) || !durationHours || durationHours <= 0) {
-    return 24;
+    return 1;
   }
   return durationHours;
 }

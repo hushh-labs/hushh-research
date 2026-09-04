@@ -14,13 +14,12 @@ import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Badge } from "@/components/ui/badge";
 import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-} from "@/components/ui/popover";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Sheet,
   SheetContent,
@@ -87,11 +86,6 @@ export interface AnalysisHistoryDashboardProps {
   showDebateInputs?: boolean;
   ephemeralEntry?: AnalysisHistoryEntry | null;
 }
-
-type PopoverAnchorPosition = {
-  left: number;
-  top: number;
-};
 
 interface DebateCoverageRow {
   key: string;
@@ -816,7 +810,6 @@ export function AnalysisHistoryDashboard({
   const historyMapRef = useRef<AnalysisHistoryMap>({});
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTicker, setVersionsTicker] = useState<string | null>(null);
-  const [versionsAnchor, setVersionsAnchor] = useState<PopoverAnchorPosition | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteAction>(null);
   const [deleteInFlight, setDeleteInFlight] = useState(false);
 
@@ -1037,23 +1030,13 @@ export function AnalysisHistoryDashboard({
   const closeVersions = useCallback(() => {
     setVersionsOpen(false);
     setVersionsTicker(null);
-    setVersionsAnchor(null);
   }, []);
 
   const openVersions = useCallback((
     ticker: string,
-    event?: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
+    _event?: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
   ) => {
-    const rect = event?.currentTarget.getBoundingClientRect();
     setVersionsTicker(ticker);
-    setVersionsAnchor(
-      rect
-        ? { left: rect.left + rect.width / 2, top: rect.bottom }
-        : {
-            left: typeof window === "undefined" ? 0 : window.innerWidth / 2,
-            top: typeof window === "undefined" ? 0 : window.innerHeight / 2,
-          },
-    );
     setVersionsOpen(true);
   }, []);
 
@@ -1109,7 +1092,7 @@ export function AnalysisHistoryDashboard({
   // ----- Loading state -----
   if (loading) {
     return (
-      <div className="w-full pb-safe">
+      <div className="w-full">
         <SurfaceCard className="overflow-hidden">
           <SurfaceCardContent className="flex min-h-52 items-center justify-center p-6">
             <HushhLoader variant="inline" label="Loading analysis history…" />
@@ -1122,7 +1105,7 @@ export function AnalysisHistoryDashboard({
   // ----- Empty state -----
   if (entries.length === 0) {
     return (
-      <div className="w-full space-y-6 pb-safe">
+      <div className="w-full space-y-6">
         <EmptyState />
         {showDebateInputs ? (
           <DebateInputsCard
@@ -1138,7 +1121,7 @@ export function AnalysisHistoryDashboard({
 
   // ----- Populated state -----
   return (
-    <div className="w-full space-y-6 pb-safe overflow-hidden">
+    <div className="w-full space-y-6">
       {/* Data Table */}
       <DataTable
         columns={columns}
@@ -1191,27 +1174,12 @@ export function AnalysisHistoryDashboard({
           </SheetContent>
         </Sheet>
       ) : (
-        <Popover open={versionsOpen} onOpenChange={(open) => !open && closeVersions()} modal>
-          {versionsAnchor ? (
-            <PopoverAnchor asChild>
-              <span
-                aria-hidden="true"
-                className="pointer-events-none fixed h-px w-px"
-                style={{ left: versionsAnchor.left, top: versionsAnchor.top }}
-              />
-            </PopoverAnchor>
-          ) : null}
-          <PopoverContent
-            align="center"
-            side="bottom"
-            sideOffset={8}
-            className="w-[min(28rem,calc(100vw-1.5rem))] p-0"
-            withBackdrop
-          >
-            <PopoverHeader className="border-b border-border/60 px-4 py-3">
-              <PopoverTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</PopoverTitle>
-              <PopoverDescription>Choose a saved version to review.</PopoverDescription>
-            </PopoverHeader>
+        <Dialog open={versionsOpen} onOpenChange={(open) => !open && closeVersions()}>
+          <DialogContent className="w-[min(28rem,calc(100vw-1.5rem))] p-0 sm:max-w-md">
+            <DialogHeader className="border-b border-border/60 px-4 py-3 text-left">
+              <DialogTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</DialogTitle>
+              <DialogDescription>Choose a saved version to review.</DialogDescription>
+            </DialogHeader>
             <div className="max-h-[min(28rem,calc(100vh-10rem))] overflow-y-auto p-3">
               <VersionOptions
                 entries={versionsForTicker}
@@ -1222,8 +1190,8 @@ export function AnalysisHistoryDashboard({
                 onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
               />
             </div>
-          </PopoverContent>
-        </Popover>
+          </DialogContent>
+        </Dialog>
       )}
 
       <AlertDialog
@@ -1232,7 +1200,7 @@ export function AnalysisHistoryDashboard({
           if (!open && !deleteInFlight) setPendingDelete(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="z-[800]" overlayClassName="z-[799]">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pendingDelete?.kind === "ticker" ? "Delete all versions?" : "Delete this version?"}

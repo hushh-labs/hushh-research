@@ -10,7 +10,7 @@ import {
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/app-ui/settings-ui";
 import type {
   PortfolioFreshness,
@@ -152,7 +152,7 @@ export function PortfolioSourceSwitcher({
           stackTrailingOnMobile={sourceOptions.length > 1}
           trailing={
             sourceOptions.length > 1 ? (
-              <SettingsSegmentedTabs
+              <SegmentedTabs
                 value={activeSource}
                 onValueChange={requestSourceChange}
                 options={sourceOptions}

@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hashlib
 import json
 import logging
 import re
@@ -78,6 +79,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_LIVE_VOICE_OPTIONS,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
+    STATE_PENDING_TOOL_TRACE,
     STATE_SCREEN,
     STATE_TIMEZONE,
     STATE_USER_ID,
@@ -163,6 +165,45 @@ _GOAL_CONTINUATION_NOTE = (
     "step you started. Do not describe what that step found and do not ask a question "
     "about it yet -- its own settlement report is what tells you the outcome."
 )
+
+
+def _safe_json_dumps(payload: Any) -> str:
+    """``json.dumps`` with a ``str()`` fallback for anything the encoder does
+    not know, e.g. a raw datetime that slipped through a service boundary
+    into a directive payload.
+
+    Every outbound websocket frame in this module goes through this instead
+    of a bare ``json.dumps`` -- one non-serializable value anywhere in a
+    payload otherwise throws mid-send and kills the whole live session with
+    nothing surfaced to the user (the same failure class a raw datetime in a
+    tool-response dict already caused once, on a different serialization
+    path this cannot reach). ``default=str`` is a last resort, not a
+    substitute for shaping payloads correctly upstream -- it exists so a
+    single missed spot never again takes down an entire session outright.
+    """
+    return json.dumps(payload, default=str)
+
+
+def _directive_dedup_fingerprint(action_id: str, slots: dict[str, Any]) -> str:
+    """Identity used to dedupe a directive still open on this socket.
+
+    Hashed, not raw: distinguishing "share with Sarah" from "share with
+    Abdul" needs the slot VALUES, not just which keys are present -- a
+    key-only fingerprint (``sorted(slots.keys())``, this function's
+    predecessor) made every same-shaped request for the same action collide
+    while a directive was still unsettled ("analyse Nvidia" then "analyse
+    Tesla" shared one fingerprint, so the second was silently deduped
+    against the first and never issued). A SHA-256 digest is
+    value-sensitive for dedup purposes without retaining the plaintext
+    value itself in ``issued_action_fingerprints`` for the life of the GC
+    window -- nothing sensitive (e.g. an OTP) is recoverable from it, even
+    transiently.
+    """
+    return hashlib.sha256(
+        json.dumps({"actionId": action_id, "slots": slots}, sort_keys=True, default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
 
 
 def _is_navigation_step_settlement(goal_run: Any) -> bool:
@@ -582,7 +623,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         ),
     )
 
-    await websocket.send_text(json.dumps({"setupComplete": {}}))
+    await websocket.send_text(_safe_json_dumps({"setupComplete": {}}))
 
     # A signed-in uid means a known/returning person; no uid is a fresh,
     # not-yet-authenticated visitor who is (or is about to be) in onboarding.
@@ -827,7 +868,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # It fired once per barge-in, not once per directive -- there
                 # is a single call site and the browser only sends `interrupt`
                 # from its own speech-over-playback path.
-                await websocket.send_text(json.dumps({"serverContent": {"interrupted": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"interrupted": True}})
+                )
                 continue
             if message.get("type") == "app_context" or "appContext" in message:
                 context_payload = message.get("appContext")
@@ -885,7 +928,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     # confirms this bounded context has been persisted on this
                     # authenticated socket; it never becomes model context.
                     await websocket.send_text(
-                        json.dumps({"appContextAccepted": {"contextId": context_id}})
+                        _safe_json_dumps({"appContextAccepted": {"contextId": context_id}})
                     )
                 initial_context_ready.set()
                 clean_screen = canonical_screen if isinstance(canonical_screen, str) else ""
@@ -1059,7 +1102,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     or not context_revision
                 ):
                     await websocket.send_text(
-                        json.dumps(
+                        _safe_json_dumps(
                             {
                                 "actionConfirmationRejected": {
                                     "directiveId": directive_id,
@@ -1093,7 +1136,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                 except ActionDirectiveAuthorityError:
                     await websocket.send_text(
-                        json.dumps(
+                        _safe_json_dumps(
                             {
                                 "actionConfirmationRejected": {
                                     "directiveId": directive_id,
@@ -1104,7 +1147,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                     continue
                 await websocket.send_text(
-                    json.dumps(
+                    _safe_json_dumps(
                         {
                             "actionConfirmationAccepted": {
                                 "directiveId": directive_id,
@@ -1508,7 +1551,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             close_reason = "unknown_tool_call"
             logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
             await websocket.send_text(
-                json.dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
+                _safe_json_dumps(
+                    {"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}}
+                )
             )
             return
         except Exception as runtime_error:  # noqa: BLE001 - the browser must be told
@@ -1531,7 +1576,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # A wire reason code, not user copy. The browser maps it to plain
             # language -- provider names and status codes never reach a person.
             await websocket.send_text(
-                json.dumps(
+                _safe_json_dumps(
                     {
                         "sessionEnded": {
                             "reason": ("provider_unavailable" if resumable else "runtime_error"),
@@ -1561,7 +1606,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 )
                 if new_handle:
                     await websocket.send_text(
-                        json.dumps({"sessionResumption": {"handle": new_handle}})
+                        _safe_json_dumps({"sessionResumption": {"handle": new_handle}})
                     )
             # Advance warning that the provider is about to close. Telling the
             # browser lets it reconnect on its own terms rather than
@@ -1571,26 +1616,30 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 time_left = getattr(go_away, "time_left", None)
                 logger.info("one_adk_live_go_away time_left=%s", str(time_left)[:32])
                 await websocket.send_text(
-                    json.dumps({"goAway": {"timeLeft": str(time_left) if time_left else None}})
+                    _safe_json_dumps(
+                        {"goAway": {"timeLeft": str(time_left) if time_left else None}}
+                    )
                 )
             if getattr(event, "interrupted", False):
-                await websocket.send_text(json.dumps({"serverContent": {"interrupted": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"interrupted": True}})
+                )
             input_tx = getattr(event, "input_transcription", None)
             if input_tx is not None and getattr(input_tx, "text", None):
                 if not getattr(event, "partial", False):
                     await websocket.send_text(
-                        json.dumps({"inputTranscription": {"text": input_tx.text}})
+                        _safe_json_dumps({"inputTranscription": {"text": input_tx.text}})
                     )
             output_tx = getattr(event, "output_transcription", None)
             if output_tx is not None and getattr(output_tx, "text", None):
                 if not getattr(event, "partial", False):
                     await websocket.send_text(
-                        json.dumps({"outputTranscription": {"text": output_tx.text}})
+                        _safe_json_dumps({"outputTranscription": {"text": output_tx.text}})
                     )
             parts = _event_audio_parts(event)
             if parts:
                 await websocket.send_text(
-                    json.dumps({"serverContent": {"modelTurn": {"parts": parts}}})
+                    _safe_json_dumps({"serverContent": {"modelTurn": {"parts": parts}}})
                 )
             # Tools park client directives (navigation etc.) in their event's
             # state_delta; forward each exactly once, ordered with the stream.
@@ -1602,6 +1651,21 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # run_app_action calls both reaching the browser.
             actions = getattr(event, "actions", None)
             delta = getattr(actions, "state_delta", None) or {}
+
+            # Read-tool traces (display data for a card alongside the spoken
+            # answer, #6434) are simpler than directives: nothing to execute,
+            # nothing to settle, so harvest-and-forward is the whole job. Same
+            # parallel-tool-call caveat as directives above applies here too --
+            # the system instruction keeps read tools to one per turn.
+            tool_traces_to_send = []
+            for key in list(delta.keys()):
+                if key.startswith(f"{STATE_PENDING_TOOL_TRACE}:"):
+                    trace = delta.pop(key)
+                    if isinstance(trace, dict) and trace:
+                        tool_traces_to_send.append(trace)
+
+            for trace in tool_traces_to_send:
+                await websocket.send_text(_safe_json_dumps({"toolTrace": trace}))
 
             directives_to_issue = []
             for key in list(delta.keys()):
@@ -1628,14 +1692,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         )
                         raw_slots = payload.get("slots")
                         slots: dict[str, Any] = raw_slots if isinstance(raw_slots, dict) else {}
-                        # Same fingerprint shape as the browser's own
-                        # directiveFingerprint() -- key names/types only, never
-                        # values, so nothing sensitive (e.g. an OTP) is retained
-                        # even transiently.
-                        new_fingerprint = json.dumps(
-                            {"actionId": action_id, "slotKeys": sorted(slots.keys())},
-                            sort_keys=True,
-                        )
+                        new_fingerprint = _directive_dedup_fingerprint(action_id, slots)
                         duplicate_directive_id = next(
                             (
                                 did
@@ -1758,7 +1815,27 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                                     {"hussh:goal_run": None}
                                                     if isinstance(expired_goal_run, dict)
                                                     and expired_goal_run.get("schema_version")
-                                                    == "one.settled_action_journey.v1"
+                                                    # Both kinds of goal run this relay
+                                                    # tracks -- a settled-action
+                                                    # journey's final step, and a
+                                                    # navigate-then-act journey's route
+                                                    # step (_is_navigation_step_settlement,
+                                                    # above) -- leave hussh:goal_run
+                                                    # pointing at this directive while
+                                                    # it is outstanding. Clearing only
+                                                    # the first kind here left a
+                                                    # one.goal_run.v1 run stuck at
+                                                    # "awaiting_destination_screen"
+                                                    # forever once its navigation
+                                                    # directive timed out unsettled:
+                                                    # continue_app_goal would later find
+                                                    # that stale run still live and mint
+                                                    # a preview directive for a journey
+                                                    # the person abandoned minutes ago.
+                                                    in (
+                                                        "one.settled_action_journey.v1",
+                                                        "one.goal_run.v1",
+                                                    )
                                                     else {}
                                                 ),
                                             }
@@ -1804,11 +1881,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         (payload or {}).get("type") if isinstance(payload, dict) else None,
                         outgoing_directive.get("delegateAgentId"),
                     )
-                await websocket.send_text(json.dumps({"clientDirective": outgoing_directive}))
+                await websocket.send_text(_safe_json_dumps({"clientDirective": outgoing_directive}))
 
             if getattr(event, "turn_complete", False):
                 turn_count += 1
-                await websocket.send_text(json.dumps({"serverContent": {"turnComplete": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"turnComplete": True}})
+                )
 
     up = asyncio.create_task(pump_browser_to_queue())
     down = asyncio.create_task(pump_events_to_browser())
@@ -1847,7 +1926,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # finally block below is the real safety net either way.
             try:
                 await websocket.send_text(
-                    json.dumps(
+                    _safe_json_dumps(
                         {
                             "sessionEnded": {
                                 "reason": (

@@ -42,7 +42,7 @@ export function isRiaAdvisoryAccessReady(
     status?.verification_status ||
     ""
   ).toLowerCase();
-  return value === "active" || value === "verified";
+  return value === "active" || value === "verified" || value === "finra_verified";
 }
 
 // Map the server-backed onboarding status onto the props OnboardingStepReview

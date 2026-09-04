@@ -1,4 +1,8 @@
-import type { OneLocationState } from "@/lib/one-location/types";
+import type {
+  OneLocationAccessRequest,
+  OneLocationGrant,
+  OneLocationState,
+} from "@/lib/one-location/types";
 import {
   CACHE_KEYS,
   CACHE_TTL,
@@ -53,6 +57,84 @@ export const OneLocationStateResource = {
       ...snapshot.data,
       smsContactUserIds,
     });
+    return true;
+  },
+
+  /**
+   * Publish an authoritative grant mutation without discarding identity fields
+   * added by the state projection.
+   *
+   * Duration endpoints can return only the mutable grant columns at runtime.
+   * Invalidating before the write also fences off a state load that began
+   * before the mutation, so it cannot later restore the old duration.
+   */
+  mergeOwnerGrant(
+    userId: string,
+    grant: Pick<OneLocationGrant, "id"> & Partial<OneLocationGrant>,
+    fallbackState?: OneLocationState,
+  ): boolean {
+    const current = this.peek(userId)?.data ?? fallbackState;
+    if (!current) return false;
+
+    let matched = false;
+    const ownerGrants = current.ownerGrants.map((row) => {
+      if (row.id !== grant.id) return row;
+      matched = true;
+      return {
+        ...row,
+        ...grant,
+        // Duration PATCHes return the grant table row, not the identity joins
+        // used by list_state. `_grant_payload` therefore includes these keys
+        // as null. Null is "not projected by this response" here, not an
+        // instruction to erase the name/photo already on screen.
+        ownerDisplayName: grant.ownerDisplayName ?? row.ownerDisplayName,
+        ownerPhotoUrl: grant.ownerPhotoUrl ?? row.ownerPhotoUrl,
+        ownerMaskedPhone: grant.ownerMaskedPhone ?? row.ownerMaskedPhone,
+        recipientDisplayName:
+          grant.recipientDisplayName ?? row.recipientDisplayName,
+        recipientPhotoUrl: grant.recipientPhotoUrl ?? row.recipientPhotoUrl,
+        recipientMaskedPhone:
+          grant.recipientMaskedPhone ?? row.recipientMaskedPhone,
+      };
+    });
+    if (!matched) return false;
+
+    this.invalidate(userId);
+    this.write(userId, { ...current, ownerGrants });
+    return true;
+  },
+
+  /**
+   * Publish a request-status outcome (denied / withdrawn / approved) without
+   * waiting for the next full state reload.
+   *
+   * The counterpart's device learns of a decision by push, and the handler
+   * used to answer it by discarding the whole cached snapshot and re-running
+   * `list_state`'s ~25 queries -- 10+ seconds to move one request from
+   * "pending" to "denied". The FCM payload already carries the request id and
+   * the outcome, so patch the matching row in place; the full reload behind
+   * it still runs in the background and reconciles anything this cannot
+   * express (e.g. the new grant an approval creates).
+   */
+  mergeRequestStatus(
+    userId: string,
+    request: Pick<OneLocationAccessRequest, "id"> &
+      Partial<OneLocationAccessRequest>,
+    fallbackState?: OneLocationState,
+  ): boolean {
+    const current = this.peek(userId)?.data ?? fallbackState;
+    if (!current) return false;
+
+    let matched = false;
+    const requests = current.requests.map((row) => {
+      if (row.id !== request.id) return row;
+      matched = true;
+      return { ...row, ...request };
+    });
+    if (!matched) return false;
+
+    this.invalidate(userId);
+    this.write(userId, { ...current, requests });
     return true;
   },
 

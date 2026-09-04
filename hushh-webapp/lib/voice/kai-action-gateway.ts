@@ -4,11 +4,17 @@ import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AppRuntimeState, VoiceToolCall } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy =
   "allow_direct" | "confirm_required" | "manual_only";
 export type KaiActionActivationPolicy = "none" | "trusted_activation_required";
+export type KaiActionSiriMode =
+  | "direct"
+  | "review_ui"
+  | "conversation_only"
+  | "unsupported";
 export type KaiActionSpeakerPersona = "one" | "kai" | "nav" | "kyc";
 export type KaiActionDelegateAgentId =
   | "one"
@@ -23,7 +29,19 @@ export type KaiActionDelegateAgentId =
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
-      path: "kai_command" | "voice_tool" | "route" | "local_handler";
+      path:
+        | "kai_command"
+        | "voice_tool"
+        | "route"
+        | "local_handler"
+        // A UI control the person taps directly (a menu item, a segmented
+        // toggle) rather than a named route or local_handler function.
+        // agent-action-runtime.ts's executor already dispatches this the
+        // same way as local_handler -- it falls through to the same
+        // resolveLocalOnboardingHandler registry for any path that isn't
+        // explicitly "route" -- so a real handler registered under the
+        // action id is all a "control" action needs to actually run.
+        | "control";
       target: string;
       params?: Record<string, unknown>;
     }
@@ -168,6 +186,9 @@ export type KaiActionDefinition = {
   risk_level: KaiActionRiskLevel;
   execution_policy: KaiActionExecutionPolicy;
   activation_policy: KaiActionActivationPolicy;
+  siri_mode: KaiActionSiriMode;
+  siri_requires_vault: boolean;
+  siri_vault_locked_fallback_action_id: string | null;
   execution_target: KaiActionExecutionTarget;
   control_ids: string[];
   state_exposure: string[];
@@ -285,7 +306,8 @@ function validateExecutionTarget(
       (path !== "kai_command" &&
         path !== "voice_tool" &&
         path !== "route" &&
-        path !== "local_handler") ||
+        path !== "local_handler" &&
+        path !== "control") ||
       !target
     ) {
       return null;
@@ -525,6 +547,10 @@ function validateAction(value: unknown): KaiActionDefinition | null {
   const riskLevel = cleanString(value.risk_level);
   const executionPolicy = cleanString(value.execution_policy);
   const activationPolicy = cleanString(value.activation_policy) || "none";
+  const siriMode = cleanString(value.siri_mode) || "unsupported";
+  const siriVaultLockedFallbackActionId = cleanString(
+    value.siri_vault_locked_fallback_action_id,
+  );
   if (
     !actionId ||
     !surfaceId ||
@@ -538,6 +564,27 @@ function validateAction(value: unknown): KaiActionDefinition | null {
   if (
     activationPolicy !== "none" &&
     activationPolicy !== "trusted_activation_required"
+  ) {
+    return null;
+  }
+  if (
+    siriMode !== "direct" &&
+    siriMode !== "review_ui" &&
+    siriMode !== "conversation_only" &&
+    siriMode !== "unsupported"
+  ) {
+    return null;
+  }
+  if (
+    value.siri_requires_vault !== undefined &&
+    typeof value.siri_requires_vault !== "boolean"
+  ) {
+    return null;
+  }
+  if (
+    value.siri_vault_locked_fallback_action_id !== undefined &&
+    value.siri_vault_locked_fallback_action_id !== null &&
+    !siriVaultLockedFallbackActionId
   ) {
     return null;
   }
@@ -578,6 +625,10 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     risk_level: riskLevel as KaiActionRiskLevel,
     execution_policy: executionPolicy as KaiActionExecutionPolicy,
     activation_policy: activationPolicy as KaiActionActivationPolicy,
+    siri_mode: siriMode as KaiActionSiriMode,
+    siri_requires_vault: value.siri_requires_vault === true,
+    siri_vault_locked_fallback_action_id:
+      siriVaultLockedFallbackActionId,
     execution_target: executionTarget,
     control_ids: isStringArray(value.control_ids) ? value.control_ids : [],
     state_exposure: isStringArray(value.state_exposure)
@@ -679,7 +730,21 @@ function validateGateway(value: unknown): KaiActionGateway {
 }
 
 export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
-export const KAI_ACTION_GATEWAY_ACTIONS = KAI_ACTION_GATEWAY.actions;
+function isCrmProductAction(action: KaiActionDefinition): boolean {
+  const searchable = [
+    action.action_id,
+    action.label,
+    action.meaning,
+    ...action.reachability.routes,
+    ...action.reachability.screens,
+    ...(action.delegate_agent_id ? [action.delegate_agent_id] : []),
+  ].join(" ").toLowerCase();
+  return searchable.includes("crm") || searchable.includes("connected_system") || searchable.includes("connected-system");
+}
+
+export const KAI_ACTION_GATEWAY_ACTIONS = isLocalCrmBuildEnabled()
+  ? KAI_ACTION_GATEWAY.actions
+  : KAI_ACTION_GATEWAY.actions.filter((action) => !isCrmProductAction(action));
 
 const KAI_ACTION_BY_ID = new Map(
   KAI_ACTION_GATEWAY_ACTIONS.map(
@@ -998,6 +1063,27 @@ export function evaluateKaiActionAvailability(input: {
         blocked_guidance:
           appRuntimeState?.persona?.ria_setup_available === true
             ? "Complete RIA setup to unlock the workspace."
+            : null,
+      };
+    }
+    // #6437: registered in capability-guard-coverage.v1.json as
+    // "projection" (client-checkable) since these were authored, but never
+    // actually wired here -- both gated real, voice-executable RIA
+    // client-workspace actions with nothing enforcing them. An onboarding
+    // *record* existing (ria_persona_available, checked above) is not the
+    // same as onboarding being *complete*; see isRiaAdvisoryAccessReady.
+    if (
+      (guardId === "ria_onboarding_complete" ||
+        guardId === "consent_center_available") &&
+      appRuntimeState?.persona?.ria_onboarding_complete !== true
+    ) {
+      return {
+        status: "blocked",
+        reason: "Finish RIA verification before using this action.",
+        target_persona: "ria",
+        blocked_guidance:
+          appRuntimeState?.persona?.ria_setup_available === true
+            ? "Complete RIA setup to unlock this."
             : null,
       };
     }

@@ -194,13 +194,59 @@ It checks that:
 6. App-review toggles, reviewer identity secrets, bypass flags, and rehearsal keys are maintainer-only overlays and are intentionally excluded from the canonical contributor runtime contract.
 7. UAT backend revisions still mount `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` from Secret Manager so reviewer-mode smoke can mint the Firebase custom token after deploy.
 8. The canonical non-production reviewer fixture is `REVIEWER_UID` plus `REVIEWER_VAULT_PASSPHRASE`; `UAT_SMOKE_*` and `KAI_TEST_*` are deprecated migration aliases, and no `NEXT_PUBLIC_*` passphrase is allowed.
-9. Localhost agent review: the local backend loads `consent-protocol/.env.local` as a maintainer overlay (`hushh_mcp/runtime_settings.py`; the file is absent in deployed environments, so this is a no-op there, and `override=False` keeps the canonical `.env` authoritative). Setting `APP_REVIEW_MODE=true` there, alongside the Secret-Manager-sourced `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE`, enables the `/api/app-config/review-mode/session` custom-token minter on `localhost` so reviewer browser rehearsals (and agents reviewing app changes) can run against `http://localhost:3000` without a deploy. It stays local-only: `.env.local` never ships.
+9. Localhost private-agent review: the local backend loads `consent-protocol/.env.local` as a maintainer overlay (`hushh_mcp/runtime_settings.py`; the file is absent in deployed environments, so this is a no-op there, and `override=False` keeps the canonical `.env` authoritative). Use `bash scripts/env/reviewer_mode.sh enable`, restart the backend, and run the reviewer preflight with `REVIEWER_SECRET_PROJECT=hushh-pda-uat`; it resolves `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` from Secret Manager only into the test process. The overlay holds only `APP_REVIEW_MODE=true`; it never holds reviewer secrets. The preflight proves the localhost custom-token minter is enabled before Chromium launches, and the standard rehearsal blocks unapproved state-changing HTTP. Afterward, disable the mode and restart the backend. The overlay never ships.
 
 ### Environment divergence note (current)
 
 1. UAT and production use the same canonical frontend key shape.
 2. Each deployed environment resolves one active analytics measurement ID and one active GTM ID.
 3. Maintainer-only overlays are intentionally excluded from generated contributor runtime files.
+
+### Fleet text model switch (2026-09-02)
+
+`HUSSH_GEMINI_TEXT_MODEL` (backend, `_HUSSH_GEMINI_TEXT_MODEL` substitution) moves
+every text agent to one Gemini generation at once: agent manifests say
+`gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
+default generation (`FLEET_TEXT_MODEL_DEFAULT`, **3.8 Flash** since 2026-09-02).
+Production pins `gemini-3.7-flash` explicitly in `deploy-production.yml`, because its
+Vertex allowed-models policy still refuses 3.8 (verified live: 400 on `hushh-pda`,
+3.7 succeeds). Remove that pin once an org-policy admin admits 3.8 there. A
+lane may flip it only after its project's `constraints/vertexai.allowedModels`
+policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
+2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
+Gemini project is `hushh-gemini-bridge`, whose allowlist still rejects it (verified
+2026-09-02: a direct generateContent returns a policy violation), so UAT stays on the
+default until an org-policy admin admits the id there; production likewise. The
+deploy-time Vertex readiness probe resolves the alias through the same resolver and
+receives `HUSSH_GEMINI_TEXT_MODEL`, so it validates the lane's switched model, never
+the literal alias. Every text agent names the alias, the memory chain and reducer included; only the
+Live head keeps an explicit pin.
+
+### Wallet subagent flags and the central One mailbox (2026-09-02)
+
+- The Wallet ships unconditionally. `ONE_WALLET_ENABLED` and
+  `NEXT_PUBLIC_ONE_WALLET_ENABLED` were removed on 2026-09-02: the feature was
+  complete, the frontend flag was a build-time constant that duplicated the
+  backend's authority, and the manifest's `HUSHH_WALLET_AGENT_DISABLED` kill switch
+  was never wired to anything. Nothing gates the Wallet now, in any lane.
+- Support, invite, and capability mail: every `SUPPORT_EMAIL_*` address defaults to
+  `ONE_EMAIL_ADDRESS` (`one@hushh.ai`). UAT and production carry no overrides; the
+  dev project's `SUPPORT_EMAIL_*` secrets point at `one@hushh.ai` in test mode. The
+  mailbox credential is never stored in the repo or Secret Manager; sending rides
+  the delegated service identity. Forwarding from `one@hushh.ai` to a person is a
+  Google Workspace admin setting, not a repo concern.
+
+### Deploy-step env plumbing and the Cloud Build arg cap (2026-09-02)
+
+The `deploy-backend` step body in `deploy/backend.cloudbuild.yaml` is one Cloud Build
+arg, capped at 10,000 characters after substitution. Optional env values now travel
+through the step's `env:` field (`_NAME=${_NAME}`, which does not count toward the cap)
+and one `for n in ...` loop reads them with `${!v}`; only names that existing contract
+tests assert literally stay as flat `add_env` lines. The file has no
+`automapSubstitutions`, so a name in the loop without an `env:` entry deploys nothing:
+that is how the Gmail personal-information-request monitor settings were silently
+unset before this change. `tests/test_cloudbuild_step_arg_limit.py` guards the cap, the
+per-lane headroom, and the loop-to-`env:` pairing.
 
 ### Ops-only GitHub identity variables (deploy/backup governance)
 
@@ -266,6 +312,7 @@ Used by:
 | `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Legacy, being retired | Pre-OIDC dedicated maintenance token. Accepted only while `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` is on. |
 | `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | `hushh_mcp/services/scheduler_identity.py` | Defaults on | Set to `0` once both scheduler jobs authenticate with OIDC. That is the step that actually retires the shared `X-Hushh-Maintenance-Token` header. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `api/routes/one/location.py` | Optional local/test override | One Location retention auth defaults on; `false` is honored only in local/test environments. |
+| `ONE_LOCATION_READ_ONLY_STATE_ENABLED` | `hushh_mcp/services/one_location_agent_service.py` | Hosted rollout gate | The service defaults to read-only state projection when this key is absent. Hosted secret generation defaults it to `false`; dev/production pin it off, and UAT may opt in only after the deploy privately verifies the canonical enabled scheduler, exact HTTPS purge URI, POST method, and a non-empty maintenance-auth header without printing its value. |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | `api/routes/one/location.py` | Optional non-production override | `disabled` or `uat_simulation`. Development/UAT/staging default to the simulation; production remains disabled even if misconfigured. |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Defaults to `true`. Backend orchestrates consent/send/writeback metadata only; it must not decrypt exports or persist review draft plaintext. |
 | `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Must be on the service allowlist. Current approved value: `attr.identity.*`. |
@@ -380,6 +427,7 @@ Used by:
 | `ONE_LOCATION_RETENTION_TOKEN` | Legacy, being retired | Yes | Secret Manager | Delete once `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0`. |
 | `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | Defaults on | No | Hosted Cloud Run env | Set `0` after both jobs are on OIDC. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | Optional local/test override | No | Local/test env only | Auth defaults on; hosted environments require `ONE_LOCATION_RETENTION_TOKEN` even if this flag is set false. |
+| `ONE_LOCATION_READ_ONLY_STATE_ENABLED` | Hosted rollout gate | No | `BACKEND_RUNTIME_CONFIG_JSON` | Service semantic default remains `true` when absent. Hosted deploys explicitly default to `false`; only UAT may opt in, and its deploy fails unless `one-location-retention-purge-uat` is enabled and targets the exact 12-hour purge endpoint. |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | Optional non-production override | No | Local/UAT Cloud Run env | Use `uat_simulation` or `disabled`; omit from production because production is hard-disabled in code. |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | Optional | No | Hosted Cloud Run env | Must remain `true` in dev/UAT strict client-side ZK mode. |
 | `ONE_EMAIL_KYC_DEFAULT_SCOPE` | Optional | No | Hosted Cloud Run env | Must remain allowlisted. Current approved value: `attr.identity.*`. |
@@ -412,11 +460,17 @@ One mailbox production caveats:
 - Hosted One KYC retention uses `deploy/one-email/setup_kyc_retention_scheduler.sh` to schedule `POST /api/one/kyc/retention/purge?older_than_days=30`.
 - Hosted One Location retention must run
   `deploy/one-location/setup_retention_scheduler.sh` and verify the hourly
-  `one-location-retention-purge-uat` job before nearby presence is enabled. The
-  job calls `POST /api/one/location/retention/purge?older_than_hours=12`.
+  `one-location-retention-purge-uat` job before nearby presence and the UAT
+  read-only state rollout are enabled. The UAT deploy checks that the job exists
+  in `hushh-pda-uat/us-central1`, is `ENABLED`, and calls exactly
+  `POST /api/one/location/retention/purge?older_than_hours=12`. The private
+  check also requires a non-empty maintenance-auth header, while its sanitized
+  evidence exposes only header presence and never the value; never print that
+  header during verification.
 - **Both scheduler jobs authenticate with a per-invocation Google-signed OIDC
   token, not with a secret baked into the job.** They previously carried the
-  Secret Manager value as a literal `X-Hushh-Maintenance-Token` header, which
+  Secret Manager value as a literal `X-Hushh-Maintenance-Token` header (the
+  dedicated `ONE_LOCATION_RETENTION_TOKEN` for the Location job), which
   `gcloud scheduler jobs describe` prints: the credential was readable by anyone
   with scheduler view access, it never rotated unless a human re-ran the setup
   script, and because both jobs used the same header name one value opened both
@@ -426,7 +480,8 @@ One mailbox production caveats:
 - The migration is ordered: deploy the backend, re-run both setup scripts, then
   set `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0` and delete the two secrets.
   Until that last step the shared-header path is still open, which is why it is
-  a variable rather than an assumption.
+  a variable rather than an assumption -- and why the header check above still
+  applies.
 - One Email KYC connector private keys are client/vault-owned. Do not configure backend connector public, key-id, or private-key env vars for strict client-side ZK mode.
 - Strict client-side ZK KYC drafts are generated after vault unlock and must not persist server-side; production/public launch stays blocked until dev/UAT evidence proves that invariant.
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | No | Local: `.env`; Prod: Cloud Run env | True for Vertex AI |

@@ -195,3 +195,43 @@ def test_substituted_backend_deploy_body_fits_every_lane(workflow_path: str) -> 
         f"deploy lane. Keep the step body in scripts/deploy/backend-deploy.sh and "
         f"pass values through the step's env: field, one substitution per entry."
     )
+
+
+_INDIRECT_EXPANSION = re.compile(r"\$\{!")
+
+
+def test_every_forwarded_substitution_is_declared_and_expanded_directly() -> None:
+    """Cloud Build substitutes ${_FOO} in the CONFIG, never inside a file from the
+    source tarball, and there is no automapSubstitutions here. So a value only reaches
+    the deploy body through the step's `env:` field, and only if the substitution it
+    forwards is declared.
+
+    This used to guard an inline `for n in ...; do v="_${n}"; add_env "${n}" "${!v}"`
+    loop, where a name in the loop with no env entry silently deployed nothing -- the
+    bug that lost the Gmail monitor settings. The body now lives in
+    scripts/deploy/backend-deploy.sh and names each variable directly, so the guard
+    becomes two simpler ones: no indirect expansion may come back (it would read a
+    variable no static check can see), and every forwarded name must be declared.
+
+    The other half -- every ${_FOO} the SCRIPT reads has an env entry -- is asserted in
+    tests/test_pod_image_build_contract.py, next to the script it reads.
+    """
+    config = _load("deploy/backend.cloudbuild.yaml")
+    assert config is not None
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text(encoding="utf-8")
+    body = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+    assert not _INDIRECT_EXPANSION.search(body), (
+        "the deploy body reintroduced ${!var} indirect expansion; name each "
+        "substitution directly so a missing env: entry is statically visible"
+    )
+
+    provided = {
+        entry.split("=", 1)[0]
+        for entry in step.get("env") or []
+        if entry.split("=", 1)[1] == "${" + entry.split("=", 1)[0] + "}"
+    }
+    assert provided, "the deploy-backend step no longer forwards any substitution"
+    declared = set((config.get("substitutions") or {}).keys())
+    assert provided <= declared, sorted(provided - declared)

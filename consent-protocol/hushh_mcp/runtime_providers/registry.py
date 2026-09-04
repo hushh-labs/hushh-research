@@ -60,11 +60,33 @@ _MODELS: tuple[ModelEntry, ...] = (
     ),
     ModelEntry(
         provider="gemini",
+        model="gemini-3.8-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
+    ),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.7-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
+    ),
+    ModelEntry(
+        provider="gemini",
         model="gemini-3.6-flash",
         supports_prompt_caching=True,
         supported_vertex_locations=("global",),
     ),
-    ModelEntry(provider="gemini", model="gemini-3.1-pro-preview"),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.5-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
+    ),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.1-pro-preview",
+        supported_vertex_locations=("global",),
+    ),
     ModelEntry(provider="gemini", model="gemini-3.1-flash-lite"),
     ModelEntry(
         provider="gemini",

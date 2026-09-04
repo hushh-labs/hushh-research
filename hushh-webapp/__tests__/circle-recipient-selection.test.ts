@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  countSelectedCircleRecipients,
   isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
   resolveCircleRecipientSelection,
@@ -109,6 +110,38 @@ describe("isCircleSelectionFullySelected", () => {
     expect(
       isCircleSelectionFullySelected({ ...selection(), ready: [] }, []),
     ).toBe(false);
+  });
+});
+
+describe("countSelectedCircleRecipients", () => {
+  it("does not let hand-picked outsiders inflate the Circle row count", () => {
+    const resolved = resolveCircleRecipientSelection({
+      circle: circle(),
+      currentUserId: "owner",
+    });
+    const readyIds = resolved.ready.map((target) => target.recipient.userId);
+
+    expect(readyIds).toEqual(["ready", "no-phone"]);
+    expect(
+      countSelectedCircleRecipients(resolved, [
+        ...readyIds,
+        "outsider-one",
+        "outsider-two",
+      ]),
+    ).toBe(2);
+  });
+
+  it("counts the unique selected intersection for partial or empty state", () => {
+    const resolved = resolveCircleRecipientSelection({
+      circle: circle(),
+      currentUserId: "owner",
+    });
+
+    expect(
+      countSelectedCircleRecipients(resolved, ["ready", "ready", "outsider"]),
+    ).toBe(1);
+    expect(countSelectedCircleRecipients(resolved, [])).toBe(0);
+    expect(countSelectedCircleRecipients(null, ["ready"])).toBe(0);
   });
 });
 
