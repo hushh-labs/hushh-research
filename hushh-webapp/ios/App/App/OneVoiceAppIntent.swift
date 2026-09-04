@@ -270,8 +270,14 @@ enum OneLocationStateIntentValue: String, AppEnum {
 
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Location State"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .on: "On",
-        .off: "Off"
+        .on: DisplayRepresentation(
+            title: "On",
+            synonyms: ["Enable", "Enabled", "Resume", "Resumed", "Start"]
+        ),
+        .off: DisplayRepresentation(
+            title: "Off",
+            synonyms: ["Disable", "Disabled", "Pause", "Paused", "Stop"]
+        )
     ]
 }
 
@@ -880,7 +886,6 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             phrases: [
                 "Open \(.applicationName) \(\.$target)",
                 "Show \(\.$target) in \(.applicationName)",
-                "Call \(.applicationName) \(\.$target)",
                 "Ask \(.applicationName) to open \(\.$target)",
                 "Tell \(.applicationName) to show \(\.$target)",
                 "Talk to \(.applicationName) and open \(\.$target)"
