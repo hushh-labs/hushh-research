@@ -10372,6 +10372,56 @@ export function OneLocationAgentPageContent({
           };
         }
       }
+      // A recipient name can also be a Circle name -- try any name that still
+      // did not match a person (even after the fresh server-side retry above)
+      // against the user's Circles, and on a match, add that Circle's
+      // location-ready members the same way a tap on the Circle button would
+      // (handleResolveNamedCircleRecipients, "location" purpose -- no phone
+      // requirement, self and key-less members already excluded there).
+      // Appended, never replacing: a person who already matched earlier in
+      // the same turn ("share with Bob and Family") keeps their spot.
+      const stillUnnamed = unresolved.filter(
+        (entry) => entry.kind === "not_found",
+      );
+      const matchedCircleNames: string[] = [];
+      if (stillUnnamed.length > 0 && namedCircles.length > 0) {
+        const remaining: typeof unresolved = unresolved.filter(
+          (entry) => entry.kind !== "not_found",
+        );
+        for (const entry of stillUnnamed) {
+          const { match: circleMatch } = matchCircleByName(
+            namedCircles,
+            entry.spokenText,
+          );
+          if (!circleMatch) {
+            remaining.push(entry);
+            continue;
+          }
+          try {
+            const selection = await handleResolveNamedCircleRecipients(
+              circleMatch.id,
+              "location",
+            );
+            if (!selection.ready.length) {
+              remaining.push(entry);
+              continue;
+            }
+            matchedCircleNames.push(selection.circle.name);
+            for (const target of selection.ready) {
+              if (
+                !resolved.some(
+                  (existing) => existing.userId === target.recipient.userId,
+                )
+              ) {
+                resolved = [...resolved, target.recipient];
+              }
+            }
+          } catch {
+            remaining.push(entry);
+          }
+        }
+        unresolved = remaining;
+      }
       if (resolved.length === 0) {
         // Never guess between people. Two colleagues sharing a first name is
         // ordinary, and picking the wrong one here is not recoverable once the
@@ -10958,6 +11008,49 @@ export function OneLocationAgentPageContent({
               "Location is still loading your connections. Please try that name again in a moment.",
           };
         }
+      }
+      // A named Circle asks every location-ready member the same way naming
+      // one asks that one person -- see location.select_share_recipient's own
+      // Circle fallback just above, which this mirrors exactly.
+      const stillUnnamedToAsk = unresolved.filter(
+        (entry) => entry.kind === "not_found",
+      );
+      if (stillUnnamedToAsk.length > 0 && namedCircles.length > 0) {
+        const remaining: typeof unresolved = unresolved.filter(
+          (entry) => entry.kind !== "not_found",
+        );
+        for (const entry of stillUnnamedToAsk) {
+          const { match: circleMatch } = matchCircleByName(
+            namedCircles,
+            entry.spokenText,
+          );
+          if (!circleMatch) {
+            remaining.push(entry);
+            continue;
+          }
+          try {
+            const selection = await handleResolveNamedCircleRecipients(
+              circleMatch.id,
+              "location",
+            );
+            if (!selection.ready.length) {
+              remaining.push(entry);
+              continue;
+            }
+            for (const target of selection.ready) {
+              if (
+                !resolved.some(
+                  (existing) => existing.userId === target.recipient.userId,
+                )
+              ) {
+                resolved = [...resolved, target.recipient];
+              }
+            }
+          } catch {
+            remaining.push(entry);
+          }
+        }
+        unresolved = remaining;
       }
       if (resolved.length === 0) {
         const ambiguous = unresolved.find(
