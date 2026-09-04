@@ -64,6 +64,7 @@ import {
   type WalletCardSecrets,
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
+import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import {
   CardNetworkMark,
   cardNetworkLabel,
@@ -1805,6 +1806,35 @@ export function AgentChatWorkspace({
       cancelled = true;
     };
   }, [conversationId, getVaultOwnerToken]);
+
+  // Asking someone for information needs a connector: the keypair their reply
+  // is encrypted to. It is generated in the owner's unlocked vault, so only the
+  // browser can mint it, and the backend tool can only report that it is
+  // missing. Without this, chat could describe a person's shareable fields and
+  // then dead-end on "set up the secure connector", sending someone to a
+  // profile page to do something the app could have done itself. ensureConnector
+  // is idempotent: it reuses the stored keypair and re-registers the public half.
+  useEffect(() => {
+    const token = getVaultOwnerToken();
+    if (!user?.uid || !vaultKey || !token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await OneKycClientZkService.ensureConnector({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken: token,
+        });
+      } catch {
+        // Never surfaced: the request path still reports the missing connector
+        // itself, and a failure here must not disturb an unrelated turn.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      void cancelled;
+    };
+  }, [user?.uid, vaultKey, getVaultOwnerToken]);
 
   useEffect(() => {
     if (!user) return;
