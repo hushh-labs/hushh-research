@@ -1127,7 +1127,9 @@ async def _teardown_byoc_substrate(
         from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap_sa)
-        actions = plan_teardown(substrate_resources(hushh_id, project))
+        # bootstrap_sa comes from the row, not derived: it is the account the person
+        # actually granted, and the revoke has to name that one to end hushh's access.
+        actions = plan_teardown(substrate_resources(hushh_id, project, bootstrap_sa=bootstrap_sa))
         summary = await execute_teardown(
             actions,
             deleter=build_gcp_deleter(token=token, project=project, region=region),

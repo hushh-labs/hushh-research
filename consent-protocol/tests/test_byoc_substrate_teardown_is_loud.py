@@ -198,3 +198,127 @@ async def test_unknown_resource_type_is_a_failure():
     # plan_teardown promises a new resource kind is never silently dropped.
     with pytest.raises(SubstrateDeleteError, match="unknown resource type something_new"):
         await _deleter(_Session())({"type": "something_new", "id": "x", "op": "delete"})
+
+
+# -- giving back hushh's own access, which teardown used to keep ----------------
+
+_BOOTSTRAP = "one-bootstrap@proj-x.iam.gserviceaccount.com"
+_HUSHH = "serviceAccount:consent-plane@hushh.iam.gserviceaccount.com"
+_REVOKE = {
+    "type": "service_account_iam_binding",
+    "id": f"roles/iam.serviceAccountTokenCreator:{_HUSHH}@{_BOOTSTRAP}",
+    "resource": _BOOTSTRAP,
+    "role": "roles/iam.serviceAccountTokenCreator",
+    "member": _HUSHH,
+}
+
+
+def test_hushh_impersonation_grant_is_revoked_last():
+    """Ordering is the design, not a preference.
+
+    This binding is hushh's permission to impersonate the bootstrap account -- the
+    identity every other delete in the plan runs as. Revoke it earlier and teardown
+    strands itself in a project it has just lost the only way back into.
+    """
+    from hushh_mcp.services.byoc_substrate_teardown import plan_teardown, substrate_resources
+
+    actions = plan_teardown(
+        substrate_resources(
+            "ha1_abc", "proj-x", bootstrap_sa=_BOOTSTRAP, hushh_caller=_HUSHH.split(":", 1)[1]
+        )
+    )
+    assert actions[-1]["type"] == "service_account_iam_binding"
+    assert actions[-1]["resource"] == _BOOTSTRAP
+
+
+def test_the_revocation_is_omitted_when_either_identity_is_unknown():
+    """A binding with an empty member matches nothing and deletes nothing.
+
+    Emitting one anyway would let execute_teardown count it deleted and mint a
+    clean-erasure summary over an access that is still live.
+    """
+    from hushh_mcp.services.byoc_substrate_teardown import substrate_resources
+
+    kinds = lambda rs: {r["type"] for r in rs}  # noqa: E731
+    assert "service_account_iam_binding" not in kinds(
+        substrate_resources("ha1_abc", "proj-x", bootstrap_sa="", hushh_caller="who@hushh")
+    )
+    assert "service_account_iam_binding" not in kinds(
+        substrate_resources("ha1_abc", "proj-x", bootstrap_sa=_BOOTSTRAP, hushh_caller="")
+    )
+
+
+async def test_revoking_hushh_keeps_every_other_binding():
+    """Read-modify-write, never a whole-policy replace (safe-changes R3).
+
+    The person may hold bindings on their own account that hushh knows nothing about.
+    Dropping them while reporting that one grant was revoked would be a larger and
+    quieter change than the one being made.
+    """
+    theirs = "user:alice@example.com"
+    session = _Session()
+    session.rule(
+        "POST",
+        ":getIamPolicy",
+        _Resp(
+            200,
+            {
+                "etag": "etag-9",
+                "bindings": [
+                    {
+                        "role": "roles/iam.serviceAccountTokenCreator",
+                        "members": [_HUSHH, theirs],
+                    },
+                    {"role": "roles/iam.serviceAccountUser", "members": [theirs]},
+                ],
+            },
+        ),
+    )
+    session.rule("POST", ":setIamPolicy", _Resp(200))
+    await _deleter(session)(dict(_REVOKE))
+
+    policy = [c for c in session.calls if ":setIamPolicy" in c[1]][0][2]["json"]["policy"]
+    creator = next(
+        b for b in policy["bindings"] if b["role"] == "roles/iam.serviceAccountTokenCreator"
+    )
+    assert _HUSHH not in creator["members"], "hushh still holds the grant"
+    assert theirs in creator["members"], "the person's own grant was collateral"
+    assert {"role": "roles/iam.serviceAccountUser", "members": [theirs]} in policy["bindings"]
+    assert policy["etag"] == "etag-9", "a dropped etag turns a merge into a clobber"
+
+    # Already revoked -> no write, no raise. Account deletion retries land here.
+    session = _Session()
+    session.rule("POST", ":getIamPolicy", _Resp(200, {"etag": "e", "bindings": []}))
+    await _deleter(session)(dict(_REVOKE))
+    assert [c for c in session.calls if ":setIamPolicy" in c[1]] == []
+
+
+async def test_a_deleted_bootstrap_account_is_idempotent_success():
+    """The person deleted the account themselves. The grant went with it."""
+    session = _Session()
+    session.rule("POST", ":getIamPolicy", _Resp(404))
+    await _deleter(session)(dict(_REVOKE))
+    assert [c for c in session.calls if ":setIamPolicy" in c[1]] == []
+
+
+async def test_a_refused_revocation_is_loud():
+    """The one failure that must never be swallowed.
+
+    A silent failure here writes the substrate tombstone over an access hushh still
+    holds -- the account reads as erased while hushh can still mint admin tokens in
+    that project. Same reasoning as the 403-delete case at the top of this file.
+    """
+    session = _Session()
+    session.rule(
+        "POST",
+        ":getIamPolicy",
+        _Resp(200, {"etag": "e", "bindings": [{"role": _REVOKE["role"], "members": [_HUSHH]}]}),
+    )
+    session.rule("POST", ":setIamPolicy", _Resp(403))
+    with pytest.raises(SubstrateDeleteError):
+        await _deleter(session)(dict(_REVOKE))
+
+    session = _Session()
+    session.rule("POST", ":getIamPolicy", _Resp(500))
+    with pytest.raises(SubstrateDeleteError):
+        await _deleter(session)(dict(_REVOKE))

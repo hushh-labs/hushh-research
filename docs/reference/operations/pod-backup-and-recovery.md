@@ -256,6 +256,36 @@ TTL. Guard: `consent-protocol/tests/test_byoc_substrate_teardown_rowless.py`. Th
 person's project itself is still never deleted by hushh; on 2026-09-02 the owner deleted
 it by hand with `gcloud projects delete` (30-day undelete window).
 
+**Update 2026-09-04 — hushh gives its own access back at erasure.** The observation
+above named `one-bootstrap@` with ten admin roles as residue, and the fix that followed
+addressed the *anchor* rather than that account. So teardown kept deleting the person's
+infrastructure while leaving hushh's `roles/iam.serviceAccountTokenCreator` binding on
+the bootstrap account standing: after an account was erased, hushh could still mint
+900-second tokens as an identity holding `storage.admin`, `secretmanager.admin`,
+`cloudkms.admin` and `run.admin` inside that person's project, indefinitely, with the
+product reporting the account as erased.
+
+Account deletion now revokes that binding as the **last** action of the teardown plan
+(`service_account_iam_binding`, priority 120). Last is load-bearing: it is the identity
+every other delete runs as, so giving it up earlier strands teardown in a project hushh
+has just lost the only way back into. If the revoke itself fails, the grant is still
+there and a retry can still mint.
+
+**What is deliberately NOT done: the account is not deleted** (founder decision,
+2026-09-04). Deleting `one-bootstrap@` would be a larger irreversible act in a project
+hushh does not own, and it is not what ends hushh's access -- the binding is. The person
+keeps their own account to delete or reuse; hushh keeps nothing. This is the same command
+`deploy/iam/authorize_byoc_project.sh` documents as the revoke, now performed on the
+person's behalf instead of left as homework nobody knows they have.
+
+The honest bound is unchanged from that script: a token already minted lives out its
+remaining 900 seconds, because Google does not revoke issued access tokens. Erasure ends
+future authority and at most fifteen more minutes of the old. Guard:
+`consent-protocol/tests/test_byoc_substrate_teardown_is_loud.py` -- five tests covering
+the ordering, the omission when either identity is unknown, the read-modify-write that
+keeps the person's own bindings, idempotency on a deleted account, and a refused revoke
+raising instead of minting a clean-erase summary over surviving access.
+
 ### One key, one blast radius
 
 `HUSSH_POD_LOG_KEY` seals every record for the life of the pod. There is no rotation, no

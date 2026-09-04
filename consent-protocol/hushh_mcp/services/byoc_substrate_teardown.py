@@ -16,6 +16,7 @@ safe.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
@@ -44,6 +45,11 @@ _TEARDOWN_PRIORITY = {
     "service_account": 80,
     "kms_key": 100,
     "kms_keyring": 110,
+    # LAST, and the ordering is the whole design. This is hushh's permission to
+    # impersonate the bootstrap account -- the identity every delete above runs as.
+    # Give it up before the rest is gone and teardown cannot finish, in a project
+    # hushh has just lost the only way back into.
+    "service_account_iam_binding": 120,
 }
 
 
@@ -66,7 +72,11 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
             "id": rid,
             "op": "destroy_versions" if rtype == "kms_key" else "delete",
         }
-        for key in ("role", "member"):
+        # `resource` joined these because a binding on a SERVICE ACCOUNT needs to name
+        # which account; dropping it silently built a malformed URL and the revoke
+        # could not have worked. A key this loop does not know about is discarded
+        # without a word, so anything a deleter reads must be listed here.
+        for key in ("role", "member", "resource"):
             if r.get(key):
                 action[key] = str(r[key])
         actions.append(action)
@@ -123,7 +133,13 @@ async def execute_teardown(
     }
 
 
-def substrate_resources(hushh_id: str, project: str) -> list[dict[str, Any]]:
+def substrate_resources(
+    hushh_id: str,
+    project: str,
+    *,
+    bootstrap_sa: str = "",
+    hushh_caller: str = "",
+) -> list[dict[str, Any]]:
     """The deletable substrate a pod's bootstrap created in the person's project.
 
     Derived from the SAME naming helpers the bootstrap plan renders from, so the
@@ -139,7 +155,7 @@ def substrate_resources(hushh_id: str, project: str) -> list[dict[str, Any]]:
     slug = _slug(hushh_id)
     account_id = pod_service_account_id(hushh_id)
     sa_email = f"{account_id}@{project}.iam.gserviceaccount.com"
-    return [
+    resources: list[dict[str, Any]] = [
         {"type": "cloud_scheduler_job", "id": f"one-mail-{slug}-watch-renew"},
         {"type": "pubsub_subscription", "id": f"one-mail-{slug}-sub"},
         {"type": "pubsub_topic", "id": f"one-mail-{slug}"},
@@ -161,6 +177,58 @@ def substrate_resources(hushh_id: str, project: str) -> list[dict[str, Any]]:
             "member": f"serviceAccount:{sa_email}",
         },
         {"type": "kms_key", "id": f"one-pod-{slug}-key"},
+    ]
+    resources.extend(_hushh_access_revocation(project, bootstrap_sa, hushh_caller))
+    return resources
+
+
+def _hushh_access_revocation(
+    project: str, bootstrap_sa: str, hushh_caller: str
+) -> list[dict[str, Any]]:
+    """Give back the one permission the person granted hushh. Deliberately not a delete.
+
+    Everything above is the person's own infrastructure. This is different in kind: it
+    is hushh's standing ability to impersonate `one-bootstrap@<their project>`, an
+    account holding ten admin-class roles -- storage.admin, secretmanager.admin,
+    cloudkms.admin, run.admin among them -- inside a project belonging to somebody who
+    has just deleted their account. Teardown removed the pod's service account and
+    never touched this, so hushh kept minting 900-second tokens as an admin in an
+    ex-customer's cloud, indefinitely, with the product showing the account as erased.
+
+    WHY THE GRANT AND NOT THE ACCOUNT
+
+    Deleting `one-bootstrap@` would be a larger irreversible act in a project hushh does
+    not own, and it is not what ends hushh's access -- the binding is. Removing exactly
+    the binding leaves the person holding their own account, to delete or reuse as they
+    choose, and leaves hushh with nothing. `authorize_byoc_project.sh` documents this
+    same command as the revoke; account deletion now performs it on the person's behalf
+    rather than leaving it as homework nobody knows they have.
+
+    The honest bound, unchanged from that script: a token already minted lives out its
+    remaining 900 seconds, because Google does not revoke issued access tokens. So this
+    ends future authority, and at most fifteen more minutes of the old.
+
+    Emitted only when both identities are known. A binding with an empty member would
+    match nothing and mint a clean-erasure summary over an access that survived.
+    """
+    caller = (hushh_caller or "").strip()
+    if not caller:
+        from hushh_mcp.services.user_gcp_backend import (  # noqa: PLC0415
+            _bare_service_account,  # noqa: SLF001 - one spelling of this principal
+        )
+
+        caller = str(_bare_service_account(os.getenv("HUSSH_CONSENT_PLANE_SA", "")))
+    account = (bootstrap_sa or "").strip()
+    if not account or not caller:
+        return []
+    return [
+        {
+            "type": "service_account_iam_binding",
+            "id": f"roles/iam.serviceAccountTokenCreator:{caller}@{account}",
+            "resource": account,
+            "role": "roles/iam.serviceAccountTokenCreator",
+            "member": f"serviceAccount:{caller}",
+        }
     ]
 
 
@@ -281,6 +349,36 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         if put.status_code != 200:
             raise SubstrateDeleteError(f"project iam setIamPolicy http={put.status_code}")
 
+    def _remove_service_account_iam_binding(resource: str, role: str, member: str) -> None:
+        # The same read-modify-write as the project version, on the service ACCOUNT's
+        # own policy. Never a whole-policy replace: the person may hold bindings here
+        # that hushh knows nothing about, and dropping them while claiming to revoke
+        # one grant is the failure safe-changes R3 exists for.
+        base = f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{resource}"
+        got = session.post(f"{base}:getIamPolicy", headers=headers, json={}, timeout=30)
+        if got.status_code == 404:
+            return  # the account is gone, so the grant on it is too -- idempotent
+        if got.status_code != 200:
+            raise SubstrateDeleteError(f"sa iam getIamPolicy http={got.status_code}")
+        policy = got.json() or {}
+        kept, changed = [], False
+        for b in policy.get("bindings") or []:
+            if b.get("role") == role and member in (b.get("members") or []):
+                changed = True
+                members = [m for m in b["members"] if m != member]
+                if members:
+                    kept.append({**b, "members": members})
+            else:
+                kept.append(b)
+        if not changed:
+            return  # already revoked -> idempotent success on a retried deletion
+        policy["bindings"] = kept
+        put = session.post(
+            f"{base}:setIamPolicy", headers=headers, json={"policy": policy}, timeout=30
+        )
+        if put.status_code != 200:
+            raise SubstrateDeleteError(f"sa iam setIamPolicy http={put.status_code}")
+
     async def _deleter(action: dict) -> None:
         import asyncio  # noqa: PLC0415
 
@@ -337,6 +435,12 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
             elif kind == "iam_binding":
                 _remove_project_iam_binding(
                     str(action.get("role") or ""), str(action.get("member") or "")
+                )
+            elif kind == "service_account_iam_binding":
+                _remove_service_account_iam_binding(
+                    str(action.get("resource") or ""),
+                    str(action.get("role") or ""),
+                    str(action.get("member") or ""),
                 )
             elif kind == "kms_key":
                 # Keys cannot be deleted; destroying every version is the real
