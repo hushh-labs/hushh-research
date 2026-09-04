@@ -33,6 +33,8 @@ import {
   fetchPuppyJobs,
   fetchPuppyResources,
   setPuppyJobPaused,
+  type PuppyHeartbeatConversation,
+  type PuppyHeartbeatScheduledJob,
   type PuppyJob,
   type PuppyJobs,
   type PuppyLink,
@@ -118,6 +120,17 @@ const DISK_WARNING_PCT = 90;
 
 /** Below this and discharging, the machine may not see the morning. */
 const BATTERY_WARNING_PCT = 20;
+
+/**
+ * How many reported rows are drawn, for jobs and for conversations alike.
+ *
+ * The wire contract already caps each list at 10, so under a device that
+ * honours it this changes nothing. It is here because the payload is stored
+ * data replayed to a remote viewer: a device that one day sends ten thousand
+ * rows must cost this panel ten rows, not a frozen tab. The lists arrive
+ * soonest-first and newest-first, so the kept half is the useful one.
+ */
+const MAX_REPORTED_ROWS = 10;
 
 type Tone = "success" | "warning" | "danger";
 
@@ -590,7 +603,7 @@ export function PuppyResourceMonitor({
             "Set HERMES_API_SERVER_KEY to read the machine Puppy One runs on."}
         </p>
         <ReportedReading link={link} />
-        {scheduled}
+        {reportsSchedule(link) ? null : scheduled}
       </Shell>
     );
   }
@@ -602,7 +615,7 @@ export function PuppyResourceMonitor({
           Puppy One is not answering on this machine.
         </p>
         <ReportedReading link={link} />
-        {scheduled}
+        {reportsSchedule(link) ? null : scheduled}
       </Shell>
     );
   }
@@ -886,10 +899,32 @@ export function PuppyResourceMonitor({
  * The machine as it last described itself to Hussh One.
  *
  * Only what the heartbeat carried, in the rows the live reading already uses:
- * the model line, the memory and battery tiles, the next scheduled run. A
- * field the device did not send renders as nothing. A desktop sends no
- * battery, and that is not 0%.
+ * the model line, the memory and battery tiles, the next scheduled run, and
+ * the two lists the device reports about itself. A field the device did not
+ * send renders as nothing. A desktop sends no battery, and that is not 0%.
+ *
+ * Everything here sits under ONE heading, "As reported to Hussh One N ago".
+ * That is deliberate and load-bearing: none of it is live, and the lists are
+ * the part a reader is most likely to mistake for live, because a list of
+ * jobs with switches beside it is exactly what the live panel looks like.
+ * Giving either list a heading of its own would lift it out from under the
+ * stamp, so they stay inside it as blocks and the stamp governs the lot.
  */
+/**
+ * Whether One's stored report already answers "what is scheduled".
+ *
+ * Two blocks can answer that question in this panel: the live jobs slot, which
+ * reads the machine directly, and the reported block, which reads what the
+ * machine last told One. When the bridge cannot answer, the live slot has
+ * nothing to say and says so, while the reported block has the real list. Both
+ * rendering means the panel states two contradictory things about one fact, a
+ * line apart, with the unhelpful one on top. One question, one answer: where
+ * the report has a schedule, the live slot stands down.
+ */
+function reportsSchedule(link: PuppyLink | null): boolean {
+  return readReportedList(link?.device?.heartbeat?.scheduled, readScheduledJob) !== null;
+}
+
 function ReportedReading({ link }: { link: PuppyLink | null }) {
   const device = link?.device ?? null;
   const snapshot = device?.heartbeat ?? null;
@@ -915,15 +950,28 @@ function ReportedReading({ link }: { link: PuppyLink | null }) {
   // between this sheet and the page would replace the page with the error
   // screen for every viewer of that account. No device sends this field
   // today; the row exists for the one that will.
-  const nextRun =
+  const nextCronRun =
     nextCronAt !== null && nextCronAt > checkedAt && nextCronAt <= 8.64e15
-      ? relativeTime(checkedAt, new Date(nextCronAt).toISOString())
+      ? relativeTimeFromMs(checkedAt, nextCronAt)
       : null;
+
+  const schedule = readReportedList(snapshot.scheduled, readScheduledJob);
+  const conversations = readReportedList(
+    snapshot.conversations,
+    readConversation,
+  );
+
+  // `next_cron_at` is the soonest run across the whole schedule, which is the
+  // same fact the first row of a soonest-first list already carries, worded
+  // twice. The list is the more precise of the two, so it wins; the standalone
+  // line survives for the device that reports a next run and no list.
+  const nextRun = schedule && schedule.rows.length > 0 ? null : nextCronRun;
 
   const hasMachine =
     brand !== null || processor !== null || ramTotalGb !== null;
   const hasTiles = ramUsedPct !== null || batteryPct !== null;
-  if (!model && !hasMachine && !hasTiles && !nextRun) return null;
+  const hasReading = Boolean(model) || hasMachine || hasTiles || Boolean(nextRun);
+  if (!hasReading && !schedule && !conversations) return null;
 
   const activity: string[] = [];
   if (snapshot.busy === true) activity.push("busy");
@@ -1011,7 +1059,204 @@ function ReportedReading({ link }: { link: PuppyLink | null }) {
           Next scheduled run {nextRun}
         </p>
       ) : null}
+
+      {schedule ? (
+        <ReportedBlock label="Scheduled work" divided={hasReading}>
+          {schedule.rows.length > 0 ? (
+            <ul className="flex flex-col gap-1">
+              {schedule.rows.map((job, index) => (
+                <ReportedJobRow
+                  key={`${job.name}-${index}`}
+                  job={job}
+                  baseMs={checkedAt}
+                />
+              ))}
+            </ul>
+          ) : (
+            // The device answered "none", which is an answer. A device that
+            // said nothing at all never reaches this block.
+            <p className="text-xs text-muted-foreground">
+              Nothing was scheduled when this machine last reported.
+            </p>
+          )}
+        </ReportedBlock>
+      ) : null}
+
+      {conversations ? (
+        <ReportedBlock
+          label="Recent conversations"
+          divided={hasReading || Boolean(schedule)}
+        >
+          {conversations.rows.length > 0 ? (
+            <ul className="flex flex-col gap-1">
+              {conversations.rows.map((conversation, index) => (
+                <ReportedConversationRow
+                  key={`${conversation.title}-${index}`}
+                  conversation={conversation}
+                  baseMs={checkedAt}
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No recent conversations when this machine last reported.
+            </p>
+          )}
+        </ReportedBlock>
+      ) : null}
     </Section>
+  );
+}
+
+/**
+ * One block inside the reported section.
+ *
+ * It borrows the top-level `Section` label and the hairline the live
+ * "Scheduled work" section already draws above its list, rather than
+ * introducing a card, a chip or a heading weight that exists nowhere else on
+ * this panel. A reported list that looked different from the live one beside
+ * it would read as a different KIND of thing rather than as the same thing at
+ * an earlier moment.
+ *
+ * `divided` is false for whichever block comes first, so a snapshot carrying
+ * only lists does not open with a rule under the heading and nothing above it.
+ */
+function ReportedBlock({
+  label,
+  divided,
+  children,
+}: {
+  label: string;
+  divided: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className={cn(divided && "mt-2.5 border-t border-border/60 pt-2.5")}>
+      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * One reported job, in the three forms `JobRow` uses, minus the switch.
+ *
+ * There is no switch because there is nothing to switch: this is a stored
+ * sentence from a machine the reader cannot reach, and a control that could
+ * not act would be a lie about what this panel can do.
+ *
+ * The forms carry their state in shape as well as colour, exactly as the live
+ * row does, and for the same reason:
+ *
+ *   running   no stripe, full-strength name.
+ *   paused    a plain grey stripe, a dimmed name, and the WORD "Paused". A
+ *             job the owner switched off is not a job that went wrong, and it
+ *             must never wear the colour that means something did.
+ *   failed    a red stripe and a labelled chip. A paused job whose last run
+ *             failed keeps the paused form and still shows the chip: both are
+ *             true and neither is allowed to hide the other.
+ */
+function ReportedJobRow({
+  job,
+  baseMs,
+}: {
+  job: PuppyHeartbeatScheduledJob;
+  baseMs: number;
+}) {
+  const failed = isFailedStatus(job.last);
+  const detail: string[] = [];
+  const when = describeSchedule(job.when);
+  if (when) detail.push(when);
+  if (job.paused) {
+    detail.push("Paused");
+  } else {
+    // A run that was due before this snapshot is history the snapshot cannot
+    // update. Saying "due now" for it would claim something about a machine
+    // that may have been asleep since, so a past time is dropped rather than
+    // shown -- the same rule the machine-level next-run line follows.
+    const at = epochSecondsToMs(job.next_at);
+    const next = at !== null && at > baseMs ? phraseNextRun(relativeTimeFromMs(baseMs, at)) : null;
+    if (next) detail.push(next);
+  }
+  const last = nonEmpty(job.last);
+  if (!failed && last) detail.push(`last run ${last}`);
+
+  return (
+    <li
+      className={cn(
+        "rounded-lg border-l-2 px-2.5 py-2",
+        job.paused
+          ? "border-l-border bg-muted/30"
+          : failed
+            ? "border-l-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)]"
+            : "border-l-transparent bg-muted/40",
+      )}
+    >
+      {/* `min-w-0` so a long name truncates inside the row instead of pushing
+          the row wider than the panel. */}
+      <div className="min-w-0">
+        <p
+          className={cn(
+            "truncate text-xs font-medium",
+            job.paused && "text-muted-foreground",
+          )}
+        >
+          {job.name}
+        </p>
+        {detail.length > 0 ? (
+          <p className="mt-0.5 truncate text-[11px] tabular-nums text-muted-foreground">
+            {detail.join(" · ")}
+          </p>
+        ) : null}
+      </div>
+
+      {failed ? (
+        <span
+          className={cn(
+            "mt-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+            TONE_CHIP.danger,
+          )}
+        >
+          <AlertTriangle className="size-3" aria-hidden />
+          Last run failed
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * One reported conversation: what it was called, how long it ran, and when.
+ *
+ * Drawn as `ResidentRow` is, because it is the same kind of thing -- a short
+ * list of named rows with two numbers each -- and the panel should not grow a
+ * second way of writing that. Nothing of what was SAID is here; the wire
+ * carries a title, a count and a time, and there is no field for anything else.
+ */
+function ReportedConversationRow({
+  conversation,
+  baseMs,
+}: {
+  conversation: PuppyHeartbeatConversation;
+  baseMs: number;
+}) {
+  const at = epochSecondsToMs(conversation.at);
+  const seen = at !== null ? formatRelativeTime(at, baseMs || undefined) : "";
+  return (
+    <li className="flex items-baseline gap-2 text-xs">
+      <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
+      <span className="shrink-0 tabular-nums text-muted-foreground">
+        {conversation.messages}{" "}
+        {conversation.messages === 1 ? "message" : "messages"}
+      </span>
+      {seen ? (
+        <span className="shrink-0 tabular-nums text-muted-foreground">
+          {seen}
+        </span>
+      ) : null}
+    </li>
   );
 }
 
@@ -1228,9 +1473,7 @@ function JobRow({
   // a state: treating any non-empty error as failure marked healthy jobs red
   // and suppressed their true "last run ok" line, so the row disagreed with
   // itself. The error text is still shown below when there is one.
-  const statusWord = nonEmpty(job.lastStatus)?.toLowerCase();
-  const failing =
-    job.failureStreak > 0 || statusWord === "error" || statusWord === "failed";
+  const failing = job.failureStreak > 0 || isFailedStatus(job.lastStatus);
 
   const detail: string[] = [];
   const schedule = describeSchedule(job.schedule);
@@ -1432,6 +1675,107 @@ function nonEmpty(value: unknown): string | null {
   return trimmed || null;
 }
 
+/** A run that went wrong, in the words either side of the wire uses for it. */
+function isFailedStatus(value: unknown): boolean {
+  const word = nonEmpty(value)?.toLowerCase();
+  return word === "error" || word === "failed";
+}
+
+/**
+ * Epoch SECONDS, as the heartbeat's `scheduled[].next_at` and
+ * `conversations[].at` carry them, in the milliseconds every other clock on
+ * this panel uses.
+ *
+ * Bounded at both ends. Below zero because the contract says non-negative and
+ * a negative there is a misread field, not a date in 1969. Above 8.64e15
+ * because that is where the Date range stops, and there is no error boundary
+ * between this panel and the page: one absurd integer from one device would
+ * replace the whole page with the error screen for every viewer of that
+ * account.
+ */
+function epochSecondsToMs(value: unknown): number | null {
+  const seconds = finiteNumber(value);
+  if (seconds === null || seconds < 0) return null;
+  const ms = seconds * 1000;
+  return ms <= 8.64e15 ? ms : null;
+}
+
+/**
+ * A list the device reported, or null if it reported none.
+ *
+ * `rows` empty means the device answered "I have none", which is a fact worth
+ * saying out loud. Null means it said nothing, which is a different fact and
+ * is said by drawing nothing at all.
+ */
+interface ReportedList<T> {
+  rows: T[];
+}
+
+/**
+ * Read one of the heartbeat's two lists.
+ *
+ * The payload is stored data replayed from a machine this page cannot
+ * question, so it is read the way the trusted-device rows are: anything that
+ * is not an array is "not reported", and a row that cannot be built from the
+ * permitted fields alone is DROPPED rather than half-filled with a default.
+ *
+ * Dropping a row deliberately does NOT turn the list into "none": a payload
+ * whose rows were all unreadable returns an empty `rows` we would then render
+ * as "nothing was scheduled", which is a claim about the machine we cannot
+ * support. So the empty statement is reserved for a list the device really
+ * sent empty, and a list that emptied itself in here renders as nothing.
+ */
+function readReportedList<T>(
+  value: unknown,
+  readRow: (row: unknown) => T | null,
+): ReportedList<T> | null {
+  if (!Array.isArray(value)) return null;
+  const rows = value
+    .slice(0, MAX_REPORTED_ROWS)
+    .map(readRow)
+    .filter((row): row is T => row !== null);
+  if (rows.length === 0 && value.length > 0) return null;
+  return { rows };
+}
+
+/**
+ * One scheduled row, or null.
+ *
+ * All three of name, schedule and paused are required, and `paused` must be a
+ * real boolean: a job whose on/off state the payload did not say is not a job
+ * that is running, and rendering it as one would put a switched-off job on
+ * screen in the form that means "this fires tonight".
+ */
+function readScheduledJob(value: unknown): PuppyHeartbeatScheduledJob | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const name = nonEmpty(row.name);
+  const when = nonEmpty(row.when);
+  if (!name || !when || typeof row.paused !== "boolean") return null;
+  const nextAt = finiteNumber(row.next_at);
+  const last = nonEmpty(row.last);
+  return {
+    name,
+    when,
+    paused: row.paused,
+    ...(nextAt !== null ? { next_at: nextAt } : {}),
+    ...(last !== null ? { last } : {}),
+  };
+}
+
+/** One conversation row, or null. Title, count and time are all required. */
+function readConversation(value: unknown): PuppyHeartbeatConversation | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const title = nonEmpty(row.title);
+  const messages = finiteNumber(row.messages);
+  const at = finiteNumber(row.at);
+  if (!title || messages === null || messages < 0 || at === null || at < 0) {
+    return null;
+  }
+  return { title, messages, at };
+}
+
 function formatGb(value: number): string {
   return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} GB`;
 }
@@ -1561,7 +1905,16 @@ function ordinal(value: number): string {
 function describeNextRun(iso: string | null): string | null {
   const at = nonEmpty(iso);
   if (!at) return null;
-  const relative = relativeTime(Date.now(), at);
+  return phraseNextRun(relativeTime(Date.now(), at));
+}
+
+/**
+ * "next in 14 min", or "due now" left as it is.
+ *
+ * Shared by the live row and the reported one so the same instant is never
+ * worded two ways on one panel.
+ */
+function phraseNextRun(relative: string | null): string | null {
   if (!relative) return null;
   return relative.startsWith("in ") ? `next ${relative}` : relative;
 }
@@ -1573,8 +1926,14 @@ function describeFailure(streak: number): string {
 /** "in 14 min". Returns null for a timestamp that cannot be read. */
 function relativeTime(baseMs: number, iso: string): string | null {
   const at = Date.parse(iso);
-  if (!Number.isFinite(at) || !baseMs) return null;
-  const diffMs = at - baseMs;
+  if (!Number.isFinite(at)) return null;
+  return relativeTimeFromMs(baseMs, at);
+}
+
+/** The same words, from an epoch-ms instant that needs no ISO round trip. */
+function relativeTimeFromMs(baseMs: number, atMs: number): string | null {
+  if (!Number.isFinite(atMs) || !baseMs) return null;
+  const diffMs = atMs - baseMs;
   if (diffMs <= 0) return "due now";
   const minutes = Math.round(diffMs / 60_000);
   if (minutes < 1) return "in under a minute";
