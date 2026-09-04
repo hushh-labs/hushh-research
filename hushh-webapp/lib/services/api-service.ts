@@ -3375,6 +3375,46 @@ export class ApiService {
     return response.json();
   }
 
+  /**
+   * What the person is being asked to grant, and the script that grants it.
+   *
+   * The setup page used to print `bash deploy/iam/authorize_byoc_project.sh` -- a path
+   * that exists only in the hussh repository -- so whenever one-click authorization was
+   * unavailable the journey stopped on an instruction nobody could follow. This returns
+   * the script itself, rendered with this person's project already in it, alongside the
+   * disclosure of every role it binds and what hussh never receives.
+   */
+  static async getByocAuthorizationInstructions(): Promise<{
+    projectId: string;
+    bootstrapServiceAccount: string;
+    hushhCaller: string;
+    disclosure: {
+      grants_to_bootstrap_sa?: Array<{ role: string; why: string; scope?: string }>;
+      grants_to_hushh?: Array<{ role: string; on: string; why: string }>;
+      hushh_never_receives?: string[];
+      revocation?: string;
+    };
+    script: string;
+    scriptFilename: string;
+    revokeCommand: string;
+    authorized: boolean;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/authorize/instructions",
+      {
+        method: "GET",
+        headers: firebaseIdToken
+          ? { Authorization: `Bearer ${firebaseIdToken}` }
+          : {},
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_AUTHORIZATION_INSTRUCTIONS_FAILED");
+    }
+    return response.json();
+  }
+
   static async saveByocProject(input: {
     projectId: string;
     region?: string;

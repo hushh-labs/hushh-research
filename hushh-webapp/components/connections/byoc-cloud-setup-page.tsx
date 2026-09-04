@@ -117,6 +117,14 @@ export function ByocCloudSetupPage() {
     rationale: string;
   } | null>(null);
   const [switching, setSwitching] = useState(false);
+  // What the person is being asked to grant, and the script that grants it. Fetched
+  // rather than hard-coded: this page used to print `bash deploy/iam/...`, a path that
+  // exists only in the hussh repository, so the manual lane dead-ended on an
+  // instruction nobody outside the team could run.
+  const [instructions, setInstructions] = useState<Awaited<
+    ReturnType<typeof ApiService.getByocAuthorizationInstructions>
+  > | null>(null);
+  const [copied, setCopied] = useState(false);
   // Which door this person is taking. Null means they have not chosen, which is
   // a real third state and not the same as having chosen their own cloud — the
   // page used to assume BYOC by construction, so someone who arrived with a
@@ -150,6 +158,27 @@ export function ByocCloudSetupPage() {
   // line stayed on screen with nothing to click. Past the ceiling the naming
   // form shows (always a truthful fallback) with a note, and anything already
   // set up is still kept server-side.
+  // The manual lane's content. Fetched only once a project is recorded and the grant
+  // is not yet proven, which is exactly when this screen asks for it -- and skipped
+  // entirely on the one-click path, where the person never sees a script at all.
+  useEffect(() => {
+    if (!saved || saved.authorized) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const next = await ApiService.getByocAuthorizationInstructions();
+        if (!cancelled) setInstructions(next);
+      } catch {
+        // Leave `instructions` null: the block renders "preparing…" rather than a
+        // command that would authorize nothing. A half-rendered grant is worse than
+        // a visibly pending one.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [saved]);
+
   useEffect(() => {
     if (!user?.uid || checked) return;
     const ceiling = setTimeout(() => {
@@ -567,11 +596,70 @@ export function ByocCloudSetupPage() {
               grants one role, to one account, and you can withdraw it with a
               single command.
             </p>
-            <pre className="overflow-x-auto rounded-xl bg-[var(--app-surface-sunk)] p-3 text-xs">
-              {`PROJECT_ID=${saved.projectId} \\
-HUSHH_CALLER=${saved.hushhCaller} \\
-  bash deploy/iam/authorize_byoc_project.sh`}
-            </pre>
+            {instructions ? (
+              <>
+                <pre
+                  className="max-h-64 overflow-auto rounded-xl bg-[var(--app-surface-sunk)] p-3 text-xs"
+                  data-testid="byoc-authorize-script"
+                >
+                  {instructions.script}
+                </pre>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-full border border-[var(--app-border)] px-3 py-1 text-xs"
+                    data-testid="byoc-authorize-copy"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(instructions.script);
+                        setCopied(true);
+                      } catch {
+                        // Clipboard can be refused; the script is on screen either way,
+                        // so this must never look like the step failed.
+                        setCopied(false);
+                      }
+                    }}
+                  >
+                    {copied ? "Copied" : "Copy script"}
+                  </button>
+                  <span className="text-xs text-[var(--app-text-secondary)]">
+                    Read it before you run it. It creates no key, and we never ask
+                    for one.
+                  </span>
+                </div>
+                <details className="text-xs text-[var(--app-text-secondary)]">
+                  <summary className="cursor-pointer">
+                    What this grants, exactly
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {(instructions.disclosure.grants_to_bootstrap_sa ?? []).map(
+                      (grant) => (
+                        <li key={grant.role}>
+                          <span className="font-mono">{grant.role}</span> — {grant.why}
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                  {instructions.disclosure.hushh_never_receives?.length ? (
+                    <>
+                      <p className="mt-3 font-semibold">What we never receive</p>
+                      <ul className="mt-1 space-y-1">
+                        {instructions.disclosure.hushh_never_receives.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                  {instructions.disclosure.revocation ? (
+                    <p className="mt-3">{instructions.disclosure.revocation}</p>
+                  ) : null}
+                </details>
+              </>
+            ) : (
+              <p className="text-xs text-[var(--app-text-secondary)]">
+                Preparing the script for {saved.projectId}…
+              </p>
+            )}
             <p className="text-xs text-[var(--app-text-secondary)]">
               Then come back and confirm your project again. Nothing is created
               until we can prove we can reach it.
