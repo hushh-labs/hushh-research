@@ -27,21 +27,32 @@ assertions:
     statement: "A brand-new person can reach the screen that asks where their agent should live."
     falsifiable: true
     owner_action: >-
-      Find why the setup hub renders no "Where your agent lives" tile. Measured on
-      localhost 2026-08-28: the hub paints all eight capability tiles and
-      `one_setup_tile_cloud` is in NEITHER the Remaining nor the Complete group, so
-      there is no in-app route from the hub to /one/setup/cloud. That is now the
-      blocker, and it is a different defect from the pool contention below.
+      Re-run the driver and record the receipt. The defect this item was opened for
+      appears to be FIXED and the note below is superseded; what is missing now is
+      live proof, not a fix. Running it needs REVIEWER_UID and
+      REVIEWER_VAULT_PASSPHRASE, which are maintainer-only by design, so this needs
+      a maintainer rather than more code.
     check:
       kind: receipt
       reproduce: hushh-webapp/scripts/testing/first-run-reachability.mjs
       expires_after_days: 14
       pending: >-
-        Measured FAILING on 2026-08-28 against the local stack. The driver reaches
-        /one/setup and the hub renders, then times out waiting for the cloud tile
-        that never appears. The earlier "sits on Checking setup forever" reading no
-        longer reproduces: the admission guard resolved from cache and never even
-        raised its loader.
+        SUPERSEDED BY CODE, NOT YET RE-MEASURED. The 2026-08-28 reading said the hub
+        painted eight capability tiles with `one_setup_tile_cloud` in neither the
+        Remaining nor the Complete group, so no in-app route reached
+        /one/setup/cloud. That statement is no longer true of the tree: as of the
+        2026-09-02 founder direction the cloud tile is rendered unconditionally in a
+        "Start here" group pinned above the capability lists, with
+        href={ROUTES.ONE_SETUP_CLOUD} and statusLabel "Required"
+        (one-setup-hub.tsx, the SetupNavigationTile id="cloud"), and
+        app/one/setup/cloud/page.tsx exists.
+
+        It stays FAILING deliberately. Reading the source proves the tile is
+        rendered; it does not prove a brand-new person REACHES it, which is what
+        this item claims and only the driver can settle. Flipping it on a code read
+        would be the declared status this ledger exists to abolish. The correction
+        here is only to stop the note asserting a finding the code contradicts, so
+        the next person re-measures instead of hunting a bug that is already fixed.
 
   - id: firstrun-guard-is-time-bounded
     requirement: First run
